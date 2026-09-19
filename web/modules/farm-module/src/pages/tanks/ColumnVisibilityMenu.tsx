@@ -127,7 +127,7 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
                         if (el) el.indeterminate = isPartiallyVisible;
                       }}
                       onChange={() => handleGroupToggle(group.key)}
-                      className="h-4 w-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                      className="h-4 w-4 text-info-600 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
                       onClick={(e) => e.stopPropagation()}
                     />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -149,7 +149,7 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
                           type="checkbox"
                           checked={visibleColumns.has(col.key)}
                           onChange={() => onToggle(col.key)}
-                          className="h-4 w-4 text-blue-600 rounded border-gray-300 dark:border-gray-600"
+                          className="h-4 w-4 text-info-600 rounded border-gray-300 dark:border-gray-600"
                         />
                         <span className="text-sm text-gray-600 dark:text-gray-400">
                           {col.header}

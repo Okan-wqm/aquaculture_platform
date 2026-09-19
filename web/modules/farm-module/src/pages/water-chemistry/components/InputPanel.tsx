@@ -21,17 +21,32 @@ interface InputPanelProps {
 }
 
 type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents' | 'simulator';
-type NumericInputField = Exclude<{
-  [K in keyof WaterChemistryInputs]: WaterChemistryInputs[K] extends number | undefined ? K : never;
-}[keyof WaterChemistryInputs], undefined>;
+type NumericInputField = Exclude<
+  {
+    [K in keyof WaterChemistryInputs]: WaterChemistryInputs[K] extends number | undefined
+      ? K
+      : never;
+  }[keyof WaterChemistryInputs],
+  undefined
+>;
 
 const FISH_TYPES: FishType[] = [
-  'Arctic Charr', 'Atlantic Salmon', 'Rainbow Trout', 'Brown Trout',
-  'Sea Bass', 'Sea Bream', 'Turbot', 'Tilapia',
+  'Arctic Charr',
+  'Atlantic Salmon',
+  'Rainbow Trout',
+  'Brown Trout',
+  'Sea Bass',
+  'Sea Bream',
+  'Turbot',
+  'Tilapia',
 ];
 
 const FISH_SIZES: FishSize[] = [
-  '0-5 gram', '5-20 gram', '20-100 gram', '100-500 gram', '500+ gram',
+  '0-5 gram',
+  '5-20 gram',
+  '20-100 gram',
+  '100-500 gram',
+  '500+ gram',
 ];
 
 const INPUT_TABS: Array<{ id: InputTab; label: string }> = [
@@ -43,10 +58,20 @@ const INPUT_TABS: Array<{ id: InputTab; label: string }> = [
   { id: 'simulator', label: 'Simulator' },
 ];
 
-const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReagents, onReagentsChange, onDemandAmounts = {}, onDemandAmountsChange }) => {
+const InputPanel: React.FC<InputPanelProps> = ({
+  inputs,
+  onChange,
+  selectedReagents,
+  onReagentsChange,
+  onDemandAmounts = {},
+  onDemandAmountsChange,
+}) => {
   const [activeTab, setActiveTab] = useState<InputTab>('realtime');
 
-  const update = (field: keyof WaterChemistryInputs, value: number | string | boolean | undefined): void => {
+  const update = (
+    field: keyof WaterChemistryInputs,
+    value: number | string | boolean | undefined,
+  ): void => {
     onChange({ ...inputs, [field]: value });
   };
 
@@ -63,7 +88,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
 
   const toggleReagent = (name: string): void => {
     if (selectedReagents.includes(name)) {
-      onReagentsChange(selectedReagents.filter(n => n !== name));
+      onReagentsChange(selectedReagents.filter((n) => n !== name));
     } else {
       onReagentsChange([...selectedReagents, name]);
     }
@@ -75,14 +100,29 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
     min: number,
     max: number,
     step: number,
-    unit: string
+    unit: string,
   ): React.ReactNode => {
     const inputId = `water-chemistry-${String(field)}`;
     return (
       <div className="flex items-center gap-1.5 mr-4">
-        <label className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" htmlFor={inputId}>{label}</label>
-        <Input id={inputId} type="number" value={inputs[field] ?? ''} min={min} max={max} step={step} onChange={(e) => updateNumeric(field, e.target.value)} />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{unit}</span>
+        <label
+          className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap"
+          htmlFor={inputId}
+        >
+          {label}
+        </label>
+        <Input
+          id={inputId}
+          type="number"
+          value={inputs[field] ?? ''}
+          min={min}
+          max={max}
+          step={step}
+          onChange={(e) => updateNumeric(field, e.target.value)}
+        />
+        <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+          {unit}
+        </span>
       </div>
     );
   };
@@ -97,7 +137,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
             onClick={() => setActiveTab(tab.id)}
             className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
               activeTab === tab.id
-                ? 'border-blue-500 text-blue-600 bg-blue-50/50'
+                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50/50 dark:bg-info-900/20/50'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
             }`}
           >
@@ -113,25 +153,43 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
             {numField('Volume', 'volume', 0.1, 1000, 0.1, 'm³')}
             {numField('Ca²⁺', 'caMgL', 1, 2000, 10, 'mg/L')}
             <div className="flex items-center gap-1.5 mr-4">
-              <label className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" htmlFor="water-chemistry-fish-type">Fish Type</label>
+              <label
+                className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap"
+                htmlFor="water-chemistry-fish-type"
+              >
+                Fish Type
+              </label>
               <select
                 id="water-chemistry-fish-type"
                 value={inputs.fishType}
                 onChange={(e) => update('fishType', e.target.value)}
-                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500"
+                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
               >
-                {FISH_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {FISH_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex items-center gap-1.5 mr-4">
-              <label className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" htmlFor="water-chemistry-fish-size">Fish Size</label>
+              <label
+                className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap"
+                htmlFor="water-chemistry-fish-size"
+              >
+                Fish Size
+              </label>
               <select
                 id="water-chemistry-fish-size"
                 value={inputs.fishSize}
                 onChange={(e) => update('fishSize', e.target.value)}
-                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500"
+                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
               >
-                {FISH_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                {FISH_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
               </select>
             </div>
             <label className="flex items-center gap-1.5 cursor-pointer">
@@ -139,7 +197,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                 type="checkbox"
                 checked={inputs.showTarget}
                 onChange={(e) => update('showTarget', e.target.checked)}
-                className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+                className="h-3.5 w-3.5 text-info-600 border-gray-300 dark:border-gray-600 rounded"
               />
               <span className="text-xs text-gray-700 dark:text-gray-300">Show Target</span>
             </label>
@@ -185,10 +243,12 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                   type="checkbox"
                   checked={selectedReagents.includes(reagent.name)}
                   onChange={() => toggleReagent(reagent.name)}
-                  className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+                  className="h-3.5 w-3.5 text-info-600 border-gray-300 dark:border-gray-600 rounded"
                 />
                 <span className="text-xs text-gray-700 dark:text-gray-300">{reagent.formula}</span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">{reagent.mw.toFixed(0)} g/mol</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                  {reagent.mw.toFixed(0)} g/mol
+                </span>
               </label>
             ))}
           </div>
@@ -200,11 +260,18 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
               const amount = onDemandAmounts[reagent.name] || 0;
               const isActive = amount > 0;
               return (
-                <div key={reagent.name} className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded ${isActive ? 'bg-orange-50' : ''}`}>
-                  <span className={`text-xs font-medium whitespace-nowrap ${isActive ? 'text-orange-700' : 'text-gray-600 dark:text-gray-400'}`}>
+                <div
+                  key={reagent.name}
+                  className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded ${isActive ? 'bg-warning-50 dark:bg-warning-900/20' : ''}`}
+                >
+                  <span
+                    className={`text-xs font-medium whitespace-nowrap ${isActive ? 'text-warning-700 dark:text-warning-300' : 'text-gray-600 dark:text-gray-400'}`}
+                  >
                     {reagent.formula}
                   </span>
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{reagent.name.includes('De-gas') ? '(degas)' : ''}</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                    {reagent.name.includes('De-gas') ? '(degas)' : ''}
+                  </span>
                   <input
                     type="number"
                     min="0"
@@ -222,8 +289,10 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                         onDemandAmountsChange?.(next);
                       }
                     }}
-                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-hidden focus:ring-1 focus:ring-orange-400 ${
-                      isActive ? 'border-orange-300 bg-white dark:bg-gray-900' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-hidden focus:ring-1 focus:ring-warning-400 ${
+                      isActive
+                        ? 'border-warning-300 bg-white dark:bg-gray-900'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                   />
                   <span className="text-[10px] text-gray-400 dark:text-gray-500">g</span>
@@ -231,7 +300,9 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
               );
             })}
             {Object.keys(onDemandAmounts).length > 0 && (
-              <Button variant="ghost" className="ml-1" onClick={() => onDemandAmountsChange?.({})}>Clear all</Button>
+              <Button variant="ghost" className="ml-1" onClick={() => onDemandAmountsChange?.({})}>
+                Clear all
+              </Button>
             )}
           </div>
         )}

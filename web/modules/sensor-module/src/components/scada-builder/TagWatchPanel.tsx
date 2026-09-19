@@ -30,7 +30,14 @@ import {
   Activity,
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
-import { colors as themeColors, DataTable, type DataTableColumn, type SortConfig, Button, Input } from '@aquaculture/shared-ui';
+import {
+  colors as themeColors,
+  DataTable,
+  type DataTableColumn,
+  type SortConfig,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,7 +77,8 @@ const MAX_HISTORY = 30;
  */
 const SORT_FIELDS = ['name', 'value', 'lastUpdate'] as const;
 type SortField = (typeof SORT_FIELDS)[number];
-const isSortField = (key: string): key is SortField => (SORT_FIELDS as readonly string[]).includes(key);
+const isSortField = (key: string): key is SortField =>
+  (SORT_FIELDS as readonly string[]).includes(key);
 
 const MiniSparkline: React.FC<{ values: number[] }> = ({ values }) => {
   if (values.length < 2) return null;
@@ -130,10 +138,7 @@ function exportTagsCsv(entries: Map<string, TagEntry>): void {
 // Component
 // ---------------------------------------------------------------------------
 
-export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
-  tagBus,
-  defaultExpanded = true,
-}) => {
+export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({ tagBus, defaultExpanded = true }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [search, setSearch] = useState('');
   const [paused, setPaused] = useState(false);
@@ -186,9 +191,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
   const filtered = useMemo(() => {
     const arr = Array.from(entries.values());
     const term = search.toLowerCase();
-    const result = term
-      ? arr.filter((e) => e.name.toLowerCase().includes(term))
-      : arr;
+    const result = term ? arr.filter((e) => e.name.toLowerCase().includes(term)) : arr;
 
     result.sort((a, b) => {
       let cmp = 0;
@@ -244,15 +247,28 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       key: 'name',
       header: 'Tag',
       render: (_value, entry) => (
-        <span className="block max-w-[200px] truncate font-mono text-gray-900 dark:text-gray-100">{entry.name}</span>
+        <span className="block max-w-[200px] truncate font-mono text-gray-900 dark:text-gray-100">
+          {entry.name}
+        </span>
       ),
     },
     {
       key: 'value',
       header: 'Value',
-      render: (_value, entry) => <span className="font-mono text-gray-700 dark:text-gray-300">{formatValue(entry.value)}</span>,
+      render: (_value, entry) => (
+        <span className="font-mono text-gray-700 dark:text-gray-300">
+          {formatValue(entry.value)}
+        </span>
+      ),
     },
-    { key: 'type', header: 'Type', sortable: false, render: (_value, entry) => <span className="text-gray-500 dark:text-gray-400">{entry.type}</span> },
+    {
+      key: 'type',
+      header: 'Type',
+      sortable: false,
+      render: (_value, entry) => (
+        <span className="text-gray-500 dark:text-gray-400">{entry.type}</span>
+      ),
+    },
     {
       key: 'history',
       header: 'Sparkline',
@@ -264,7 +280,11 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       key: 'lastUpdate',
       header: 'Last Update',
       align: 'right',
-      render: (_value, entry) => <span className="font-mono text-gray-500 dark:text-gray-400">{formatTimestamp(entry.lastUpdate)}</span>,
+      render: (_value, entry) => (
+        <span className="font-mono text-gray-500 dark:text-gray-400">
+          {formatTimestamp(entry.lastUpdate)}
+        </span>
+      ),
     },
   ];
 
@@ -274,12 +294,13 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       data-testid="tag-watch-panel"
     >
       {/* Toggle header */}
-      <Button variant="ghost" onClick={() => setExpanded((e) => !e)}><div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <Activity className="w-3.5 h-3.5 text-cyan-600" />
+      <Button variant="ghost" onClick={() => setExpanded((e) => !e)}>
+        <div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <Activity className="w-3.5 h-3.5 text-info-600 dark:text-info-400" />
           Tag Watch
           <span className="text-gray-400 dark:text-gray-500">({entries.size} tags)</span>
           {paused && (
-            <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+            <span className="text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-1.5 py-0.5 rounded text-[10px] font-semibold">
               PAUSED
             </span>
           )}
@@ -288,7 +309,8 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           <ChevronDown className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         ) : (
           <ChevronUp className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        )}</Button>
+        )}
+      </Button>
 
       {expanded && (
         <div className="flex flex-col max-h-[280px]">
@@ -296,19 +318,46 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex-1 relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-              <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tags..." data-testid="tag-watch-search" />
+              <Input
+                fullWidth
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search tags..."
+                data-testid="tag-watch-search"
+              />
             </div>
             <button
               onClick={() => setPaused((p) => !p)}
               className={`p-1.5 rounded transition-colors ${
-                paused ? 'bg-yellow-50 text-yellow-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'
+                paused
+                  ? 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
               title={paused ? 'Resume' : 'Pause'}
             >
               {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             </button>
-            <Button variant="ghost" size="sm" iconOnly aria-label="Export CSV" onClick={handleCsvExport} title="Export CSV"><Download className="w-3.5 h-3.5" /></Button>
-            <Button variant="ghost" size="sm" iconOnly aria-label="Clear history" onClick={handleClearHistory} title="Clear history"><Trash2 className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="Export CSV"
+              onClick={handleCsvExport}
+              title="Export CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="Clear history"
+              onClick={handleClearHistory}
+              title="Clear history"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
           </div>
 
           {/* Table */}
@@ -317,7 +366,9 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
               data={filtered}
               columns={tagWatchColumns}
               keyExtractor={(entry) => entry.name}
-              emptyMessage={entries.size === 0 ? 'No tag data received yet' : 'No tags match the search filter'}
+              emptyMessage={
+                entries.size === 0 ? 'No tag data received yet' : 'No tags match the search filter'
+              }
               searchable={false}
               serverSideSort
               defaultSort={{ key: sortField, direction: sortAsc ? 'asc' : 'desc' }}

@@ -281,7 +281,7 @@ const TenantUsers: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-success-600 dark:text-success-400" />
       </div>
     );
   }
@@ -294,17 +294,31 @@ const TenantUsers: React.FC = () => {
         description="Manage users and their access to modules and farm sites"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={handleRefresh}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
             {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
                 export backend) yet rendered ungated to every users:view delegate —
                 a false affordance. Removed; reintroduce only together with a real
                 export path AND a capability gate. */}
             {canInviteUsers && (
-              <Button variant="primary" leftIcon={<UserPlus className="w-4 h-4" />} onClick={() => {
+              <Button
+                variant="primary"
+                leftIcon={<UserPlus className="w-4 h-4" />}
+                onClick={() => {
                   setSaveError(null);
                   setEditingUser(null);
                   setIsModalOpen(true);
-                }}>Add User</Button>
+                }}
+              >
+                Add User
+              </Button>
             )}
           </div>
         }
@@ -312,13 +326,17 @@ const TenantUsers: React.FC = () => {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load users</p>
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load users
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleRefresh}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={handleRefresh}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -334,8 +352,8 @@ const TenantUsers: React.FC = () => {
           role="status"
           className={
             lifecycleError
-              ? 'rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'
-              : 'rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'
+              ? 'rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 px-4 py-3 text-sm text-error-700 dark:text-error-300'
+              : 'rounded-lg border border-success-200 dark:border-success-800 bg-success-50 dark:bg-success-900/20 px-4 py-3 text-sm text-success-700 dark:text-success-300'
           }
         >
           {lifecycleError ?? lifecycleNotice}

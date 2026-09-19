@@ -58,28 +58,28 @@ const typeStyles: Record<
     border: 'border-success-400',
     icon: 'text-success-400',
     text: 'text-success-800 dark:text-success-200',
-    focusRing: 'focus:ring-success-500 focus:ring-offset-green-50',
+    focusRing: 'focus:ring-success-500 focus:ring-offset-success-50',
   },
   error: {
     bg: 'bg-error-50 dark:bg-error-900/20',
     border: 'border-error-400',
     icon: 'text-error-400',
     text: 'text-error-800 dark:text-error-200',
-    focusRing: 'focus:ring-error-500 focus:ring-offset-red-50',
+    focusRing: 'focus:ring-error-500 focus:ring-offset-error-50',
   },
   warning: {
     bg: 'bg-warning-50 dark:bg-warning-900/20',
     border: 'border-warning-400',
     icon: 'text-warning-400',
     text: 'text-warning-800 dark:text-warning-200',
-    focusRing: 'focus:ring-warning-500 focus:ring-offset-yellow-50',
+    focusRing: 'focus:ring-warning-500 focus:ring-offset-warning-50',
   },
   info: {
     bg: 'bg-info-50 dark:bg-info-900/20',
     border: 'border-info-400',
     icon: 'text-info-400',
     text: 'text-info-800 dark:text-info-200',
-    focusRing: 'focus:ring-info-500 focus:ring-offset-blue-50',
+    focusRing: 'focus:ring-info-500 focus:ring-offset-info-50',
   },
 };
 

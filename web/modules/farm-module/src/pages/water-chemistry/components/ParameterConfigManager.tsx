@@ -55,8 +55,8 @@ const DeleteConfirmDialog: React.FC<{
 }> = ({ config, onConfirm, onCancel, isDeleting }) => (
   <Modal isOpen onClose={onCancel} size="sm" showCloseButton={false}>
     <div className="flex items-start">
-      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-        <TriangleAlert className="h-6 w-6 text-red-600" aria-hidden="true" />
+      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-error-100 dark:bg-error-900/40 sm:mx-0 sm:h-10 sm:w-10">
+        <TriangleAlert className="h-6 w-6 text-error-600 dark:text-error-400" aria-hidden="true" />
       </div>
       <div className="ml-4">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Delete Parameter</h3>
@@ -249,8 +249,10 @@ export const ParameterConfigManager: React.FC = () => {
   // list and surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, (configs?.length ?? 0) > 0)) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load parameter configs: {(error as Error).message}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <p className="text-error-800 dark:text-error-200">
+          Failed to load parameter configs: {(error as Error).message}
+        </p>
       </div>
     );
   }
@@ -320,7 +322,7 @@ export const ParameterConfigManager: React.FC = () => {
         <>
           <button
             onClick={() => setEquipmentMappingTarget(config)}
-            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 hover:bg-info-100 dark:hover:bg-info-900/50 focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-1"
             title="Map Equipment"
           >
             <Link className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
@@ -355,8 +357,8 @@ export const ParameterConfigManager: React.FC = () => {
         <>
           <button
             onClick={() => handleToggleActive(config)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              config.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+              config.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
             }`}
             role="switch"
             aria-checked={config.isActive}
@@ -397,14 +399,16 @@ export const ParameterConfigManager: React.FC = () => {
     <div className="space-y-4">
       {/* Non-blocking refresh error — keeps the last-loaded configs visible. */}
       {error && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh parameter configs — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -417,7 +421,7 @@ export const ParameterConfigManager: React.FC = () => {
           <select
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value as ParameterGroup | '')}
-            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="">All Groups</option>
             {GROUP_OPTIONS.map((opt) => (

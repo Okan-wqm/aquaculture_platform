@@ -223,19 +223,19 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
 
   const getFileIcon = (mimeType: string) => {
     if (mimeType.includes('pdf')) {
-      return <FileChartColumn className="w-8 h-8 text-red-500" aria-hidden="true" />;
+      return <FileChartColumn className="w-8 h-8 text-error-500" aria-hidden="true" />;
     }
     if (mimeType.includes('image')) {
-      return <Image className="w-8 h-8 text-green-500" aria-hidden="true" />;
+      return <Image className="w-8 h-8 text-success-500" aria-hidden="true" />;
     }
-    return <FileIcon className="w-8 h-8 text-blue-500" aria-hidden="true" />;
+    return <FileIcon className="w-8 h-8 text-info-500" aria-hidden="true" />;
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {title} {required && <span className="text-red-500">*</span>}
+          {title} {required && <span className="text-error-500">*</span>}
         </h4>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {documents.length}/{maxDocuments} documents
@@ -250,9 +250,9 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               key={doc.id}
               className={`flex items-center justify-between p-3 rounded-lg border ${
                 doc.uploadError
-                  ? 'border-red-300 bg-red-50'
+                  ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20'
                   : doc.isUploading
-                    ? 'border-yellow-300 bg-yellow-50'
+                    ? 'border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20'
                     : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
               }`}
             >
@@ -274,7 +274,9 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                     )}
                   </div>
                   {doc.uploadError && (
-                    <p className="text-xs text-red-600 mt-1">{doc.uploadError}</p>
+                    <p className="text-xs text-error-600 dark:text-error-400 mt-1">
+                      {doc.uploadError}
+                    </p>
                   )}
                 </div>
               </div>
@@ -282,7 +284,10 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               <div className="flex items-center space-x-2">
                 {doc.isUploading && <Spinner size="md" />}
                 {doc.isUploaded && (
-                  <CircleCheck className="h-5 w-5 text-green-600" aria-hidden="true" />
+                  <CircleCheck
+                    className="h-5 w-5 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 )}
                 {doc.uploadError && (
                   <Button
@@ -315,7 +320,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Document Name <span className="text-red-500">*</span>
+                Document Name <span className="text-error-500">*</span>
               </label>
               <Input
                 fullWidth
@@ -346,7 +351,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
             onDragLeave={handleDragLeave}
             className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
               dragOver
-                ? 'border-blue-400 bg-blue-50'
+                ? 'border-info-400 bg-info-50 dark:bg-info-900/20'
                 : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
             }`}
           >

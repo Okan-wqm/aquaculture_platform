@@ -1,7 +1,11 @@
 import React, { useMemo } from 'react';
 import { Input, Textarea } from '@aquaculture/shared-ui';
 import { ParentDeviceInfo } from '../../../types/registration.types';
-import { useSiteList, useDepartmentsBySite, useSystemsByDepartment } from '../../../hooks/useLocationHierarchy';
+import {
+  useSiteList,
+  useDepartmentsBySite,
+  useSystemsByDepartment,
+} from '../../../hooks/useLocationHierarchy';
 import { useEquipmentList } from '../../../hooks/useEquipment';
 
 interface ParentDeviceInfoStepProps {
@@ -13,10 +17,12 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
   // Fetch location hierarchy data
   const { data: sitesData, isLoading: sitesLoading } = useSiteList({ isActive: true });
   const { data: departments, isLoading: deptLoading } = useDepartmentsBySite(values.siteId || '');
-  const { data: systems, isLoading: sysLoading } = useSystemsByDepartment(values.departmentId || '');
+  const { data: systems, isLoading: sysLoading } = useSystemsByDepartment(
+    values.departmentId || '',
+  );
   const { data: equipmentData, isLoading: equipLoading } = useEquipmentList({
     departmentId: values.departmentId,
-    isActive: true
+    isActive: true,
   });
 
   // Extract items arrays
@@ -26,7 +32,11 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
   // Filter equipment by system if selected
   const filteredEquipment = useMemo(() => {
     if (!values.systemId) return equipment;
-    return equipment.filter(e => e.systemIds?.includes(values.systemId!) || e.systems?.some(s => s.systemId === values.systemId));
+    return equipment.filter(
+      (e) =>
+        e.systemIds?.includes(values.systemId!) ||
+        e.systems?.some((s) => s.systemId === values.systemId),
+    );
   }, [equipment, values.systemId]);
 
   const handleChange = (field: keyof ParentDeviceInfo, value: string) => {
@@ -65,20 +75,32 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
   return (
     <div className="space-y-6">
       {/* Info header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="text-lg font-medium text-blue-900">Parent Device Information</h3>
-        <p className="text-sm text-blue-700 mt-1">
-          Enter information about the physical device that connects to multiple sensors.
-          This device will route data from all child sensors.
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h3 className="text-lg font-medium text-info-900 dark:text-info-100">
+          Parent Device Information
+        </h3>
+        <p className="text-sm text-info-700 dark:text-info-300 mt-1">
+          Enter information about the physical device that connects to multiple sensors. This device
+          will route data from all child sensors.
         </p>
       </div>
 
       {/* Device Name - Required */}
       <div>
-        <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Device Name <span className="text-red-500">*</span>
+        <label
+          htmlFor="name"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
+          Device Name <span className="text-error-500">*</span>
         </label>
-        <Input fullWidth type="text" id="name" value={values.name || ''} onChange={(e) => handleChange('name', e.target.value)} placeholder="e.g., Pool 1 Multi-Parameter Monitor" />
+        <Input
+          fullWidth
+          type="text"
+          id="name"
+          value={values.name || ''}
+          onChange={(e) => handleChange('name', e.target.value)}
+          placeholder="e.g., Pool 1 Multi-Parameter Monitor"
+        />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           A descriptive name for this device (e.g., "Pool 1 Water Monitor")
         </p>
@@ -87,30 +109,62 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
       {/* Manufacturer and Model */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label htmlFor="manufacturer" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label
+            htmlFor="manufacturer"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
             Manufacturer
           </label>
-          <Input fullWidth type="text" id="manufacturer" value={values.manufacturer || ''} onChange={(e) => handleChange('manufacturer', e.target.value)} placeholder="e.g., Atlas Scientific" />
+          <Input
+            fullWidth
+            type="text"
+            id="manufacturer"
+            value={values.manufacturer || ''}
+            onChange={(e) => handleChange('manufacturer', e.target.value)}
+            placeholder="e.g., Atlas Scientific"
+          />
         </div>
         <div>
-          <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label
+            htmlFor="model"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
             Model
           </label>
-          <Input fullWidth type="text" id="model" value={values.model || ''} onChange={(e) => handleChange('model', e.target.value)} placeholder="e.g., EZO-WQM" />
+          <Input
+            fullWidth
+            type="text"
+            id="model"
+            value={values.model || ''}
+            onChange={(e) => handleChange('model', e.target.value)}
+            placeholder="e.g., EZO-WQM"
+          />
         </div>
       </div>
 
       {/* Serial Number */}
       <div>
-        <label htmlFor="serialNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label
+          htmlFor="serialNumber"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
           Serial Number
         </label>
-        <Input fullWidth type="text" id="serialNumber" value={values.serialNumber || ''} onChange={(e) => handleChange('serialNumber', e.target.value)} placeholder="e.g., WQM-2024-001234" />
+        <Input
+          fullWidth
+          type="text"
+          id="serialNumber"
+          value={values.serialNumber || ''}
+          onChange={(e) => handleChange('serialNumber', e.target.value)}
+          placeholder="e.g., WQM-2024-001234"
+        />
       </div>
 
       {/* Location Section - Cascading Dropdowns */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Location Assignment</h4>
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+          Location Assignment
+        </h4>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Select where this device is installed. Site and Department are required.
         </p>
@@ -118,19 +172,20 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Site - Required */}
           <div>
-            <label htmlFor="siteId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Site <span className="text-red-500">*</span>
+            <label
+              htmlFor="siteId"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              Site <span className="text-error-500">*</span>
             </label>
             <select
               id="siteId"
               value={values.siteId || ''}
               onChange={(e) => handleSiteChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
               disabled={sitesLoading}
             >
-              <option value="">
-                {sitesLoading ? 'Loading sites...' : 'Select Site...'}
-              </option>
+              <option value="">{sitesLoading ? 'Loading sites...' : 'Select Site...'}</option>
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name} ({site.code})
@@ -141,14 +196,17 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
           {/* Department - Required */}
           <div>
-            <label htmlFor="departmentId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Department <span className="text-red-500">*</span>
+            <label
+              htmlFor="departmentId"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              Department <span className="text-error-500">*</span>
             </label>
             <select
               id="departmentId"
               value={values.departmentId || ''}
               onChange={(e) => handleDepartmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.siteId || deptLoading}
             >
               <option value="">
@@ -168,14 +226,17 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
           {/* System - Optional */}
           <div>
-            <label htmlFor="systemId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="systemId"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
               System
             </label>
             <select
               id="systemId"
               value={values.systemId || ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || sysLoading}
             >
               <option value="">
@@ -195,14 +256,17 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
           {/* Equipment - Optional */}
           <div>
-            <label htmlFor="equipmentId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="equipmentId"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
               Equipment
             </label>
             <select
               id="equipmentId"
               value={values.equipmentId || ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || equipLoading}
             >
               <option value="">
@@ -224,10 +288,20 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
       {/* Physical Location */}
       <div>
-        <label htmlFor="location" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label
+          htmlFor="location"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
           Physical Location
         </label>
-        <Input fullWidth type="text" id="location" value={values.location || ''} onChange={(e) => handleChange('location', e.target.value)} placeholder="e.g., North wall, 2m depth" />
+        <Input
+          fullWidth
+          type="text"
+          id="location"
+          value={values.location || ''}
+          onChange={(e) => handleChange('location', e.target.value)}
+          placeholder="e.g., North wall, 2m depth"
+        />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Describe where the device is physically installed
         </p>
@@ -235,10 +309,20 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
       {/* Description */}
       <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label
+          htmlFor="description"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
           Description
         </label>
-        <Textarea fullWidth id="description" value={values.description || ''} onChange={(e) => handleChange('description', e.target.value)} placeholder="Additional notes about this device..." rows={3} />
+        <Textarea
+          fullWidth
+          id="description"
+          value={values.description || ''}
+          onChange={(e) => handleChange('description', e.target.value)}
+          placeholder="Additional notes about this device..."
+          rows={3}
+        />
       </div>
     </div>
   );

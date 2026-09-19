@@ -137,19 +137,31 @@ function getThresholdStatus(adultFemale: number): {
   color: string;
 } {
   if (adultFemale >= SEA_LICE_THRESHOLDS.MAX_ALLOWED) {
-    return { level: 'critical', label: 'CRITICAL', color: 'text-red-700 bg-red-100' };
+    return {
+      level: 'critical',
+      label: 'CRITICAL',
+      color: 'text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40',
+    };
   }
   if (adultFemale >= SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER) {
     return {
       level: 'treatment',
       label: 'Treatment Required',
-      color: 'text-orange-700 bg-orange-100',
+      color: 'text-warning-700 dark:text-warning-300 bg-warning-100 dark:bg-warning-900/40',
     };
   }
   if (adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL) {
-    return { level: 'alert', label: 'Alert', color: 'text-yellow-700 bg-yellow-100' };
+    return {
+      level: 'alert',
+      label: 'Alert',
+      color: 'text-warning-700 dark:text-warning-300 bg-warning-100 dark:bg-warning-900/40',
+    };
   }
-  return { level: 'normal', label: 'Normal', color: 'text-green-700 bg-green-100' };
+  return {
+    level: 'normal',
+    label: 'Normal',
+    color: 'text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40',
+  };
 }
 
 function getInitialFormData(): SeaLiceFormData {
@@ -244,7 +256,7 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
         // the assembler verdict lands.
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Water Temperature at 3m Depth (°C) <span className="text-red-500">*</span>
+            Water Temperature at 3m Depth (°C) <span className="text-error-500">*</span>
           </label>
           <Input
             fullWidth
@@ -261,10 +273,10 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
       </p>
     </div>
     {/* Sensor integration note */}
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+    <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
       <div className="flex items-start gap-2">
-        <InfoIcon className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
-        <p className="text-xs text-blue-700">
+        <InfoIcon className="w-4 h-4 text-info-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+        <p className="text-xs text-info-700 dark:text-info-300">
           {temperatureMeta && temperatureMeta.provenance !== 'MANUAL_REQUIRED'
             ? 'Pre-filled from the newest site temperature (sensor reading or manual measurement). Override by recording a new measurement — the report always reflects the source records.'
             : 'No site temperature on record — link a temperature sensor or record a manual water-quality measurement (3 m depth, at least weekly).'}
@@ -380,14 +392,14 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
         <div
           className={`p-4 rounded-lg ${
             thresholdStatus.level === 'critical'
-              ? 'bg-red-50 border border-red-200'
+              ? 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'
               : thresholdStatus.level === 'treatment'
-                ? 'bg-orange-50 border border-orange-200'
-                : 'bg-yellow-50 border border-yellow-200'
+                ? 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
+                : 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
           }`}
         >
           <div className="flex items-center">
-            <TriangleAlert className="w-5 h-5 text-orange-500 mr-2" aria-hidden="true" />
+            <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
             <span className="font-medium">{thresholdStatus.label}</span>
           </div>
           <p className="mt-1 text-sm">
@@ -404,7 +416,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
           <span>Site-Level Average Counts (per fish)</span>
           {lusetellingMeta && <ProvenanceBadge meta={lusetellingMeta} />}
           {formData.cageCounts.length > 0 && (
-            <span className="text-xs font-normal text-blue-600">
+            <span className="text-xs font-normal text-info-600 dark:text-info-400">
               Auto-calculated from per-cage data
             </span>
           )}
@@ -418,7 +430,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Adult Female <span className="text-red-500">*</span>
+              Adult Female <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -427,9 +439,9 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.adultFemale || ''}
               onChange={(e) => updateSiteCounts('adultFemale', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL
-                  ? 'border-orange-300 bg-orange-50'
+                  ? 'border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20'
                   : countsReadOnly
                     ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     : 'border-gray-300 dark:border-gray-600'
@@ -442,7 +454,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Mobile <span className="text-red-500">*</span>
+              Mobile <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -451,7 +463,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.mobile || ''}
               onChange={(e) => updateSiteCounts('mobile', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 countsReadOnly
                   ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   : 'border-gray-300 dark:border-gray-600'
@@ -461,7 +473,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Attached <span className="text-red-500">*</span>
+              Attached <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -470,7 +482,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.attached || ''}
               onChange={(e) => updateSiteCounts('attached', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 countsReadOnly
                   ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   : 'border-gray-300 dark:border-gray-600'
@@ -504,7 +516,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               Per-Cage Breakdown (Optional)
             </span>
             {formData.cageCounts.length > 0 && (
-              <span className="ml-2 text-xs text-blue-600">
+              <span className="ml-2 text-xs text-info-600 dark:text-info-400">
                 {formData.cageCounts.length} cage(s) entered
               </span>
             )}
@@ -649,19 +661,21 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
       </div>
 
       {/* Threshold Reference */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800 mb-2">Norwegian Sea Lice Thresholds</h4>
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200 mb-2">
+          Norwegian Sea Lice Thresholds
+        </h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div>
-            <span className="text-blue-600">Alert Level:</span>
+            <span className="text-info-600 dark:text-info-400">Alert Level:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.ALERT_LEVEL}</span>
           </div>
           <div>
-            <span className="text-orange-600">Treatment Trigger:</span>
+            <span className="text-warning-600 dark:text-warning-400">Treatment Trigger:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER}</span>
           </div>
           <div>
-            <span className="text-red-600">Critical Level:</span>
+            <span className="text-error-600 dark:text-error-400">Critical Level:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.MAX_ALLOWED}</span>
           </div>
         </div>
@@ -763,7 +777,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           dosage: undefined,
                         })
                       }
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">Non-Medicated</span>
                   </label>
@@ -776,7 +790,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                       onChange={() =>
                         updateTreatment(index, { category: 'medicated', nonMedicatedType: '' })
                       }
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">Medicated</span>
                   </label>
@@ -886,7 +900,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                       id={`beforeCounting-${treatment.id}`}
                       checked={treatment.beforeCounting}
                       onChange={(e) => updateTreatment(index, { beforeCounting: e.target.checked })}
-                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                     />
                     <label
                       htmlFor={`beforeCounting-${treatment.id}`}
@@ -906,7 +920,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           cagesTreated: e.target.checked ? undefined : 1,
                         })
                       }
-                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                     />
                     <label
                       htmlFor={`wholeSite-${treatment.id}`}
@@ -994,7 +1008,7 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
                 resistanceDetails: e.target.checked ? formData.resistanceDetails : '',
               })
             }
-            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
           <label
             htmlFor="resistanceSuspicion"
@@ -1035,7 +1049,7 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
                   : { labName: '', testDate: '', ingredientTested: '', result: '' }),
               })
             }
-            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
           <label
             htmlFor="sensitivityTest"
@@ -1108,10 +1122,10 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
       </div>
 
       {/* Info box */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
         <div className="flex items-start gap-2">
-          <InfoIcon className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
-          <p className="text-xs text-blue-700">
+          <InfoIcon className="w-4 h-4 text-info-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <p className="text-xs text-info-700 dark:text-info-300">
             Resistance data is reported to Mattilsynet to track treatment efficacy across Norwegian
             aquaculture sites. Sensitivity tests (folsomhetsundersokelser) follow the standard
             bioassay protocol.
@@ -1174,21 +1188,23 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getWeekLabel(formData.weekNumber, formData.year)}
         </p>
       </div>
 
       {/* Threshold Warning */}
       {formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL && (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
           <div className="flex items-center">
-            <TriangleAlert className="w-5 h-5 text-orange-500 mr-2" aria-hidden="true" />
-            <span className="font-medium text-orange-800">{thresholdStatus.label}</span>
+            <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
+            <span className="font-medium text-warning-800 dark:text-warning-200">
+              {thresholdStatus.label}
+            </span>
           </div>
-          <p className="mt-1 text-sm text-orange-700">
+          <p className="mt-1 text-sm text-warning-700 dark:text-warning-300">
             This report indicates elevated lice levels that may require attention.
           </p>
         </div>
@@ -1210,7 +1226,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             Adult Female Lice
           </h5>
           <p
-            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}`}
+            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-warning-600 dark:text-warning-400' : 'text-gray-900 dark:text-gray-100'}`}
           >
             {formData.siteCounts.adultFemale.toFixed(2)}
           </p>
@@ -1243,7 +1259,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             <div className="text-xs text-gray-500 dark:text-gray-400">Attached</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-blue-600">
+            <div className="text-lg font-bold text-info-600 dark:text-info-400">
               {formData.siteCounts.averagePerFish.toFixed(2)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Total Avg</div>
@@ -1279,7 +1295,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.treatmentEntries.map((t, i) => (
               <li key={i} className="text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="w-2 h-2 bg-orange-400 rounded-full flex-shrink-0" />
+                  <span className="w-2 h-2 bg-warning-400 rounded-full flex-shrink-0" />
                   <span className="font-medium text-gray-700 dark:text-gray-300">
                     {t.category === 'medicated'
                       ? `Medicated - ${getIngredientLabel(t.activeIngredient || '')}`
@@ -1317,8 +1333,10 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           {formData.resistanceSuspicion && (
             <div className="mb-3">
               <div className="flex items-center gap-2 text-sm">
-                <span className="w-2 h-2 bg-red-400 rounded-full" />
-                <span className="font-medium text-red-700">Resistance Suspicion</span>
+                <span className="w-2 h-2 bg-error-400 rounded-full" />
+                <span className="font-medium text-error-700 dark:text-error-300">
+                  Resistance Suspicion
+                </span>
               </div>
               {formData.resistanceDetails && (
                 <p className="ml-4 mt-1 text-xs text-gray-600 dark:text-gray-400">
@@ -1330,7 +1348,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           {formData.sensitivityTest.performed && (
             <div>
               <div className="flex items-center gap-2 text-sm mb-2">
-                <span className="w-2 h-2 bg-blue-400 rounded-full" />
+                <span className="w-2 h-2 bg-info-400 rounded-full" />
                 <span className="font-medium text-gray-700 dark:text-gray-300">
                   Sensitivity Test
                 </span>
@@ -1346,11 +1364,11 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span
                     className={
                       formData.sensitivityTest.result === 'sensitive'
-                        ? 'text-green-600 font-medium'
+                        ? 'text-success-600 dark:text-success-400 font-medium'
                         : formData.sensitivityTest.result === 'reduced'
-                          ? 'text-yellow-600 font-medium'
+                          ? 'text-warning-600 dark:text-warning-400 font-medium'
                           : formData.sensitivityTest.result === 'resistant'
-                            ? 'text-red-600 font-medium'
+                            ? 'text-error-600 dark:text-error-400 font-medium'
                             : ''
                     }
                   >

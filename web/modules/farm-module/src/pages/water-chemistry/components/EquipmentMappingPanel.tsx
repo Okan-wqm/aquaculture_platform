@@ -188,7 +188,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           disabled={updateMutation.isPending}
           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
             mapping.alertEnabled
-              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60'
               : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
           }`}
         >
@@ -205,7 +205,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           onClick={() => void handleToggleActive(mapping)}
           disabled={updateMutation.isPending}
           className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-            mapping.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+            mapping.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
           }`}
           role="switch"
           aria-checked={mapping.isActive}
@@ -244,16 +244,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       <div className="max-h-[70vh] overflow-y-auto">
         {/* Error banner */}
         {mappingsError && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-800">
+          <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-800 dark:text-error-200">
               Failed to load mappings: {(mappingsError as Error).message}
             </p>
           </div>
         )}
 
         {createMutation.error && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-800">
+          <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-800 dark:text-error-200">
               Failed to create mapping: {(createMutation.error as Error).message}
             </p>
           </div>
@@ -300,7 +300,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       equipmentId: '',
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                 >
                   <option value="">All Categories</option>
                   {EQUIPMENT_CATEGORY_OPTIONS.map((opt) => (
@@ -325,7 +325,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                     }))
                   }
                   disabled={equipmentLoading}
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                 >
                   <option value="">{equipmentLoading ? 'Loading...' : 'Select equipment'}</option>
                   {filteredEquipment.map((eq) => (
@@ -349,7 +349,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       monitoringFrequency: e.target.value as MonitoringFrequency,
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                 >
                   {MONITORING_FREQUENCY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -371,7 +371,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                         alertEnabled: e.target.checked,
                       }))
                     }
-                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">Enable Alerts</span>
                 </label>

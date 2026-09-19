@@ -38,13 +38,19 @@ const recipeValueColumns: DataTableColumn<RecipeValueEntry>[] = [
   {
     key: 'tag',
     header: 'Tag',
-    render: (_value, [tag]) => <span className="block max-w-[140px] truncate font-mono text-gray-700 dark:text-gray-300">{tag}</span>,
+    render: (_value, [tag]) => (
+      <span className="block max-w-[140px] truncate font-mono text-gray-700 dark:text-gray-300">
+        {tag}
+      </span>
+    ),
   },
   {
     key: 'value',
     header: 'Value',
     align: 'right',
-    render: (_value, [, val]) => <span className="font-mono text-gray-600 dark:text-gray-400">{String(val)}</span>,
+    render: (_value, [, val]) => (
+      <span className="font-mono text-gray-600 dark:text-gray-400">{String(val)}</span>
+    ),
   },
 ];
 
@@ -79,11 +85,7 @@ function generateRecipeId(): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export const RecipePanel: React.FC<RecipePanelProps> = ({
-  recipes,
-  onRecipesChange,
-  tagBus,
-}) => {
+export const RecipePanel: React.FC<RecipePanelProps> = ({ recipes, onRecipesChange, tagBus }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -223,25 +225,78 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-cyan-600" />
+          <BookOpen className="w-4 h-4 text-info-600 dark:text-info-400" />
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Recipes</h4>
           <span className="text-[11px] text-gray-400 dark:text-gray-500">({recipes.length})</span>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" iconOnly aria-label="Import recipes (JSON)" onClick={handleImport} title="Import recipes (JSON)"><Upload className="w-3.5 h-3.5" /></Button>
-          <Button variant="ghost" size="sm" iconOnly aria-label="Export recipes (JSON)" onClick={handleExport} title="Export recipes (JSON)" disabled={recipes.length === 0}><Download className="w-3.5 h-3.5" /></Button>
-          <Button variant="ghost" size="sm" iconOnly aria-label="Save current tag values as recipe" onClick={() => setShowNewForm((s) => !s)} title="Save current tag values as recipe"><Plus className="w-3.5 h-3.5" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Import recipes (JSON)"
+            onClick={handleImport}
+            title="Import recipes (JSON)"
+          >
+            <Upload className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Export recipes (JSON)"
+            onClick={handleExport}
+            title="Export recipes (JSON)"
+            disabled={recipes.length === 0}
+          >
+            <Download className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Save current tag values as recipe"
+            onClick={() => setShowNewForm((s) => !s)}
+            title="Save current tag values as recipe"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </Button>
         </div>
       </div>
 
       {/* New recipe form */}
       {showNewForm && (
-        <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-lg space-y-2">
-          <Input fullWidth type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Recipe name" data-testid="recipe-name-input" autoFocus />
-          <Input fullWidth type="text" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Description (optional)" />
+        <div className="p-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg space-y-2">
+          <Input
+            fullWidth
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Recipe name"
+            data-testid="recipe-name-input"
+            autoFocus
+          />
+          <Input
+            fullWidth
+            type="text"
+            value={newDesc}
+            onChange={(e) => setNewDesc(e.target.value)}
+            placeholder="Description (optional)"
+          />
           <div className="flex items-center gap-2">
-            <Button variant="primary" size="xs" leftIcon={<Check className="w-3 h-3" />} onClick={handleSaveCurrent} disabled={!newName.trim()} data-testid="recipe-save-btn">Save Current Values</Button>
-            <Button variant="ghost" size="xs" onClick={() => setShowNewForm(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<Check className="w-3 h-3" />}
+              onClick={handleSaveCurrent}
+              disabled={!newName.trim()}
+              data-testid="recipe-save-btn"
+            >
+              Save Current Values
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => setShowNewForm(false)}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -262,13 +317,23 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({
           >
             {/* Recipe header */}
             <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800">
-              <Button variant="ghost" className="flex-1" onClick={() => setExpandedId(expandedId === recipe.id ? null : recipe.id)}>{expandedId === recipe.id ? (
+              <Button
+                variant="ghost"
+                className="flex-1"
+                onClick={() => setExpandedId(expandedId === recipe.id ? null : recipe.id)}
+              >
+                {expandedId === recipe.id ? (
                   <ChevronDown className="w-3 h-3 text-gray-400 dark:text-gray-500" />
                 ) : (
                   <ChevronUp className="w-3 h-3 text-gray-400 dark:text-gray-500" />
                 )}
                 {editingId === recipe.id ? (
-                  <Input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} onClick={(e) => e.stopPropagation()} />
+                  <Input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                 ) : (
                   <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                     {recipe.name}
@@ -276,20 +341,74 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({
                 )}
                 <span className="text-[10px] text-gray-400 dark:text-gray-500">
                   {Object.keys(recipe.values).length} tags
-                </span></Button>
+                </span>
+              </Button>
 
               <div className="flex items-center gap-0.5">
                 {editingId === recipe.id ? (
                   <>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Save" onClick={() => handleSaveEdit(recipe.id)} title="Save"><Check className="w-3 h-3" /></Button>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Cancel" onClick={() => setEditingId(null)} title="Cancel"><X className="w-3 h-3" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Save"
+                      onClick={() => handleSaveEdit(recipe.id)}
+                      title="Save"
+                    >
+                      <Check className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Cancel"
+                      onClick={() => setEditingId(null)}
+                      title="Cancel"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
                   </>
                 ) : (
                   <>
-                    <Button variant="primary" size="xs" onClick={() => handleLoadRecipe(recipe)} title="Load recipe values to tags" data-testid={`recipe-load-${recipe.id}`}>Load</Button>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Edit" onClick={() => handleStartEdit(recipe)} title="Edit"><Pencil className="w-3 h-3" /></Button>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Duplicate" onClick={() => handleDuplicate(recipe)} title="Duplicate"><Copy className="w-3 h-3" /></Button>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => handleDelete(recipe.id)} title="Delete"><Trash2 className="w-3 h-3" /></Button>
+                    <Button
+                      variant="primary"
+                      size="xs"
+                      onClick={() => handleLoadRecipe(recipe)}
+                      title="Load recipe values to tags"
+                      data-testid={`recipe-load-${recipe.id}`}
+                    >
+                      Load
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Edit"
+                      onClick={() => handleStartEdit(recipe)}
+                      title="Edit"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Duplicate"
+                      onClick={() => handleDuplicate(recipe)}
+                      title="Duplicate"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Delete"
+                      onClick={() => handleDelete(recipe.id)}
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
                   </>
                 )}
               </div>
@@ -299,7 +418,9 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({
             {expandedId === recipe.id && (
               <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
                 {recipe.description && (
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{recipe.description}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+                    {recipe.description}
+                  </p>
                 )}
                 <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-1">
                   Created: {new Date(recipe.createdAt).toLocaleString()}

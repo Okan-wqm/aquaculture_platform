@@ -28,7 +28,7 @@ export const ProvenanceBadge: React.FC<ProvenanceBadgeProps> = ({ meta, size = '
     const count = meta.sourceRecordCount ?? 0;
     return (
       <span
-        className={`inline-flex items-center ${sizes} font-medium rounded-full bg-green-100 text-green-800`}
+        className={`inline-flex items-center ${sizes} font-medium rounded-full bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200`}
         title={meta.sourceQuery ? `Source: ${meta.sourceQuery}` : undefined}
       >
         <Redo2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -41,7 +41,7 @@ export const ProvenanceBadge: React.FC<ProvenanceBadgeProps> = ({ meta, size = '
     const measured = meta.measuredAt ? new Date(meta.measuredAt).toLocaleString() : undefined;
     return (
       <span
-        className={`inline-flex items-center ${sizes} font-medium rounded-full bg-blue-100 text-blue-800`}
+        className={`inline-flex items-center ${sizes} font-medium rounded-full bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200`}
         title={[meta.sensorId && `Sensor ${meta.sensorId}`, measured].filter(Boolean).join(' · ')}
       >
         <Radio className="w-3.5 h-3.5" aria-hidden="true" />
@@ -53,7 +53,9 @@ export const ProvenanceBadge: React.FC<ProvenanceBadgeProps> = ({ meta, size = '
   return (
     <span
       className={`inline-flex items-center ${sizes} font-medium rounded-full ${
-        meta.blocking ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+        meta.blocking
+          ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+          : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
       }`}
       title={meta.message ?? undefined}
     >

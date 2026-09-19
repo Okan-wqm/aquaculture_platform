@@ -282,7 +282,7 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
                   </Badge>
                 )}
                 {!col.isNullable && !col.columnDefault && (
-                  <span className="text-red-500 ml-1">*</span>
+                  <span className="text-error-500 ml-1">*</span>
                 )}
               </label>
               {isSensitive ? (
@@ -570,18 +570,18 @@ const DatabaseExplorerPage: React.FC = () => {
           return {
             key: col.columnName,
             header: col.columnName,
-            className: isSensitive ? 'text-orange-600' : undefined,
+            className: isSensitive ? 'text-warning-600 dark:text-warning-400' : undefined,
             headerRender: (
               <span
-                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-orange-50 px-1' : ''}`}
+                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-warning-50 dark:bg-warning-900/20 px-1' : ''}`}
                 title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
               >
                 {col.columnName}
                 {col.isPrimaryKey && (
-                  <Clipboard className="w-3 h-3 text-yellow-500" aria-hidden="true" />
+                  <Clipboard className="w-3 h-3 text-warning-500" aria-hidden="true" />
                 )}
                 {isSensitive && (
-                  <Lock className="w-3 h-3 text-orange-500" aria-label="Hassas veri - Maskeli" />
+                  <Lock className="w-3 h-3 text-warning-500" aria-label="Hassas veri - Maskeli" />
                 )}
               </span>
             ),
@@ -589,13 +589,13 @@ const DatabaseExplorerPage: React.FC = () => {
               const valueIsMasked = isMaskedValue(value);
               return (
                 <span
-                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-orange-50 px-1' : ''}`}
+                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-warning-50 dark:bg-warning-900/20 px-1' : ''}`}
                   title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(value)}
                 >
                   {value === null ? (
                     <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
                   ) : valueIsMasked ? (
-                    <span className="flex items-center gap-1 text-orange-600 font-mono">
+                    <span className="flex items-center gap-1 text-warning-600 dark:text-warning-400 font-mono">
                       <Lock className="w-3 h-3" aria-hidden="true" />
                       {MASKED_VALUE}
                     </span>
@@ -633,7 +633,7 @@ const DatabaseExplorerPage: React.FC = () => {
                   aria-label="Delete row"
                   onClick={() => confirmDelete(row)}
                 >
-                  <Trash2 className="w-4 h-4 text-red-500" aria-hidden="true" />
+                  <Trash2 className="w-4 h-4 text-error-500" aria-hidden="true" />
                 </Button>
               </span>
             ) : (
@@ -723,7 +723,7 @@ const DatabaseExplorerPage: React.FC = () => {
                 onClick={() => handleTableSelect(table.tableName)}
                 className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
                   selectedTable === table.tableName
-                    ? 'bg-blue-100 text-blue-700'
+                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >

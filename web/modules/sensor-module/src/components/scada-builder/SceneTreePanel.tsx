@@ -22,7 +22,11 @@ import {
   Upload,
 } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
-import { buildScreenTree, wouldCreateCycle, type ScreenTreeNode } from '../../store/scada/sceneUtils';
+import {
+  buildScreenTree,
+  wouldCreateCycle,
+  type ScreenTreeNode,
+} from '../../store/scada/sceneUtils';
 import type { ScreenType } from '../../store/scada/types';
 
 /* ------------------------------------------------------------------ */
@@ -114,8 +118,8 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
         className={`
           flex items-center gap-1 py-1.5 px-2 text-xs cursor-pointer select-none
           transition-colors group
-          ${isActive ? 'bg-cyan-50 text-cyan-600' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
-          ${isDragOver ? 'ring-1 ring-inset ring-cyan-400 bg-cyan-50/50' : ''}
+          ${isActive ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
+          ${isDragOver ? 'ring-1 ring-inset ring-info-400 bg-info-50/50 dark:bg-info-900/20/50' : ''}
         `}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
@@ -124,14 +128,20 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
 
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <Button variant="secondary" className="flex-shrink-0" onClick={(e) => {
+          <Button
+            variant="secondary"
+            className="flex-shrink-0"
+            onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(screen.id);
-            }}>{isExpanded ? (
+            }}
+          >
+            {isExpanded ? (
               <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
             ) : (
               <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-            )}</Button>
+            )}
+          </Button>
         ) : (
           <span className="w-3 flex-shrink-0" />
         )}
@@ -141,17 +151,26 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
 
         {/* Name or rename input */}
         {isRenaming ? (
-          <Input type="text" value={renameValue} onChange={(e) => onRenameChange(e.target.value)} onBlur={() => onRenameSubmit(screen.id)} onKeyDown={(e) => {
-       if (e.key === 'Enter') onRenameSubmit(screen.id);
-       if (e.key === 'Escape') onRenameCancel();
-      }} onClick={(e) => e.stopPropagation()} autoFocus />
+          <Input
+            type="text"
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onBlur={() => onRenameSubmit(screen.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onRenameSubmit(screen.id);
+              if (e.key === 'Escape') onRenameCancel();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+          />
         ) : (
           <span className="truncate flex-1 min-w-0">{screen.name}</span>
         )}
       </div>
 
       {/* Render children if expanded */}
-      {hasChildren && isExpanded &&
+      {hasChildren &&
+        isExpanded &&
         children.map((child) => (
           <TreeNodeRow
             key={child.screen.id}
@@ -172,8 +191,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
             onDragLeave={onDragLeave}
             onDrop={onDrop}
           />
-        ))
-      }
+        ))}
     </>
   );
 };
@@ -383,29 +401,26 @@ export const SceneTreePanel: React.FC = () => {
     fileInputRef.current?.click();
   }, []);
 
-  const handleFileSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const json = JSON.parse(text);
-        const { importScreen } = await import('../../store/scada/screenIO');
-        const newScreen = importScreen(json);
-        // Use immer-powered set to push the imported screen into the store
-        useScadaPackageStore.setState((state) => {
-          state.screens.push(newScreen);
-          state.activeScreenId = newScreen.id;
-          state.isDirty = true;
-        });
-      } catch (err) {
-        console.error('Screen import failed:', err);
-      }
-      // Reset file input so re-selecting the same file triggers onChange
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    },
-    [],
-  );
+  const handleFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const { importScreen } = await import('../../store/scada/screenIO');
+      const newScreen = importScreen(json);
+      // Use immer-powered set to push the imported screen into the store
+      useScadaPackageStore.setState((state) => {
+        state.screens.push(newScreen);
+        state.activeScreenId = newScreen.id;
+        state.isDirty = true;
+      });
+    } catch (err) {
+      console.error('Screen import failed:', err);
+    }
+    // Reset file input so re-selecting the same file triggers onChange
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   const isLastScreen = screens.length <= 1;
 
@@ -417,7 +432,16 @@ export const SceneTreePanel: React.FC = () => {
           <FolderTree className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           <span>Scene Tree</span>
         </div>
-        <Button variant="ghost" iconOnly aria-label="Add root screen" className="justify-center w-5 h-5" onClick={handleAddRootScreen} title="Add root screen"><Plus className="w-3.5 h-3.5" /></Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          aria-label="Add root screen"
+          className="justify-center w-5 h-5"
+          onClick={handleAddRootScreen}
+          title="Add root screen"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
       {/* Tree content */}
@@ -452,7 +476,7 @@ export const SceneTreePanel: React.FC = () => {
           className={`
             mx-2 mt-1 py-2 border border-dashed rounded text-center text-[10px] text-gray-500 dark:text-gray-400
             transition-colors
-            ${dragOverId === '__root__' ? 'border-cyan-400 bg-cyan-50/50 text-cyan-500' : 'border-gray-200 dark:border-gray-700'}
+            ${dragOverId === '__root__' ? 'border-info-400 bg-info-50/50 dark:bg-info-900/20/50 text-info-500' : 'border-gray-200 dark:border-gray-700'}
           `}
         >
           Move to root
@@ -461,7 +485,16 @@ export const SceneTreePanel: React.FC = () => {
 
       {/* Import button at bottom */}
       <div className="border-t border-gray-200 dark:border-gray-700 px-2 py-1.5">
-        <Button variant="ghost" size="xs" className="justify-center" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={handleImportScreen} title="Import screen from JSON file">Import Screen</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          className="justify-center"
+          leftIcon={<Upload className="w-3.5 h-3.5" />}
+          onClick={handleImportScreen}
+          title="Import screen from JSON file"
+        >
+          Import Screen
+        </Button>
       </div>
 
       {/* Hidden file input for import */}
@@ -480,10 +513,27 @@ export const SceneTreePanel: React.FC = () => {
           className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <Button variant="ghost" size="xs" onClick={() => handleAddChildScreen(contextMenu.screenId)}>Add Child Screen</Button>
-          <Button variant="ghost" size="xs" onClick={() => handleRenameStart(contextMenu.screenId)}>Rename</Button>
-          <Button variant="ghost" size="xs" onClick={() => handleDuplicate(contextMenu.screenId)}>Duplicate</Button>
-          <Button variant="ghost" size="xs" leftIcon={<Download className="w-3 h-3" />} onClick={() => handleExportScreen(contextMenu.screenId)}>Export Screen</Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => handleAddChildScreen(contextMenu.screenId)}
+          >
+            Add Child Screen
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => handleRenameStart(contextMenu.screenId)}>
+            Rename
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => handleDuplicate(contextMenu.screenId)}>
+            Duplicate
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={<Download className="w-3 h-3" />}
+            onClick={() => handleExportScreen(contextMenu.screenId)}
+          >
+            Export Screen
+          </Button>
           <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => handleDelete(contextMenu.screenId)}
@@ -491,7 +541,7 @@ export const SceneTreePanel: React.FC = () => {
             className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
               isLastScreen
                 ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                : 'text-red-600 hover:bg-red-50'
+                : 'text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30'
             }`}
           >
             Delete

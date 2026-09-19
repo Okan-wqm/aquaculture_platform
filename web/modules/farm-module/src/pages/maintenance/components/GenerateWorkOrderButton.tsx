@@ -39,9 +39,7 @@ interface GenerateWorkOrderButtonProps {
   schedule: MaintenanceSchedule;
 }
 
-const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
-  schedule,
-}) => {
+const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({ schedule }) => {
   const canGenerate = useCanMutate('generateWorkOrderFromSchedule');
   const { toast } = useToast();
   const [showConfirm, setShowConfirm] = useState(false);
@@ -52,9 +50,7 @@ const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
   }
 
   const isActive = schedule.status === 'ACTIVE';
-  const blockedReason = !isActive
-    ? 'Sadece aktif planlardan iş emri üretilebilir.'
-    : undefined;
+  const blockedReason = !isActive ? 'Sadece aktif planlardan iş emri üretilebilir.' : undefined;
 
   const handleConfirm = async () => {
     try {
@@ -82,7 +78,7 @@ const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
         onClick={() => setShowConfirm(true)}
         disabled={!isActive || generateMutation.isPending}
         title={blockedReason}
-        className="text-blue-600 hover:text-blue-900"
+        className="text-info-600 dark:text-info-400 hover:text-info-900 dark:hover:text-info-100"
       >
         İş Emri Oluştur
       </Button>
@@ -94,12 +90,10 @@ const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
         title="İş emri üretilsin mi?"
         message={
           <span>
-            <strong className="font-semibold">{schedule.scheduleCode}</strong>{' '}
-            (<span className="font-medium">{schedule.name}</span>) planından
-            yeni bir iş emri üretilecek. İş emri{' '}
-            <span className="font-semibold">APPROVED</span> durumunda
-            açılır ve görevli ekibe atanmaya hazır olur. Mevcut açık iş
-            emirleri etkilenmez.
+            <strong className="font-semibold">{schedule.scheduleCode}</strong> (
+            <span className="font-medium">{schedule.name}</span>) planından yeni bir iş emri
+            üretilecek. İş emri <span className="font-semibold">APPROVED</span> durumunda açılır ve
+            görevli ekibe atanmaya hazır olur. Mevcut açık iş emirleri etkilenmez.
           </span>
         }
         confirmText="İş Emri Oluştur"

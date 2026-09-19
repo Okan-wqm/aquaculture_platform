@@ -39,33 +39,54 @@ const WaterChemistryMonitoringPage: FC = () => {
 
   const tabClass = (active: boolean): string =>
     `whitespace-nowrap rounded-t px-3 py-1.5 text-sm ${
-      active ? 'border-b-2 border-blue-600 font-medium text-blue-700' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100'
+      active
+        ? 'border-b-2 border-info-600 font-medium text-info-700 dark:text-info-300'
+        : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100'
     }`;
 
   return (
     <div className="p-4">
       <div className="mb-3 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Water Chemistry Monitoring</h1>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+            Water Chemistry Monitoring
+          </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Per-point cards &amp; per-system overlay.{' '}
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">mock data</span>
+            <span className="rounded bg-warning-100 dark:bg-warning-900/40 px-1.5 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
+              mock data
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="primary" size="sm" type="button" onClick={handleAdd}>＋ Add chart</Button>
-          <Button variant="primary" size="sm" type="button" onClick={handleAddSystem}>＋ Add system</Button>
-          <Button variant="secondary" size="sm" type="button" onClick={resetDemo}>Reset demo</Button>
+          <Button variant="primary" size="sm" type="button" onClick={handleAdd}>
+            ＋ Add chart
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={handleAddSystem}>
+            ＋ Add system
+          </Button>
+          <Button variant="secondary" size="sm" type="button" onClick={resetDemo}>
+            Reset demo
+          </Button>
         </div>
       </div>
 
       {/* Tab strip: Cards + one per system */}
       <div className="mb-4 flex items-center gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
-        <button type="button" className={tabClass(activeTab === 'cards')} onClick={() => setActiveTab('cards')}>
+        <button
+          type="button"
+          className={tabClass(activeTab === 'cards')}
+          onClick={() => setActiveTab('cards')}
+        >
           Cards
         </button>
         {systems.map((s) => (
-          <button key={s.id} type="button" className={tabClass(activeTab === s.id)} onClick={() => setActiveTab(s.id)}>
+          <button
+            key={s.id}
+            type="button"
+            className={tabClass(activeTab === s.id)}
+            onClick={() => setActiveTab(s.id)}
+          >
             {s.title}
           </button>
         ))}
@@ -77,7 +98,12 @@ const WaterChemistryMonitoringPage: FC = () => {
             No charts yet — click “＋ Add chart”.
           </div>
         ) : (
-          <WcCanvas cards={cards} onChange={updateCard} onConfigure={setSelectedId} onRemove={removeCard} />
+          <WcCanvas
+            cards={cards}
+            onChange={updateCard}
+            onConfigure={setSelectedId}
+            onRemove={removeCard}
+          />
         )
       ) : activeSystem ? (
         <WcSystemView

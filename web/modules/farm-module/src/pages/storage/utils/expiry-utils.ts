@@ -31,12 +31,12 @@ export function getExpiryRowClass(expiryDate?: string): string {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  if (expiry < today) return 'bg-red-50';
+  if (expiry < today) return 'bg-error-50 dark:bg-error-900/20';
 
   const warningDate = new Date(today);
   warningDate.setDate(warningDate.getDate() + EXPIRY_WARNING_DAYS);
 
-  if (expiry <= warningDate) return 'bg-amber-50';
+  if (expiry <= warningDate) return 'bg-warning-50 dark:bg-warning-900/20';
 
   return '';
 }

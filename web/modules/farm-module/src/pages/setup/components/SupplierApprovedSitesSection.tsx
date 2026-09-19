@@ -26,17 +26,9 @@
  *     unchecked.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  formatErrorForToast,
-  useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+import { Button, formatErrorForToast, useCanMutate, useToast } from '@aquaculture/shared-ui';
 
-import {
-  useSetSupplierApprovedSites,
-  useSupplierSites,
-} from '../../../hooks/useSuppliers';
+import { useSetSupplierApprovedSites, useSupplierSites } from '../../../hooks/useSuppliers';
 import { useSiteList } from '../../../hooks/useSites';
 
 interface SupplierApprovedSitesSectionProps {
@@ -76,19 +68,15 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
     }
   }, [approvalsQuery.data, supplierId]);
 
-  const allSites = useMemo(
-    () => sitesQuery.data?.items ?? [],
-    [sitesQuery.data],
-  );
+  const allSites = useMemo(() => sitesQuery.data?.items ?? [], [sitesQuery.data]);
 
   if (!supplierId) {
     return (
       <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Onaylı Siteler</h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Tedarikçi oluşturulduktan sonra onaylı site listesi
-          düzenlenebilir. Önce yukarıdaki "Kaydet" butonu ile
-          tedarikçiyi oluşturun.
+          Tedarikçi oluşturulduktan sonra onaylı site listesi düzenlenebilir. Önce yukarıdaki
+          "Kaydet" butonu ile tedarikçiyi oluşturun.
         </p>
       </div>
     );
@@ -109,14 +97,12 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
               const site = allSites.find((s) => s.id === a.siteId);
               return (
                 <li key={a.id}>
-                  <span className="font-medium">
-                    {site?.name ?? a.siteId}
-                  </span>
+                  <span className="font-medium">{site?.name ?? a.siteId}</span>
                   {site?.code && (
                     <span className="text-gray-500 dark:text-gray-400"> · {site.code}</span>
                   )}
                   {a.isPreferred && (
-                    <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                    <span className="ml-2 px-1.5 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded">
                       Tercih edilen
                     </span>
                   )}
@@ -192,8 +178,8 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
         </p>
       </div>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-        Bu tedarikçinin teslimat yapabileceği siteler. En fazla bir
-        site "tercih edilen" olarak işaretlenebilir.
+        Bu tedarikçinin teslimat yapabileceği siteler. En fazla bir site "tercih edilen" olarak
+        işaretlenebilir.
       </p>
 
       {sitesQuery.isLoading || approvalsQuery.isLoading ? (
@@ -220,10 +206,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
                     className="h-4 w-4"
                     id={`approved-site-${site.id}`}
                   />
-                  <label
-                    htmlFor={`approved-site-${site.id}`}
-                    className="flex-1 cursor-pointer"
-                  >
+                  <label htmlFor={`approved-site-${site.id}`} className="flex-1 cursor-pointer">
                     <span className="font-medium text-gray-900 dark:text-gray-100">
                       {site.name}
                     </span>
@@ -253,7 +236,15 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
       )}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <Button variant="ghost" size="xs" type="button" onClick={() => handleSetPreferred(null)} disabled={preferredSiteId === null}>Tercihten kaldır</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          type="button"
+          onClick={() => handleSetPreferred(null)}
+          disabled={preferredSiteId === null}
+        >
+          Tercihten kaldır
+        </Button>
         <Button
           type="button"
           variant="primary"

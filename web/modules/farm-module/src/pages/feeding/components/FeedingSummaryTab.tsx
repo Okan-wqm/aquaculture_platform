@@ -60,7 +60,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
           <select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-full max-w-md rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full max-w-md rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="">Choose batch...</option>
             {batches.map((b) => (
@@ -100,8 +100,10 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
   // surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, Boolean(data))) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load feeding summary: {(error as Error).message}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <p className="text-error-800 dark:text-error-200">
+          Failed to load feeding summary: {(error as Error).message}
+        </p>
       </div>
     );
   }
@@ -142,7 +144,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
       header: 'Distribution',
       render: (_value, ft) => (
         <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-          <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${ft.percentage}%` }} />
+          <div className="bg-info-500 h-2 rounded-full" style={{ width: `${ft.percentage}%` }} />
         </div>
       ),
     },
@@ -152,14 +154,16 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
     <div className="space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded summary visible. */}
       {error && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh feeding summary — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -178,7 +182,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
               <select
                 value={selectedBatchId}
                 onChange={(e) => setSelectedBatchId(e.target.value)}
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">Choose batch...</option>
                 {batches.map((b) => (
@@ -242,7 +246,9 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Variance</p>
               <p
                 className={`text-2xl font-semibold ${
-                  Math.abs(data.variancePercent) <= 10 ? 'text-green-600' : 'text-orange-600'
+                  Math.abs(data.variancePercent) <= 10
+                    ? 'text-success-600 dark:text-success-400'
+                    : 'text-warning-600 dark:text-warning-400'
                 }`}
               >
                 {data.variancePercent > 0 ? '+' : ''}
@@ -275,7 +281,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Target FCR</p>
-                  <p className="text-3xl font-bold text-blue-600">
+                  <p className="text-3xl font-bold text-info-600 dark:text-info-400">
                     {currentBatch.fcr?.target?.toFixed(2) || '-'}
                   </p>
                 </div>
@@ -286,8 +292,8 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
                       currentBatch.fcr?.actual &&
                       currentBatch.fcr?.target &&
                       currentBatch.fcr.actual <= currentBatch.fcr.target
-                        ? 'text-green-600'
-                        : 'text-red-600'
+                        ? 'text-success-600 dark:text-success-400'
+                        : 'text-error-600 dark:text-error-400'
                     }`}
                   >
                     {currentBatch.fcr?.actual?.toFixed(2) || '-'}

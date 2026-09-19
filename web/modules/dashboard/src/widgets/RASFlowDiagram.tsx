@@ -21,15 +21,15 @@ export interface RASFlowDiagramProps {
 function getStatusColor(status: string): string {
   switch (status.toUpperCase()) {
     case 'ACTIVE':
-      return 'bg-green-500';
+      return 'bg-success-500';
     case 'INACTIVE':
     case 'OFFLINE':
       return 'bg-gray-400';
     case 'MAINTENANCE':
-      return 'bg-yellow-500';
+      return 'bg-warning-500';
     case 'ERROR':
     case 'FAULT':
-      return 'bg-red-500';
+      return 'bg-error-500';
     default:
       return 'bg-gray-300';
   }
@@ -60,9 +60,12 @@ function getReadingHealth(
 }
 
 const healthColorMap = {
-  normal: 'text-green-600 bg-green-50 border-green-200',
-  warning: 'text-yellow-600 bg-yellow-50 border-yellow-200',
-  critical: 'text-red-600 bg-red-50 border-red-200',
+  normal:
+    'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800',
+  warning:
+    'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+  critical:
+    'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
 };
 
 /** Sensor card within the RAS diagram */

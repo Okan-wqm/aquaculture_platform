@@ -56,7 +56,6 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
   onClose,
   user,
 }) => {
-
   const {
     data: permissions,
     isLoading,
@@ -84,156 +83,178 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
       title="Effective Permissions"
       description={`Resolved permissions for ${user.name} (${user.email})`}
     >
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        {isLoading && (
+          <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <RefreshCw className="w-4 h-4 animate-spin text-gray-500 dark:text-gray-400" />
+            <span className="text-sm text-gray-500 dark:text-gray-400">Loading permissions...</span>
+          </div>
+        )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {isLoading && (
-            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-              <RefreshCw className="w-4 h-4 animate-spin text-gray-500 dark:text-gray-400" />
-              <span className="text-sm text-gray-500 dark:text-gray-400">Loading permissions...</span>
-            </div>
-          )}
+        {error != null && (
+          <div className="p-3 bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-lg flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-error-500 flex-shrink-0" />
+            <p className="text-sm text-error-700 dark:text-error-300">
+              {sanitizeErrorMessage(error)}
+            </p>
+          </div>
+        )}
 
-          {error != null && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700">{sanitizeErrorMessage(error)}</p>
-            </div>
-          )}
-
-          {permissions && (
-            <>
-              {/* Role */}
-              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
-                <Shield className="w-5 h-5 text-green-600" aria-hidden="true" />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{permissions.roleName}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Assigned role</p>
-                </div>
+        {permissions && (
+          <>
+            {/* Role */}
+            <div className="flex items-center gap-3 p-3 bg-success-50 dark:bg-success-900/20 rounded-lg border border-success-100 dark:border-success-800">
+              <Shield
+                className="w-5 h-5 text-success-600 dark:text-success-400"
+                aria-hidden="true"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {permissions.roleName}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Assigned role</p>
               </div>
+            </div>
 
-              {/* Panel permissions grouped by category */}
-              {panelCategories.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Panel permissions</h3>
-                  {panelCategories.map(([categoryKey, categoryPermissions]) => (
-                    <div
-                      key={categoryKey}
-                      className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
-                    >
-                      <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        {categoryKey}
-                      </p>
-                      <ul className="divide-y divide-gray-50">
-                        {Object.entries(categoryPermissions).map(([resourceName, actions]) => {
-                          const enabledActions = Object.entries(actions)
-                            .filter(([, enabled]) => enabled)
-                            .map(([action]) => action);
-                          return (
-                            <li
-                              key={resourceName}
-                              className="px-3 py-2 flex items-start justify-between gap-3"
-                            >
-                              <span className="text-sm text-gray-700 dark:text-gray-300">{resourceName}</span>
-                              {enabledActions.length > 0 ? (
-                                <span className="text-xs text-green-700 text-right">
-                                  {enabledActions.join(', ')}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-                                  <Minus className="w-3 h-3" aria-hidden="true" />
-                                  No access
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Resource permissions grouped by category prefix */}
-              {resourceGroups.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Resource permissions</h3>
-                  {resourceGroups.map(([category, categoryPermissions]) => (
-                    <div
-                      key={category}
-                      className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
-                    >
-                      <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        {category}
-                      </p>
-                      <ul className="divide-y divide-gray-50">
-                        {categoryPermissions.map((permission) => (
-                          <li key={permission} className="px-3 py-2 flex items-center gap-2">
-                            <Check
-                              className="w-3.5 h-3.5 text-green-600 flex-shrink-0"
-                              aria-hidden="true"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">{permission}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {panelCategories.length === 0 && resourceGroups.length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-400">This user has no resolved permissions.</p>
-              )}
-
-              {/* Per-user overrides */}
-              {(grants.length > 0 || revokes.length > 0) && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">User overrides</h3>
-                  {grants.length > 0 && (
-                    <div className="p-3 bg-green-50 border border-green-100 rounded-lg">
-                      <p className="text-xs font-medium text-green-800 mb-1">
-                        Granted in addition to the role
-                      </p>
-                      <ul className="space-y-0.5">
-                        {grants.map((permission) => (
+            {/* Panel permissions grouped by category */}
+            {panelCategories.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  Panel permissions
+                </h3>
+                {panelCategories.map(([categoryKey, categoryPermissions]) => (
+                  <div
+                    key={categoryKey}
+                    className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
+                  >
+                    <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                      {categoryKey}
+                    </p>
+                    <ul className="divide-y divide-gray-50">
+                      {Object.entries(categoryPermissions).map(([resourceName, actions]) => {
+                        const enabledActions = Object.entries(actions)
+                          .filter(([, enabled]) => enabled)
+                          .map(([action]) => action);
+                        return (
                           <li
-                            key={permission}
-                            className="text-sm text-green-700 flex items-center gap-2"
+                            key={resourceName}
+                            className="px-3 py-2 flex items-start justify-between gap-3"
                           >
-                            <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
-                            {permission}
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {resourceName}
+                            </span>
+                            {enabledActions.length > 0 ? (
+                              <span className="text-xs text-success-700 dark:text-success-300 text-right">
+                                {enabledActions.join(', ')}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                                <Minus className="w-3 h-3" aria-hidden="true" />
+                                No access
+                              </span>
+                            )}
                           </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {revokes.length > 0 && (
-                    <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
-                      <p className="text-xs font-medium text-red-800 mb-1">Revoked from the role</p>
-                      <ul className="space-y-0.5">
-                        {revokes.map((permission) => (
-                          <li
-                            key={permission}
-                            className="text-sm text-red-700 flex items-center gap-2"
-                          >
-                            <Minus className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
-                            {permission}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-end">
-          <Button variant="secondary" type="button" onClick={onClose}>Close</Button>
-        </div>
+            {/* Resource permissions grouped by category prefix */}
+            {resourceGroups.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  Resource permissions
+                </h3>
+                {resourceGroups.map(([category, categoryPermissions]) => (
+                  <div
+                    key={category}
+                    className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
+                  >
+                    <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                      {category}
+                    </p>
+                    <ul className="divide-y divide-gray-50">
+                      {categoryPermissions.map((permission) => (
+                        <li key={permission} className="px-3 py-2 flex items-center gap-2">
+                          <Check
+                            className="w-3.5 h-3.5 text-success-600 dark:text-success-400 flex-shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            {permission}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {panelCategories.length === 0 && resourceGroups.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                This user has no resolved permissions.
+              </p>
+            )}
+
+            {/* Per-user overrides */}
+            {(grants.length > 0 || revokes.length > 0) && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  User overrides
+                </h3>
+                {grants.length > 0 && (
+                  <div className="p-3 bg-success-50 dark:bg-success-900/20 border border-success-100 dark:border-success-800 rounded-lg">
+                    <p className="text-xs font-medium text-success-800 dark:text-success-200 mb-1">
+                      Granted in addition to the role
+                    </p>
+                    <ul className="space-y-0.5">
+                      {grants.map((permission) => (
+                        <li
+                          key={permission}
+                          className="text-sm text-success-700 dark:text-success-300 flex items-center gap-2"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+                          {permission}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {revokes.length > 0 && (
+                  <div className="p-3 bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-lg">
+                    <p className="text-xs font-medium text-error-800 dark:text-error-200 mb-1">
+                      Revoked from the role
+                    </p>
+                    <ul className="space-y-0.5">
+                      {revokes.map((permission) => (
+                        <li
+                          key={permission}
+                          className="text-sm text-error-700 dark:text-error-300 flex items-center gap-2"
+                        >
+                          <Minus className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+                          {permission}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-end">
+        <Button variant="secondary" type="button" onClick={onClose}>
+          Close
+        </Button>
+      </div>
     </Modal>
   );
 };

@@ -41,11 +41,11 @@ import {
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
-  EQUIPMENT: 'bg-blue-100 text-blue-800',
-  FEED: 'bg-green-100 text-green-800',
-  CHEMICAL: 'bg-purple-100 text-purple-800',
-  SERVICE: 'bg-orange-100 text-orange-800',
-  FRY: 'bg-cyan-100 text-cyan-800',
+  EQUIPMENT: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  FEED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CHEMICAL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  SERVICE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  FRY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -59,10 +59,10 @@ const typeLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-800',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   INACTIVE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  SUSPENDED: 'bg-yellow-100 text-yellow-800',
-  BLACKLISTED: 'bg-red-100 text-red-800',
+  SUSPENDED: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  BLACKLISTED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -154,7 +154,7 @@ const StarRating: React.FC<{
         >
           <StarIcon
             className={`w-6 h-6 ${
-              (hover || value || 0) >= star ? 'text-yellow-400' : 'text-gray-300'
+              (hover || value || 0) >= star ? 'text-warning-400' : 'text-gray-300'
             }`}
             aria-hidden="true"
           />
@@ -368,7 +368,7 @@ export const SuppliersTab: React.FC = () => {
               placeholder="Search suppliers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -378,7 +378,7 @@ export const SuppliersTab: React.FC = () => {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Types</option>
             {Object.entries(typeLabels).map(([value, label]) => (
@@ -390,7 +390,7 @@ export const SuppliersTab: React.FC = () => {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Statuses</option>
             {Object.entries(statusLabels).map(([value, label]) => (
@@ -415,8 +415,10 @@ export const SuppliersTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load suppliers. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load suppliers. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -517,7 +519,7 @@ export const SuppliersTab: React.FC = () => {
                         href={supplier.website}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline truncate"
+                        className="text-info-600 dark:text-info-400 hover:underline truncate"
                       >
                         {supplier.website.replace(/^https?:\/\//, '')}
                       </a>
@@ -556,7 +558,7 @@ export const SuppliersTab: React.FC = () => {
                         {[1, 2, 3, 4, 5].map((star) => (
                           <StarIcon
                             key={star}
-                            className={`w-4 h-4 ${star <= (supplier.rating || 0) ? 'text-yellow-400' : 'text-gray-300'}`}
+                            className={`w-4 h-4 ${star <= (supplier.rating || 0) ? 'text-warning-400' : 'text-gray-300'}`}
                             fill="currentColor"
                             aria-hidden="true"
                           />
@@ -658,7 +660,7 @@ export const SuppliersTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, type: e.target.value as SupplierType }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Type</option>
                       {Object.entries(typeLabels).map(([value, label]) => (
@@ -678,7 +680,7 @@ export const SuppliersTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as SupplierStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -838,7 +840,7 @@ export const SuppliersTab: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleAddProduct}
-                    className="px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                    className="px-4 py-2 bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded-md hover:bg-info-200 dark:hover:bg-info-800/60 transition-colors"
                   >
                     Add
                   </button>

@@ -119,19 +119,27 @@ export function getCalibrationStatus(channel: CalibrationChannel): CalibrationSt
 
 export function getStatusLabel(status: CalibrationStatus): string {
   switch (status) {
-    case 'calibrated': return 'Kalibre';
-    case 'due': return 'Kalibrasyon Yaklasıyor';
-    case 'overdue': return 'Kalibrasyon Gecikti';
-    case 'never': return 'Hic Kalibre Edilmedi';
+    case 'calibrated':
+      return 'Kalibre';
+    case 'due':
+      return 'Kalibrasyon Yaklasıyor';
+    case 'overdue':
+      return 'Kalibrasyon Gecikti';
+    case 'never':
+      return 'Hic Kalibre Edilmedi';
   }
 }
 
 export function getStatusColor(status: CalibrationStatus): string {
   switch (status) {
-    case 'calibrated': return 'text-green-600 bg-green-50 border-green-200';
-    case 'due': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    case 'overdue': return 'text-red-600 bg-red-50 border-red-200';
-    case 'never': return 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+    case 'calibrated':
+      return 'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800';
+    case 'due':
+      return 'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800';
+    case 'overdue':
+      return 'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800';
+    case 'never':
+      return 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
   }
 }
 
@@ -190,9 +198,7 @@ export function useCalibration() {
     const overdue = calibratableChannels.filter(
       (c) => getCalibrationStatus(c) === 'overdue',
     ).length;
-    const due = calibratableChannels.filter(
-      (c) => getCalibrationStatus(c) === 'due',
-    ).length;
+    const due = calibratableChannels.filter((c) => getCalibrationStatus(c) === 'due').length;
     const neverCalibrated = calibratableChannels.filter(
       (c) => getCalibrationStatus(c) === 'never',
     ).length;

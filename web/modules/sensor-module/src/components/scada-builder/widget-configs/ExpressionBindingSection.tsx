@@ -92,16 +92,24 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       {/* Collapsible header */}
-      <Button variant="ghost" size="xs" type="button" onClick={() => setExpanded((prev) => !prev)} data-testid="expression-section-toggle"><ChevronDown
+      <Button
+        variant="ghost"
+        size="xs"
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        data-testid="expression-section-toggle"
+      >
+        <ChevronDown
           className={`w-3.5 h-3.5 transition-transform ${expanded ? '' : '-rotate-90'}`}
         />
-        <Zap className="w-3.5 h-3.5 text-amber-500" />
+        <Zap className="w-3.5 h-3.5 text-warning-500" />
         <span>Computed Expression</span>
         {enabled && (
-          <span className="ml-auto text-[10px] text-cyan-600 font-semibold uppercase">
+          <span className="ml-auto text-[10px] text-info-600 dark:text-info-400 font-semibold uppercase">
             Active
           </span>
-        )}</Button>
+        )}
+      </Button>
 
       {/* Expanded content */}
       {expanded && (
@@ -116,7 +124,7 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
                 className="sr-only peer"
                 data-testid="expression-enable-toggle"
               />
-              <div className="w-8 h-4 bg-gray-200 dark:bg-gray-700 peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500" />
+              <div className="w-8 h-4 bg-gray-200 dark:bg-gray-700 peer-focus:ring-2 peer-focus:ring-info-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-info-500" />
             </label>
             <span className="text-xs text-gray-500 dark:text-gray-400">
               {enabled ? 'Expression overrides tag value' : 'Direct tag binding'}
@@ -125,7 +133,9 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
 
           {/* Help text */}
           <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed">
-            Override tag value with a computed expression. Use <code className="font-mono text-gray-500 dark:text-gray-400">${'{tagName}'}</code> for tag references.
+            Override tag value with a computed expression. Use{' '}
+            <code className="font-mono text-gray-500 dark:text-gray-400">${'{tagName}'}</code> for
+            tag references.
           </p>
 
           {/* Expression editor (only when enabled) */}
@@ -140,13 +150,15 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
 
               {/* Quick example chips */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 mr-1 leading-5">Examples:</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 mr-1 leading-5">
+                  Examples:
+                </span>
                 {QUICK_EXAMPLES.map((ex) => (
                   <button
                     key={ex.label}
                     type="button"
                     onClick={() => handleQuickExample(ex)}
-                    className="px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-cyan-50 hover:border-cyan-300 hover:text-cyan-700 transition-colors"
+                    className="px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-info-50 hover:border-info-300 hover:text-info-700 transition-colors"
                     title={ex.expression}
                     data-testid={`quick-example-${ex.label.toLowerCase()}`}
                   >

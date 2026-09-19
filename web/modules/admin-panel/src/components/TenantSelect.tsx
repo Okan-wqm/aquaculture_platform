@@ -52,8 +52,7 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
     const query = search.toLowerCase();
     return tenants.filter(
       (t: TenantOption) =>
-        t.name.toLowerCase().includes(query) ||
-        t.tier.toLowerCase().includes(query),
+        t.name.toLowerCase().includes(query) || t.tier.toLowerCase().includes(query),
     );
   }, [tenants, search]);
 
@@ -80,13 +79,15 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:ring-2 focus:ring-info-500 focus:border-info-500"
       >
         <span className="text-left truncate flex-1">
           {selectedTenant ? (
             <span className="text-gray-900 dark:text-gray-100">
               {selectedTenant.name}
-              <span className="text-gray-500 dark:text-gray-400 ml-1 text-xs capitalize">({selectedTenant.tier})</span>
+              <span className="text-gray-500 dark:text-gray-400 ml-1 text-xs capitalize">
+                ({selectedTenant.tier})
+              </span>
             </span>
           ) : (
             <span className="text-gray-500 dark:text-gray-400">{placeholder}</span>
@@ -111,13 +112,16 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
           {/* Search */}
           <div className="p-2 border-b border-gray-100 dark:border-gray-700">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={14} />
+              <Search
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+                size={14}
+              />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search tenants..."
-                className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm focus:ring-1 focus:ring-info-500 focus:border-info-500"
                 autoFocus
               />
             </div>
@@ -142,17 +146,19 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
                     type="button"
                     onClick={() => handleSelect(tenant.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      isSelected ? 'bg-blue-50' : ''
+                      isSelected ? 'bg-info-50 dark:bg-info-900/20' : ''
                     }`}
                   >
                     <div className="flex-1 min-w-0">
-                      <span className="text-gray-900 dark:text-gray-100 truncate block">{tenant.name}</span>
+                      <span className="text-gray-900 dark:text-gray-100 truncate block">
+                        {tenant.name}
+                      </span>
                     </div>
                     <span className="text-xs text-gray-500 dark:text-gray-400 capitalize flex-shrink-0">
                       {tenant.tier}
                     </span>
                     {isSelected && (
-                      <Check size={14} className="text-blue-600 flex-shrink-0" />
+                      <Check size={14} className="text-info-600 dark:text-info-400 flex-shrink-0" />
                     )}
                   </button>
                 );

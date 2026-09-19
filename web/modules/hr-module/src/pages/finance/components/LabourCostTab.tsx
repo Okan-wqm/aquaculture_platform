@@ -64,7 +64,9 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
   };
 
   if (isLoading || !data) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading labour cost…</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading labour cost…</div>
+    );
   }
 
   const currency = data.currency;
@@ -89,16 +91,28 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Labour Cost</h2>
         </div>
         <dl className="divide-y divide-gray-100 dark:divide-gray-700">
-            {line('Annual salaries', data.annualSalaryTotalDecimal)}
-            {line(`Pension fund (${settingsQuery.data?.pensionFundPct ?? 0}%)`, data.pensionFundDecimal)}
-            {line(`Social insurance fund (${settingsQuery.data?.socialInsurancePct ?? 0}%)`, data.socialInsuranceFundDecimal)}
-            {line(`Compulsory medical insurance fund (${settingsQuery.data?.medicalInsurancePct ?? 0}%)`, data.medicalInsuranceFundDecimal)}
-            {line(`Other cost (${settingsQuery.data?.otherCostPct ?? 5}% of annual salaries)`, data.otherCostDecimal)}
-            {line('Total Payroll', data.totalPayrollDecimal, true)}
+          {line('Annual salaries', data.annualSalaryTotalDecimal)}
+          {line(
+            `Pension fund (${settingsQuery.data?.pensionFundPct ?? 0}%)`,
+            data.pensionFundDecimal,
+          )}
+          {line(
+            `Social insurance fund (${settingsQuery.data?.socialInsurancePct ?? 0}%)`,
+            data.socialInsuranceFundDecimal,
+          )}
+          {line(
+            `Compulsory medical insurance fund (${settingsQuery.data?.medicalInsurancePct ?? 0}%)`,
+            data.medicalInsuranceFundDecimal,
+          )}
+          {line(
+            `Other cost (${settingsQuery.data?.otherCostPct ?? 5}% of annual salaries)`,
+            data.otherCostDecimal,
+          )}
+          {line('Total Payroll', data.totalPayrollDecimal, true)}
         </dl>
         <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-          Actual gross pay booked this year: {formatMoney(data.actualGrossPayYtdDecimal, currency)} ·
-          HR expenses: {formatMoney(data.hrExpensesYtdDecimal, currency)}
+          Actual gross pay booked this year: {formatMoney(data.actualGrossPayYtdDecimal, currency)}{' '}
+          · HR expenses: {formatMoney(data.hrExpensesYtdDecimal, currency)}
         </div>
       </div>
 
@@ -120,22 +134,33 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
           ] as Array<[string, string, React.Dispatch<React.SetStateAction<string>>]>
         ).map(([label, value, setter]) => (
           <div key={label}>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-            <Input type="number" min="0" max="100" step="0.01" value={value} onChange={(e) => setter(e.target.value)} />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {label}
+            </label>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={value}
+              onChange={(e) => setter(e.target.value)}
+            />
           </div>
         ))}
         {message && (
           <div
             className={`rounded-md p-2 text-sm ${
               message.kind === 'ok'
-                ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                ? 'bg-success-50 text-success-700 dark:bg-success-900/30 dark:text-success-300'
+                : 'bg-error-50 text-error-700 dark:bg-error-900/30 dark:text-error-300'
             }`}
           >
             {message.text}
           </div>
         )}
-        <Button variant="primary" type="submit" disabled={updateSettings.isPending}>{updateSettings.isPending ? 'Saving…' : 'Save rates'}</Button>
+        <Button variant="primary" type="submit" disabled={updateSettings.isPending}>
+          {updateSettings.isPending ? 'Saving…' : 'Save rates'}
+        </Button>
       </form>
     </div>
   );

@@ -75,34 +75,34 @@ export const urgencyConfig: Record<
   }
 > = {
   overdue: {
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    iconColor: 'text-red-600',
-    textColor: 'text-red-700',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
+    iconColor: 'text-error-600 dark:text-error-400',
+    textColor: 'text-error-700 dark:text-error-300',
     label: 'Overdue',
     priority: 4,
   },
   today: {
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    iconColor: 'text-orange-600',
-    textColor: 'text-orange-700',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
+    textColor: 'text-warning-700 dark:text-warning-300',
     label: 'Today',
     priority: 3,
   },
   this_week: {
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    iconColor: 'text-yellow-600',
-    textColor: 'text-yellow-700',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
+    textColor: 'text-warning-700 dark:text-warning-300',
     label: 'This Week',
     priority: 2,
   },
   upcoming: {
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    iconColor: 'text-green-600',
-    textColor: 'text-green-700',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
+    iconColor: 'text-success-600 dark:text-success-400',
+    textColor: 'text-success-700 dark:text-success-300',
     label: 'Upcoming',
     priority: 1,
   },
@@ -363,8 +363,8 @@ interface EmptyStateProps {
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'No upcoming deadlines' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-      <Check className="w-6 h-6 text-green-600" aria-hidden="true" />
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+      <Check className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
@@ -395,10 +395,10 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-      <CircleAlert className="w-6 h-6 text-red-600" aria-hidden="true" />
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+      <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
-    <p className="text-sm text-red-600 mb-2">{message}</p>
+    <p className="text-sm text-error-600 dark:text-error-400 mb-2">{message}</p>
     {onRetry && (
       <Button variant="ghost" onClick={onRetry}>
         Retry
@@ -458,7 +458,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
           <div className="flex items-center space-x-2">
             {overdueCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300"
                 data-testid="overdue-count"
               >
                 {overdueCount} Overdue
@@ -466,7 +466,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {todayCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300"
                 data-testid="today-count"
               >
                 {todayCount} Today
@@ -474,7 +474,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {overdueCount === 0 && todayCount === 0 && totalPending === 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                 data-testid="all-clear"
               >
                 All Clear

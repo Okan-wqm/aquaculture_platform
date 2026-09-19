@@ -9,7 +9,15 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, PageHeader, severityClasses, Button, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  Spinner,
+  PageHeader,
+  severityClasses,
+  Button,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -44,11 +52,34 @@ import {
 // Constants
 // ============================================================================
 
-const SEVERITY_CONFIG: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string; borderColor: string }> = {
-  EMERGENCY: { label: 'Acil', icon: AlertOctagon, color: severityClasses('critical'), borderColor: severityClasses('critical', 'bar') },
-  CRITICAL: { label: 'Kritik', icon: AlertTriangle, color: severityClasses('critical'), borderColor: severityClasses('critical', 'bar') },
-  WARNING: { label: 'Uyari', icon: Bell, color: severityClasses('warning'), borderColor: severityClasses('warning', 'bar') },
-  INFO: { label: 'Bilgi', icon: Info, color: severityClasses('info'), borderColor: severityClasses('info', 'bar') },
+const SEVERITY_CONFIG: Record<
+  string,
+  { label: string; icon: React.FC<{ className?: string }>; color: string; borderColor: string }
+> = {
+  EMERGENCY: {
+    label: 'Acil',
+    icon: AlertOctagon,
+    color: severityClasses('critical'),
+    borderColor: severityClasses('critical', 'bar'),
+  },
+  CRITICAL: {
+    label: 'Kritik',
+    icon: AlertTriangle,
+    color: severityClasses('critical'),
+    borderColor: severityClasses('critical', 'bar'),
+  },
+  WARNING: {
+    label: 'Uyari',
+    icon: Bell,
+    color: severityClasses('warning'),
+    borderColor: severityClasses('warning', 'bar'),
+  },
+  INFO: {
+    label: 'Bilgi',
+    icon: Info,
+    color: severityClasses('info'),
+    borderColor: severityClasses('info', 'bar'),
+  },
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -66,8 +97,12 @@ const SOURCE_LABELS: Record<string, string> = {
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('tr-TR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -88,12 +123,48 @@ function timeAgo(dateStr: string): string {
 
 const AlarmStatsCards: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
   const cards = [
-    { label: 'Aktif', value: stats.totalActive, icon: AlertTriangle, color: 'text-red-600 bg-red-50 border-red-200' },
-    { label: 'Onaylanmamis', value: stats.totalUnacknowledged, icon: BellOff, color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
-    { label: 'Kritik', value: stats.criticalCount, icon: AlertOctagon, color: 'text-red-700 bg-red-50 border-red-300' },
-    { label: 'Acil', value: stats.emergencyCount, icon: Shield, color: 'text-red-800 bg-red-100 border-red-400' },
-    { label: 'Son 24 Saat', value: stats.last24HoursCount, icon: Clock, color: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
-    { label: 'Son 7 Gun', value: stats.last7DaysCount, icon: Clock, color: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
+    {
+      label: 'Aktif',
+      value: stats.totalActive,
+      icon: AlertTriangle,
+      color:
+        'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
+    },
+    {
+      label: 'Onaylanmamis',
+      value: stats.totalUnacknowledged,
+      icon: BellOff,
+      color:
+        'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+    },
+    {
+      label: 'Kritik',
+      value: stats.criticalCount,
+      icon: AlertOctagon,
+      color:
+        'text-error-700 dark:text-error-300 bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700',
+    },
+    {
+      label: 'Acil',
+      value: stats.emergencyCount,
+      icon: Shield,
+      color:
+        'text-error-800 dark:text-error-200 bg-error-100 dark:bg-error-900/40 border-error-400',
+    },
+    {
+      label: 'Son 24 Saat',
+      value: stats.last24HoursCount,
+      icon: Clock,
+      color:
+        'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700',
+    },
+    {
+      label: 'Son 7 Gun',
+      value: stats.last7DaysCount,
+      icon: Clock,
+      color:
+        'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700',
+    },
   ];
 
   return (
@@ -134,14 +205,32 @@ const AcknowledgeDialog: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <Button variant="secondary" className="flex-1" onClick={onClose}>Iptal</Button>
-          <Button variant="primary" className="flex-1 justify-center" onClick={() => onConfirm(notes || undefined)} disabled={isLoading}>{isLoading && <Spinner size="sm" color="inherit" />}
-            Onayla</Button>
+          <Button variant="secondary" className="flex-1" onClick={onClose}>
+            Iptal
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1 justify-center"
+            onClick={() => onConfirm(notes || undefined)}
+            disabled={isLoading}
+          >
+            {isLoading && <Spinner size="sm" color="inherit" />}
+            Onayla
+          </Button>
         </>
       }
     >
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notlar (opsiyonel)</label>
-      <Textarea fullWidth value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Alarm hakkinda notlariniz..." />
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        Notlar (opsiyonel)
+      </label>
+      <Textarea
+        fullWidth
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+        maxLength={1000}
+        placeholder="Alarm hakkinda notlariniz..."
+      />
     </Modal>
   );
 };
@@ -166,7 +255,8 @@ const PlcAlarmsPage: React.FC = () => {
     severity: (severityFilter as AlarmSeverity) || undefined,
     source: (sourceFilter as AlarmSource) || undefined,
     plcConnectionId: connectionFilter || undefined,
-    acknowledged: ackFilter === 'unacknowledged' ? false : ackFilter === 'acknowledged' ? true : undefined,
+    acknowledged:
+      ackFilter === 'unacknowledged' ? false : ackFilter === 'acknowledged' ? true : undefined,
   };
 
   const pagination: PlcPagination = { page, limit: 50, sortBy: 'timestamp', sortOrder: 'DESC' };
@@ -178,7 +268,9 @@ const PlcAlarmsPage: React.FC = () => {
 
   const connectionMap = useMemo(() => {
     const map: Record<string, string> = {};
-    connections?.forEach((c) => { map[c.id] = c.name; });
+    connections?.forEach((c) => {
+      map[c.id] = c.name;
+    });
     return map;
   }, [connections]);
 
@@ -199,22 +291,32 @@ const PlcAlarmsPage: React.FC = () => {
     });
   }, [alarms]);
 
-  const handleAcknowledgeSingle = useCallback(async (notes?: string) => {
-    if (!ackDialogSingle) return;
-    try {
-      await mutations.acknowledge.mutateAsync({ id: ackDialogSingle, notes });
-      setAckDialogSingle(null);
-    } catch (err) { console.error(err); }
-  }, [ackDialogSingle, mutations.acknowledge]);
+  const handleAcknowledgeSingle = useCallback(
+    async (notes?: string) => {
+      if (!ackDialogSingle) return;
+      try {
+        await mutations.acknowledge.mutateAsync({ id: ackDialogSingle, notes });
+        setAckDialogSingle(null);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [ackDialogSingle, mutations.acknowledge],
+  );
 
-  const handleBulkAcknowledge = useCallback(async (notes?: string) => {
-    if (selectedIds.size === 0) return;
-    try {
-      await mutations.bulkAcknowledge.mutateAsync({ alarmIds: Array.from(selectedIds), notes });
-      setSelectedIds(new Set());
-      setShowBulkAck(false);
-    } catch (err) { console.error(err); }
-  }, [selectedIds, mutations.bulkAcknowledge]);
+  const handleBulkAcknowledge = useCallback(
+    async (notes?: string) => {
+      if (selectedIds.size === 0) return;
+      try {
+        await mutations.bulkAcknowledge.mutateAsync({ alarmIds: Array.from(selectedIds), notes });
+        setSelectedIds(new Set());
+        setShowBulkAck(false);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [selectedIds, mutations.bulkAcknowledge],
+  );
 
   const unacknowledgedSelected = useMemo(() => {
     if (!alarms) return 0;
@@ -230,9 +332,22 @@ const PlcAlarmsPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-3">
             {selectedIds.size > 0 && unacknowledgedSelected > 0 && (
-              <Button variant="warning" leftIcon={<CheckSquare className="h-4 w-4" />} onClick={() => setShowBulkAck(true)}>{unacknowledgedSelected} Alarm Onayla</Button>
+              <Button
+                variant="warning"
+                leftIcon={<CheckSquare className="h-4 w-4" />}
+                onClick={() => setShowBulkAck(true)}
+              >
+                {unacknowledgedSelected} Alarm Onayla
+              </Button>
             )}
-            <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => refetch()}>Yenile</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => refetch()}
+            >
+              Yenile
+            </Button>
           </div>
         }
         className="mb-6"
@@ -250,10 +365,20 @@ const PlcAlarmsPage: React.FC = () => {
             placeholder="Alarm ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
-        <Select options={[{ value: '', label: 'Tum Seviyeler' }, { value: 'EMERGENCY', label: 'Acil' }, { value: 'CRITICAL', label: 'Kritik' }, { value: 'WARNING', label: 'Uyari' }, { value: 'INFO', label: 'Bilgi' }]} value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')} />
+        <Select
+          options={[
+            { value: '', label: 'Tum Seviyeler' },
+            { value: 'EMERGENCY', label: 'Acil' },
+            { value: 'CRITICAL', label: 'Kritik' },
+            { value: 'WARNING', label: 'Uyari' },
+            { value: 'INFO', label: 'Bilgi' },
+          ]}
+          value={severityFilter}
+          onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')}
+        />
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as AlarmSource | '')}
@@ -261,7 +386,9 @@ const PlcAlarmsPage: React.FC = () => {
         >
           <option value="">Tum Kaynaklar</option>
           {Object.entries(SOURCE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
+            <option key={key} value={key}>
+              {label}
+            </option>
           ))}
         </select>
         <select
@@ -271,7 +398,9 @@ const PlcAlarmsPage: React.FC = () => {
         >
           <option value="">Tum Baglantilar</option>
           {connections?.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
         <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
@@ -281,7 +410,7 @@ const PlcAlarmsPage: React.FC = () => {
               onClick={() => setAckFilter(tab)}
               className={`px-3 py-2 text-sm font-medium transition-colors ${
                 ackFilter === tab
-                  ? 'bg-indigo-50 text-indigo-700'
+                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                   : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -304,7 +433,7 @@ const PlcAlarmsPage: React.FC = () => {
               type="checkbox"
               checked={selectedIds.size === alarms.length && alarms.length > 0}
               onChange={toggleSelectAll}
-              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
             />
             <span>Tumu sec ({alarms.length} alarm)</span>
           </div>
@@ -324,24 +453,34 @@ const PlcAlarmsPage: React.FC = () => {
                     type="checkbox"
                     checked={selectedIds.has(alarm.id)}
                     onChange={() => toggleSelect(alarm.id)}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                    className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                   />
-                  <SeverityIcon className={`mt-0.5 h-5 w-5 flex-shrink-0 ${alarm.severity === 'EMERGENCY' || alarm.severity === 'CRITICAL' ? 'text-red-500' : alarm.severity === 'WARNING' ? 'text-yellow-500' : 'text-blue-400'}`} />
+                  <SeverityIcon
+                    className={`mt-0.5 h-5 w-5 flex-shrink-0 ${alarm.severity === 'EMERGENCY' || alarm.severity === 'CRITICAL' ? 'text-error-500' : alarm.severity === 'WARNING' ? 'text-warning-500' : 'text-info-400'}`}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}
+                      >
                         {severityCfg.label}
                       </span>
-                      <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{alarm.alarmCode}</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">{SOURCE_LABELS[alarm.source] || alarm.source}</span>
+                      <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
+                        {alarm.alarmCode}
+                      </span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                        {SOURCE_LABELS[alarm.source] || alarm.source}
+                      </span>
                       {alarm.acknowledged && (
-                        <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                        <span className="inline-flex items-center gap-1 text-xs text-success-600 dark:text-success-400 font-medium">
                           <CheckCircle className="h-3 w-3" />
                           Onaylandi
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{alarm.message}</p>
+                    <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {alarm.message}
+                    </p>
                     <div className="mt-1 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
@@ -352,10 +491,15 @@ const PlcAlarmsPage: React.FC = () => {
                         {connectionMap[alarm.plcConnectionId] || alarm.plcConnectionId.slice(0, 8)}
                       </span>
                       {alarm.value != null && (
-                        <span>Deger: {alarm.value} {alarm.threshold != null ? `/ Esik: ${alarm.threshold}` : ''}</span>
+                        <span>
+                          Deger: {alarm.value}{' '}
+                          {alarm.threshold != null ? `/ Esik: ${alarm.threshold}` : ''}
+                        </span>
                       )}
                       {alarm.action && (
-                        <span className="text-orange-600">Islem: {alarm.action}</span>
+                        <span className="text-warning-600 dark:text-warning-400">
+                          Islem: {alarm.action}
+                        </span>
                       )}
                     </div>
                     {alarm.notes && (
@@ -366,7 +510,8 @@ const PlcAlarmsPage: React.FC = () => {
                     )}
                     {alarm.acknowledged && alarm.acknowledgedAt && (
                       <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                        Onaylayan: {alarm.acknowledgedBy || '-'} - {formatDate(alarm.acknowledgedAt)}
+                        Onaylayan: {alarm.acknowledgedBy || '-'} -{' '}
+                        {formatDate(alarm.acknowledgedAt)}
                       </div>
                     )}
                   </div>
@@ -374,7 +519,7 @@ const PlcAlarmsPage: React.FC = () => {
                     {!alarm.acknowledged && (
                       <button
                         onClick={() => setAckDialogSingle(alarm.id)}
-                        className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        className="inline-flex items-center gap-1 rounded-md bg-primary-50 dark:bg-primary-900/20 px-2.5 py-1.5 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/50"
                       >
                         <CheckCircle className="h-3.5 w-3.5" />
                         Onayla
@@ -391,9 +536,23 @@ const PlcAlarmsPage: React.FC = () => {
 
           {/* Pagination */}
           <div className="flex items-center justify-between pt-4">
-            <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Onceki</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              Onceki
+            </Button>
             <span className="text-sm text-gray-500 dark:text-gray-400">Sayfa {page}</span>
-            <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={alarms.length < 50}>Sonraki</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={alarms.length < 50}
+            >
+              Sonraki
+            </Button>
           </div>
         </div>
       ) : (

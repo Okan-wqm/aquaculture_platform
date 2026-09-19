@@ -177,7 +177,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             onClick={() => setActiveTab(tab)}
             className={`flex-1 px-4 py-3 text-sm font-medium ${
               activeTab === tab
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
@@ -193,7 +193,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Channel Key <span className="text-red-500">*</span>
+                Channel Key <span className="text-error-500">*</span>
               </label>
               <Input
                 fullWidth
@@ -217,7 +217,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Display Label <span className="text-red-500">*</span>
+                Display Label <span className="text-error-500">*</span>
               </label>
               <Input
                 fullWidth
@@ -253,7 +253,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   id="channel-editor-data-type"
                   value={formData.dataType}
                   onChange={(e) => handleChange('dataType', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                   disabled={isPersisted}
                 >
                   <option value={ChannelDataType.NUMBER}>Number</option>
@@ -277,7 +277,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                     UNIT_OPTIONS.find((u) => u.value === formData.unit) ? formData.unit : 'custom'
                   }
                   onChange={(e) => handleChange('unit', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
                 >
                   {UNIT_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -357,11 +357,11 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                 the write path that made every channel read "never calibrated". */}
         {activeTab === 'calibration' && (
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-blue-900">
+            <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+              <p className="text-sm font-medium text-info-900 dark:text-info-100">
                 Kalibrasyon, Kalibrasyon sayfasından yönetilir
               </p>
-              <p className="text-sm text-blue-700 mt-1">
+              <p className="text-sm text-info-700 dark:text-info-300 mt-1">
                 Kalibrasyon katsayıları (çarpan/ofset) yalnızca Kalibrasyon sayfasında; son
                 kalibrasyon tarihi ve sonraki kalibrasyon zamanı damgalanarak kaydedilir. Bu kanalın
                 mevcut değerleri aşağıda salt-okunur gösterilir.
@@ -394,14 +394,14 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             </p>
 
             {/* Warning Thresholds */}
-            <div className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
-              <h4 className="text-sm font-medium text-yellow-800 mb-3 flex items-center">
+            <div className="border border-warning-200 dark:border-warning-800 rounded-lg p-4 bg-warning-50 dark:bg-warning-900/20">
+              <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200 mb-3 flex items-center">
                 <TriangleAlert className="w-5 h-5 mr-2" aria-hidden="true" />
                 Warning Thresholds
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-yellow-700 mb-1">
+                  <label className="block text-xs font-medium text-warning-700 dark:text-warning-300 mb-1">
                     Low Warning
                   </label>
                   <Input
@@ -414,7 +414,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-yellow-700 mb-1">
+                  <label className="block text-xs font-medium text-warning-700 dark:text-warning-300 mb-1">
                     High Warning
                   </label>
                   <Input
@@ -430,14 +430,14 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             </div>
 
             {/* Critical Thresholds */}
-            <div className="border border-red-200 rounded-lg p-4 bg-red-50">
-              <h4 className="text-sm font-medium text-red-800 mb-3 flex items-center">
+            <div className="border border-error-200 dark:border-error-800 rounded-lg p-4 bg-error-50 dark:bg-error-900/20">
+              <h4 className="text-sm font-medium text-error-800 dark:text-error-200 mb-3 flex items-center">
                 <CircleAlert className="w-5 h-5 mr-2" aria-hidden="true" />
                 Critical Thresholds
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-red-700 mb-1">
+                  <label className="block text-xs font-medium text-error-700 dark:text-error-300 mb-1">
                     Low Critical
                   </label>
                   <Input
@@ -450,7 +450,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-red-700 mb-1">
+                  <label className="block text-xs font-medium text-error-700 dark:text-error-300 mb-1">
                     High Critical
                   </label>
                   <Input
@@ -514,7 +514,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   )
                 }
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  formData.displaySettings?.showOnDashboard ? 'bg-blue-600' : 'bg-gray-300'
+                  formData.displaySettings?.showOnDashboard ? 'bg-info-600' : 'bg-gray-300'
                 }`}
               >
                 <span
@@ -536,7 +536,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                     onClick={() => handleDisplaySettingChange('widgetType', opt.value)}
                     className={`p-3 text-left border rounded-lg transition-colors ${
                       formData.displaySettings?.widgetType === opt.value
-                        ? 'border-blue-500 bg-blue-50'
+                        ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                     }`}
                   >
@@ -587,7 +587,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   onChange={(e) =>
                     handleDisplaySettingChange('precision', parseInt(e.target.value))
                   }
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
                 >
                   <option value={0}>0 (Integer)</option>
                   <option value={1}>1 decimal</option>

@@ -132,7 +132,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
               {facility.name}
             </span>
             {facility.isDefault && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
                 Default
               </span>
             )}
@@ -156,7 +156,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
           <span
             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
               facility.isActive
-                ? 'bg-green-100 text-green-800'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
             }`}
           >
@@ -208,8 +208,8 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       )}
 
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load slaughter facilities.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load slaughter facilities.</p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -247,8 +247,8 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       >
         <form onSubmit={handleSubmit}>
           {formError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-sm text-red-700">{formError}</p>
+            <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md">
+              <p className="text-sm text-error-700 dark:text-error-300">{formError}</p>
             </div>
           )}
 
@@ -311,7 +311,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
                 type="checkbox"
                 checked={formData.isDefault}
                 onChange={(e) => setFormData((prev) => ({ ...prev, isDefault: e.target.checked }))}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">
                 Use as the default facility for slaughter reports

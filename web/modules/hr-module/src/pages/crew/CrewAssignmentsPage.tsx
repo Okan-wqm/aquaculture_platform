@@ -22,17 +22,26 @@ import {
   Anchor,
   Clock,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import {
-  useEmployees,
-  useWorkAreas,
-  useCrewAssignments,
-  useCurrentlyOffshore,
-} from '../../hooks';
+  cn,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
+import { useEmployees, useWorkAreas, useCrewAssignments, useCurrentlyOffshore } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { SeaLandSplitView } from '../../components/crew';
-import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, WorkAreaType, PaginationInput } from '../../types';
+import type {
+  Employee,
+  WorkArea,
+  CrewAssignment,
+  PersonnelCategory,
+  WorkAreaType,
+  PaginationInput,
+} from '../../types';
 
 // ============================================================================
 // Types
@@ -73,13 +82,34 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
   employeeCount,
 }) => {
   const typeConfig: Record<string, { icon: React.ReactNode; color: string }> = {
-    sea_cage: { icon: <Anchor className="h-5 w-5" />, color: 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' },
-    vessel: { icon: <Ship className="h-5 w-5" />, color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-900/30' },
-    feed_barge: { icon: <Ship className="h-5 w-5" />, color: 'text-teal-600 bg-teal-50 dark:bg-teal-900/30' },
-    shore_facility: { icon: <Building2 className="h-5 w-5" />, color: 'text-green-600 bg-green-50 dark:bg-green-900/30' },
-    processing_plant: { icon: <Building2 className="h-5 w-5" />, color: 'text-amber-600 bg-amber-50 dark:bg-amber-900/30' },
-    hatchery: { icon: <Building2 className="h-5 w-5" />, color: 'text-purple-600 bg-purple-50 dark:bg-purple-900/30' },
-    office: { icon: <Building2 className="h-5 w-5" />, color: 'text-gray-600 bg-gray-50 dark:bg-gray-700' },
+    sea_cage: {
+      icon: <Anchor className="h-5 w-5" />,
+      color: 'text-info-600 bg-info-50 dark:bg-info-900/30',
+    },
+    vessel: {
+      icon: <Ship className="h-5 w-5" />,
+      color: 'text-info-600 bg-info-50 dark:bg-info-900/30',
+    },
+    feed_barge: {
+      icon: <Ship className="h-5 w-5" />,
+      color: 'text-info-600 bg-info-50 dark:bg-info-900/30',
+    },
+    shore_facility: {
+      icon: <Building2 className="h-5 w-5" />,
+      color: 'text-success-600 bg-success-50 dark:bg-success-900/30',
+    },
+    processing_plant: {
+      icon: <Building2 className="h-5 w-5" />,
+      color: 'text-warning-600 bg-warning-50 dark:bg-warning-900/30',
+    },
+    hatchery: {
+      icon: <Building2 className="h-5 w-5" />,
+      color: 'text-accent-600 bg-accent-50 dark:bg-accent-900/30',
+    },
+    office: {
+      icon: <Building2 className="h-5 w-5" />,
+      color: 'text-gray-600 bg-gray-50 dark:bg-gray-700',
+    },
   };
 
   const config = typeConfig[workArea.workAreaType] || typeConfig.office;
@@ -112,7 +142,8 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
             <MapPin className="h-3 w-3" />
             {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
-              {workArea.coordinates.latitude.toFixed(5)}, {workArea.coordinates.longitude.toFixed(5)}
+              {workArea.coordinates.latitude.toFixed(5)},{' '}
+              {workArea.coordinates.longitude.toFixed(5)}
             </span>
           </div>
         )}
@@ -137,7 +168,7 @@ export function CrewAssignmentsPage() {
     {
       ...(personnelFilter && { personnelCategory: personnelFilter }),
     },
-    pagination
+    pagination,
   );
   const { data: workAreas, isLoading: loadingWorkAreas } = useWorkAreas();
   const { data: offshoreEmployees, isLoading: loadingOffshore } = useCurrentlyOffshore();
@@ -145,15 +176,24 @@ export function CrewAssignmentsPage() {
 
   // Calculate stats
   const totalEmployees = employees?.total || 0;
-  const offshoreCount = employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)).length || 0;
-  const onshoreCount = employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)).length || 0;
-  const hybridCount = employees?.items?.filter((e) => e.personnelCategory === ('HYBRID' as PersonnelCategory)).length || 0;
+  const offshoreCount =
+    employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory))
+      .length || 0;
+  const onshoreCount =
+    employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory))
+      .length || 0;
+  const hybridCount =
+    employees?.items?.filter((e) => e.personnelCategory === ('HYBRID' as PersonnelCategory))
+      .length || 0;
   const seaWorthyCount = employees?.items?.filter((e) => e.seaWorthy).length || 0;
   const activeWorkAreas = workAreas?.filter((wa) => wa.isActive).length || 0;
 
   // Separate lists for sea/land view
-  const offshoreList = employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)) || [];
-  const onshoreList = employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)) || [];
+  const offshoreList =
+    employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)) ||
+    [];
+  const onshoreList =
+    employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)) || [];
 
   // WHY: Enrich crew assignments with work area data for display.
   // Backend CrewAssignment DTO returns flat scalars (workAreaName, not nested workArea object).
@@ -168,72 +208,82 @@ export function CrewAssignmentsPage() {
   }, [crewAssignments, workAreas]);
 
   // PERF-004: memoize so the column array reference is stable across renders
-  const assignmentColumns: DataTableColumn<CrewAssignment>[] = useMemo(() => [
-    {
-      key: 'workArea',
-      header: 'Work Area',
-      render: (_value, row) => (
-        <div className="flex items-center gap-3">
-          {row.workArea?.workAreaType === ('SEA_CAGE' as WorkAreaType) || row.workArea?.workAreaType === ('VESSEL' as WorkAreaType) ? (
-            <Ship className="h-4 w-4 text-blue-500" />
-          ) : (
-            <Building2 className="h-4 w-4 text-green-500" />
-          )}
-          <div>
-            {/* WHY: Use workAreaName from the flat DTO as primary, fall back to enriched workArea */}
-            <p className="font-medium text-gray-900 dark:text-white">{row.workAreaName || row.workArea?.name}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
+  const assignmentColumns: DataTableColumn<CrewAssignment>[] = useMemo(
+    () => [
+      {
+        key: 'workArea',
+        header: 'Work Area',
+        render: (_value, row) => (
+          <div className="flex items-center gap-3">
+            {row.workArea?.workAreaType === ('SEA_CAGE' as WorkAreaType) ||
+            row.workArea?.workAreaType === ('VESSEL' as WorkAreaType) ? (
+              <Ship className="h-4 w-4 text-info-500" />
+            ) : (
+              <Building2 className="h-4 w-4 text-success-500" />
+            )}
+            <div>
+              {/* WHY: Use workAreaName from the flat DTO as primary, fall back to enriched workArea */}
+              <p className="font-medium text-gray-900 dark:text-white">
+                {row.workAreaName || row.workArea?.name}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">
+                {row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}
+              </p>
+            </div>
           </div>
-        </div>
-      ),
-    },
-    {
-      key: 'assigned',
-      header: 'Assigned Crew',
-      render: (_value, row) => (
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-          <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
-          <span className="text-gray-500 dark:text-gray-400">/ {row.maxCapacity}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'occupancy',
-      header: 'Occupancy',
-      render: (_value, row) => (
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
-            <div
-              className="h-full rounded-full bg-indigo-500"
-              style={{ width: `${Math.min(100, row.occupancyRate)}%` }}
-            />
+        ),
+      },
+      {
+        key: 'assigned',
+        header: 'Assigned Crew',
+        render: (_value, row) => (
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+            <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
+            <span className="text-gray-500 dark:text-gray-400">/ {row.maxCapacity}</span>
           </div>
-          <span className="text-sm text-gray-600 dark:text-gray-300">{Math.round(row.occupancyRate)}%</span>
-        </div>
-      ),
-    },
-    {
-      key: 'location',
-      header: 'Location',
-      render: (_value, row) => (
-        <span className="text-gray-600 dark:text-gray-300">
-          {row.workArea?.isOffshore ? 'Offshore' : 'Onshore'}
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (_value, row) => (
-        <StatusBadge
-          label={row.workArea?.isActive ? 'Active' : 'Inactive'}
-          variant={row.workArea?.isActive ? 'success' : 'neutral'}
-          size="sm"
-        />
-      ),
-    },
-  ], []);
+        ),
+      },
+      {
+        key: 'occupancy',
+        header: 'Occupancy',
+        render: (_value, row) => (
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
+              <div
+                className="h-full rounded-full bg-primary-500"
+                style={{ width: `${Math.min(100, row.occupancyRate)}%` }}
+              />
+            </div>
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              {Math.round(row.occupancyRate)}%
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: 'location',
+        header: 'Location',
+        render: (_value, row) => (
+          <span className="text-gray-600 dark:text-gray-300">
+            {row.workArea?.isOffshore ? 'Offshore' : 'Onshore'}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (_value, row) => (
+          <StatusBadge
+            label={row.workArea?.isActive ? 'Active' : 'Inactive'}
+            variant={row.workArea?.isActive ? 'success' : 'neutral'}
+            size="sm"
+          />
+        ),
+      },
+    ],
+    [],
+  );
 
   // PERF-009: stable keyExtractor reference
   const assignmentKeyExtractor = useCallback((row: CrewAssignment) => row.workAreaId, []);
@@ -253,7 +303,7 @@ export function CrewAssignmentsPage() {
   const currentOffset = (currentPage - 1) * pageSize;
   const pagedAssignments = useMemo(
     () => enrichedAssignments.slice(currentOffset, currentOffset + pageSize),
-    [enrichedAssignments, currentOffset, pageSize]
+    [enrichedAssignments, currentOffset, pageSize],
   );
 
   const isLoading = loadingEmployees || loadingWorkAreas || loadingOffshore;
@@ -273,7 +323,9 @@ export function CrewAssignmentsPage() {
               <RefreshCw className="h-4 w-4" />
               Rotations
             </Link>
-            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>New Assignment</Button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>
+              New Assignment
+            </Button>
           </div>
         }
       />
@@ -283,48 +335,48 @@ export function CrewAssignmentsPage() {
         <StatCard
           title="Total Crew"
           value={totalEmployees}
-          icon={<Users className="h-5 w-5 text-indigo-600" />}
-          color="bg-indigo-50 dark:bg-indigo-900/30"
+          icon={<Users className="h-5 w-5 text-primary-600 dark:text-primary-400" />}
+          color="bg-primary-50 dark:bg-primary-900/30"
           isLoading={loadingEmployees}
         />
         <StatCard
           title="Offshore"
           value={offshoreCount}
           subtitle="At sea"
-          icon={<Ship className="h-5 w-5 text-blue-600" />}
-          color="bg-blue-50 dark:bg-blue-900/30"
+          icon={<Ship className="h-5 w-5 text-info-600 dark:text-info-400" />}
+          color="bg-info-50 dark:bg-info-900/30"
           isLoading={loadingEmployees}
         />
         <StatCard
           title="Onshore"
           value={onshoreCount}
           subtitle="Land-based"
-          icon={<Building2 className="h-5 w-5 text-green-600" />}
-          color="bg-green-50 dark:bg-green-900/30"
+          icon={<Building2 className="h-5 w-5 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/30"
           isLoading={loadingEmployees}
         />
         <StatCard
           title="Hybrid"
           value={hybridCount}
           subtitle="Rotational"
-          icon={<RefreshCw className="h-5 w-5 text-amber-600" />}
-          color="bg-amber-50 dark:bg-amber-900/30"
+          icon={<RefreshCw className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+          color="bg-warning-50 dark:bg-warning-900/30"
           isLoading={loadingEmployees}
         />
         <StatCard
           title="Sea Worthy"
           value={seaWorthyCount}
           subtitle="Certified"
-          icon={<Anchor className="h-5 w-5 text-teal-600" />}
-          color="bg-teal-50 dark:bg-teal-900/30"
+          icon={<Anchor className="h-5 w-5 text-info-600 dark:text-info-400" />}
+          color="bg-info-50 dark:bg-info-900/30"
           isLoading={loadingEmployees}
         />
         <StatCard
           title="Work Areas"
           value={activeWorkAreas}
           subtitle="Active sites"
-          icon={<MapPin className="h-5 w-5 text-purple-600" />}
-          color="bg-purple-50 dark:bg-purple-900/30"
+          icon={<MapPin className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+          color="bg-accent-50 dark:bg-accent-900/30"
           isLoading={loadingWorkAreas}
         />
       </div>
@@ -336,8 +388,8 @@ export function CrewAssignmentsPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Overview
@@ -347,8 +399,8 @@ export function CrewAssignmentsPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'assignments'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Assignments
@@ -358,8 +410,8 @@ export function CrewAssignmentsPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'work-areas'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Work Areas
@@ -377,7 +429,7 @@ export function CrewAssignmentsPage() {
               </h3>
               <Link
                 to="/hr/employees"
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                className="text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-200"
               >
                 View All
               </Link>
@@ -389,7 +441,7 @@ export function CrewAssignmentsPage() {
           {offshoreEmployees && offshoreEmployees.length > 0 && (
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="mb-4 flex items-center gap-2">
-                <Ship className="h-5 w-5 text-blue-600" />
+                <Ship className="h-5 w-5 text-info-600 dark:text-info-400" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Currently Offshore ({offshoreEmployees.length})
                 </h3>
@@ -399,13 +451,9 @@ export function CrewAssignmentsPage() {
                   <Link
                     key={emp.id}
                     to={`/hr/employees/${emp.id}`}
-                    className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-info-300 hover:bg-info-50 dark:border-gray-700 dark:hover:border-info-700 dark:hover:bg-info-900/20"
                   >
-                    <EmployeeAvatar
-                      firstName={emp.firstName}
-                      lastName={emp.lastName}
-                      size="sm"
-                    />
+                    <EmployeeAvatar firstName={emp.firstName} lastName={emp.lastName} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="truncate font-medium text-gray-900 dark:text-white">
                         {emp.firstName} {emp.lastName}
@@ -414,7 +462,7 @@ export function CrewAssignmentsPage() {
                         {emp.position || 'Crew Member'}
                       </p>
                     </div>
-                    <Anchor className="h-4 w-4 text-blue-500" />
+                    <Anchor className="h-4 w-4 text-info-500" />
                   </Link>
                 ))}
               </div>
@@ -434,13 +482,22 @@ export function CrewAssignmentsPage() {
                 placeholder="Search employees..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-hidden focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               />
             </div>
             <div className="flex items-center gap-2">
               {/* WHY: GraphQL PersonnelCategory enum values are UPPERCASE keys.
                   Using lowercase values causes the filter to silently fail. */}
-              <Select options={[{ value: '', label: 'All Categories' }, { value: 'OFFSHORE', label: 'Offshore' }, { value: 'ONSHORE', label: 'Onshore' }, { value: 'HYBRID', label: 'Hybrid' }]} value={personnelFilter} onChange={(e) => setPersonnelFilter(e.target.value as PersonnelCategory | '')} />
+              <Select
+                options={[
+                  { value: '', label: 'All Categories' },
+                  { value: 'OFFSHORE', label: 'Offshore' },
+                  { value: 'ONSHORE', label: 'Onshore' },
+                  { value: 'HYBRID', label: 'Hybrid' },
+                ]}
+                value={personnelFilter}
+                onChange={(e) => setPersonnelFilter(e.target.value as PersonnelCategory | '')}
+              />
             </div>
           </div>
 
@@ -451,7 +508,11 @@ export function CrewAssignmentsPage() {
             keyExtractor={assignmentKeyExtractor}
             loading={loadingAssignments}
             emptyMessage="No crew assignments found"
-            pagination={derivePaginationMetadataV1(enrichedAssignments.length, currentPage, pageSize)}
+            pagination={derivePaginationMetadataV1(
+              enrichedAssignments.length,
+              currentPage,
+              pageSize,
+            )}
             onPageChange={handlePageChange}
             searchable={false}
             sortable={false}
@@ -467,7 +528,9 @@ export function CrewAssignmentsPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {workAreas?.length || 0} work areas configured
             </p>
-            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />}>Add Work Area</Button>
+            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />}>
+              Add Work Area
+            </Button>
           </div>
 
           {/* Work Areas Grid */}
@@ -488,8 +551,7 @@ export function CrewAssignmentsPage() {
                   key={workArea.id}
                   workArea={workArea}
                   employeeCount={
-                    enrichedAssignments.find((a) => a.workAreaId === workArea.id)
-                      ?.currentCount || 0
+                    enrichedAssignments.find((a) => a.workAreaId === workArea.id)?.currentCount || 0
                   }
                 />
               ))}

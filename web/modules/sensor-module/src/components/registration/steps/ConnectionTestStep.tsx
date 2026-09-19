@@ -47,9 +47,9 @@ export function ConnectionTestStep({
   return (
     <div className="space-y-6">
       {/* Test info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="text-lg font-medium text-blue-900">Connection Test</h3>
-        <p className="text-sm text-blue-700 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h3 className="text-lg font-medium text-info-900 dark:text-info-100">Connection Test</h3>
+        <p className="text-sm text-info-700 dark:text-info-300 mt-1">
           Test the connection to your sensor before completing registration. This ensures the
           configuration is correct and the sensor is reachable.
         </p>
@@ -86,29 +86,42 @@ export function ConnectionTestStep({
       {currentResult && (
         <div
           className={`border rounded-lg p-6 ${
-            currentResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            currentResult.success
+              ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+              : 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
           }`}
         >
           {/* Status header */}
           <div className="flex items-center mb-4">
             {currentResult.success ? (
               <>
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                  <Check className="w-8 h-8 text-green-600" aria-hidden="true" />
+                <div className="w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center">
+                  <Check
+                    className="w-8 h-8 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-green-900">Connection Successful</h3>
-                  <p className="text-sm text-green-700">The sensor is reachable and responding</p>
+                  <h3 className="text-lg font-semibold text-success-900 dark:text-success-100">
+                    Connection Successful
+                  </h3>
+                  <p className="text-sm text-success-700 dark:text-success-300">
+                    The sensor is reachable and responding
+                  </p>
                 </div>
               </>
             ) : (
               <>
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <X className="w-8 h-8 text-red-600" aria-hidden="true" />
+                <div className="w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center">
+                  <X className="w-8 h-8 text-error-600 dark:text-error-400" aria-hidden="true" />
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-red-900">Connection Failed</h3>
-                  <p className="text-sm text-red-700">Unable to connect to the sensor</p>
+                  <h3 className="text-lg font-semibold text-error-900 dark:text-error-100">
+                    Connection Failed
+                  </h3>
+                  <p className="text-sm text-error-700 dark:text-error-300">
+                    Unable to connect to the sensor
+                  </p>
                 </div>
               </>
             )}
@@ -140,8 +153,8 @@ export function ConnectionTestStep({
 
           {/* Error message */}
           {currentResult.error && (
-            <div className="bg-red-100 border border-red-300 rounded-md p-3 mb-4">
-              <p className="text-sm text-red-800">
+            <div className="bg-error-100 dark:bg-error-900/40 border border-error-300 dark:border-error-700 rounded-md p-3 mb-4">
+              <p className="text-sm text-error-800 dark:text-error-200">
                 <strong>Error:</strong> {currentResult.error}
               </p>
             </div>
@@ -166,8 +179,8 @@ export function ConnectionTestStep({
               disabled={loading || isRetrying}
               className={`px-4 py-2 rounded-md focus:outline-hidden focus:ring-2 focus:ring-offset-2 ${
                 currentResult.success
-                  ? 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500'
-                  : 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500'
+                  ? 'bg-success-600 text-white hover:bg-success-700 focus:ring-success-500'
+                  : 'bg-error-600 text-white hover:bg-error-700 focus:ring-error-500'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {isRetrying ? 'Retrying...' : 'Retry Test'}
@@ -178,12 +191,17 @@ export function ConnectionTestStep({
 
       {/* Skip test option */}
       {!currentResult?.success && hasTestedOnce && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
           <div className="flex items-start">
-            <TriangleAlert className="w-5 h-5 text-yellow-600 mt-0.5" aria-hidden="true" />
+            <TriangleAlert
+              className="w-5 h-5 text-warning-600 dark:text-warning-400 mt-0.5"
+              aria-hidden="true"
+            />
             <div className="ml-3">
-              <h4 className="text-sm font-medium text-yellow-800">Connection test failed</h4>
-              <p className="text-sm text-yellow-700 mt-1">
+              <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200">
+                Connection test failed
+              </h4>
+              <p className="text-sm text-warning-700 dark:text-warning-300 mt-1">
                 You can still proceed with registration, but the sensor will be marked as "Test
                 Failed" and won't start collecting data until the connection is established.
               </p>

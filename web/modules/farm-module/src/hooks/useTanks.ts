@@ -34,10 +34,10 @@ export interface CleanerFishDetail {
   sourceType: 'farmed' | 'wild_caught';
   deployedAt: string;
   // Mortality tracking fields
-  initialQuantity?: number;      // İlk yerleştirilen miktar
-  totalMortality?: number;       // Toplam mortality
-  mortalityRate?: number;        // Mortality oranı (%)
-  lastMortalityAt?: string;      // Son mortality tarihi
+  initialQuantity?: number; // İlk yerleştirilen miktar
+  totalMortality?: number; // Toplam mortality
+  mortalityRate?: number; // Mortality oranı (%)
+  lastMortalityAt?: string; // Son mortality tarihi
 }
 
 export interface TankBatchMetrics {
@@ -242,7 +242,10 @@ const EQUIPMENT_MAX_PAGES = 50;
  * WHAT: with explicit pagination the caller's page is fetched as-is; without it
  * the hook pages through the full list (100/page) and returns every container.
  */
-export function useTanksList(filter?: TankFilterInput, pagination?: { page?: number; pageSize?: number }) {
+export function useTanksList(
+  filter?: TankFilterInput,
+  pagination?: { page?: number; pageSize?: number },
+) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
@@ -293,21 +296,21 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
 
 // Status colors for display
 export const tankStatusColors: Record<string, string> = {
-  OPERATIONAL: 'bg-green-100 text-green-800',
-  ACTIVE: 'bg-green-100 text-green-800',
-  active: 'bg-green-100 text-green-800',
-  PREPARING: 'bg-blue-100 text-blue-800',
-  preparing: 'bg-blue-100 text-blue-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  maintenance: 'bg-yellow-100 text-yellow-800',
-  CLEANING: 'bg-cyan-100 text-cyan-800',
-  cleaning: 'bg-cyan-100 text-cyan-800',
-  HARVESTING: 'bg-purple-100 text-purple-800',
-  harvesting: 'bg-purple-100 text-purple-800',
+  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  active: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  preparing: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  maintenance: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  cleaning: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  harvesting: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FALLOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   fallow: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  QUARANTINE: 'bg-red-100 text-red-800',
-  quarantine: 'bg-red-100 text-red-800',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  quarantine: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   OUT_OF_SERVICE: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
   DECOMMISSIONED: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
   inactive: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',

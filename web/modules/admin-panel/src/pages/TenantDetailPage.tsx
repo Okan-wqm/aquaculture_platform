@@ -58,7 +58,7 @@ const SimpleTabs: React.FC<{
           onClick={() => onChange(tab.value)}
           className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
             activeTab === tab.value
-              ? 'border-blue-500 text-blue-600'
+              ? 'border-info-500 text-info-600 dark:text-info-400'
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
@@ -137,7 +137,7 @@ const ProgressBar: React.FC<{ value: number; max: number; label?: string }> = ({
 }) => {
   const percentage = max === -1 ? 0 : max === 0 ? 100 : Math.min((value / max) * 100, 100);
   const colorClass =
-    percentage > 90 ? 'bg-red-500' : percentage > 70 ? 'bg-yellow-500' : 'bg-green-500';
+    percentage > 90 ? 'bg-error-500' : percentage > 70 ? 'bg-warning-500' : 'bg-success-500';
 
   return (
     <div className="space-y-1">
@@ -355,7 +355,7 @@ const TenantDetailPage: React.FC = () => {
       <Card className="p-6 text-center">
         <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={reload} />
         {queryErrors.every((queryError) => !queryError) && (
-          <p className="text-red-600">Tenant not found</p>
+          <p className="text-error-600 dark:text-error-400">Tenant not found</p>
         )}
         <Button variant="outline" onClick={() => navigate('/admin/tenants')} className="mt-4">
           Go Back
@@ -523,7 +523,7 @@ const TenantDetailPage: React.FC = () => {
               <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.userStats ? tenant.userStats.total.toLocaleString() : '—'}
               </p>
-              <p className="text-sm text-green-600">
+              <p className="text-sm text-success-600 dark:text-success-400">
                 {tenant.userStats ? `${tenant.userStats.active.toLocaleString()} active` : ' '}
               </p>
             </Card>
@@ -588,7 +588,9 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Active</span>
-                <span className="font-bold text-green-600">{tenant.userStats.active}</span>
+                <span className="font-bold text-success-600 dark:text-success-400">
+                  {tenant.userStats.active}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Inactive</span>
@@ -602,7 +604,7 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>New in Last 30 Days</span>
-                <span className="font-bold text-blue-600">
+                <span className="font-bold text-info-600 dark:text-info-400">
                   {tenant.userStats.newUsersLast30Days}
                 </span>
               </div>
@@ -740,7 +742,7 @@ const TenantDetailPage: React.FC = () => {
           {tenant.recentActivities && tenant.recentActivities.length > 0 ? (
             <div className="space-y-4">
               {tenant.recentActivities.map((activity) => (
-                <div key={activity.id} className="flex space-x-4 p-3 border-l-4 border-blue-500">
+                <div key={activity.id} className="flex space-x-4 p-3 border-l-4 border-info-500">
                   <div className="flex-1">
                     <p className="font-medium">{activity.title}</p>
                     {activity.description && (
@@ -817,7 +819,7 @@ const TenantDetailPage: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>Amount</span>
-                  <span className="font-bold text-green-600">
+                  <span className="font-bold text-success-600 dark:text-success-400">
                     {formatBillingAmount(tenant.billing.lastPaymentAmount, tenant.billing.currency)}
                   </span>
                 </div>
@@ -843,7 +845,7 @@ const TenantDetailPage: React.FC = () => {
                   key={note.id}
                   className={`p-4 rounded-lg border ${
                     note.isPinned
-                      ? 'border-yellow-400 bg-yellow-50'
+                      ? 'border-warning-400 bg-warning-50 dark:bg-warning-900/20'
                       : 'border-gray-200 dark:border-gray-700'
                   }`}
                 >

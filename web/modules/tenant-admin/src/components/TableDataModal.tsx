@@ -90,18 +90,25 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
           key: '__row',
           header: '#',
           render: (_value, _row, index) => (
-            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{data.offset + index + 1}</span>
-          ),
-        },
-        ...data.columns.map((col): DataTableColumn<Record<string, unknown>> => ({
-          key: col,
-          header: col,
-          render: (value) => (
-            <span className="block max-w-[300px] truncate font-mono text-xs" title={String(value ?? '')}>
-              {formatCellValue(value)}
+            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+              {data.offset + index + 1}
             </span>
           ),
-        })),
+        },
+        ...data.columns.map(
+          (col): DataTableColumn<Record<string, unknown>> => ({
+            key: col,
+            header: col,
+            render: (value) => (
+              <span
+                className="block max-w-[300px] truncate font-mono text-xs"
+                title={String(value ?? '')}
+              >
+                {formatCellValue(value)}
+              </span>
+            ),
+          }),
+        ),
       ]
     : [];
 
@@ -114,15 +121,15 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
       bodyClassName="flex-1 min-h-0 overflow-hidden flex flex-col"
       title={
         <span className="flex items-center gap-3">
-          <span className="p-2 rounded-lg bg-blue-100">
-            <Database className="w-5 h-5 text-blue-600" />
+          <span className="p-2 rounded-lg bg-info-100 dark:bg-info-900/40">
+            <Database className="w-5 h-5 text-info-600 dark:text-info-400" />
           </span>
           <span>Table Data</span>
         </span>
       }
       description={
         <>
-          <span className="text-blue-600 font-medium">{schemaName}</span>
+          <span className="text-info-600 dark:text-info-400 font-medium">{schemaName}</span>
           <span className="mx-1">.</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{tableOnly}</span>
         </>
@@ -181,7 +188,9 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                 </button>
               </>
             )}
-            <Button variant="secondary" className="ml-2" onClick={onClose}>Close</Button>
+            <Button variant="secondary" className="ml-2" onClick={onClose}>
+              Close
+            </Button>
           </div>
         </div>
       }
@@ -197,11 +206,15 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
       {/* Error State */}
       {error && !loading && (
         <div className="flex flex-col items-center justify-center py-12 flex-1">
-          <div className="p-3 rounded-full bg-red-100">
-            <AlertCircle className="w-6 h-6 text-red-500" />
+          <div className="p-3 rounded-full bg-error-100 dark:bg-error-900/40">
+            <AlertCircle className="w-6 h-6 text-error-500" />
           </div>
-          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">Failed to load data</p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">{error}</p>
+          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+            Failed to load data
+          </p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">
+            {error}
+          </p>
         </div>
       )}
 

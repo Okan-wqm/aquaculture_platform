@@ -41,7 +41,7 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <select
           value={selectedTankId || ''}
           onChange={(e) => onTankSelect(e.target.value || null)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm min-w-[200px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm min-w-[200px] focus:ring-2 focus:ring-info-500 focus:border-info-500"
         >
           <option value="">Select Tank...</option>
           {tanksWithFish.map((tank) => (
@@ -62,7 +62,7 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
           <div className="flex flex-wrap gap-4">
             {selectedTank.batchNumber && (
               <div className="flex items-center gap-1">
-                <span className="text-blue-600 font-medium">Production:</span>
+                <span className="text-info-600 dark:text-info-400 font-medium">Production:</span>
                 <span className="text-gray-700 dark:text-gray-300">
                   {selectedTank.pieces?.toLocaleString() || 0} fish
                 </span>
@@ -78,7 +78,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
             )}
             {selectedTank.hasCleanerFish && (
               <div className="flex items-center gap-1">
-                <span className="text-green-600 font-medium">Cleaner Fish:</span>
+                <span className="text-success-600 dark:text-success-400 font-medium">
+                  Cleaner Fish:
+                </span>
                 <span className="text-gray-700 dark:text-gray-300">
                   {selectedTank.cleanerFishQuantity?.toLocaleString() || 0} fish
                 </span>
@@ -101,9 +103,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <button
           onClick={onMortality}
           disabled={!selectedTankId}
-          className="flex-1 px-4 py-2.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100
+          className="flex-1 px-4 py-2.5 bg-error-50 text-error-700 rounded-lg hover:bg-error-100
                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
-                     transition-colors border border-red-200 hover:border-red-300"
+                     transition-colors border border-error-200 hover:border-error-300"
         >
           <TriangleAlert className="w-4 h-4" aria-hidden="true" />
           Mortality
@@ -111,9 +113,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <button
           onClick={onTransfer}
           disabled={!selectedTankId}
-          className="flex-1 px-4 py-2.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100
+          className="flex-1 px-4 py-2.5 bg-info-50 text-info-700 rounded-lg hover:bg-info-100
                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
-                     transition-colors border border-blue-200 hover:border-blue-300"
+                     transition-colors border border-info-200 hover:border-info-300"
         >
           <ArrowLeftRight className="w-4 h-4" aria-hidden="true" />
           Transfer
@@ -121,9 +123,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <button
           onClick={onCull}
           disabled={!selectedTankId}
-          className="flex-1 px-4 py-2.5 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100
+          className="flex-1 px-4 py-2.5 bg-warning-50 text-warning-700 rounded-lg hover:bg-warning-100
                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
-                     transition-colors border border-orange-200 hover:border-orange-300"
+                     transition-colors border border-warning-200 hover:border-warning-300"
         >
           <Scissors className="w-4 h-4" aria-hidden="true" />
           Cull

@@ -48,23 +48,23 @@ const CATEGORIES = [
 ];
 
 const categoryColors: Record<string, string> = {
-  NET: 'bg-blue-100 text-blue-800',
-  ROPE: 'bg-amber-100 text-amber-800',
-  PPE: 'bg-orange-100 text-orange-800',
-  SPARE_PART: 'bg-purple-100 text-purple-800',
-  OXYGEN: 'bg-cyan-100 text-cyan-800',
-  PACKAGING: 'bg-lime-100 text-lime-800',
-  CLEANING: 'bg-teal-100 text-teal-800',
-  TOOL: 'bg-indigo-100 text-indigo-800',
-  ELECTRICAL: 'bg-yellow-100 text-yellow-800',
-  PIPE_FITTING: 'bg-rose-100 text-rose-800',
+  NET: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ROPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  SPARE_PART: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  OXYGEN: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PACKAGING: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  TOOL: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ELECTRICAL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PIPE_FITTING: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
+  AVAILABLE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -342,7 +342,7 @@ export const ConsumablesTab: React.FC = () => {
           <span
             className={
               item.quantity <= item.minStock
-                ? 'text-red-600 font-medium'
+                ? 'text-error-600 dark:text-error-400 font-medium'
                 : 'text-gray-900 dark:text-gray-100'
             }
           >
@@ -398,7 +398,7 @@ export const ConsumablesTab: React.FC = () => {
               placeholder="Search consumables..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -408,7 +408,7 @@ export const ConsumablesTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {CATEGORIES.map((c) => (
@@ -433,8 +433,10 @@ export const ConsumablesTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load consumables. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load consumables. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -533,7 +535,7 @@ export const ConsumablesTab: React.FC = () => {
                         onChange={(e) =>
                           setFormData((prev) => ({ ...prev, category: e.target.value }))
                         }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                       >
                         <option value="">Select</option>
                         {CATEGORIES.map((c) => (
@@ -586,7 +588,7 @@ export const ConsumablesTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -801,7 +803,7 @@ export const ConsumablesTab: React.FC = () => {
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([v, l]) => (
                       <option key={v} value={v}>

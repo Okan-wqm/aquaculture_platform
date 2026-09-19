@@ -27,11 +27,11 @@ import { Plus } from 'lucide-react';
 
 const typeColors: Record<string, string> = {
   WAREHOUSE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  COLD_ROOM: 'bg-blue-100 text-blue-800',
-  CHEMICAL_STORE: 'bg-orange-100 text-orange-800',
-  FEED_SILO: 'bg-amber-100 text-amber-800',
-  OUTDOOR: 'bg-green-100 text-green-800',
-  HAZMAT: 'bg-red-100 text-red-800',
+  COLD_ROOM: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  CHEMICAL_STORE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  FEED_SILO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUTDOOR: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  HAZMAT: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const typeLabels: Record<string, string> = {
@@ -197,8 +197,8 @@ export const StorageLocationsTab: React.FC = () => {
       )}
 
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load locations.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load locations.</p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -239,7 +239,7 @@ export const StorageLocationsTab: React.FC = () => {
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
-                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-error-500' : usagePercent > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
                       style={{ width: `${Math.min(usagePercent, 100)}%` }}
                     />
                   </div>
@@ -328,7 +328,7 @@ export const StorageLocationsTab: React.FC = () => {
                       type: e.target.value as StorageLocationType,
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                 >
                   {LOCATION_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -349,7 +349,7 @@ export const StorageLocationsTab: React.FC = () => {
                     required
                     value={formData.siteId}
                     onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select Site</option>
                     {sites.map((s) => (

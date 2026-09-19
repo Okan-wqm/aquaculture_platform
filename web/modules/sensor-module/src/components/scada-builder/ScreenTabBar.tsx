@@ -5,7 +5,13 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { useConfirm, useClickOutside, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  useClickOutside,
+  colors as themeColors,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -53,7 +59,9 @@ const ScreenTabBar: React.FC = () => {
   const setDefaultScreen = useScadaPackageStore((s) => s.setDefaultScreen);
 
   const [showAddDropdown, setShowAddDropdown] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; screenId: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; screenId: string } | null>(
+    null,
+  );
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
@@ -70,11 +78,14 @@ const ScreenTabBar: React.FC = () => {
   useClickOutside(addMenuRef, () => setShowAddDropdown(false), showAddDropdown);
   useClickOutside(contextMenuRef, () => setContextMenu(null), contextMenu !== null);
 
-  const handleAddScreen = useCallback((type: ScreenType) => {
-    const label = SCREEN_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
-    addScreen(type, label);
-    setShowAddDropdown(false);
-  }, [addScreen]);
+  const handleAddScreen = useCallback(
+    (type: ScreenType) => {
+      const label = SCREEN_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
+      addScreen(type, label);
+      setShowAddDropdown(false);
+    },
+    [addScreen],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent, screenId: string) => {
     e.preventDefault();
@@ -91,46 +102,70 @@ const ScreenTabBar: React.FC = () => {
     setContextMenu(null);
   }, []);
 
-  const handleRenameSubmit = useCallback((id: string) => {
-    if (renameValue.trim()) {
-      updateScreen(id, { name: renameValue.trim() });
-    }
-    setRenamingId(null);
-  }, [renameValue, updateScreen]);
+  const handleRenameSubmit = useCallback(
+    (id: string) => {
+      if (renameValue.trim()) {
+        updateScreen(id, { name: renameValue.trim() });
+      }
+      setRenamingId(null);
+    },
+    [renameValue, updateScreen],
+  );
 
-  const handleDuplicate = useCallback((screenId: string) => {
-    duplicateScreen(screenId);
-    setContextMenu(null);
-  }, [duplicateScreen]);
+  const handleDuplicate = useCallback(
+    (screenId: string) => {
+      duplicateScreen(screenId);
+      setContextMenu(null);
+    },
+    [duplicateScreen],
+  );
 
-  const handleDelete = useCallback(async (screenId: string): Promise<void> => {
-    if (!(await confirm({ title: 'Delete this screen?', message: 'Widgets placed on it are removed with it.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
-    removeScreen(screenId);
-    setContextMenu(null);
-  }, [removeScreen, confirm]);
+  const handleDelete = useCallback(
+    async (screenId: string): Promise<void> => {
+      if (
+        !(await confirm({
+          title: 'Delete this screen?',
+          message: 'Widgets placed on it are removed with it.',
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          variant: 'danger',
+        }))
+      )
+        return;
+      removeScreen(screenId);
+      setContextMenu(null);
+    },
+    [removeScreen, confirm],
+  );
 
-  const handleSetDefault = useCallback((screenId: string) => {
-    setDefaultScreen(screenId);
-    setContextMenu(null);
-  }, [setDefaultScreen]);
+  const handleSetDefault = useCallback(
+    (screenId: string) => {
+      setDefaultScreen(screenId);
+      setContextMenu(null);
+    },
+    [setDefaultScreen],
+  );
 
-  const handleReorder = useCallback((dragId: string, dropId: string) => {
-    const state = useScadaPackageStore.getState();
-    const screensCopy = [...state.screens];
-    const dragIdx = screensCopy.findIndex((s) => s.id === dragId);
-    const dropIdx = screensCopy.findIndex((s) => s.id === dropId);
-    if (dragIdx === -1 || dropIdx === -1) return;
+  const handleReorder = useCallback(
+    (dragId: string, dropId: string) => {
+      const state = useScadaPackageStore.getState();
+      const screensCopy = [...state.screens];
+      const dragIdx = screensCopy.findIndex((s) => s.id === dragId);
+      const dropIdx = screensCopy.findIndex((s) => s.id === dropId);
+      if (dragIdx === -1 || dropIdx === -1) return;
 
-    // Remove dragged screen and insert before drop target
-    const [dragged] = screensCopy.splice(dragIdx, 1);
-    const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
-    screensCopy.splice(insertIdx, 0, dragged);
+      // Remove dragged screen and insert before drop target
+      const [dragged] = screensCopy.splice(dragIdx, 1);
+      const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
+      screensCopy.splice(insertIdx, 0, dragged);
 
-    // Update sortOrder for all screens
-    screensCopy.forEach((screen, idx) => {
-      updateScreen(screen.id, { sortOrder: idx });
-    });
-  }, [updateScreen]);
+      // Update sortOrder for all screens
+      screensCopy.forEach((screen, idx) => {
+        updateScreen(screen.id, { sortOrder: idx });
+      });
+    },
+    [updateScreen],
+  );
 
   const isLastScreen = screens.length <= 1;
 
@@ -141,10 +176,18 @@ const ScreenTabBar: React.FC = () => {
 
         if (renamingId === screen.id) {
           return (
-            <Input key={screen.id} type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={() => handleRenameSubmit(screen.id)} onKeyDown={(e) => {
-        if (e.key === 'Enter') handleRenameSubmit(screen.id);
-        if (e.key === 'Escape') setRenamingId(null);
-       }} autoFocus />
+            <Input
+              key={screen.id}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => handleRenameSubmit(screen.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameSubmit(screen.id);
+                if (e.key === 'Escape') setRenamingId(null);
+              }}
+              autoFocus
+            />
           );
         }
 
@@ -187,35 +230,46 @@ const ScreenTabBar: React.FC = () => {
             }`}
             style={{
               opacity: draggedTabId === screen.id ? 0.5 : 1,
-              borderLeft: dropTargetId === screen.id ? `2px solid ${themeColors.primary[400]}` : undefined,
+              borderLeft:
+                dropTargetId === screen.id ? `2px solid ${themeColors.primary[400]}` : undefined,
               cursor: draggedTabId ? 'grabbing' : 'default',
             }}
           >
             {getScreenIcon(screen.icon)}
             <span>{screen.name}</span>
-            {screen.isDefault && (
-              <Star className="w-3 h-3 text-yellow-500 fill-yellow-400" />
-            )}
+            {screen.isDefault && <Star className="w-3 h-3 text-warning-500 fill-warning-400" />}
           </button>
         );
       })}
 
       {/* Add / Remove Screen Buttons */}
       <div className="relative flex items-center gap-0.5" ref={addMenuRef}>
-        <Button variant="ghost" iconOnly className="justify-center w-7 h-7" ref={addBtnRef} onClick={() => {
+        <Button
+          variant="ghost"
+          iconOnly
+          className="justify-center w-7 h-7"
+          ref={addBtnRef}
+          onClick={() => {
             if (!showAddDropdown && addBtnRef.current) {
               const rect = addBtnRef.current.getBoundingClientRect();
               setDropdownPos({ x: rect.left, y: rect.bottom + 4 });
             }
             setShowAddDropdown(!showAddDropdown);
-          }} aria-label="Add Screen" title="Add Screen"><Plus className="w-4 h-4" /></Button>
+          }}
+          aria-label="Add Screen"
+          title="Add Screen"
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
         <button
-          onClick={() => { if (activeScreenId) void handleDelete(activeScreenId); }}
+          onClick={() => {
+            if (activeScreenId) void handleDelete(activeScreenId);
+          }}
           disabled={isLastScreen}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             isLastScreen
               ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
-              : 'text-gray-500 dark:text-gray-400 hover:bg-red-100 hover:text-red-600'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-error-100 hover:text-error-600'
           }`}
           aria-label="Delete Screen"
           title="Delete Screen"
@@ -229,8 +283,15 @@ const ScreenTabBar: React.FC = () => {
             style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
           >
             {SCREEN_TYPE_OPTIONS.map((opt) => (
-              <Button variant="ghost" size="sm" key={opt.type} onClick={() => handleAddScreen(opt.type)}>{opt.icon}
-                {opt.label}</Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                key={opt.type}
+                onClick={() => handleAddScreen(opt.type)}
+              >
+                {opt.icon}
+                {opt.label}
+              </Button>
             ))}
           </div>
         )}
@@ -243,12 +304,22 @@ const ScreenTabBar: React.FC = () => {
           className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <Button variant="ghost" size="sm" onClick={() => {
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
               const screen = screens.find((s) => s.id === contextMenu.screenId);
               if (screen) handleRenameStart(screen);
-            }}>Rename</Button>
-          <Button variant="ghost" size="sm" onClick={() => handleDuplicate(contextMenu.screenId)}>Duplicate</Button>
-          <Button variant="ghost" size="sm" onClick={() => handleSetDefault(contextMenu.screenId)}>Set as Default</Button>
+            }}
+          >
+            Rename
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => handleDuplicate(contextMenu.screenId)}>
+            Duplicate
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => handleSetDefault(contextMenu.screenId)}>
+            Set as Default
+          </Button>
           <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => void handleDelete(contextMenu.screenId)}
@@ -256,7 +327,7 @@ const ScreenTabBar: React.FC = () => {
             className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
               isLastScreen
                 ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                : 'text-red-600 hover:bg-red-50'
+                : 'text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30'
             }`}
           >
             Delete

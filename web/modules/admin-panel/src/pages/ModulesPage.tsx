@@ -115,12 +115,16 @@ const ModulesPage: React.FC = () => {
 
   // Get category badge color based on module code
   const getCategoryColor = (code: string) => {
-    if (code.includes('FARM') || code.includes('CORE')) return 'bg-blue-100 text-blue-700';
-    if (code.includes('SENSOR') || code.includes('IOT')) return 'bg-green-100 text-green-700';
-    if (code.includes('ALERT') || code.includes('AUTO')) return 'bg-purple-100 text-purple-700';
+    if (code.includes('FARM') || code.includes('CORE'))
+      return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+    if (code.includes('SENSOR') || code.includes('IOT'))
+      return 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300';
+    if (code.includes('ALERT') || code.includes('AUTO'))
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     if (code.includes('ANALYTICS') || code.includes('REPORT'))
-      return 'bg-orange-100 text-orange-700';
-    if (code.includes('HR') || code.includes('EMPLOYEE')) return 'bg-pink-100 text-pink-700';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
+    if (code.includes('HR') || code.includes('EMPLOYEE'))
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
   };
 
@@ -141,7 +145,7 @@ const ModulesPage: React.FC = () => {
         title="System Modules"
         description="Manage platform modules and their availability to tenants"
         actions={
-          <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+          <button className="inline-flex items-center px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors">
             <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
             Add Module
           </button>
@@ -159,7 +163,7 @@ const ModulesPage: React.FC = () => {
                 value={searchTerm}
                 onChange={handleSearchChange}
                 onKeyDown={handleSearchKeyDown}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
               />
               <SearchIcon
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
@@ -176,7 +180,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === undefined && isCoreFilter === undefined
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -190,7 +194,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === true
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -204,7 +208,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isCoreFilter === true
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -218,7 +222,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === false
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -230,10 +234,13 @@ const ModulesPage: React.FC = () => {
 
       {/* Toggle error */}
       {toggleError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <CircleX className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
-          <p className="text-sm text-red-700 flex-1">{toggleError}</p>
-          <button onClick={() => toggleModule.reset()} className="text-red-400 hover:text-red-600">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-start gap-3">
+          <CircleX className="w-5 h-5 text-error-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <p className="text-sm text-error-700 dark:text-error-300 flex-1">{toggleError}</p>
+          <button
+            onClick={() => toggleModule.reset()}
+            className="text-error-400 hover:text-error-600 dark:hover:text-error-300"
+          >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
@@ -248,19 +255,19 @@ const ModulesPage: React.FC = () => {
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats?.activeModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Active Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-purple-600">
+          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {stats?.coreModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Core Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {stats?.totalAssignments ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Assignments</div>
@@ -317,12 +324,12 @@ const ModulesPage: React.FC = () => {
                     {getCategoryName(module.code)}
                   </span>
                   {module.price > 0 && (
-                    <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded">
+                    <span className="px-2 py-1 text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded">
                       Premium
                     </span>
                   )}
                   {module.isCore && (
-                    <span className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded">
+                    <span className="px-2 py-1 text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 rounded">
                       Core
                     </span>
                   )}
@@ -331,7 +338,7 @@ const ModulesPage: React.FC = () => {
                   onClick={() => handleToggleModule(module)}
                   disabled={togglingModuleId === module.id}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    module.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                    module.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
                   } ${togglingModuleId === module.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
@@ -354,7 +361,9 @@ const ModulesPage: React.FC = () => {
                 <span className="text-gray-500 dark:text-gray-400">
                   {module.price > 0 ? `$${module.price}/mo` : 'Free'}
                 </span>
-                <span className="text-blue-600 font-medium">{module.tenantsCount} tenants</span>
+                <span className="text-info-600 dark:text-info-400 font-medium">
+                  {module.tenantsCount} tenants
+                </span>
               </div>
 
               {module.defaultRoute && (

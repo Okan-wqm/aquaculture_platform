@@ -323,8 +323,8 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
           />
         </div>
       </div>
-      <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
-        <span className="text-sm text-blue-700 font-medium">{weekLabel}</span>
+      <div className="px-3 py-2 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-md">
+        <span className="text-sm text-info-700 dark:text-info-300 font-medium">{weekLabel}</span>
       </div>
 
       <div>
@@ -337,12 +337,12 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             onClick={() => onChange({ reportType: 'planned' })}
             className={`p-4 border-2 rounded-lg text-center ${
               formData.reportType === 'planned'
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
             }`}
           >
-            <div className="p-3 bg-blue-100 rounded-lg inline-block mb-2">
-              <Calendar className="w-6 h-6 text-blue-600" aria-hidden="true" />
+            <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg inline-block mb-2">
+              <Calendar className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
             </div>
             <div className="font-medium text-gray-900 dark:text-gray-100">Planned Slaughter</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Planlagt Slakt</div>
@@ -440,7 +440,7 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Regulatory Metadata
           </h4>
-          <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+          <span className="px-2 py-0.5 text-xs bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded">
             Mattilsynet
           </span>
         </div>
@@ -525,14 +525,14 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Slaughter Facility
           </h4>
-          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+          <span className="px-2 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
             Required
           </span>
         </div>
         {facilitiesLoading ? (
           <p className="text-xs text-gray-400 dark:text-gray-500">Loading facilities…</p>
         ) : facilities.length === 0 ? (
-          <p className="text-xs text-amber-600">
+          <p className="text-xs text-warning-600 dark:text-warning-400">
             No slaughter facilities registered. Add one under Setup → Slaughter Facilities — the
             catalog is the source of the approval number (godkjenningsnummer) the report submits.
           </p>
@@ -680,15 +680,19 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
       </div>
 
       {/* Summary */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <span className="text-sm text-blue-800">Total Planned Fish</span>
-            <div className="text-2xl font-bold text-blue-700">{formatNumber(totalQuantity)}</div>
+            <span className="text-sm text-info-800 dark:text-info-200">Total Planned Fish</span>
+            <div className="text-2xl font-bold text-info-700 dark:text-info-300">
+              {formatNumber(totalQuantity)}
+            </div>
           </div>
           <div>
-            <span className="text-sm text-blue-800">Total Planned Biomass</span>
-            <div className="text-2xl font-bold text-blue-700">{formatWeight(totalBiomass)}</div>
+            <span className="text-sm text-info-800 dark:text-info-200">Total Planned Biomass</span>
+            <div className="text-2xl font-bold text-info-700 dark:text-info-300">
+              {formatWeight(totalBiomass)}
+            </div>
           </div>
         </div>
       </div>
@@ -711,7 +715,7 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                   </span>
                   <span className="text-xs text-gray-400 dark:text-gray-500">{dayDate}</span>
                   {dayEntries.length > 0 && (
-                    <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                    <span className="px-1.5 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded">
                       {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
                     </span>
                   )}
@@ -925,17 +929,21 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
       </div>
 
       {/* Summary */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <span className="text-sm text-green-800">Total Harvested Fish</span>
-            <div className="text-2xl font-bold text-green-700">
+            <span className="text-sm text-success-800 dark:text-success-200">
+              Total Harvested Fish
+            </span>
+            <div className="text-2xl font-bold text-success-700 dark:text-success-300">
               {formatNumber(formData.summary.totalCompleted)}
             </div>
           </div>
           <div>
-            <span className="text-sm text-green-800">Total Harvested Biomass</span>
-            <div className="text-2xl font-bold text-green-700">
+            <span className="text-sm text-success-800 dark:text-success-200">
+              Total Harvested Biomass
+            </span>
+            <div className="text-2xl font-bold text-success-700 dark:text-success-300">
               {formatWeight(formData.summary.completedBiomassKg)}
             </div>
           </div>
@@ -1078,7 +1086,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             </div>
             <span
               className={`px-2 py-0.5 text-xs font-medium rounded ${
-                gradeValid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                gradeValid
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+                  : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
               }`}
             >
               {gradeSum}% / 100%
@@ -1151,7 +1161,7 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             </div>
           </div>
           {!gradeValid && gradeSum > 0 && (
-            <p className="text-xs text-red-600 mt-2">
+            <p className="text-xs text-error-600 dark:text-error-400 mt-2">
               Grade percentages must sum to exactly 100% (currently {gradeSum}%)
             </p>
           )}
@@ -1160,28 +1170,28 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             <div className="flex h-4 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
               {formData.gradeDistribution.superior > 0 && (
                 <div
-                  className="bg-green-500 transition-all"
+                  className="bg-success-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.superior / gradeSum) * 100}%` }}
                   title={`Superior: ${formData.gradeDistribution.superior}%`}
                 />
               )}
               {formData.gradeDistribution.ordinary > 0 && (
                 <div
-                  className="bg-blue-500 transition-all"
+                  className="bg-info-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.ordinary / gradeSum) * 100}%` }}
                   title={`Ordinary: ${formData.gradeDistribution.ordinary}%`}
                 />
               )}
               {formData.gradeDistribution.production > 0 && (
                 <div
-                  className="bg-yellow-500 transition-all"
+                  className="bg-warning-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.production / gradeSum) * 100}%` }}
                   title={`Production: ${formData.gradeDistribution.production}%`}
                 />
               )}
               {formData.gradeDistribution.discard > 0 && (
                 <div
-                  className="bg-red-500 transition-all"
+                  className="bg-error-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.discard / gradeSum) * 100}%` }}
                   title={`Discard: ${formData.gradeDistribution.discard}%`}
                 />
@@ -1191,16 +1201,16 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
           {gradeSum > 0 && (
             <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Superior
+                <span className="w-2 h-2 rounded-full bg-success-500 inline-block" /> Superior
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Ordinary
+                <span className="w-2 h-2 rounded-full bg-info-500 inline-block" /> Ordinary
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> Production
+                <span className="w-2 h-2 rounded-full bg-warning-500 inline-block" /> Production
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Discard
+                <span className="w-2 h-2 rounded-full bg-error-500 inline-block" /> Discard
               </span>
             </div>
           )}
@@ -1237,8 +1247,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Regulatory Metadata */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-yellow-800 mb-2">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200 mb-2">
           Regulatory Metadata (Mattilsynet)
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -1270,15 +1280,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">{siteName}</p>
-        <p className="text-sm text-blue-700 font-medium mt-1">{weekLabel}</p>
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">{siteName}</p>
+        <p className="text-sm text-info-700 dark:text-info-300 font-medium mt-1">{weekLabel}</p>
         <span
           className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
             formData.reportType === 'planned'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-green-100 text-green-700'
+              ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+              : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
           }`}
         >
           {formData.reportType === 'planned'
@@ -1288,8 +1298,10 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Slaughter Facility */}
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-purple-800 uppercase mb-2">Slaughter Facility</h5>
+      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-accent-800 dark:text-accent-200 uppercase mb-2">
+          Slaughter Facility
+        </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Facility Name:</span>
@@ -1309,25 +1321,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatNumber(formData.summary.totalPlanned)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Planned Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatWeight(formData.summary.plannedBiomassKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Planned Biomass</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatNumber(formData.summary.totalCompleted)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Completed Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatWeight(formData.summary.completedBiomassKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Completed Biomass</div>
@@ -1337,16 +1349,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Variance */}
       {formData.summary.totalPlanned > 0 && formData.summary.totalCompleted > 0 && (
         <div
-          className={`rounded-lg p-4 ${variance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}
+          className={`rounded-lg p-4 ${variance >= 0 ? 'bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800' : 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'}`}
         >
           <div className="flex items-center justify-between">
             <span
-              className={`text-sm font-medium ${variance >= 0 ? 'text-green-800' : 'text-red-800'}`}
+              className={`text-sm font-medium ${variance >= 0 ? 'text-success-800 dark:text-success-200' : 'text-error-800 dark:text-error-200'}`}
             >
               Plan vs Actual Variance
             </span>
             <span
-              className={`text-xl font-bold ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}
+              className={`text-xl font-bold ${variance >= 0 ? 'text-success-700 dark:text-success-300' : 'text-error-700 dark:text-error-300'}`}
             >
               {variance > 0 ? '+' : ''}
               {variance.toFixed(1)}%
@@ -1446,26 +1458,26 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             Quality Grade Distribution
           </h5>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="text-center p-2 bg-green-50 rounded">
-              <div className="text-lg font-bold text-green-700">
+            <div className="text-center p-2 bg-success-50 dark:bg-success-900/20 rounded">
+              <div className="text-lg font-bold text-success-700 dark:text-success-300">
                 {formData.gradeDistribution.superior}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Superior</div>
             </div>
-            <div className="text-center p-2 bg-blue-50 rounded">
-              <div className="text-lg font-bold text-blue-700">
+            <div className="text-center p-2 bg-info-50 dark:bg-info-900/20 rounded">
+              <div className="text-lg font-bold text-info-700 dark:text-info-300">
                 {formData.gradeDistribution.ordinary}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Ordinary</div>
             </div>
-            <div className="text-center p-2 bg-yellow-50 rounded">
-              <div className="text-lg font-bold text-yellow-700">
+            <div className="text-center p-2 bg-warning-50 dark:bg-warning-900/20 rounded">
+              <div className="text-lg font-bold text-warning-700 dark:text-warning-300">
                 {formData.gradeDistribution.production}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Production</div>
             </div>
-            <div className="text-center p-2 bg-red-50 rounded">
-              <div className="text-lg font-bold text-red-700">
+            <div className="text-center p-2 bg-error-50 dark:bg-error-900/20 rounded">
+              <div className="text-lg font-bold text-error-700 dark:text-error-300">
                 {formData.gradeDistribution.discard}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Discard</div>
@@ -1475,25 +1487,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="flex h-3 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
             {formData.gradeDistribution.superior > 0 && (
               <div
-                className="bg-green-500"
+                className="bg-success-500"
                 style={{ width: `${formData.gradeDistribution.superior}%` }}
               />
             )}
             {formData.gradeDistribution.ordinary > 0 && (
               <div
-                className="bg-blue-500"
+                className="bg-info-500"
                 style={{ width: `${formData.gradeDistribution.ordinary}%` }}
               />
             )}
             {formData.gradeDistribution.production > 0 && (
               <div
-                className="bg-yellow-500"
+                className="bg-warning-500"
                 style={{ width: `${formData.gradeDistribution.production}%` }}
               />
             )}
             {formData.gradeDistribution.discard > 0 && (
               <div
-                className="bg-red-500"
+                className="bg-error-500"
                 style={{ width: `${formData.gradeDistribution.discard}%` }}
               />
             )}

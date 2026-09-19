@@ -58,10 +58,13 @@ const ResultTab: React.FC = () => {
   };
 
   // Group fertilizers by tank
-  const fertByTank = (result?.fertilizers ?? []).reduce<Record<string, FertilizerAmount[]>>((acc, f) => {
-    (acc[f.tank] = acc[f.tank] || []).push(f);
-    return acc;
-  }, {});
+  const fertByTank = (result?.fertilizers ?? []).reduce<Record<string, FertilizerAmount[]>>(
+    (acc, f) => {
+      (acc[f.tank] = acc[f.tank] || []).push(f);
+      return acc;
+    },
+    {},
+  );
 
   // Macro and micro rows share a shape; the columns read the calculation once it exists.
   type NutrientRow = (typeof MACRO_ROWS)[number];
@@ -93,7 +96,7 @@ const ResultTab: React.FC = () => {
       header: 'Drip Solution',
       align: 'right',
       render: (_value, row) => fmt(calc.dripSolution[row.key]),
-    }
+    },
   ];
 
   // The stock-solution list is grouped by tank; DataTable has no rowSpan, so the
@@ -103,10 +106,10 @@ const ResultTab: React.FC = () => {
     (fertByTank[tank] ?? []).map((f, i) => ({ ...f, tank, firstOfTank: i === 0 })),
   );
   const TANK_BADGE: Record<string, string> = {
-    A: 'bg-blue-100 text-blue-700',
-    B: 'bg-purple-100 text-purple-700',
-    Acid: 'bg-red-100 text-red-700',
-    Micro: 'bg-emerald-100 text-emerald-700',
+    A: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    B: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+    Acid: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+    Micro: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
   };
   const fertilizerColumns: DataTableColumn<FertilizerRow>[] = [
     {
@@ -116,18 +119,25 @@ const ResultTab: React.FC = () => {
         row.firstOfTank ? (
           <span
             className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-              TANK_BADGE[row.tank] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+              TANK_BADGE[row.tank] ??
+              'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
             }`}
           >
             {row.tank.charAt(0)}
           </span>
         ) : null,
     },
-    { key: 'name', header: 'Fertilizer', render: (_value, row) => <span className="text-gray-700 dark:text-gray-300">{row.name}</span> },
+    {
+      key: 'name',
+      header: 'Fertilizer',
+      render: (_value, row) => <span className="text-gray-700 dark:text-gray-300">{row.name}</span>,
+    },
     {
       key: 'formula',
       header: 'Formula',
-      render: (_value, row) => <span className="text-gray-500 dark:text-gray-400 text-xs font-mono">{row.formula}</span>,
+      render: (_value, row) => (
+        <span className="text-gray-500 dark:text-gray-400 text-xs font-mono">{row.formula}</span>
+      ),
     },
     {
       key: 'gramsPerLiter',
@@ -137,9 +147,11 @@ const ResultTab: React.FC = () => {
       // instead of displaying a plainly wrong dosage string.
       render: (_value, row) =>
         isFinite(row.gramsPerLiter) ? (
-          <span className="font-medium text-gray-900 dark:text-gray-100">{row.gramsPerLiter.toFixed(3)}</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {row.gramsPerLiter.toFixed(3)}
+          </span>
         ) : (
-          <span className="text-red-600 font-semibold">Error</span>
+          <span className="text-error-600 dark:text-error-400 font-semibold">Error</span>
         ),
     },
   ];
@@ -152,21 +164,27 @@ const ResultTab: React.FC = () => {
           onClick={save}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             isDirty
-              ? 'bg-green-600 text-white hover:bg-green-700'
+              ? 'bg-success-600 text-white hover:bg-success-700'
               : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
           }`}
           disabled={!isDirty}
         >
           Save Configuration
         </button>
-        <Button variant="secondary" onClick={handleDownload}>Download</Button>
-        <Button variant="secondary" onClick={handlePrint}>Print</Button>
+        <Button variant="secondary" onClick={handleDownload}>
+          Download
+        </Button>
+        <Button variant="secondary" onClick={handlePrint}>
+          Print
+        </Button>
       </div>
 
       {/* Info Summary */}
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Configuration Summary</h3>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            Configuration Summary
+          </h3>
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
@@ -206,7 +224,7 @@ const ResultTab: React.FC = () => {
 
       {/* No Profile Warning */}
       {!profile && (
-        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+        <div className="px-4 py-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-700 dark:text-warning-300">
           No nutrient profile found for {basic.species} / {basic.cultivationStage} / {basic.season}.
           Results cannot be calculated. Go to Setup &gt; Nutrient Profiles to create one.
         </div>
@@ -214,9 +232,11 @@ const ResultTab: React.FC = () => {
 
       {/* Warnings */}
       {result && result.warnings.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-amber-800 mb-2">Warnings</h4>
-          <ul className="text-xs text-amber-700 space-y-1">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+          <h4 className="text-sm font-semibold text-warning-800 dark:text-warning-200 mb-2">
+            Warnings
+          </h4>
+          <ul className="text-xs text-warning-700 dark:text-warning-300 space-y-1">
             {result.warnings.map((w, i) => (
               <li key={i}>- {w}</li>
             ))}
@@ -230,18 +250,24 @@ const ResultTab: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
               <span className="text-xs text-gray-500 dark:text-gray-400 block">Target EC</span>
-              <span className="text-xl font-bold text-green-700">{fmt(result.ec)} mS/cm</span>
+              <span className="text-xl font-bold text-success-700 dark:text-success-300">
+                {fmt(result.ec)} mS/cm
+              </span>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
               <span className="text-xs text-gray-500 dark:text-gray-400 block">Target pH</span>
-              <span className="text-xl font-bold text-blue-700">{fmt(result.ph, 1)}</span>
+              <span className="text-xl font-bold text-info-700 dark:text-info-300">
+                {fmt(result.ph, 1)}
+              </span>
             </div>
           </div>
 
           {/* Nutrient Composition - Macro */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Macronutrient Composition</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                Macronutrient Composition
+              </h3>
             </div>
             <DataTable<NutrientRow>
               data={MACRO_ROWS}
@@ -257,7 +283,9 @@ const ResultTab: React.FC = () => {
           {/* Micronutrient Composition */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Micronutrient Composition</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                Micronutrient Composition
+              </h3>
             </div>
             <DataTable<NutrientRow>
               data={MICRO_ROWS}
@@ -273,7 +301,9 @@ const ResultTab: React.FC = () => {
           {/* Fertilizer Amounts */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Stock Solution - Fertilizer Amounts</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                Stock Solution - Fertilizer Amounts
+              </h3>
             </div>
             <DataTable<FertilizerRow>
               data={fertilizerRows}
@@ -290,22 +320,35 @@ const ResultTab: React.FC = () => {
 
           {/* Ion Balance */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Ion Balance Check</h3>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">
+              Ion Balance Check
+            </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
-                <span className="text-xs text-gray-500 dark:text-gray-400 block">Total Cations</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmt(result.ionBalance.totalCations)} meq/L</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 block">
+                  Total Cations
+                </span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                  {fmt(result.ionBalance.totalCations)} meq/L
+                </span>
               </div>
               <div>
                 <span className="text-xs text-gray-500 dark:text-gray-400 block">Total Anions</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmt(result.ionBalance.totalAnions)} meq/L</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                  {fmt(result.ionBalance.totalAnions)} meq/L
+                </span>
               </div>
               <div>
                 <span className="text-xs text-gray-500 dark:text-gray-400 block">Balance</span>
-                <span className={`text-sm font-bold ${
-                  Math.abs(result.ionBalance.balancePercent) <= 5 ? 'text-green-700' : 'text-amber-700'
-                }`}>
-                  {result.ionBalance.balancePercent > 0 ? '+' : ''}{fmt(result.ionBalance.balancePercent, 1)}%
+                <span
+                  className={`text-sm font-bold ${
+                    Math.abs(result.ionBalance.balancePercent) <= 5
+                      ? 'text-success-700 dark:text-success-300'
+                      : 'text-warning-700 dark:text-warning-300'
+                  }`}
+                >
+                  {result.ionBalance.balancePercent > 0 ? '+' : ''}
+                  {fmt(result.ionBalance.balancePercent, 1)}%
                 </span>
               </div>
             </div>

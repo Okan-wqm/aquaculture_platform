@@ -48,7 +48,12 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
       if (entry) {
         await updateEntry.mutateAsync({
           id: entry.id,
-          input: { categoryId, entryDate, amount: parsedAmount, description: description || undefined },
+          input: {
+            categoryId,
+            entryDate,
+            amount: parsedAmount,
+            description: description || undefined,
+          },
         });
       } else {
         await createEntry.mutateAsync({
@@ -72,14 +77,21 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
       size="md"
       footer={
         <div className="flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" form={formId} disabled={isSaving}>{isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add expense'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form={formId} disabled={isSaving}>
+            {isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add expense'}
+          </Button>
         </div>
       }
     >
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="hr-expense-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="hr-expense-category"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Category
           </label>
           <select
@@ -99,26 +111,59 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label htmlFor="hr-expense-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="hr-expense-date"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Date
             </label>
-            <Input fullWidth id="hr-expense-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />
+            <Input
+              fullWidth
+              id="hr-expense-date"
+              type="date"
+              value={entryDate}
+              onChange={(e) => setEntryDate(e.target.value)}
+              required
+            />
           </div>
           <div>
-            <label htmlFor="hr-expense-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="hr-expense-amount"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Amount
             </label>
-            <Input fullWidth id="hr-expense-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" required />
+            <Input
+              fullWidth
+              id="hr-expense-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+            />
           </div>
         </div>
         <div>
-          <label htmlFor="hr-expense-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="hr-expense-description"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Description
           </label>
-          <Textarea fullWidth id="hr-expense-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional note (e.g. Q1 safety training)" />
+          <Textarea
+            fullWidth
+            id="hr-expense-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder="Optional note (e.g. Q1 safety training)"
+          />
         </div>
         {errorMessage && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+          <div className="rounded-md bg-error-50 p-3 text-sm text-error-700 dark:bg-error-900/30 dark:text-error-300">
             {errorMessage}
           </div>
         )}

@@ -80,16 +80,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const getCategoryDot = (category: string) => {
     const colors: Record<string, string> = {
-      FEEDING: 'bg-orange-400',
-      WATER_QUALITY: 'bg-blue-400',
-      HEALTH_CHECK: 'bg-red-400',
+      FEEDING: 'bg-warning-400',
+      WATER_QUALITY: 'bg-info-400',
+      HEALTH_CHECK: 'bg-error-400',
       EQUIPMENT_MAINTENANCE: 'bg-gray-400',
-      STOCK_MANAGEMENT: 'bg-purple-400',
-      CLEANING: 'bg-cyan-400',
-      REGULATORY: 'bg-indigo-400',
-      HARVEST: 'bg-green-400',
-      ENVIRONMENTAL: 'bg-emerald-400',
-      SAFETY: 'bg-yellow-400',
+      STOCK_MANAGEMENT: 'bg-accent-400',
+      CLEANING: 'bg-info-400',
+      REGULATORY: 'bg-primary-400',
+      HARVEST: 'bg-success-400',
+      ENVIRONMENTAL: 'bg-success-400',
+      SAFETY: 'bg-warning-400',
       GENERAL: 'bg-slate-400',
     };
     return colors[category] || 'bg-gray-400';
@@ -149,13 +149,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               return (
                 <div
                   key={i}
-                  className={`p-3 border-r last:border-r-0 border-gray-200 dark:border-gray-700 min-h-[200px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-3 border-r last:border-r-0 border-gray-200 dark:border-gray-700 min-h-[200px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-info-50 dark:bg-info-900/20' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
                   <div className="text-center mb-2">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{dayNames[i]}</p>
                     <p
-                      className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900 dark:text-gray-100'}`}
+                      className={`text-lg font-semibold ${isToday ? 'text-info-600 dark:text-info-400' : 'text-gray-900 dark:text-gray-100'}`}
                     >
                       {day.getDate()}
                     </p>
@@ -175,9 +175,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                         }}
                         className={`text-xs p-1.5 rounded cursor-pointer hover:opacity-80 ${
                           task.status === 'COMPLETED'
-                            ? 'bg-green-50 text-green-700 line-through'
+                            ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 line-through'
                             : task.status === 'OVERDUE'
-                              ? 'bg-red-50 text-red-700'
+                              ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300'
                               : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                         }`}
                       >
@@ -237,11 +237,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               return (
                 <div
                   key={i}
-                  className={`p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-info-50 dark:bg-info-900/20' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
                   <p
-                    className={`text-sm ${isToday ? 'font-bold text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}
+                    className={`text-sm ${isToday ? 'font-bold text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-300'}`}
                   >
                     {day.getDate()}
                   </p>

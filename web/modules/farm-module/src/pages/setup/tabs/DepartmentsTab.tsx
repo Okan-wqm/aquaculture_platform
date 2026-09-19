@@ -39,14 +39,14 @@ const typeLabels: Record<string, string> = {
 };
 
 const typeColors: Record<string, string> = {
-  HATCHERY: 'bg-purple-100 text-purple-800',
-  NURSERY: 'bg-cyan-100 text-cyan-800',
-  GROW_OUT: 'bg-green-100 text-green-800',
-  BROODSTOCK: 'bg-blue-100 text-blue-800',
-  QUARANTINE: 'bg-red-100 text-red-800',
-  PROCESSING: 'bg-orange-100 text-orange-800',
+  HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  NURSERY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  GROW_OUT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  BROODSTOCK: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  PROCESSING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   STORAGE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  LABORATORY: 'bg-indigo-100 text-indigo-800',
+  LABORATORY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
 };
 
 interface DepartmentFormData {
@@ -162,9 +162,9 @@ export const DepartmentsTab: React.FC = () => {
   };
 
   const getLoadColor = (percentage: number) => {
-    if (percentage >= 90) return 'bg-red-500';
-    if (percentage >= 70) return 'bg-yellow-500';
-    return 'bg-green-500';
+    if (percentage >= 90) return 'bg-error-500';
+    if (percentage >= 70) return 'bg-warning-500';
+    return 'bg-success-500';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -287,7 +287,9 @@ export const DepartmentsTab: React.FC = () => {
           {dept.site?.name ? (
             <span className="text-gray-500 dark:text-gray-400">{dept.site.name}</span>
           ) : (
-            <span className="text-red-600 italic font-medium">Not associated with any site</span>
+            <span className="text-error-600 dark:text-error-400 italic font-medium">
+              Not associated with any site
+            </span>
           )}
         </>
       ),
@@ -353,7 +355,7 @@ export const DepartmentsTab: React.FC = () => {
               placeholder="Search departments..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -363,7 +365,7 @@ export const DepartmentsTab: React.FC = () => {
           <select
             value={selectedSite}
             onChange={(e) => setSelectedSite(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Sites</option>
             <option value="orphaned">Orphaned (No Site)</option>
@@ -397,8 +399,10 @@ export const DepartmentsTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load departments. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load departments. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -407,9 +411,9 @@ export const DepartmentsTab: React.FC = () => {
 
       {/* Orphaned Departments Warning */}
       {orphanedCount > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <TriangleAlert className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" aria-hidden="true" />
-          <span className="text-sm text-red-700">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center">
+          <TriangleAlert className="w-5 h-5 text-error-500 mr-2 flex-shrink-0" aria-hidden="true" />
+          <span className="text-sm text-error-700 dark:text-error-300">
             {orphanedCount} department(s) are not associated with any site
           </span>
         </div>
@@ -468,9 +472,11 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.name && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, name: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.name ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
-              {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
+              {formErrors.name && (
+                <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.name}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -485,9 +491,11 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.code && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, code: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.code ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
-              {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
+              {formErrors.code && (
+                <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.code}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -496,7 +504,7 @@ export const DepartmentsTab: React.FC = () => {
               <select
                 value={formData.type}
                 onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
               >
                 {Object.entries(typeLabels).map(([key, label]) => (
                   <option key={key} value={key}>
@@ -516,7 +524,7 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.siteId && e.target.value)
                     setFormErrors((prev) => ({ ...prev, siteId: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.siteId ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
                 required
               >
                 <option value="">Select Site...</option>
@@ -527,7 +535,9 @@ export const DepartmentsTab: React.FC = () => {
                 ))}
               </select>
               {formErrors.siteId && (
-                <p className="mt-1 text-sm text-red-600">{formErrors.siteId}</p>
+                <p className="mt-1 text-sm text-error-600 dark:text-error-400">
+                  {formErrors.siteId}
+                </p>
               )}
             </div>
             <div>

@@ -275,11 +275,13 @@ export const MaintenancePage: React.FC = () => {
 
   const getTypeBadge = (type: string) => {
     const colors: Record<string, string> = {
-      scheduled: 'bg-blue-100 text-blue-800',
-      emergency: 'bg-red-100 text-red-800',
-      rolling_update: 'bg-purple-100 text-purple-800',
-      database_migration: 'bg-indigo-100 text-indigo-800',
-      security_patch: 'bg-orange-100 text-orange-800',
+      scheduled: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+      emergency: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+      rolling_update: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+      database_migration:
+        'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+      security_patch:
+        'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
     };
     return colors[type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };
@@ -358,19 +360,19 @@ export const MaintenancePage: React.FC = () => {
 
       {/* Active Maintenance Banner */}
       {activeMaintenance.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
-            <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse mt-1.5" />
+            <div className="w-3 h-3 bg-warning-500 rounded-full animate-pulse mt-1.5" />
             <div className="flex-1">
-              <div className="font-semibold text-yellow-800">
+              <div className="font-semibold text-warning-800 dark:text-warning-200">
                 {activeMaintenance.length} Maintenance{' '}
                 {activeMaintenance.length === 1 ? 'Window' : 'Windows'} In Progress
               </div>
               {activeMaintenance.map((m) => (
-                <div key={m.id} className="text-sm text-yellow-700 mt-1">
+                <div key={m.id} className="text-sm text-warning-700 dark:text-warning-300 mt-1">
                   <span className="font-medium">{m.title}</span>
                   {m.actualStart && (
-                    <span className="ml-2 text-yellow-600">
+                    <span className="ml-2 text-warning-600 dark:text-warning-400">
                       - Started {formatDateTime(m.actualStart)}
                     </span>
                   )}
@@ -384,15 +386,21 @@ export const MaintenancePage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-blue-600">{stats.scheduled}</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+            {stats.scheduled}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Scheduled</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.inProgress}</div>
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {stats.inProgress}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+            {stats.completed}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Completed</div>
         </Card>
         <Card className="p-4">
@@ -412,13 +420,13 @@ export const MaintenancePage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`py-3 border-b-2 font-medium text-sm capitalize transition-colors ${
                 activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-info-500 text-info-600 dark:text-info-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               {tab}
               {tab === 'active' && activeMaintenance.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                <span className="ml-2 px-2 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 text-xs rounded-full">
                   {activeMaintenance.length}
                 </span>
               )}
@@ -488,7 +496,7 @@ export const MaintenancePage: React.FC = () => {
                     {maintenance.actualStart && (
                       <div>
                         <div className="text-gray-500 dark:text-gray-400">Actual Start</div>
-                        <div className="font-medium text-yellow-600">
+                        <div className="font-medium text-warning-600 dark:text-warning-400">
                           {formatDateTime(maintenance.actualStart)}
                         </div>
                       </div>
@@ -496,7 +504,7 @@ export const MaintenancePage: React.FC = () => {
                     {maintenance.actualEnd && (
                       <div>
                         <div className="text-gray-500 dark:text-gray-400">Actual End</div>
-                        <div className="font-medium text-green-600">
+                        <div className="font-medium text-success-600 dark:text-success-400">
                           {formatDateTime(maintenance.actualEnd)}
                         </div>
                       </div>
@@ -515,10 +523,10 @@ export const MaintenancePage: React.FC = () => {
                             key={idx}
                             className={`px-2 py-1 rounded text-xs font-medium ${
                               service.status === 'unavailable'
-                                ? 'bg-red-100 text-red-800'
+                                ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                                 : service.status === 'degraded'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-green-100 text-green-800'
+                                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
+                                  : 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                             }`}
                           >
                             {service.name}: {service.status}
@@ -543,13 +551,13 @@ export const MaintenancePage: React.FC = () => {
                   {/* Flags */}
                   <div className="flex flex-wrap gap-3 mt-3 text-xs">
                     {maintenance.allowReadOnlyAccess && (
-                      <span className="flex items-center gap-1 text-green-600">
+                      <span className="flex items-center gap-1 text-success-600 dark:text-success-400">
                         <Check className="w-4 h-4" aria-hidden="true" />
                         Read-only access allowed
                       </span>
                     )}
                     {maintenance.bypassForSuperAdmins && (
-                      <span className="flex items-center gap-1 text-blue-600">
+                      <span className="flex items-center gap-1 text-info-600 dark:text-info-400">
                         <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                         Super admin bypass
                       </span>
@@ -652,7 +660,7 @@ export const MaintenancePage: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Title <span className="text-red-500">*</span>
+                Title <span className="text-error-500">*</span>
               </label>
               <Input
                 value={formData.title}
@@ -669,7 +677,7 @@ export const MaintenancePage: React.FC = () => {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
                 placeholder="What will be done during this maintenance?"
               />
             </div>
@@ -715,7 +723,7 @@ export const MaintenancePage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Start Date & Time <span className="text-red-500">*</span>
+                  Start Date & Time <span className="text-error-500">*</span>
                 </label>
                 <Input
                   type="datetime-local"
@@ -749,7 +757,7 @@ export const MaintenancePage: React.FC = () => {
                 value={formData.userMessage}
                 onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
                 placeholder="Message shown to users during maintenance"
               />
             </div>
@@ -762,7 +770,7 @@ export const MaintenancePage: React.FC = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })
                   }
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   Allow Read-Only Access
@@ -775,7 +783,7 @@ export const MaintenancePage: React.FC = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })
                   }
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   Bypass for Super Admins

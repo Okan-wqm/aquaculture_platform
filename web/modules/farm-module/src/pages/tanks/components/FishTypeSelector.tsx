@@ -26,9 +26,9 @@ const operationLabels: Record<OperationType, string> = {
 };
 
 const operationIcons: Record<OperationType, React.ReactNode> = {
-  mortality: <TriangleAlert className="w-6 h-6 text-red-500" aria-hidden="true" />,
-  transfer: <ArrowLeftRight className="w-6 h-6 text-blue-500" aria-hidden="true" />,
-  cull: <Scissors className="w-6 h-6 text-orange-500" aria-hidden="true" />,
+  mortality: <TriangleAlert className="w-6 h-6 text-error-500" aria-hidden="true" />,
+  transfer: <ArrowLeftRight className="w-6 h-6 text-info-500" aria-hidden="true" />,
+  cull: <Scissors className="w-6 h-6 text-warning-500" aria-hidden="true" />,
 };
 
 export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
@@ -64,8 +64,8 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
           {hasProduction && (
             <Button variant="secondary" onClick={() => onSelect('production')}>
               <div className="flex items-center gap-2 mb-2">
-                <Box className="w-5 h-5 text-blue-600" aria-hidden="true" />
-                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
+                <Box className="w-5 h-5 text-info-600 dark:text-info-400" aria-hidden="true" />
+                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-info-600">
                   Production Fish
                 </span>
               </div>
@@ -80,8 +80,11 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
           {showCleanerOption && (
             <Button variant="secondary" onClick={() => onSelect('cleaner')}>
               <div className="flex items-center gap-2 mb-2">
-                <FishIcon className="w-5 h-5 text-green-600" aria-hidden="true" />
-                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-green-600">
+                <FishIcon
+                  className="w-5 h-5 text-success-600 dark:text-success-400"
+                  aria-hidden="true"
+                />
+                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-success-600">
                   Cleaner Fish
                 </span>
               </div>

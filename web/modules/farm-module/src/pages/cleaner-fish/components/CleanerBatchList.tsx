@@ -58,7 +58,9 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       key: 'batch',
       header: 'Batch #',
       render: (_value, batch) => (
-        <div className="text-sm font-medium text-blue-600">{batch.batchNumber}</div>
+        <div className="text-sm font-medium text-info-600 dark:text-info-400">
+          {batch.batchNumber}
+        </div>
       ),
     },
     {
@@ -108,7 +110,11 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       align: 'right',
       render: (_value, batch) => {
         const deployed = getDeployedQuantity(batch);
-        return <div className="text-sm text-green-600">{deployed.toLocaleString()}</div>;
+        return (
+          <div className="text-sm text-success-600 dark:text-success-400">
+            {deployed.toLocaleString()}
+          </div>
+        );
       },
     },
     {
@@ -119,8 +125,8 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
           <span
             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
               batch.sourceType === 'farmed'
-                ? 'bg-blue-100 text-blue-800'
-                : 'bg-amber-100 text-amber-800'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
+                : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
             }`}
           >
             {SourceTypeLabels[batch.sourceType || 'farmed'] || batch.sourceType}
@@ -209,7 +215,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
             </span>
             <span className="text-gray-500 dark:text-gray-400">
               Total Deployed:{' '}
-              <span className="font-medium text-green-600">
+              <span className="font-medium text-success-600 dark:text-success-400">
                 {batches.reduce((sum, b) => sum + getDeployedQuantity(b), 0).toLocaleString()}
               </span>
             </span>

@@ -34,7 +34,7 @@ interface SvgFilterEditorProps {
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Human-readable labels for filter types */
 const FILTER_LABELS: Record<SvgFilterType, string> = {
@@ -48,10 +48,7 @@ const FILTER_LABELS: Record<SvgFilterType, string> = {
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
-  filter,
-  onChange,
-}) => {
+export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChange }) => {
   const [open, setOpen] = useState(filter.type !== 'none');
 
   const handleTypeChange = useCallback(
@@ -116,7 +113,15 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Filter settings"><span>Filter</span>
+      <Button
+        variant="ghost"
+        size="xs"
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label="Filter settings"
+      >
+        <span>Filter</span>
         <svg
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
@@ -124,7 +129,8 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg></Button>
+        </svg>
+      </Button>
 
       {open && (
         <div className="space-y-3 mt-2">
@@ -187,7 +193,9 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Offset X</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Offset X
+                  </label>
                   <input
                     type="number"
                     min={-20}
@@ -201,7 +209,9 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Offset Y</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Offset Y
+                  </label>
                   <input
                     type="number"
                     min={-20}

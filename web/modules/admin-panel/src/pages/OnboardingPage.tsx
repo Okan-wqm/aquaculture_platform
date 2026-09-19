@@ -75,8 +75,9 @@ export const OnboardingPage: React.FC = () => {
 
   const listFilters = { status: statusFilter !== 'all' ? statusFilter : undefined };
 
-  const stepsQuery = useAdminQuery<ApiOnboardingStep[]>(adminKeys.onboarding.steps(), ({ signal }) =>
-    supportApi.getOnboardingSteps(signal),
+  const stepsQuery = useAdminQuery<ApiOnboardingStep[]>(
+    adminKeys.onboarding.steps(),
+    ({ signal }) => supportApi.getOnboardingSteps(signal),
   );
 
   const progressQuery = useAdminQuery(adminKeys.onboarding.list(listFilters), ({ signal }) =>
@@ -162,8 +163,7 @@ export const OnboardingPage: React.FC = () => {
     skipOnboarding.error,
   ];
 
-  const loading =
-    stepsQuery.isPending && progressQuery.isPending && statsQuery.isPending;
+  const loading = stepsQuery.isPending && progressQuery.isPending && statsQuery.isPending;
 
   // ============================================================================
   // Handlers
@@ -185,14 +185,15 @@ export const OnboardingPage: React.FC = () => {
   // Filtered Data
   // ============================================================================
 
-  const filteredProgress = progressList.filter(progress => {
+  const filteredProgress = progressList.filter((progress) => {
     if (searchQuery && !progress.tenantName.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
     if (statusFilter !== 'all' && progress.status !== statusFilter) return false;
     if (showNeedingAttention) {
       if (!progress.lastActivityAt) return false;
-      const daysSinceUpdate = (Date.now() - new Date(progress.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
+      const daysSinceUpdate =
+        (Date.now() - new Date(progress.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceUpdate < 30 || progress.status === 'completed') return false;
     }
     return true;
@@ -204,20 +205,29 @@ export const OnboardingPage: React.FC = () => {
 
   const getStatusColor = (status: OnboardingStatus) => {
     switch (status) {
-      case 'not_started': return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
-      case 'in_progress': return 'bg-blue-100 text-blue-700';
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'skipped': return 'bg-yellow-100 text-yellow-700';
+      case 'not_started':
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+      case 'in_progress':
+        return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+      case 'completed':
+        return 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300';
+      case 'skipped':
+        return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
     }
   };
 
   const getResourceIcon = (type: string) => {
     switch (type) {
-      case 'video': return <Video size={16} className="text-purple-500" />;
-      case 'document': return <FileText size={16} className="text-blue-500" />;
-      case 'webinar': return <Users size={16} className="text-green-500" />;
-      case 'interactive': return <Play size={16} className="text-orange-500" />;
-      default: return <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />;
+      case 'video':
+        return <Video size={16} className="text-accent-500" />;
+      case 'document':
+        return <FileText size={16} className="text-info-500" />;
+      case 'webinar':
+        return <Users size={16} className="text-success-500" />;
+      case 'interactive':
+        return <Play size={16} className="text-warning-500" />;
+      default:
+        return <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />;
     }
   };
 
@@ -292,23 +302,33 @@ export const OnboardingPage: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="text-sm text-gray-500 dark:text-gray-400">Total Tenants</div>
-            <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{count(totalTenants)}</div>
+            <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+              {count(totalTenants)}
+            </div>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="text-sm text-gray-500 dark:text-gray-400">Not Started</div>
-            <div className="text-xl font-semibold text-gray-700 dark:text-gray-300">{count(stats?.notStarted)}</div>
+            <div className="text-xl font-semibold text-gray-700 dark:text-gray-300">
+              {count(stats?.notStarted)}
+            </div>
           </div>
-          <div className="bg-blue-50 rounded-lg p-3">
-            <div className="text-sm text-blue-600">In Progress</div>
-            <div className="text-xl font-semibold text-blue-700">{count(stats?.inProgress)}</div>
+          <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-3">
+            <div className="text-sm text-info-600 dark:text-info-400">In Progress</div>
+            <div className="text-xl font-semibold text-info-700 dark:text-info-300">
+              {count(stats?.inProgress)}
+            </div>
           </div>
-          <div className="bg-green-50 rounded-lg p-3">
-            <div className="text-sm text-green-600">Completed</div>
-            <div className="text-xl font-semibold text-green-700">{count(stats?.completed)}</div>
+          <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-3">
+            <div className="text-sm text-success-600 dark:text-success-400">Completed</div>
+            <div className="text-xl font-semibold text-success-700 dark:text-success-300">
+              {count(stats?.completed)}
+            </div>
           </div>
-          <div className="bg-yellow-50 rounded-lg p-3">
-            <div className="text-sm text-yellow-600">Skipped</div>
-            <div className="text-xl font-semibold text-yellow-700">{count(stats?.skipped)}</div>
+          <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3">
+            <div className="text-sm text-warning-600 dark:text-warning-400">Skipped</div>
+            <div className="text-xl font-semibold text-warning-700 dark:text-warning-300">
+              {count(stats?.skipped)}
+            </div>
           </div>
         </div>
 
@@ -318,7 +338,7 @@ export const OnboardingPage: React.FC = () => {
             onClick={() => setActiveTab('progress')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
               activeTab === 'progress'
-                ? 'border-blue-500 text-blue-600'
+                ? 'border-info-500 text-info-600 dark:text-info-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -328,7 +348,7 @@ export const OnboardingPage: React.FC = () => {
             onClick={() => setActiveTab('resources')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
               activeTab === 'resources'
-                ? 'border-blue-500 text-blue-600'
+                ? 'border-info-500 text-info-600 dark:text-info-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -340,24 +360,29 @@ export const OnboardingPage: React.FC = () => {
       {activeTab === 'progress' ? (
         <div className="flex-1 flex overflow-hidden">
           {/* Progress List */}
-          <div className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}>
+          <div
+            className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}
+          >
             {/* Filters */}
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+                  size={18}
+                />
                 <input
                   type="text"
                   placeholder="Search tenants..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as OnboardingStatus | 'all')}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
                 >
                   <option value="all">All Status</option>
                   <option value="not_started">Not Started</option>
@@ -369,7 +394,7 @@ export const OnboardingPage: React.FC = () => {
                   onClick={() => setShowNeedingAttention(!showNeedingAttention)}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border ${
                     showNeedingAttention
-                      ? 'bg-red-100 border-red-300 text-red-700'
+                      ? 'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -383,7 +408,10 @@ export const OnboardingPage: React.FC = () => {
             <div className="flex-1 overflow-y-auto">
               {filteredProgress.map((progress) => {
                 const daysSinceUpdate = progress.lastActivityAt
-                  ? Math.floor((Date.now() - new Date(progress.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
+                  ? Math.floor(
+                      (Date.now() - new Date(progress.lastActivityAt).getTime()) /
+                        (1000 * 60 * 60 * 24),
+                    )
                   : 0;
                 const needsAttention = daysSinceUpdate > 30 && progress.status !== 'completed';
 
@@ -392,20 +420,24 @@ export const OnboardingPage: React.FC = () => {
                     key={progress.tenantId}
                     onClick={() => setSelectedTenantId(progress.tenantId)}
                     className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      selectedProgress?.tenantId === progress.tenantId ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                      selectedProgress?.tenantId === progress.tenantId
+                        ? 'bg-info-50 dark:bg-info-900/20 border-l-4 border-l-blue-500'
+                        : ''
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Building2 size={16} className="text-gray-500 dark:text-gray-400" />
-                          <span className="font-medium text-gray-900 dark:text-gray-100">{progress.tenantName}</span>
-                          {needsAttention && (
-                            <AlertTriangle size={14} className="text-red-500" />
-                          )}
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {progress.tenantName}
+                          </span>
+                          {needsAttention && <AlertTriangle size={14} className="text-error-500" />}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(progress.status as OnboardingStatus)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded ${getStatusColor(progress.status as OnboardingStatus)}`}
+                          >
                             {progress.status.replace('_', ' ')}
                           </span>
                           <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -416,13 +448,15 @@ export const OnboardingPage: React.FC = () => {
                         {/* Progress Bar */}
                         <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-blue-500 rounded-full transition-all"
+                            className="h-full bg-info-500 rounded-full transition-all"
                             style={{ width: `${progress.progress}%` }}
                           />
                         </div>
 
                         <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                          <span>{progress.completedSteps.length}/{steps.length} steps</span>
+                          <span>
+                            {progress.completedSteps.length}/{steps.length} steps
+                          </span>
                           {progress.assignedTo && (
                             <span className="flex items-center gap-1">
                               <User size={12} />
@@ -430,7 +464,7 @@ export const OnboardingPage: React.FC = () => {
                             </span>
                           )}
                           {needsAttention && (
-                            <span className="text-red-500">{daysSinceUpdate} days inactive</span>
+                            <span className="text-error-500">{daysSinceUpdate} days inactive</span>
                           )}
                         </div>
                       </div>
@@ -442,7 +476,10 @@ export const OnboardingPage: React.FC = () => {
 
               {filteredProgress.length === 0 && (
                 <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                  <GraduationCap size={48} className="mx-auto mb-3 text-gray-500 dark:text-gray-400" />
+                  <GraduationCap
+                    size={48}
+                    className="mx-auto mb-3 text-gray-500 dark:text-gray-400"
+                  />
                   <p>No onboarding progress found</p>
                 </div>
               )}
@@ -460,7 +497,9 @@ export const OnboardingPage: React.FC = () => {
                       {selectedProgress.tenantName}
                     </h2>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedProgress.status as OnboardingStatus)}`}>
+                      <span
+                        className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedProgress.status as OnboardingStatus)}`}
+                      >
                         {selectedProgress.status.replace('_', ' ')}
                       </span>
                       <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -480,15 +519,16 @@ export const OnboardingPage: React.FC = () => {
                 <div className="flex items-center gap-3 mt-4">
                   {selectedProgress.status === 'not_started' && (
                     <button
-                      onClick={() => handleInitializeOnboarding(selectedProgress.tenantId, selectedProgress.tenantName)}
+                      onClick={() =>
+                        handleInitializeOnboarding(
+                          selectedProgress.tenantId,
+                          selectedProgress.tenantName,
+                        )
+                      }
                       disabled={actionLoading}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-info-600 text-white text-sm rounded-lg hover:bg-info-700 disabled:opacity-50"
                     >
-                      {actionLoading ? (
-                        <Spinner size="sm" color="inherit" />
-                      ) : (
-                        <Mail size={14} />
-                      )}
+                      {actionLoading ? <Spinner size="sm" color="inherit" /> : <Mail size={14} />}
                       Start Onboarding
                     </button>
                   )}
@@ -508,7 +548,9 @@ export const OnboardingPage: React.FC = () => {
               <div className="p-6 space-y-6">
                 {/* Onboarding Steps */}
                 <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Onboarding Steps</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
+                    Onboarding Steps
+                  </h3>
                   <div className="space-y-3">
                     {steps.map((step) => {
                       const isCompleted = selectedProgress.completedSteps.includes(step.id);
@@ -518,12 +560,22 @@ export const OnboardingPage: React.FC = () => {
                         <div
                           key={step.id}
                           className={`flex items-start gap-3 p-3 rounded-lg ${
-                            isCompleted ? 'bg-green-50' : isCurrent ? 'bg-blue-50' : 'bg-gray-50 dark:bg-gray-800'
+                            isCompleted
+                              ? 'bg-success-50 dark:bg-success-900/20'
+                              : isCurrent
+                                ? 'bg-info-50 dark:bg-info-900/20'
+                                : 'bg-gray-50 dark:bg-gray-800'
                           }`}
                         >
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                            isCompleted ? 'bg-green-500' : isCurrent ? 'bg-blue-500' : 'bg-gray-300'
-                          }`}>
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                              isCompleted
+                                ? 'bg-success-500'
+                                : isCurrent
+                                  ? 'bg-info-500'
+                                  : 'bg-gray-300'
+                            }`}
+                          >
                             {isCompleted ? (
                               <CheckCircle size={14} className="text-white" />
                             ) : (
@@ -532,21 +584,27 @@ export const OnboardingPage: React.FC = () => {
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700 dark:text-gray-300'}`}>
+                              <span
+                                className={`font-medium ${isCompleted ? 'text-success-700 dark:text-success-300' : isCurrent ? 'text-info-700 dark:text-info-300' : 'text-gray-700 dark:text-gray-300'}`}
+                              >
                                 {step.name}
                               </span>
                               {step.isRequired && (
-                                <span className="text-xs text-red-500">Required</span>
+                                <span className="text-xs text-error-500">Required</span>
                               )}
                             </div>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{step.description}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                              {step.description}
+                            </p>
                             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="flex items-center gap-1">
-                                <Clock size={12} />
-                                ~{step.estimatedMinutes}m
+                                <Clock size={12} />~{step.estimatedMinutes}m
                               </span>
                               {step.videoUrl && (
-                                <a href={step.videoUrl} className="flex items-center gap-1 text-blue-500 hover:text-blue-600">
+                                <a
+                                  href={step.videoUrl}
+                                  className="flex items-center gap-1 text-info-500 hover:text-info-600 dark:hover:text-info-300"
+                                >
                                   <Play size={12} />
                                   Tutorial
                                 </a>
@@ -563,7 +621,9 @@ export const OnboardingPage: React.FC = () => {
                 {selectedProgress.notes && (
                   <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
                     <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Notes</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{selectedProgress.notes}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {selectedProgress.notes}
+                    </p>
                   </div>
                 )}
 
@@ -573,23 +633,29 @@ export const OnboardingPage: React.FC = () => {
                   <div className="space-y-3 text-sm">
                     {selectedProgress.startedAt && (
                       <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-purple-500 rounded-full" />
+                        <div className="w-2 h-2 bg-accent-500 rounded-full" />
                         <span className="text-gray-500 dark:text-gray-400">Started Onboarding</span>
-                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.startedAt)}</span>
+                        <span className="text-gray-700 dark:text-gray-300">
+                          {formatDate(selectedProgress.startedAt)}
+                        </span>
                       </div>
                     )}
                     {selectedProgress.completedAt && (
                       <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-green-500 rounded-full" />
+                        <div className="w-2 h-2 bg-success-500 rounded-full" />
                         <span className="text-gray-500 dark:text-gray-400">Completed</span>
-                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.completedAt)}</span>
+                        <span className="text-gray-700 dark:text-gray-300">
+                          {formatDate(selectedProgress.completedAt)}
+                        </span>
                       </div>
                     )}
                     {selectedProgress.lastActivityAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-gray-300 rounded-full" />
                         <span className="text-gray-500 dark:text-gray-400">Last Activity</span>
-                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.lastActivityAt)}</span>
+                        <span className="text-gray-700 dark:text-gray-300">
+                          {formatDate(selectedProgress.lastActivityAt)}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -604,7 +670,7 @@ export const OnboardingPage: React.FC = () => {
           <div className="max-w-4xl mx-auto">
             {/* Category Sections */}
             {['basics', 'core', 'advanced', 'developer'].map((category) => {
-              const categoryResources = resources.filter(r => r.category === category);
+              const categoryResources = resources.filter((r) => r.category === category);
               if (categoryResources.length === 0) return null;
 
               return (
@@ -623,14 +689,16 @@ export const OnboardingPage: React.FC = () => {
                             {getResourceIcon(resource.type)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-900 dark:text-gray-100">{resource.title}</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-gray-100">
+                              {resource.title}
+                            </h3>
                             <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                               <span className="capitalize">{resource.type}</span>
                             </div>
                           </div>
                           <a
                             href={resource.url}
-                            className="p-2 text-blue-500 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                            className="p-2 text-info-500 hover:text-info-600 dark:hover:text-info-300 rounded-lg hover:bg-info-50 dark:hover:bg-info-900/30"
                           >
                             <ExternalLink size={16} />
                           </a>

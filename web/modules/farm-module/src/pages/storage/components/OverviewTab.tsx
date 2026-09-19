@@ -28,12 +28,12 @@ import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
 import { ChevronDown, Clock, X } from 'lucide-react';
 
 const movementTypeBadge: Record<string, string> = {
-  IN: 'bg-green-100 text-green-800',
-  OUT: 'bg-red-100 text-red-800',
-  TRANSFER: 'bg-blue-100 text-blue-800',
+  IN: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  OUT: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  TRANSFER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   WASTE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  ADJUSTMENT: 'bg-yellow-100 text-yellow-800',
-  RETURN: 'bg-purple-100 text-purple-800',
+  ADJUSTMENT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  RETURN: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
 };
 
 const CATEGORY_CONFIG: Record<
@@ -43,50 +43,50 @@ const CATEGORY_CONFIG: Record<
   FEED: {
     label: 'Feed',
     color: colors.warning[500],
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
   },
   feed: {
     label: 'Feed',
     color: colors.warning[500],
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
   },
   CHEMICAL: {
     label: 'Chemical',
     color: colors.info[500],
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
   },
   chemical: {
     label: 'Chemical',
     color: colors.info[500],
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
   },
   CONSUMABLE: {
     label: 'Consumable',
     color: colors.success[500],
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
   },
   consumable: {
     label: 'Consumable',
     color: colors.success[500],
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
   },
   HEALTHCARE: {
     label: 'Healthcare',
     color: colors.primary[700],
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
   },
   healthcare: {
     label: 'Healthcare',
     color: colors.primary[700],
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
   },
 };
 
@@ -254,7 +254,7 @@ export const OverviewTab: React.FC = () => {
           <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
             Low Stock Alerts
           </div>
-          <div className="mt-1 text-2xl font-bold text-red-600">
+          <div className="mt-1 text-2xl font-bold text-error-600 dark:text-error-400">
             {overview?.lowStockAlertCount || 0}
           </div>
           <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -274,7 +274,7 @@ export const OverviewTab: React.FC = () => {
           <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
             Storage Locations
           </div>
-          <div className="mt-1 text-2xl font-bold text-blue-600">
+          <div className="mt-1 text-2xl font-bold text-info-600 dark:text-info-400">
             {overview?.locationFillRates?.length || 0}
           </div>
           <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Active locations</div>
@@ -283,14 +283,17 @@ export const OverviewTab: React.FC = () => {
 
       {/* Pending Deliveries Alert Banner */}
       {(pendingDeliveries || []).length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
-                <Clock className="w-5 h-5 text-amber-600" aria-hidden="true" />
+              <div className="flex-shrink-0 w-8 h-8 bg-warning-100 dark:bg-warning-900/40 rounded-full flex items-center justify-center">
+                <Clock
+                  className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                  aria-hidden="true"
+                />
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-amber-800">
+                <h4 className="text-sm font-semibold text-warning-800 dark:text-warning-200">
                   {pendingDeliveries!.length} delivery{' '}
                   {pendingDeliveries!.length === 1 ? 'is' : 'deliveries are'} expected today or
                   overdue
@@ -304,11 +307,11 @@ export const OverviewTab: React.FC = () => {
                       onClick={() => setReceiveTarget(po)}
                     >
                       {po.orderNumber} - {po.supplierName}
-                      <span className="text-amber-500">Mark Received</span>
+                      <span className="text-warning-500">Mark Received</span>
                     </Button>
                   ))}
                   {pendingDeliveries!.length > 3 && (
-                    <span className="text-xs text-amber-600 py-1">
+                    <span className="text-xs text-warning-600 dark:text-warning-400 py-1">
                       +{pendingDeliveries!.length - 3} more
                     </span>
                   )}
@@ -490,8 +493,8 @@ export const OverviewTab: React.FC = () => {
                       <span
                         className={
                           alert.currentQuantity === 0
-                            ? 'text-red-600 font-semibold'
-                            : 'text-yellow-600 font-medium'
+                            ? 'text-error-600 dark:text-error-400 font-semibold'
+                            : 'text-warning-600 dark:text-warning-400 font-medium'
                         }
                       >
                         {alert.currentQuantity}
@@ -606,7 +609,7 @@ export const OverviewTab: React.FC = () => {
                           type="checkbox"
                           checked={selectedLocationIds.has(loc.id)}
                           onChange={() => toggleLocation(loc.id)}
-                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                         />
                         <span className="text-xs text-gray-700 dark:text-gray-300">{loc.name}</span>
                       </label>
@@ -647,7 +650,7 @@ export const OverviewTab: React.FC = () => {
                   <div className="flex-1">
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div
-                        className={`h-2 rounded-full transition-all duration-500 ${loc.fillPercentage > 90 ? 'bg-red-500' : loc.fillPercentage > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                        className={`h-2 rounded-full transition-all duration-500 ${loc.fillPercentage > 90 ? 'bg-error-500' : loc.fillPercentage > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
                         style={{ width: `${Math.min(loc.fillPercentage, 100)}%` }}
                       />
                     </div>

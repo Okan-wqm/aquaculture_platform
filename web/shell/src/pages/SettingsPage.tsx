@@ -217,7 +217,7 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
             Profile Picture
           </h3>
           <div className="flex items-center gap-6">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-info-500 to-info-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
               {(user?.firstName?.[0] || user?.email?.[0] || '?').toUpperCase()}
             </div>
             <div>
@@ -673,8 +673,12 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           className="p-6 space-y-5"
         >
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Key className="w-5 h-5 text-blue-600" strokeWidth={1.5} aria-hidden="true" />
+            <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <Key
+                className="w-5 h-5 text-info-600 dark:text-info-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -753,8 +757,12 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <Lock className="w-5 h-5 text-green-600" strokeWidth={1.5} aria-hidden="true" />
+              <div className="w-10 h-10 bg-success-100 dark:bg-success-900/40 rounded-lg flex items-center justify-center">
+                <Lock
+                  className="w-5 h-5 text-success-600 dark:text-success-400"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -768,9 +776,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
             <span
               className={`px-3 py-1 rounded-full text-xs font-medium ${
                 mfaEnabled && mfaAvailable
-                  ? 'bg-green-100 text-green-800'
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                   : mfaEnabled && !mfaAvailable
-                    ? 'bg-red-100 text-red-800'
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }`}
             >
@@ -839,9 +847,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
               <Fingerprint
-                className="w-5 h-5 text-purple-600"
+                className="w-5 h-5 text-accent-600 dark:text-accent-400"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
@@ -883,9 +891,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <div className="w-8 h-8 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
                       <Fingerprint
-                        className="w-4 h-4 text-purple-600"
+                        className="w-4 h-4 text-accent-600 dark:text-accent-400"
                         strokeWidth={1.5}
                         aria-hidden="true"
                       />
@@ -906,7 +914,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                     onClick={() => {
                       void handleRemoveWebAuthn(credential.credentialId);
                     }}
-                    className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
+                    className="text-error-500 hover:text-error-700 dark:hover:text-error-200 text-sm font-medium transition-colors"
                   >
                     Remove
                   </button>
@@ -1021,7 +1029,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   variant: 'info',
                 });
               }}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 font-medium"
             >
               Copy All
             </button>
@@ -1320,8 +1328,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <button
         type="button"
         onClick={() => onChange(!enabled)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          enabled ? 'bg-blue-600' : 'bg-gray-300'
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+          enabled ? 'bg-info-600' : 'bg-gray-300'
         }`}
       >
         <span
@@ -1339,9 +1347,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
               <SwatchBook
-                className="w-5 h-5 text-indigo-600"
+                className="w-5 h-5 text-primary-600 dark:text-primary-400"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
@@ -1366,7 +1374,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                 onClick={() => updateThemePreference(theme.id as ThemePreference)}
                 className={`p-3 rounded-lg border-2 text-center text-sm font-medium transition-all ${
                   themePreference === theme.id
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
                     : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
                 aria-pressed={themePreference === theme.id}
@@ -1385,8 +1393,12 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-              <Languages className="w-5 h-5 text-teal-600" strokeWidth={1.5} aria-hidden="true" />
+            <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <Languages
+                className="w-5 h-5 text-info-600 dark:text-info-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -1430,8 +1442,12 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-              <Bell className="w-5 h-5 text-amber-600" strokeWidth={1.5} aria-hidden="true" />
+            <div className="w-10 h-10 bg-warning-100 dark:bg-warning-900/40 rounded-lg flex items-center justify-center">
+              <Bell
+                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -1524,7 +1540,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1539,7 +1555,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1553,7 +1569,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     >
                       <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
                       <option value="UTC">UTC</option>

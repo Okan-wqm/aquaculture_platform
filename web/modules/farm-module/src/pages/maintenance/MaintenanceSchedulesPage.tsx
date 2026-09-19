@@ -3,7 +3,17 @@
  * Displays and manages preventive maintenance schedules with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Modal,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  Alert,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   useMaintenanceSchedules,
   useCreateMaintenanceSchedule,
@@ -27,9 +37,9 @@ import { useCanMutate, useConfirm, DataTable, type DataTableColumn } from '@aqua
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
-  ACTIVE: 'bg-green-100 text-green-800',
-  PAUSED: 'bg-yellow-100 text-yellow-800',
-  COMPLETED: 'bg-blue-100 text-blue-800',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  PAUSED: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  COMPLETED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   EXPIRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -115,8 +125,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
 
   // Bakım Kapanışı (completeMaintenance) modal state — separate from the
   // edit modal because the surfaces don't overlap in semantics.
-  const [completingSchedule, setCompletingSchedule] =
-    useState<MaintenanceSchedule | null>(null);
+  const [completingSchedule, setCompletingSchedule] = useState<MaintenanceSchedule | null>(null);
   const canCompleteMaintenance = useCanMutate('completeMaintenance');
 
   // API hooks
@@ -136,7 +145,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       (item) =>
         item.name.toLowerCase().includes(term) ||
         item.scheduleCode.toLowerCase().includes(term) ||
-        item.description?.toLowerCase().includes(term)
+        item.description?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -221,7 +230,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
 
   const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Bakım planını sil?', message: 'Plana bağlı gelecek görevler de kaldırılır.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Bakım planını sil?',
+        message: 'Plana bağlı gelecek görevler de kaldırılır.',
+        confirmText: 'Sil',
+        cancelText: 'Vazgeç',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -313,9 +330,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       key: 'durum',
       header: 'Durum',
       render: (_value, item) => (
-        <Badge className={statusColors[item.status]}>
-          {statusLabels[item.status]}
-        </Badge>
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
       ),
     },
     {
@@ -325,7 +340,9 @@ export const MaintenanceSchedulesPage: React.FC = () => {
         <>
           <span
             className={`text-sm ${
-              isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500 dark:text-gray-400'
+              isOverdue(item.nextDueDate)
+                ? 'text-error-600 dark:text-error-400 font-medium'
+                : 'text-gray-500 dark:text-gray-400'
             }`}
           >
             {formatDate(item.nextDueDate)}
@@ -337,11 +354,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
     {
       key: 'alTRma',
       header: 'Çalıştırma',
-      render: (_value, item) => (
-        <>
-          {item.executionCount} kez
-        </>
-      ),
+      render: (_value, item) => <>{item.executionCount} kez</>,
     },
     {
       key: 'lemler',
@@ -349,32 +362,43 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={() => handleOpenEdit(item)}>Düzenle</Button>
+          <Button variant="ghost" onClick={() => handleOpenEdit(item)}>
+            Düzenle
+          </Button>
           {item.status === 'ACTIVE' && (
-            <Button variant="ghost" onClick={() => handlePause(item.id)}>Duraklat</Button>
+            <Button variant="ghost" onClick={() => handlePause(item.id)}>
+              Duraklat
+            </Button>
           )}
           {item.status === 'PAUSED' && (
-            <Button variant="ghost" onClick={() => handleResume(item.id)}>Devam Et</Button>
+            <Button variant="ghost" onClick={() => handleResume(item.id)}>
+              Devam Et
+            </Button>
           )}
           <GenerateWorkOrderButton schedule={item} />
           <UpdateMeterReadingButton schedule={item} />
           {canCompleteMaintenance && item.status === 'ACTIVE' && (
-            <Button variant="ghost" onClick={() => setCompletingSchedule(item)} title="Bu plan döngüsünü kapat (sayaç + notlar)">Bakımı Kapat</Button>
+            <Button
+              variant="ghost"
+              onClick={() => setCompletingSchedule(item)}
+              title="Bu plan döngüsünü kapat (sayaç + notlar)"
+            >
+              Bakımı Kapat
+            </Button>
           )}
-          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Sil</Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>
+            Sil
+          </Button>
         </div>
       ),
-    }
+    },
   ];
 
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetch() }}>
           Bakım planları yenilenemedi — son yüklenen veriler gösteriliyor.
         </Alert>
       )}
@@ -593,13 +617,8 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               İptal
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Kaydediliyor...'
-                : 'Kaydet'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </div>
         </form>

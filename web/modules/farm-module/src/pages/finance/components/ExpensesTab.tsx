@@ -7,7 +7,14 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
-import { ConfirmModal, useCanMutate, DataTable, type DataTableColumn, Button, Select } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  useCanMutate,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -82,12 +89,12 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
         <>
           {item.categoryName}
           {item.kind === 'REVENUE' && (
-            <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
+            <span className="ml-2 rounded bg-success-100 dark:bg-success-900/40 px-1.5 py-0.5 text-xs text-success-700 dark:text-success-300">
               revenue
             </span>
           )}
           {item.estimated && (
-            <span className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs text-yellow-700">
+            <span className="ml-2 rounded bg-warning-100 dark:bg-warning-900/40 px-1.5 py-0.5 text-xs text-warning-700 dark:text-warning-300">
               estimate
             </span>
           )}
@@ -114,7 +121,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
               manual
             </span>
           ) : (
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+            <span className="rounded bg-info-100 dark:bg-info-900/40 px-1.5 py-0.5 text-xs text-info-700 dark:text-info-300">
               auto · {item.sourceDomain}
             </span>
           )}
@@ -129,10 +136,14 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           {item.editable ? (
             <span className="space-x-3">
               {canUpdate && (
-                <Button variant="ghost" onClick={() => setModalState({ open: true, entry: item })}>Edit</Button>
+                <Button variant="ghost" onClick={() => setModalState({ open: true, entry: item })}>
+                  Edit
+                </Button>
               )}
               {canDelete && (
-                <Button variant="ghost" onClick={() => setPendingDelete(item.id)}>Delete</Button>
+                <Button variant="ghost" onClick={() => setPendingDelete(item.id)}>
+                  Delete
+                </Button>
               )}
               {!canUpdate && !canDelete && (
                 <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
@@ -141,14 +152,14 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           ) : (
             <Link
               to={sourceEditPath(item)}
-              className="font-medium text-blue-600 hover:text-blue-800"
+              className="font-medium text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
             >
               Edit at source →
             </Link>
           )}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -158,13 +169,24 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           <label htmlFor="origin-filter" className="text-sm text-gray-600 dark:text-gray-400">
             Show:
           </label>
-          <Select options={[{ value: 'ALL', label: 'All entries' }, { value: 'MANUAL', label: 'Manual entries' }, { value: 'DERIVED', label: 'Auto (from records)' }]} id="origin-filter" value={originFilter} onChange={(e) => {
-       setOriginFilter(e.target.value as typeof originFilter);
-       setOffset(0);
-      }} />
+          <Select
+            options={[
+              { value: 'ALL', label: 'All entries' },
+              { value: 'MANUAL', label: 'Manual entries' },
+              { value: 'DERIVED', label: 'Auto (from records)' },
+            ]}
+            id="origin-filter"
+            value={originFilter}
+            onChange={(e) => {
+              setOriginFilter(e.target.value as typeof originFilter);
+              setOffset(0);
+            }}
+          />
         </div>
         {canCreate && (
-        <Button variant="primary" onClick={() => setModalState({ open: true })}>+ Add expense</Button>
+          <Button variant="primary" onClick={() => setModalState({ open: true })}>
+            + Add expense
+          </Button>
         )}
       </div>
 
@@ -172,7 +194,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
         <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading ledger…</div>
       )}
       {Boolean(ledgerQuery.error) && (
-        <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-md bg-error-50 dark:bg-error-900/20 p-4 text-sm text-error-700 dark:text-error-300">
           Failed to load the ledger. Manager or admin access is required.
         </div>
       )}
@@ -191,11 +213,25 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
 
           {/* Pagination */}
           <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3">
-            <Button variant="secondary" size="sm" onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} disabled={offset === 0}>← Previous</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={offset === 0}
+            >
+              ← Previous
+            </Button>
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {offset + 1}–{offset + items.length}
             </span>
-            <Button variant="secondary" size="sm" onClick={() => setOffset(offset + PAGE_SIZE)} disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}>Next →</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}
+            >
+              Next →
+            </Button>
           </div>
         </div>
       )}

@@ -24,7 +24,11 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { Input } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight, Palette, Eye, RotateCw, Settings2 } from 'lucide-react';
-import type { FuxaExportVariable, FuxaVarGroup, FuxaVarType } from '../fuxa-bridge/FuxaExportParser';
+import type {
+  FuxaExportVariable,
+  FuxaVarGroup,
+  FuxaVarType,
+} from '../fuxa-bridge/FuxaExportParser';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -65,7 +69,7 @@ const SECTION_META: SectionMeta[] = [
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 interface FieldProps {
   variable: FuxaExportVariable;
@@ -114,7 +118,7 @@ const BooleanField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => (
       type="checkbox"
       checked={Boolean(value)}
       onChange={(e) => onUpdate(variable.id, e.target.checked)}
-      className="w-4 h-4 text-cyan-600 border-gray-300 dark:border-gray-600 rounded focus:ring-cyan-500"
+      className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
     />
     <span className="text-sm text-gray-700 dark:text-gray-300">{variable.label}</span>
   </label>
@@ -144,7 +148,13 @@ const ColorField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => {
         className="w-8 h-8 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
         aria-label={variable.label}
       />
-      <Input className="font-mono" type="text" value={strVal} onChange={(e) => onUpdate(variable.id, e.target.value)} data-testid={`fuxa-field-${variable.id}`} />
+      <Input
+        className="font-mono"
+        type="text"
+        value={strVal}
+        onChange={(e) => onUpdate(variable.id, e.target.value)}
+        data-testid={`fuxa-field-${variable.id}`}
+      />
     </div>
   );
 };
@@ -222,7 +232,10 @@ export const FuxaAutoConfigPanel: React.FC<FuxaAutoConfigPanelProps> = ({
         const isOpen = expanded.has(section.key);
 
         return (
-          <div key={section.key} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+          <div
+            key={section.key}
+            className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+          >
             {/* Section header -- click to collapse/expand */}
             <button
               onClick={() => toggleSection(section.key)}
@@ -230,10 +243,11 @@ export const FuxaAutoConfigPanel: React.FC<FuxaAutoConfigPanelProps> = ({
               aria-expanded={isOpen}
               data-testid={`fuxa-section-${section.key}`}
             >
-              {isOpen
-                ? <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-                : <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-              }
+              {isOpen ? (
+                <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+              )}
               {section.icon}
               <span>{section.label}</span>
               <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 font-normal">

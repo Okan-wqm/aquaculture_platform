@@ -74,8 +74,8 @@ const StatCard: React.FC<StatCardProps> = ({
   isLoading,
 }) => {
   const changeColors = {
-    positive: 'text-green-600 dark:text-green-400',
-    negative: 'text-red-600 dark:text-red-400',
+    positive: 'text-success-600 dark:text-success-400',
+    negative: 'text-error-600 dark:text-error-400',
     neutral: 'text-gray-600 dark:text-gray-400',
   };
 
@@ -89,9 +89,7 @@ const StatCard: React.FC<StatCardProps> = ({
           ) : (
             <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
           )}
-          {change && (
-            <p className={`mt-1 text-sm ${changeColors[changeType]}`}>{change}</p>
-          )}
+          {change && <p className={`mt-1 text-sm ${changeColors[changeType]}`}>{change}</p>}
         </div>
         <div className={`rounded-lg p-3 ${color}`}>{icon}</div>
       </div>
@@ -118,7 +116,7 @@ const QuickAction: React.FC<QuickActionProps> = ({
         <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
       </div>
       {badge !== undefined && badge > 0 && (
-        <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-red-100 px-2 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+        <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-error-100 px-2 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
           {badge}
         </span>
       )}
@@ -166,7 +164,7 @@ export function HRDashboardPage() {
         actions={
           <Link
             to="/hr/employees/new"
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+            className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700"
           >
             <UserPlus className="h-4 w-4" />
             Add Employee
@@ -181,8 +179,8 @@ export function HRDashboardPage() {
           value={totalEmployees}
           change={`${activeEmployees} active`}
           changeType="neutral"
-          icon={<Users className="h-6 w-6 text-indigo-600" />}
-          color="bg-indigo-50 dark:bg-indigo-900/30"
+          icon={<Users className="h-6 w-6 text-primary-600 dark:text-primary-400" />}
+          color="bg-primary-50 dark:bg-primary-900/30"
           isLoading={loadingStats}
         />
         <StatCard
@@ -190,22 +188,22 @@ export function HRDashboardPage() {
           value={offshoreCount}
           change="Currently deployed"
           changeType="neutral"
-          icon={<Ship className="h-6 w-6 text-blue-600" />}
-          color="bg-blue-50 dark:bg-blue-900/30"
+          icon={<Ship className="h-6 w-6 text-info-600 dark:text-info-400" />}
+          color="bg-info-50 dark:bg-info-900/30"
           isLoading={loadingStats || loadingOffshore}
         />
         <StatCard
           title="On Leave"
           value={onLeaveCount}
-          icon={<Calendar className="h-6 w-6 text-amber-600" />}
-          color="bg-amber-50 dark:bg-amber-900/30"
+          icon={<Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />}
+          color="bg-warning-50 dark:bg-warning-900/30"
           isLoading={loadingStats}
         />
         <StatCard
           title="Departments"
           value={departmentCount}
-          icon={<Building2 className="h-6 w-6 text-emerald-600" />}
-          color="bg-emerald-50 dark:bg-emerald-900/30"
+          icon={<Building2 className="h-6 w-6 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/30"
           isLoading={loadingStats || loadingDepts}
         />
       </div>
@@ -214,23 +212,23 @@ export function HRDashboardPage() {
       {(pendingLeavesCount > 0 || expiringCertsCount > 0) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {pendingLeavesCount > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+            <div className="rounded-xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-800 dark:bg-warning-900/20">
               <div className="flex items-center gap-3">
-                <div className="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/50">
-                  <Clock className="h-5 w-5 text-amber-600" />
+                <div className="rounded-lg bg-warning-100 p-2 dark:bg-warning-900/50">
+                  <Clock className="h-5 w-5 text-warning-600 dark:text-warning-400" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-medium text-amber-900 dark:text-amber-100">
+                  <h3 className="font-medium text-warning-900 dark:text-warning-100">
                     Pending Leave Approvals
                   </h3>
-                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                  <p className="text-sm text-warning-700 dark:text-warning-300">
                     {pendingLeavesCount} request{pendingLeavesCount !== 1 ? 's' : ''} awaiting your
                     review
                   </p>
                 </div>
                 <Link
                   to="/hr/leaves"
-                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+                  className="rounded-lg bg-warning-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-warning-700"
                 >
                   Review
                 </Link>
@@ -242,7 +240,9 @@ export function HRDashboardPage() {
             <CertificationExpiryAlert
               onRenew={(certificationId) => {
                 // SEC-008: use navigate() with encodeURIComponent instead of window.location.href
-                navigate(`/hr/training/certifications?renew=${encodeURIComponent(certificationId)}`);
+                navigate(
+                  `/hr/training/certifications?renew=${encodeURIComponent(certificationId)}`,
+                );
               }}
             />
           )}
@@ -253,14 +253,14 @@ export function HRDashboardPage() {
       <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Anchor className="h-5 w-5 text-indigo-600" />
+            <Anchor className="h-5 w-5 text-primary-600 dark:text-primary-400" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
               Crew Distribution
             </h3>
           </div>
           <Link
             to="/hr/crew"
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+            className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
           >
             Manage Crew
           </Link>
@@ -280,31 +280,31 @@ export function HRDashboardPage() {
             <QuickAction
               title="Employees"
               description="View and manage all employees"
-              icon={<Users className="h-5 w-5 text-indigo-600" />}
+              icon={<Users className="h-5 w-5 text-primary-600 dark:text-primary-400" />}
               to="/hr/employees"
-              color="bg-indigo-50 dark:bg-indigo-900/30"
+              color="bg-primary-50 dark:bg-primary-900/30"
             />
             <QuickAction
               title="Leave Management"
               description="Handle leave requests and balances"
-              icon={<Calendar className="h-5 w-5 text-amber-600" />}
+              icon={<Calendar className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
               to="/hr/leaves"
-              color="bg-amber-50 dark:bg-amber-900/30"
+              color="bg-warning-50 dark:bg-warning-900/30"
               badge={pendingLeavesCount}
             />
             <QuickAction
               title="Attendance"
               description="Track time and attendance records"
-              icon={<Clock className="h-5 w-5 text-cyan-600" />}
+              icon={<Clock className="h-5 w-5 text-info-600 dark:text-info-400" />}
               to="/hr/attendance"
-              color="bg-cyan-50 dark:bg-cyan-900/30"
+              color="bg-info-50 dark:bg-info-900/30"
             />
             <QuickAction
               title="Payroll"
               description="Salary and payment management"
-              icon={<DollarSign className="h-5 w-5 text-green-600" />}
+              icon={<DollarSign className="h-5 w-5 text-success-600 dark:text-success-400" />}
               to="/hr/payroll"
-              color="bg-green-50 dark:bg-green-900/30"
+              color="bg-success-50 dark:bg-success-900/30"
             />
           </div>
         </div>
@@ -318,31 +318,31 @@ export function HRDashboardPage() {
             <QuickAction
               title="Crew Assignments"
               description="Offshore rotations and work areas"
-              icon={<Ship className="h-5 w-5 text-blue-600" />}
+              icon={<Ship className="h-5 w-5 text-info-600 dark:text-info-400" />}
               to="/hr/crew"
-              color="bg-blue-50 dark:bg-blue-900/30"
+              color="bg-info-50 dark:bg-info-900/30"
             />
             <QuickAction
               title="Certifications"
               description="Safety and diving certifications"
-              icon={<Shield className="h-5 w-5 text-emerald-600" />}
+              icon={<Shield className="h-5 w-5 text-success-600 dark:text-success-400" />}
               to="/hr/training/certifications"
-              color="bg-emerald-50 dark:bg-emerald-900/30"
+              color="bg-success-50 dark:bg-success-900/30"
               badge={expiringCertsCount}
             />
             <QuickAction
               title="Training Programs"
               description="Courses and compliance training"
-              icon={<GraduationCap className="h-5 w-5 text-purple-600" />}
+              icon={<GraduationCap className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
               to="/hr/training"
-              color="bg-purple-50 dark:bg-purple-900/30"
+              color="bg-accent-50 dark:bg-accent-900/30"
             />
             <QuickAction
               title="Offshore Rotations"
               description="View and manage rotation schedules"
-              icon={<RefreshCw className="h-5 w-5 text-orange-600" />}
+              icon={<RefreshCw className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
               to="/hr/crew/rotations"
-              color="bg-orange-50 dark:bg-orange-900/30"
+              color="bg-warning-50 dark:bg-warning-900/30"
             />
           </div>
         </div>
@@ -355,15 +355,15 @@ export function HRDashboardPage() {
           value={stats?.onshoreEmployees || 0}
           change="Currently onshore"
           changeType="positive"
-          icon={<Anchor className="h-6 w-6 text-teal-600" />}
-          color="bg-teal-50 dark:bg-teal-900/30"
+          icon={<Anchor className="h-6 w-6 text-info-600 dark:text-info-400" />}
+          color="bg-info-50 dark:bg-info-900/30"
           isLoading={loadingStats}
         />
         <StatCard
           title="Active Certifications"
           value={expiringCertsCount}
-          icon={<Award className="h-6 w-6 text-purple-600" />}
-          color="bg-purple-50 dark:bg-purple-900/30"
+          icon={<Award className="h-6 w-6 text-accent-600 dark:text-accent-400" />}
+          color="bg-accent-50 dark:bg-accent-900/30"
           isLoading={loadingCerts}
         />
         <StatCard
@@ -379,8 +379,8 @@ export function HRDashboardPage() {
           value={expiringCertsCount}
           change="Within 30 days"
           changeType={expiringCertsCount > 0 ? 'negative' : 'positive'}
-          icon={<AlertTriangle className="h-6 w-6 text-red-600" />}
-          color="bg-red-50 dark:bg-red-900/30"
+          icon={<AlertTriangle className="h-6 w-6 text-error-600 dark:text-error-400" />}
+          color="bg-error-50 dark:bg-error-900/30"
           isLoading={loadingCerts}
         />
       </div>
@@ -395,16 +395,16 @@ export function HRDashboardPage() {
             <QuickAction
               title="Performance Reviews"
               description="Employee evaluations and feedback"
-              icon={<TrendingUp className="h-5 w-5 text-orange-600" />}
+              icon={<TrendingUp className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
               to="/hr/performance"
-              color="bg-orange-50 dark:bg-orange-900/30"
+              color="bg-warning-50 dark:bg-warning-900/30"
             />
             <QuickAction
               title="HR Analytics"
               description="Detailed reports and insights"
-              icon={<BarChart3 className="h-5 w-5 text-violet-600" />}
+              icon={<BarChart3 className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
               to="/hr/analytics"
-              color="bg-violet-50 dark:bg-violet-900/30"
+              color="bg-accent-50 dark:bg-accent-900/30"
             />
             <QuickAction
               title="Departments"
@@ -437,8 +437,8 @@ export function HRDashboardPage() {
             <div className="space-y-4">
               {pendingLeaves && pendingLeaves.length > 0 && (
                 <div className="flex items-center gap-4">
-                  <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-900/30">
-                    <Calendar className="h-4 w-4 text-amber-600" />
+                  <div className="rounded-lg bg-warning-50 p-2 dark:bg-warning-900/30">
+                    <Calendar className="h-4 w-4 text-warning-600 dark:text-warning-400" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-900 dark:text-white">
@@ -454,15 +454,19 @@ export function HRDashboardPage() {
 
               {expiringCerts && expiringCerts.length > 0 && (
                 <div className="flex items-center gap-4">
-                  <div className="rounded-lg bg-red-50 p-2 dark:bg-red-900/30">
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <div className="rounded-lg bg-error-50 p-2 dark:bg-error-900/30">
+                    <AlertTriangle className="h-4 w-4 text-error-600 dark:text-error-400" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-900 dark:text-white">
-                      {expiringCerts[0].employee?.firstName}'s {expiringCerts[0].certificationType?.name} expires soon
+                      {expiringCerts[0].employee?.firstName}'s{' '}
+                      {expiringCerts[0].certificationType?.name} expires soon
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Expires {expiringCerts[0].expiryDate ? new Date(expiringCerts[0].expiryDate).toLocaleDateString() : 'N/A'}
+                      Expires{' '}
+                      {expiringCerts[0].expiryDate
+                        ? new Date(expiringCerts[0].expiryDate).toLocaleDateString()
+                        : 'N/A'}
                     </p>
                   </div>
                 </div>
@@ -470,8 +474,8 @@ export function HRDashboardPage() {
 
               {offshoreEmployees && offshoreEmployees.length > 0 && (
                 <div className="flex items-center gap-4">
-                  <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-900/30">
-                    <Ship className="h-4 w-4 text-blue-600" />
+                  <div className="rounded-lg bg-info-50 p-2 dark:bg-info-900/30">
+                    <Ship className="h-4 w-4 text-info-600 dark:text-info-400" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-900 dark:text-white">
@@ -483,8 +487,8 @@ export function HRDashboardPage() {
               )}
 
               <div className="flex items-center gap-4">
-                <div className="rounded-lg bg-green-50 p-2 dark:bg-green-900/30">
-                  <UserCheck className="h-4 w-4 text-green-600" />
+                <div className="rounded-lg bg-success-50 p-2 dark:bg-success-900/30">
+                  <UserCheck className="h-4 w-4 text-success-600 dark:text-success-400" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm text-gray-900 dark:text-white">

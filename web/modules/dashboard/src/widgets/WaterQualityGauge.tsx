@@ -61,30 +61,30 @@ const statusConfig: Record<
   }
 > = {
   OPTIMAL: {
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
+    color: 'text-success-600 dark:text-success-400',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
     label: 'Optimal',
     badgeVariant: 'success',
   },
   ACCEPTABLE: {
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    color: 'text-info-600 dark:text-info-400',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
     label: 'Kabul Edilebilir',
     badgeVariant: 'info',
   },
   WARNING: {
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
+    color: 'text-warning-600 dark:text-warning-400',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
     label: 'Dikkat',
     badgeVariant: 'warning',
   },
   CRITICAL: {
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
+    color: 'text-error-600 dark:text-error-400',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
     label: 'Kritik',
     badgeVariant: 'error',
   },
@@ -323,8 +323,11 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-4">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-red-100 flex items-center justify-center">
-            <CircleAlert className="w-6 h-6 text-red-600" aria-hidden="true" />
+          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-error-100 dark:bg-error-900/40 flex items-center justify-center">
+            <CircleAlert
+              className="w-6 h-6 text-error-600 dark:text-error-400"
+              aria-hidden="true"
+            />
           </div>
           <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
         </div>
@@ -402,7 +405,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
 
       {/* Alarm Indicator */}
       {data.hasAlarm && (
-        <div className="mt-3 flex items-center gap-2 text-red-600">
+        <div className="mt-3 flex items-center gap-2 text-error-600 dark:text-error-400">
           <TriangleAlert className="w-4 h-4 animate-pulse" aria-hidden="true" />
           <span className="text-xs font-medium">Aktif alarm</span>
         </div>

@@ -16,7 +16,11 @@ import {
   Zap,
   Clock,
 } from 'lucide-react';
-import { VfdAutomationRule } from '../../types/vfd.types';
+import type {
+  CreateAutomationRuleInput,
+  UpdateAutomationRuleInput,
+  VfdAutomationRule,
+} from '../../types/vfd.types';
 import { VfdAutomationRuleForm } from './VfdAutomationRuleForm';
 import { Spinner, Button } from '@aquaculture/shared-ui';
 
@@ -30,8 +34,8 @@ interface VfdAutomationRuleListProps {
   error: string | null;
   onToggle: (id: string, isActive: boolean) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
-  onCreate: (input: Record<string, unknown>) => Promise<unknown>;
-  onUpdate: (id: string, input: Record<string, unknown>) => Promise<unknown>;
+  onCreate: (input: CreateAutomationRuleInput) => Promise<unknown>;
+  onUpdate: (id: string, input: UpdateAutomationRuleInput) => Promise<unknown>;
 }
 
 // ============================================================================
@@ -61,13 +65,16 @@ export function VfdAutomationRuleList({
     setShowForm(true);
   }, []);
 
-  const handleDelete = useCallback(async (id: string) => {
-    await onDelete(id);
-    setConfirmDeleteId(null);
-  }, [onDelete]);
+  const handleDelete = useCallback(
+    async (id: string) => {
+      await onDelete(id);
+      setConfirmDeleteId(null);
+    },
+    [onDelete],
+  );
 
   const handleFormSubmit = useCallback(
-    async (data: Record<string, unknown>) => {
+    async (data: CreateAutomationRuleInput) => {
       if (editingRule) {
         await onUpdate(editingRule.id, data);
       } else {
@@ -82,8 +89,8 @@ export function VfdAutomationRuleList({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12" role="alert">
-        <AlertTriangle className="mb-2 h-8 w-8 text-red-500" />
-        <p className="text-sm text-red-600">{error}</p>
+        <AlertTriangle className="mb-2 h-8 w-8 text-error-500" />
+        <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
       </div>
     );
   }
@@ -105,7 +112,15 @@ export function VfdAutomationRuleList({
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Automation Rules</h3>
-        <Button variant="primary" size="xs" leftIcon={<Plus className="h-3.5 w-3.5" />} type="button" onClick={handleCreate}>Create Rule</Button>
+        <Button
+          variant="primary"
+          size="xs"
+          leftIcon={<Plus className="h-3.5 w-3.5" />}
+          type="button"
+          onClick={handleCreate}
+        >
+          Create Rule
+        </Button>
       </div>
 
       {/* List */}
@@ -134,28 +149,31 @@ export function VfdAutomationRuleList({
                   <div className="flex items-center gap-2">
                     <span
                       className={`inline-block h-2.5 w-2.5 rounded-full ${
-                        rule.isActive ? 'bg-green-500' : 'bg-gray-300'
+                        rule.isActive ? 'bg-success-500' : 'bg-gray-300'
                       }`}
                       aria-hidden="true"
                     />
-                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{rule.name}</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {rule.name}
+                    </h4>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         rule.isActive
-                          ? 'bg-green-100 text-green-700'
+                          ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                           : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {rule.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{rule.description}</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {rule.description}
+                  </p>
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
+                    <span>Trigger: {formatTriggerCondition(rule.triggerCondition)}</span>
                     <span>
-                      Trigger: {formatTriggerCondition(rule.triggerCondition)}
-                    </span>
-                    <span>
-                      Targets: {rule.targetVfdDeviceIds.length} VFD{rule.targetVfdDeviceIds.length !== 1 ? 's' : ''}
+                      Targets: {rule.targetVfdDeviceIds.length} VFD
+                      {rule.targetVfdDeviceIds.length !== 1 ? 's' : ''}
                     </span>
                     <span>
                       Requires Approval: {rule.requiresApproval ? 'Yes' : 'No (auto-execute)'}
@@ -174,31 +192,67 @@ export function VfdAutomationRuleList({
 
               {/* Actions */}
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="secondary" size="xs" leftIcon={<Edit3 className="h-3 w-3" />} type="button" onClick={() => handleEdit(rule)}>Edit</Button>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  leftIcon={<Edit3 className="h-3 w-3" />}
+                  type="button"
+                  onClick={() => handleEdit(rule)}
+                >
+                  Edit
+                </Button>
                 <button
                   type="button"
                   onClick={() => onToggle(rule.id, !rule.isActive)}
                   className={`inline-flex items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium ${
                     rule.isActive
-                      ? 'border-yellow-200 text-yellow-700 hover:bg-yellow-50'
-                      : 'border-green-200 text-green-700 hover:bg-green-50'
+                      ? 'border-warning-200 dark:border-warning-800 text-warning-700 dark:text-warning-300 hover:bg-warning-50 dark:hover:bg-warning-900/30'
+                      : 'border-success-200 dark:border-success-800 text-success-700 dark:text-success-300 hover:bg-success-50 dark:hover:bg-success-900/30'
                   }`}
                   data-testid={`toggle-btn-${rule.id}`}
                 >
                   {rule.isActive ? (
-                    <><PowerOff className="h-3 w-3" /> Disable</>
+                    <>
+                      <PowerOff className="h-3 w-3" /> Disable
+                    </>
                   ) : (
-                    <><Power className="h-3 w-3" /> Enable</>
+                    <>
+                      <Power className="h-3 w-3" /> Enable
+                    </>
                   )}
                 </button>
                 {confirmDeleteId === rule.id ? (
                   <div className="flex items-center gap-1">
-                    <span className="text-xs text-red-600">Confirm?</span>
-                    <Button variant="danger" size="xs" type="button" onClick={() => handleDelete(rule.id)} data-testid={`confirm-delete-${rule.id}`}>Yes</Button>
-                    <Button variant="secondary" size="xs" type="button" onClick={() => setConfirmDeleteId(null)}>No</Button>
+                    <span className="text-xs text-error-600 dark:text-error-400">Confirm?</span>
+                    <Button
+                      variant="danger"
+                      size="xs"
+                      type="button"
+                      onClick={() => handleDelete(rule.id)}
+                      data-testid={`confirm-delete-${rule.id}`}
+                    >
+                      Yes
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
+                      No
+                    </Button>
                   </div>
                 ) : (
-                  <Button variant="secondary" size="xs" leftIcon={<Trash2 className="h-3 w-3" />} type="button" onClick={() => setConfirmDeleteId(rule.id)} data-testid={`delete-btn-${rule.id}`}>Delete</Button>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    leftIcon={<Trash2 className="h-3 w-3" />}
+                    type="button"
+                    onClick={() => setConfirmDeleteId(rule.id)}
+                    data-testid={`delete-btn-${rule.id}`}
+                  >
+                    Delete
+                  </Button>
                 )}
               </div>
             </div>
@@ -227,8 +281,10 @@ function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString('en-GB', {
-      day: '2-digit', month: '2-digit',
-      hour: '2-digit', minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return iso;

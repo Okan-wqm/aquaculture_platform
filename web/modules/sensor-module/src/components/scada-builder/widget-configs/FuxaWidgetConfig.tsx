@@ -30,7 +30,7 @@ import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 const MAX_SVG_SIZE_BYTES = 1024 * 1024;
 
 const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 const CONDITION_OPTIONS: Array<{ value: FuxaStateRule['condition']; label: string }> = [
   { value: 'lt', label: '< Less than' },
@@ -68,10 +68,7 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   const label = (config.label as string) || '';
 
   // Parse export variables from SVG content for dynamic UI generation
-  const exportVariables = useMemo(
-    () => parseFuxaExportVariables(svgContent),
-    [svgContent],
-  );
+  const exportVariables = useMemo(() => parseFuxaExportVariables(svgContent), [svgContent]);
 
   /* ---------------------------------------------------------------- */
   /*  File upload handler                                              */
@@ -202,7 +199,10 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           }
           break;
         case 'state':
-          rule.state = Math.min(5, Math.max(0, parseInt(rawValue, 10) || 0)) as FuxaStateRule['state'];
+          rule.state = Math.min(
+            5,
+            Math.max(0, parseInt(rawValue, 10) || 0),
+          ) as FuxaStateRule['state'];
           break;
         case 'value':
           if (rule.condition === 'between') {
@@ -243,17 +243,37 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
           FUXA SVG File
-          <span className="text-[10px] text-amber-600 ml-1">(scripts preserved)</span>
+          <span className="text-[10px] text-warning-600 dark:text-warning-400 ml-1">
+            (scripts preserved)
+          </span>
         </label>
         {svgContent ? (
-          <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-            <span className="text-xs text-green-700 truncate">
+          <div className="flex items-center justify-between px-3 py-2 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg">
+            <span className="text-xs text-success-700 dark:text-success-300 truncate">
               {svgFileName || 'fuxa-widget.svg'}
             </span>
-            <Button variant="ghost" iconOnly aria-label="Delete" className="ml-2" onClick={handleRemove} data-testid="fuxa-remove-svg"><Trash2 size={14} /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Delete"
+              className="ml-2"
+              onClick={handleRemove}
+              data-testid="fuxa-remove-svg"
+            >
+              <Trash2 size={14} />
+            </Button>
           </div>
         ) : (
-          <Button variant="secondary" size="xs" className="justify-center" leftIcon={<Upload size={14} />} onClick={() => fileInputRef.current?.click()} data-testid="fuxa-upload-btn">Upload FUXA SVG</Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            className="justify-center"
+            leftIcon={<Upload size={14} />}
+            onClick={() => fileInputRef.current?.click()}
+            data-testid="fuxa-upload-btn"
+          >
+            Upload FUXA SVG
+          </Button>
         )}
         <input
           ref={fileInputRef}
@@ -264,7 +284,7 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           data-testid="fuxa-file-input"
         />
         {uploadError && (
-          <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-600">
+          <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1.5 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded text-xs text-error-600 dark:text-error-400">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span>{uploadError}</span>
           </div>
@@ -314,8 +334,18 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {tagName && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">State Rules</label>
-            <Button variant="ghost" size="xs" leftIcon={<Plus size={12} />} onClick={handleAddRule} data-testid="fuxa-add-rule">Add Rule</Button>
+            <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+              State Rules
+            </label>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Plus size={12} />}
+              onClick={handleAddRule}
+              data-testid="fuxa-add-rule"
+            >
+              Add Rule
+            </Button>
           </div>
           {stateRules.map((rule, idx) => (
             <StateRuleRow
@@ -375,10 +405,12 @@ const VariableInput: React.FC<VariableInputProps> = ({
               type="checkbox"
               checked={value as boolean}
               onChange={(e) => onChange(variable.id, e.target.checked)}
-              className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
               data-testid={`fuxa-var-${variable.id}`}
             />
-            <span className="text-xs text-gray-600 dark:text-gray-400">{value ? 'True' : 'False'}</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400">
+              {value ? 'True' : 'False'}
+            </span>
           </label>
         );
       case 'color':
@@ -417,13 +449,24 @@ const VariableInput: React.FC<VariableInputProps> = ({
   return (
     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{variable.label}</span>
-        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">{variable.type}</span>
+        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+          {variable.label}
+        </span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+          {variable.type}
+        </span>
       </div>
       {renderInput()}
       {/* Per-variable tag binding */}
       <div className="mt-1.5">
-        <Input fullWidth type="text" value={tagBinding} onChange={(e) => onTagChange(variable.id, e.target.value)} placeholder="Bind to tag..." data-testid={`fuxa-var-tag-${variable.id}`} />
+        <Input
+          fullWidth
+          type="text"
+          value={tagBinding}
+          onChange={(e) => onTagChange(variable.id, e.target.value)}
+          placeholder="Bind to tag..."
+          data-testid={`fuxa-var-tag-${variable.id}`}
+        />
       </div>
     </div>
   );
@@ -446,12 +489,15 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
     : String(rule.value);
 
   return (
-    <div className="flex items-center gap-1.5 p-1.5 bg-gray-50 dark:bg-gray-800 rounded" data-testid={`fuxa-rule-${index}`}>
+    <div
+      className="flex items-center gap-1.5 p-1.5 bg-gray-50 dark:bg-gray-800 rounded"
+      data-testid={`fuxa-rule-${index}`}
+    >
       {/* Condition */}
       <select
         value={rule.condition}
         onChange={(e) => onChange(index, 'condition', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-cyan-500"
+        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
       >
         {CONDITION_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -461,7 +507,12 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       </select>
 
       {/* Value */}
-      <Input type="text" value={valueDisplay} onChange={(e) => onChange(index, 'value', e.target.value)} placeholder={rule.condition === 'between' ? '0,100' : '0'} />
+      <Input
+        type="text"
+        value={valueDisplay}
+        onChange={(e) => onChange(index, 'value', e.target.value)}
+        placeholder={rule.condition === 'between' ? '0,100' : '0'}
+      />
 
       {/* Arrow */}
       <span className="text-xs text-gray-400 dark:text-gray-500">{'\u2192'}</span>
@@ -470,7 +521,7 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       <select
         value={rule.state}
         onChange={(e) => onChange(index, 'state', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-cyan-500"
+        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
       >
         {[0, 1, 2, 3, 4, 5].map((s) => (
           <option key={s} value={s}>
@@ -480,7 +531,9 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       </select>
 
       {/* Remove */}
-      <Button variant="ghost" iconOnly aria-label="Close" onClick={() => onRemove(index)}><X size={12} /></Button>
+      <Button variant="ghost" iconOnly aria-label="Close" onClick={() => onRemove(index)}>
+        <X size={12} />
+      </Button>
     </div>
   );
 };

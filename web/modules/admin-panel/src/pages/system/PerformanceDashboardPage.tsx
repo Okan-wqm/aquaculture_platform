@@ -109,13 +109,13 @@ const getHealthColor = (
 ): string => {
   if (value === null || value === undefined) return 'text-gray-400 dark:text-gray-500';
   if (inverse) {
-    if (value <= thresholds.critical) return 'text-red-600';
-    if (value <= thresholds.warning) return 'text-yellow-600';
-    return 'text-green-600';
+    if (value <= thresholds.critical) return 'text-error-600 dark:text-error-400';
+    if (value <= thresholds.warning) return 'text-warning-600 dark:text-warning-400';
+    return 'text-success-600 dark:text-success-400';
   }
-  if (value >= thresholds.critical) return 'text-red-600';
-  if (value >= thresholds.warning) return 'text-yellow-600';
-  return 'text-green-600';
+  if (value >= thresholds.critical) return 'text-error-600 dark:text-error-400';
+  if (value >= thresholds.warning) return 'text-warning-600 dark:text-warning-400';
+  return 'text-success-600 dark:text-success-400';
 };
 
 const getProgressColor = (
@@ -123,9 +123,9 @@ const getProgressColor = (
   thresholds: { warning: number; critical: number },
 ): string => {
   if (value === null || value === undefined) return 'bg-gray-300';
-  if (value >= thresholds.critical) return 'bg-red-500';
-  if (value >= thresholds.warning) return 'bg-yellow-500';
-  return 'bg-green-500';
+  if (value >= thresholds.critical) return 'bg-error-500';
+  if (value >= thresholds.warning) return 'bg-warning-500';
+  return 'bg-success-500';
 };
 
 export const PerformanceDashboardPage: React.FC = () => {
@@ -274,10 +274,10 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div
               className={`w-2 h-2 rounded-full ${
                 status === 'healthy'
-                  ? 'bg-green-500'
+                  ? 'bg-success-500'
                   : status === 'warning'
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
+                    ? 'bg-warning-500'
+                    : 'bg-error-500'
               }`}
             />
             <span className="font-medium text-gray-900 dark:text-gray-100">{service.service}</span>
@@ -356,7 +356,7 @@ export const PerformanceDashboardPage: React.FC = () => {
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
               />
               Auto-refresh
             </label>
@@ -364,7 +364,7 @@ export const PerformanceDashboardPage: React.FC = () => {
               aria-label="Time range"
               value={rangeValue}
               onChange={(e) => setRangeValue(e.target.value as TimeRangeValue)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               {TIME_RANGES.map((tr) => (
                 <option key={tr.value} value={tr.value}>
@@ -394,9 +394,9 @@ export const PerformanceDashboardPage: React.FC = () => {
 
       {/* Alerts Banner */}
       {alerts.length > 0 && (
-        <Card className="border-l-4 border-yellow-400 bg-yellow-50">
+        <Card className="border-l-4 border-warning-400 bg-warning-50 dark:bg-warning-900/20">
           <div className="p-4">
-            <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+            <h3 className="font-semibold text-warning-800 dark:text-warning-200 mb-2 flex items-center gap-2">
               <TriangleAlert className="w-5 h-5" aria-hidden="true" />
               Active Performance Alerts
             </h3>
@@ -405,10 +405,10 @@ export const PerformanceDashboardPage: React.FC = () => {
                 <div key={idx} className="flex items-center gap-3 text-sm">
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      alert.severity === 'critical' ? 'bg-red-500' : 'bg-yellow-500'
+                      alert.severity === 'critical' ? 'bg-error-500' : 'bg-warning-500'
                     }`}
                   />
-                  <span className="text-yellow-800">
+                  <span className="text-warning-800 dark:text-warning-200">
                     {alert.metric}: {alert.currentValue}% (threshold: {alert.threshold}%)
                   </span>
                   <Badge variant={alert.severity === 'critical' ? 'error' : 'warning'} size="sm">
@@ -428,7 +428,7 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
               Response Time
             </div>
-            <Zap className="w-5 h-5 text-blue-500" aria-hidden="true" />
+            <Zap className="w-5 h-5 text-info-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.avgResponseTime, {
@@ -444,7 +444,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">CPU Usage</div>
-            <Cpu className="w-5 h-5 text-purple-500" aria-hidden="true" />
+            <Cpu className="w-5 h-5 text-accent-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.cpuUsage, {
@@ -460,7 +460,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Memory Usage</div>
-            <Server className="w-5 h-5 text-green-500" aria-hidden="true" />
+            <Server className="w-5 h-5 text-success-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.memoryUsage, {
@@ -476,7 +476,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Error Rate</div>
-            <CircleAlert className="w-5 h-5 text-red-500" aria-hidden="true" />
+            <CircleAlert className="w-5 h-5 text-error-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.errorRate, {
@@ -521,7 +521,7 @@ export const PerformanceDashboardPage: React.FC = () => {
             className={`h-full rounded-full transition-all duration-500 ${
               dashboard?.healthScore === null || dashboard?.healthScore === undefined
                 ? 'bg-gray-300'
-                : 'bg-green-500'
+                : 'bg-success-500'
             }`}
             style={{ width: `${dashboard?.healthScore ?? 0}%` }}
           />
@@ -659,7 +659,7 @@ export const PerformanceDashboardPage: React.FC = () => {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Healthy Containers</span>
-            <span className="text-lg font-bold text-green-600">
+            <span className="text-lg font-bold text-success-600 dark:text-success-400">
               {formatMetric(infrastructure?.healthyContainers)}/
               {formatMetric(infrastructure?.containerCount)}
             </span>

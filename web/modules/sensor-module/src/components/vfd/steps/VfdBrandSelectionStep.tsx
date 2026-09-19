@@ -56,7 +56,7 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
       {/* Popular brands */}
       <div>
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center">
-          <Star className="w-4 h-4 mr-1 text-yellow-500" aria-hidden="true" />
+          <Star className="w-4 h-4 mr-1 text-warning-500" aria-hidden="true" />
           Popüler Markalar
         </h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -91,7 +91,7 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
 
       {/* Selected brand info */}
       {selectedBrand && (
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="mt-6 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
           <div className="flex items-start">
             <div
               className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg mr-4"
@@ -110,11 +110,11 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-blue-200">
+                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-info-200">
                   <span className="text-gray-500 dark:text-gray-400">Protokoller:</span>{' '}
                   <span className="font-medium">{selectedBrand.supportedProtocols.length}</span>
                 </div>
-                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-blue-200">
+                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-info-200">
                   <span className="text-gray-500 dark:text-gray-400">Model Serisi:</span>{' '}
                   <span className="font-medium">{selectedBrand.modelSeries.length}</span>
                 </div>
@@ -167,12 +167,12 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
       onClick={() => onSelect(brand)}
       className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
         isSelected
-          ? 'border-blue-500 bg-blue-50 shadow-md'
+          ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md'
           : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
       }`}
     >
       {isPopular && (
-        <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-xs px-1.5 py-0.5 rounded-full font-medium">
+        <span className="absolute -top-2 -right-2 bg-warning-400 text-warning-900 dark:text-warning-100 text-xs px-1.5 py-0.5 rounded-full font-medium">
           Popüler
         </span>
       )}
@@ -193,7 +193,7 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
 
       {isSelected && (
         <div className="absolute top-2 right-2">
-          <CircleCheck className="w-5 h-5 text-blue-500" aria-hidden="true" />
+          <CircleCheck className="w-5 h-5 text-info-500" aria-hidden="true" />
         </div>
       )}
     </button>

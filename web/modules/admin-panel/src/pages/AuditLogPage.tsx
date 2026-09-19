@@ -561,11 +561,11 @@ const AuditLogPage: React.FC = () => {
 
       {/* Export error */}
       {exportError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
-          <span className="text-red-700 text-sm">{exportError}</span>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-error-700 dark:text-error-300 text-sm">{exportError}</span>
           <button
             onClick={() => setExportError(null)}
-            className="text-red-400 hover:text-red-600 ml-4"
+            className="text-error-400 hover:text-error-600 dark:hover:text-error-300 ml-4"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -579,7 +579,7 @@ const AuditLogPage: React.FC = () => {
           <StatsCard
             title="Last 24 Hours"
             value={stats.last24Hours ?? 0}
-            valueColor="text-blue-600"
+            valueColor="text-info-600 dark:text-info-400"
           />
           <StatsCard
             title="Critical Events"
@@ -588,7 +588,7 @@ const AuditLogPage: React.FC = () => {
                 ? (stats.bySeverity.find((s) => s.severity === 'critical')?.count ?? 0)
                 : 0
             }
-            valueColor="text-red-600"
+            valueColor="text-error-600 dark:text-error-400"
           />
           <StatsCard
             title="Most Active User"
@@ -675,8 +675,8 @@ const AuditLogPage: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <Card className="p-4 bg-red-50 border-red-200">
-          <p className="text-red-600">{error}</p>
+        <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">{error}</p>
           <Button size="sm" variant="outline" onClick={refresh} className="mt-2">
             Retry
           </Button>

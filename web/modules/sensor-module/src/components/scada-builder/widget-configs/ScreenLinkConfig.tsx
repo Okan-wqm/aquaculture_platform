@@ -27,7 +27,7 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <select
           value={config.targetScreenId || ''}
           onChange={(e) => onChange({ targetScreenId: e.target.value || undefined })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
         >
           <option value="">Select screen...</option>
           {screens.map((screen) => (
@@ -40,11 +40,26 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Go to Screen" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.label || ''}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Go to Screen"
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Display Style</label>
-        <Select fullWidth options={[{ value: 'card', label: 'Card' }, { value: 'button', label: 'Button' }, { value: 'minimal', label: 'Minimal' }]} value={config.style || 'card'} onChange={(e) => onChange({ style: e.target.value })} />
+        <Select
+          fullWidth
+          options={[
+            { value: 'card', label: 'Card' },
+            { value: 'button', label: 'Button' },
+            { value: 'minimal', label: 'Minimal' },
+          ]}
+          value={config.style || 'card'}
+          onChange={(e) => onChange({ style: e.target.value })}
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
@@ -55,12 +70,26 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             onChange={(e) => onChange({ color: e.target.value })}
             className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
-          <Input type="text" value={config.color || colors.primary[400]} onChange={(e) => onChange({ color: e.target.value })} placeholder={colors.primary[400]} />
+          <Input
+            type="text"
+            value={config.color || colors.primary[400]}
+            onChange={(e) => onChange({ color: e.target.value })}
+            placeholder={colors.primary[400]}
+          />
         </div>
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Icon</label>
-        <Select fullWidth options={[{ value: 'ArrowRight', label: 'Arrow (ArrowRight)' }, { value: 'ExternalLink', label: 'External Link (ExternalLink)' }, { value: 'Monitor', label: 'Screen (Monitor)' }]} value={config.icon || 'ArrowRight'} onChange={(e) => onChange({ icon: e.target.value })} />
+        <Select
+          fullWidth
+          options={[
+            { value: 'ArrowRight', label: 'Arrow (ArrowRight)' },
+            { value: 'ExternalLink', label: 'External Link (ExternalLink)' },
+            { value: 'Monitor', label: 'Screen (Monitor)' },
+          ]}
+          value={config.icon || 'ArrowRight'}
+          onChange={(e) => onChange({ icon: e.target.value })}
+        />
       </div>
     </div>
   );

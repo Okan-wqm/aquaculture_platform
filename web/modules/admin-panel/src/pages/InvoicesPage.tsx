@@ -366,13 +366,13 @@ const InvoicesPage: React.FC = () => {
 
   const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-    pending: 'bg-yellow-100 text-yellow-700',
-    sent: 'bg-blue-100 text-blue-700',
-    paid: 'bg-green-100 text-green-700',
-    partially_paid: 'bg-orange-100 text-orange-700',
-    overdue: 'bg-red-100 text-red-700',
+    pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    sent: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    paid: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+    partially_paid: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    overdue: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
     void: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
-    refunded: 'bg-purple-100 text-purple-700',
+    refunded: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   };
 
   const statusLabels: Record<string, string> = {
@@ -424,7 +424,7 @@ const InvoicesPage: React.FC = () => {
             {formatCurrency(invoice.amount, invoice.currency)}
           </div>
           {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
-            <div className="text-xs text-orange-600">
+            <div className="text-xs text-warning-600 dark:text-warning-400">
               Due: {formatCurrency(invoice.amountDue, invoice.currency)}
             </div>
           )}
@@ -451,7 +451,9 @@ const InvoicesPage: React.FC = () => {
             {formatDate(invoice.dueDate)}
           </div>
           {invoice.paidAt && (
-            <div className="text-xs text-green-600">Paid: {formatDate(invoice.paidAt)}</div>
+            <div className="text-xs text-success-600 dark:text-success-400">
+              Paid: {formatDate(invoice.paidAt)}
+            </div>
           )}
         </>
       ),
@@ -464,7 +466,7 @@ const InvoicesPage: React.FC = () => {
         <button
           type="button"
           onClick={() => setSelectedInvoice(invoice)}
-          className="text-blue-600 hover:text-blue-900"
+          className="text-info-600 dark:text-info-400 hover:text-info-900 dark:hover:text-info-100"
         >
           View
         </button>
@@ -479,10 +481,10 @@ const InvoicesPage: React.FC = () => {
         <div
           className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
             toast.type === 'success'
-              ? 'bg-green-50 text-green-800 border border-green-200'
+              ? 'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200 border border-success-200 dark:border-success-800'
               : toast.type === 'error'
-                ? 'bg-red-50 text-red-800 border border-red-200'
-                : 'bg-blue-50 text-blue-800 border border-blue-200'
+                ? 'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border border-error-200 dark:border-error-800'
+                : 'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border border-info-200 dark:border-info-800'
           }`}
         >
           {toast.message}
@@ -503,7 +505,7 @@ const InvoicesPage: React.FC = () => {
             </button>
             <button
               onClick={openCreateInvoice}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors"
             >
               Create Invoice
             </button>
@@ -527,19 +529,19 @@ const InvoicesPage: React.FC = () => {
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Paid</p>
-          <p className="text-2xl font-bold text-green-600 mt-1">
+          <p className="text-2xl font-bold text-success-600 dark:text-success-400 mt-1">
             {formatCurrency(stats.totalPaid)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
-          <p className="text-2xl font-bold text-yellow-600 mt-1">
+          <p className="text-2xl font-bold text-warning-600 dark:text-warning-400 mt-1">
             {formatCurrency(stats.totalPending)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Overdue</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">
+          <p className="text-2xl font-bold text-error-600 dark:text-error-400 mt-1">
             {formatCurrency(stats.totalOverdue)}
           </p>
         </div>
@@ -547,14 +549,14 @@ const InvoicesPage: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-700">{error}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+          <p className="text-error-700 dark:text-error-300">{error}</p>
           <button
             onClick={() => {
               void fetchInvoices();
               void fetchStats();
             }}
-            className="mt-2 text-red-600 hover:text-red-800 text-sm font-medium"
+            className="mt-2 text-error-600 dark:text-error-400 hover:text-error-800 dark:hover:text-error-200 text-sm font-medium"
           >
             Retry
           </button>
@@ -571,7 +573,7 @@ const InvoicesPage: React.FC = () => {
                 placeholder="Search invoices..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
               />
               <SearchIcon
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
@@ -586,7 +588,7 @@ const InvoicesPage: React.FC = () => {
                 onClick={() => handleStatusFilterChange(status)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
                   statusFilter === status
-                    ? 'bg-blue-100 text-blue-700'
+                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
@@ -625,7 +627,7 @@ const InvoicesPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={openMarkPaidModal}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    className="flex-1 px-4 py-2 bg-success-600 text-white text-sm font-medium rounded-lg hover:bg-success-700 transition-colors"
                   >
                     Mark as Paid
                   </button>
@@ -634,7 +636,7 @@ const InvoicesPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={openVoidModal}
-                    className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+                    className="flex-1 px-4 py-2 bg-error-600 text-white text-sm font-medium rounded-lg hover:bg-error-700 transition-colors"
                   >
                     Void Invoice
                   </button>
@@ -691,7 +693,7 @@ const InvoicesPage: React.FC = () => {
             </div>
             <div className="flex justify-between py-2">
               <span className="text-sm text-gray-600 dark:text-gray-400">Amount Paid</span>
-              <span className="text-sm font-medium text-green-600">
+              <span className="text-sm font-medium text-success-600 dark:text-success-400">
                 {formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}
               </span>
             </div>
@@ -739,7 +741,7 @@ const InvoicesPage: React.FC = () => {
                   void handleMarkAsPaid();
                 }}
                 disabled={markPaidLoading}
-                className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-success-600 text-white text-sm font-medium rounded-lg hover:bg-success-700 transition-colors disabled:opacity-50"
               >
                 {markPaidLoading ? 'Processing...' : 'Confirm Payment'}
               </button>
@@ -761,7 +763,7 @@ const InvoicesPage: React.FC = () => {
                 max={selectedInvoice.amountDue}
                 value={markPaidAmount}
                 onChange={(e) => setMarkPaidAmount(e.target.value)}
-                className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-success-500"
                 placeholder="Enter payment amount"
               />
             </div>
@@ -801,15 +803,15 @@ const InvoicesPage: React.FC = () => {
                   void handleVoidInvoice();
                 }}
                 disabled={voidLoading || !voidReason.trim()}
-                className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-error-600 text-white text-sm font-medium rounded-lg hover:bg-error-700 transition-colors disabled:opacity-50"
               >
                 {voidLoading ? 'Processing...' : 'Void Invoice'}
               </button>
             </>
           }
         >
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-700">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-700 dark:text-error-300">
               This action cannot be undone. The invoice will be permanently voided.
             </p>
           </div>
@@ -825,7 +827,7 @@ const InvoicesPage: React.FC = () => {
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               rows={3}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-error-500"
               placeholder="Enter reason for voiding this invoice..."
             />
           </div>

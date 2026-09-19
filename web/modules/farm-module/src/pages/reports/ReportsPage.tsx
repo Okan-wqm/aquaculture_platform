@@ -168,8 +168,8 @@ const Badge: React.FC<BadgeProps> = ({ count, variant }) => {
   if (count === 0) return null;
 
   const variantClasses = {
-    warning: 'bg-yellow-100 text-yellow-800',
-    error: 'bg-red-100 text-red-800',
+    warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    error: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   };
 
   return (
@@ -194,13 +194,13 @@ const WarningBanner: React.FC<WarningBannerProps> = ({ failedCount, dueSoonCount
   if (failedCount === 0 && dueSoonCount === 0) return null;
 
   return (
-    <div className="bg-red-50 border-l-4 border-red-400 p-4">
+    <div className="bg-error-50 dark:bg-error-900/20 border-l-4 border-error-400 p-4">
       <div className="flex">
         <div className="flex-shrink-0">
-          <TriangleAlert className="h-5 w-5 text-red-400" aria-hidden="true" />
+          <TriangleAlert className="h-5 w-5 text-error-400" aria-hidden="true" />
         </div>
         <div className="ml-3">
-          <p className="text-sm text-red-700">
+          <p className="text-sm text-error-700 dark:text-error-300">
             {failedCount > 0 && (
               <span className="font-medium">
                 {failedCount} failed {failedCount === 1 ? 'submission' : 'submissions'}
@@ -346,11 +346,15 @@ export const ReportsPage: React.FC = () => {
                     <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">{totals.failed}</div>
+                    <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+                      {totals.failed}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{totals.submitted}</div>
+                    <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+                      {totals.submitted}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Submitted</div>
                   </div>
                 </div>
@@ -398,7 +402,7 @@ export const ReportsPage: React.FC = () => {
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                   ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
@@ -407,7 +411,7 @@ export const ReportsPage: React.FC = () => {
                 <span
                   className={`mr-2 ${
                     activeTab === tab.id
-                      ? 'text-blue-500'
+                      ? 'text-info-500'
                       : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'
                   }`}
                 >
@@ -417,7 +421,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Deadline indicator */}
                 {tab.deadline === 'immediate' && (
                   <span
-                    className="ml-1.5 w-2 h-2 rounded-full bg-red-500"
+                    className="ml-1.5 w-2 h-2 rounded-full bg-error-500"
                     title="Immediate reporting required"
                   />
                 )}

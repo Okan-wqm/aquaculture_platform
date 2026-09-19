@@ -22,11 +22,7 @@ function getWeekNumber(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
-export function WeekNavigator({
-  currentWeekStart,
-  onChange,
-  className,
-}: WeekNavigatorProps) {
+export function WeekNavigator({ currentWeekStart, onChange, className }: WeekNavigatorProps) {
   const weekNumber = useMemo(() => getWeekNumber(currentWeekStart), [currentWeekStart]);
 
   const weekEnd = useMemo(() => {
@@ -71,14 +67,16 @@ export function WeekNavigator({
 
   return (
     <nav className={cn('flex items-center gap-2', className)} aria-label="Hafta gezinme">
-      <Button variant="ghost" iconOnly onClick={goToPrevWeek} aria-label="Onceki hafta"><ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" /></Button>
+      <Button variant="ghost" iconOnly onClick={goToPrevWeek} aria-label="Onceki hafta">
+        <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+      </Button>
 
       <div
         className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[280px]"
         aria-live="polite"
         aria-atomic="true"
       >
-        <Calendar className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+        <Calendar className="h-4 w-4 text-primary-600 dark:text-primary-400" aria-hidden="true" />
         <div className="flex flex-col">
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             Hafta {weekNumber}
@@ -87,10 +85,20 @@ export function WeekNavigator({
         </div>
       </div>
 
-      <Button variant="ghost" iconOnly onClick={goToNextWeek} aria-label="Sonraki hafta"><ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" /></Button>
+      <Button variant="ghost" iconOnly onClick={goToNextWeek} aria-label="Sonraki hafta">
+        <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+      </Button>
 
       {!isThisWeek && (
-        <Button variant="ghost" size="xs" className="ml-2" onClick={goToThisWeek} aria-label="Bu haftaya don">Bugune don</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          className="ml-2"
+          onClick={goToThisWeek}
+          aria-label="Bu haftaya don"
+        >
+          Bugune don
+        </Button>
       )}
     </nav>
   );

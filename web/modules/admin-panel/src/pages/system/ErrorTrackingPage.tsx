@@ -306,17 +306,21 @@ export const ErrorTrackingPage: React.FC = () => {
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Errors</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-orange-600">
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
             {formatCount(stats.unresolvedErrors)}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Unresolved</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-red-600">{formatCount(stats.criticalErrors)}</div>
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+            {formatCount(stats.criticalErrors)}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-blue-600">{formatCount(stats.todayErrors)}</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+            {formatCount(stats.todayErrors)}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Today's Errors</div>
         </Card>
       </div>
@@ -445,7 +449,9 @@ export const ErrorTrackingPage: React.FC = () => {
                     {/* Error message */}
                     <h3 className="font-mono text-sm text-gray-900 dark:text-gray-100 mb-2 line-clamp-2">
                       {errorGroup.errorType && (
-                        <span className="text-red-600 font-semibold">{errorGroup.errorType}: </span>
+                        <span className="text-error-600 dark:text-error-400 font-semibold">
+                          {errorGroup.errorType}:{' '}
+                        </span>
                       )}
                       {errorGroup.message}
                     </h3>
@@ -499,7 +505,9 @@ export const ErrorTrackingPage: React.FC = () => {
               </span>
               <span className="block font-mono">
                 {selectedError.errorType && (
-                  <span className="text-red-600">{selectedError.errorType}: </span>
+                  <span className="text-error-600 dark:text-error-400">
+                    {selectedError.errorType}:{' '}
+                  </span>
                 )}
                 {selectedError.message}
               </span>
@@ -561,7 +569,7 @@ export const ErrorTrackingPage: React.FC = () => {
           </div>
 
           {/* Timeline */}
-          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+          <div className="mb-6 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg">
             <div className="flex justify-between text-sm">
               <div>
                 <span className="text-gray-600 dark:text-gray-400">First seen:</span>

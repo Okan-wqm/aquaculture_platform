@@ -78,19 +78,19 @@ const EQUIPMENT_CATEGORIES = [
 
 const statusColors: Record<string, string> = {
   // General equipment statuses
-  OPERATIONAL: 'bg-green-100 text-green-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  REPAIR: 'bg-orange-100 text-orange-800',
-  STANDBY: 'bg-blue-100 text-blue-800',
-  OUT_OF_SERVICE: 'bg-red-100 text-red-800',
+  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  REPAIR: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  STANDBY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  OUT_OF_SERVICE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   DECOMMISSIONED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   // Tank-specific statuses
-  ACTIVE: 'bg-green-100 text-green-800',
-  PREPARING: 'bg-blue-100 text-blue-800',
-  CLEANING: 'bg-cyan-100 text-cyan-800',
-  HARVESTING: 'bg-purple-100 text-purple-800',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FALLOW: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
-  QUARANTINE: 'bg-red-100 text-red-800',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const TANK_CATEGORIES = ['TANK', 'POND', 'CAGE'];
@@ -131,7 +131,7 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
               {camelCaseToLabel(key)}:
             </span>
             <span
-              className={`font-medium ${value ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'}`}
+              className={`font-medium ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-400'}`}
             >
               {value ? 'Yes' : 'No'}
             </span>
@@ -202,7 +202,7 @@ function EquipmentTypeIcon({
     (type?.code !== undefined ? typeIcons[type.code] : undefined) ??
     (type?.category !== undefined ? typeIcons[type.category] : undefined) ??
     Square;
-  return <TypeIcon className="w-6 h-6 text-blue-600" aria-hidden="true" />;
+  return <TypeIcon className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />;
 }
 
 interface EquipmentFormData {
@@ -675,7 +675,7 @@ export const EquipmentTab: React.FC = () => {
                 `${eq.systemIds?.length || 0} system(s)`}
             </span>
           ) : (
-            <span className="flex items-center text-red-600">
+            <span className="flex items-center text-error-600 dark:text-error-400">
               <TriangleAlert className="w-4 h-4 mr-1" aria-hidden="true" />
               Not associated
             </span>
@@ -690,7 +690,7 @@ export const EquipmentTab: React.FC = () => {
         <>
           {eq.parentEquipment ? (
             <span
-              className="flex items-center text-blue-600"
+              className="flex items-center text-info-600 dark:text-info-400"
               title={`Parent: ${eq.parentEquipment.name}`}
             >
               <ArrowUp className="w-3 h-3 mr-1" aria-hidden="true" />
@@ -698,7 +698,7 @@ export const EquipmentTab: React.FC = () => {
             </span>
           ) : (eq.subEquipmentCount || 0) > 0 ? (
             <span
-              className="flex items-center text-green-600"
+              className="flex items-center text-success-600 dark:text-success-400"
               title={`${eq.subEquipmentCount} sub-equipment`}
             >
               <ArrowDown className="w-3 h-3 mr-1" aria-hidden="true" />
@@ -760,7 +760,7 @@ export const EquipmentTab: React.FC = () => {
               placeholder="Search equipment..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -770,7 +770,7 @@ export const EquipmentTab: React.FC = () => {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Types</option>
             {types.map((type) => (
@@ -782,7 +782,7 @@ export const EquipmentTab: React.FC = () => {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
             <optgroup label="Equipment">
@@ -807,7 +807,7 @@ export const EquipmentTab: React.FC = () => {
               type="checkbox"
               checked={showOrphanedOnly}
               onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Orphaned only
           </label>
@@ -816,13 +816,13 @@ export const EquipmentTab: React.FC = () => {
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             <button
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               <LayoutGrid className="w-5 h-5" aria-hidden="true" />
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               <Menu className="w-5 h-5" aria-hidden="true" />
             </button>
@@ -851,8 +851,10 @@ export const EquipmentTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load equipment. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load equipment. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -861,9 +863,9 @@ export const EquipmentTab: React.FC = () => {
 
       {/* Orphan Warning Notice */}
       {!isLoading && !error && orphanedCount > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <TriangleAlert className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" aria-hidden="true" />
-          <span className="text-sm text-red-700">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center">
+          <TriangleAlert className="w-5 h-5 text-error-500 mr-2 flex-shrink-0" aria-hidden="true" />
+          <span className="text-sm text-error-700 dark:text-error-300">
             {orphanedCount} equipment item(s) are not associated with any system
           </span>
         </div>
@@ -877,14 +879,14 @@ export const EquipmentTab: React.FC = () => {
               key={eq.id}
               className={`rounded-lg shadow-sm border-2 hover:shadow-md transition-shadow ${
                 (eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0)
-                  ? 'bg-white dark:bg-gray-900 border-blue-500'
-                  : 'bg-red-50 border-red-500'
+                  ? 'bg-white dark:bg-gray-900 border-info-500'
+                  : 'bg-error-50 dark:bg-error-900/20 border-error-500'
               }`}
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                    <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center mr-3">
                       <EquipmentTypeIcon type={eq.equipmentType} />
                     </div>
                     <div>
@@ -921,8 +923,8 @@ export const EquipmentTab: React.FC = () => {
                       </span>
                     </div>
                   ) : (
-                    <div className="flex items-center text-red-600">
-                      <TriangleAlert className="w-4 h-4 mr-1 text-red-400" aria-hidden="true" />
+                    <div className="flex items-center text-error-600 dark:text-error-400">
+                      <TriangleAlert className="w-4 h-4 mr-1 text-error-400" aria-hidden="true" />
                       <span className="text-sm font-medium">Not associated with any system</span>
                     </div>
                   )}
@@ -937,7 +939,7 @@ export const EquipmentTab: React.FC = () => {
                     <div className="flex items-center text-gray-600 dark:text-gray-400">
                       <span className="text-gray-400 dark:text-gray-500 w-24">Parent:</span>
                       <span className="flex items-center">
-                        <ArrowUp className="w-3 h-3 mr-1 text-blue-500" aria-hidden="true" />
+                        <ArrowUp className="w-3 h-3 mr-1 text-info-500" aria-hidden="true" />
                         {eq.parentEquipment.name}
                       </span>
                     </div>
@@ -946,7 +948,7 @@ export const EquipmentTab: React.FC = () => {
                   {eq.equipmentType?.code?.startsWith('feeder-') &&
                     !!(eq.specifications as Record<string, unknown>)?.autoFilling && (
                       <div className="flex items-center">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                           Auto Fill
                         </span>
                       </div>
@@ -955,7 +957,7 @@ export const EquipmentTab: React.FC = () => {
                   {(eq.subEquipmentCount || 0) > 0 && (
                     <div className="flex items-center text-gray-600 dark:text-gray-400">
                       <span className="text-gray-400 dark:text-gray-500 w-24">Sub-equip:</span>
-                      <span className="flex items-center text-blue-600">
+                      <span className="flex items-center text-info-600 dark:text-info-400">
                         <ArrowDown className="w-3 h-3 mr-1" aria-hidden="true" />
                         {eq.subEquipmentCount} item(s)
                       </span>
@@ -1074,7 +1076,7 @@ export const EquipmentTab: React.FC = () => {
                     <select
                       value={formData.selectedCategory}
                       onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                       required
                     >
                       <option value="">Select Category...</option>
@@ -1096,7 +1098,7 @@ export const EquipmentTab: React.FC = () => {
                       <select
                         value={formData.equipmentTypeId}
                         onChange={(e) => handleTypeChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                         required
                         disabled={!formData.selectedCategory}
                       >
@@ -1123,7 +1125,7 @@ export const EquipmentTab: React.FC = () => {
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <optgroup label="General">
                         <option value="OPERATIONAL">Operational</option>
@@ -1154,7 +1156,7 @@ export const EquipmentTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Supplier...</option>
                       {suppliers.map((sup) => (
@@ -1184,7 +1186,7 @@ export const EquipmentTab: React.FC = () => {
                       <select
                         value={formData.siteId}
                         onChange={(e) => handleSiteChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                         required
                       >
                         <option value="">Select Site...</option>
@@ -1207,7 +1209,7 @@ export const EquipmentTab: React.FC = () => {
                       <select
                         value={formData.departmentId}
                         onChange={(e) => handleDepartmentChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                         required
                         disabled={!formData.siteId}
                       >
@@ -1228,7 +1230,7 @@ export const EquipmentTab: React.FC = () => {
                       </select>
                     </FormField>
                     {deptError && (
-                      <p className="text-xs text-red-500 mt-1">
+                      <p className="text-xs text-error-500 mt-1">
                         Departmanlar yüklenirken hata oluştu
                       </p>
                     )}
@@ -1256,7 +1258,7 @@ export const EquipmentTab: React.FC = () => {
                           key={sys.id}
                           className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                             formData.systemIds.includes(sys.id)
-                              ? 'bg-blue-50 border border-blue-200'
+                              ? 'bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800'
                               : ''
                           }`}
                         >
@@ -1264,7 +1266,7 @@ export const EquipmentTab: React.FC = () => {
                             type="checkbox"
                             checked={formData.systemIds.includes(sys.id)}
                             onChange={() => handleSystemToggle(sys.id)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+                            className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                           />
                           <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
                             {sys.name}
@@ -1277,7 +1279,7 @@ export const EquipmentTab: React.FC = () => {
                     </div>
                   )}
                   {formData.systemIds.length > 0 && (
-                    <p className="mt-1 text-xs text-blue-600">
+                    <p className="mt-1 text-xs text-info-600 dark:text-info-400">
                       {formData.systemIds.length} system(s) selected
                     </p>
                   )}
@@ -1298,7 +1300,7 @@ export const EquipmentTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">None (Root Equipment)</option>
                     {availableParentEquipment.map((eq) => (
@@ -1465,7 +1467,7 @@ export const EquipmentTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, temperatureSensorId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">No sensor</option>
                     {sensors.map((sensor) => (
@@ -1490,7 +1492,7 @@ export const EquipmentTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
                   }
-                  className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                 />
                 <label
                   htmlFor="isVisibleInSensor"

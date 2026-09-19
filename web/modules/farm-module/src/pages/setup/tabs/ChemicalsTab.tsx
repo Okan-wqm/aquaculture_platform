@@ -40,17 +40,17 @@ import { ChevronDown, FileText, FlaskConical, Plus, Search as SearchIcon } from 
 // ============================================================================
 
 const categoryColors: Record<string, string> = {
-  TREATMENT: 'bg-blue-100 text-blue-800',
-  DISINFECTANT: 'bg-green-100 text-green-800',
-  ANTIBIOTIC: 'bg-red-100 text-red-800',
-  VITAMIN: 'bg-yellow-100 text-yellow-800',
-  MINERAL: 'bg-purple-100 text-purple-800',
-  WATER_CONDITIONER: 'bg-cyan-100 text-cyan-800',
-  PROBIOTIC: 'bg-indigo-100 text-indigo-800',
-  ANTIPARASITIC: 'bg-orange-100 text-orange-800',
-  ANESTHETIC: 'bg-pink-100 text-pink-800',
-  pH_ADJUSTER: 'bg-teal-100 text-teal-800',
-  ALGAECIDE: 'bg-lime-100 text-lime-800',
+  TREATMENT: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  DISINFECTANT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  ANTIBIOTIC: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  VITAMIN: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  MINERAL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  WATER_CONDITIONER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PROBIOTIC: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ANTIPARASITIC: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  ANESTHETIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  pH_ADJUSTER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ALGAECIDE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -70,9 +70,9 @@ const categoryLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
+  AVAILABLE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   EXPIRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
@@ -245,7 +245,7 @@ const SiteMultiSelect: React.FC<{
                 type="checkbox"
                 checked={selectedIds.includes(site.id)}
                 onChange={() => toggleSite(site.id)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
               />
               <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{site.name}</span>
             </label>
@@ -259,7 +259,7 @@ const SiteMultiSelect: React.FC<{
             return site ? (
               <span
                 key={id}
-                className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
               >
                 {site.name}
                 <Button
@@ -334,7 +334,7 @@ const DocumentsSection: React.FC<{
             type="file"
             accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
             onChange={handleFileSelect}
-            className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-info-50 file:text-info-700 hover:file:bg-info-100"
           />
         </div>
         {selectedFile && (
@@ -399,7 +399,7 @@ const DocumentsSection: React.FC<{
                   href={doc.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 text-sm"
                 >
                   Download
                 </a>
@@ -752,7 +752,7 @@ export const ChemicalsTab: React.FC = () => {
               placeholder="Search chemicals..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -762,7 +762,7 @@ export const ChemicalsTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {chemicalTypes.map((type) => (
@@ -805,8 +805,10 @@ export const ChemicalsTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load chemicals. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load chemicals. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -911,7 +913,7 @@ export const ChemicalsTab: React.FC = () => {
                         onChange={(e) =>
                           setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
                         }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                       >
                         <option value="">Select Category</option>
                         {chemicalTypes.map((type) => (
@@ -936,7 +938,7 @@ export const ChemicalsTab: React.FC = () => {
                         onChange={(e) =>
                           setFormData((prev) => ({ ...prev, siteId: e.target.value }))
                         }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                       >
                         <option value="">Select Site</option>
                         {sites.map((site) => (
@@ -958,7 +960,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -1009,7 +1011,7 @@ export const ChemicalsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -1098,7 +1100,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       {storageOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>

@@ -23,12 +23,7 @@ import {
   ChevronRight,
   Activity,
 } from 'lucide-react';
-import {
-  useAlerts,
-  AlertHistoryItem,
-  AlertSeverity,
-  AlertStatusFilter,
-} from '../hooks/useAlerts';
+import { useAlerts, AlertHistoryItem, AlertSeverity, AlertStatusFilter } from '../hooks/useAlerts';
 import { Spinner, PageHeader, severityClasses, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -52,12 +47,36 @@ type StatusConfig = {
 // ============================================================================
 
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
-  critical: { label: 'Kritik', className: severityClasses('critical'), borderClass: severityClasses('critical', 'bar') },
-  high: { label: 'Yüksek', className: severityClasses('high'), borderClass: severityClasses('high', 'bar') },
-  warning: { label: 'Uyarı', className: severityClasses('warning'), borderClass: severityClasses('warning', 'bar') },
-  medium: { label: 'Orta', className: severityClasses('medium'), borderClass: severityClasses('medium', 'bar') },
-  low: { label: 'Düşük', className: severityClasses('low'), borderClass: severityClasses('low', 'bar') },
-  info: { label: 'Bilgi', className: severityClasses('info'), borderClass: severityClasses('info', 'bar') },
+  critical: {
+    label: 'Kritik',
+    className: severityClasses('critical'),
+    borderClass: severityClasses('critical', 'bar'),
+  },
+  high: {
+    label: 'Yüksek',
+    className: severityClasses('high'),
+    borderClass: severityClasses('high', 'bar'),
+  },
+  warning: {
+    label: 'Uyarı',
+    className: severityClasses('warning'),
+    borderClass: severityClasses('warning', 'bar'),
+  },
+  medium: {
+    label: 'Orta',
+    className: severityClasses('medium'),
+    borderClass: severityClasses('medium', 'bar'),
+  },
+  low: {
+    label: 'Düşük',
+    className: severityClasses('low'),
+    borderClass: severityClasses('low', 'bar'),
+  },
+  info: {
+    label: 'Bilgi',
+    className: severityClasses('info'),
+    borderClass: severityClasses('info', 'bar'),
+  },
 };
 
 const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
@@ -74,7 +93,9 @@ const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
 const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG.info;
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+    >
       {config.label}
     </span>
   );
@@ -83,11 +104,23 @@ const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
 const StatusBadge: React.FC<{ alert: AlertHistoryItem }> = ({ alert }) => {
   let config: StatusConfig;
   if (alert.resolved) {
-    config = { label: 'Çözüldü', icon: CheckCircle, className: 'text-green-600' };
+    config = {
+      label: 'Çözüldü',
+      icon: CheckCircle,
+      className: 'text-success-600 dark:text-success-400',
+    };
   } else if (alert.acknowledged) {
-    config = { label: 'Onaylandı', icon: Clock, className: 'text-yellow-600' };
+    config = {
+      label: 'Onaylandı',
+      icon: Clock,
+      className: 'text-warning-600 dark:text-warning-400',
+    };
   } else {
-    config = { label: 'Aktif', icon: AlertTriangle, className: 'text-red-600' };
+    config = {
+      label: 'Aktif',
+      icon: AlertTriangle,
+      className: 'text-error-600 dark:text-error-400',
+    };
   }
 
   const Icon = config.icon;
@@ -120,7 +153,9 @@ const AlertCard: React.FC<{
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{alert.ruleName}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {alert.ruleName}
+            </h3>
             <SeverityBadge severity={alert.severity} />
           </div>
           <p className="text-gray-600 dark:text-gray-400">{alert.message}</p>
@@ -129,12 +164,20 @@ const AlertCard: React.FC<{
           <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
             {triggeringValue !== undefined && (
               <span>
-                Deger: <strong className="text-gray-900 dark:text-gray-100">{String(triggeringValue)}{unit ? ` ${unit}` : ''}</strong>
+                Deger:{' '}
+                <strong className="text-gray-900 dark:text-gray-100">
+                  {String(triggeringValue)}
+                  {unit ? ` ${unit}` : ''}
+                </strong>
               </span>
             )}
             {threshold !== undefined && (
               <span>
-                Esik: <strong className="text-gray-900 dark:text-gray-100">{String(threshold)}{unit ? ` ${unit}` : ''}</strong>
+                Esik:{' '}
+                <strong className="text-gray-900 dark:text-gray-100">
+                  {String(threshold)}
+                  {unit ? ` ${unit}` : ''}
+                </strong>
               </span>
             )}
             {alert.sensorId && (
@@ -170,22 +213,20 @@ const AlertCard: React.FC<{
             <button
               onClick={() => onAcknowledge(alert.id)}
               disabled={isMutating}
-              className="flex items-center gap-1.5 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 hover:bg-warning-200 dark:hover:bg-warning-800/60 rounded-lg transition-colors disabled:opacity-50"
             >
-              {isMutating ? (
-                <Spinner size="sm" color="inherit" />
-              ) : (
-                <Clock className="w-4 h-4" />
-              )}
+              {isMutating ? <Spinner size="sm" color="inherit" /> : <Clock className="w-4 h-4" />}
               Onayla
             </button>
           )}
-          <Button variant="primary" onClick={() => onResolve(alert.id)} disabled={isMutating}>{isMutating ? (
+          <Button variant="primary" onClick={() => onResolve(alert.id)} disabled={isMutating}>
+            {isMutating ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
-            Çözüldü İşaretle</Button>
+            Çözüldü İşaretle
+          </Button>
         </div>
       )}
     </div>
@@ -224,7 +265,11 @@ const AlertsPage: React.FC = () => {
   // Loading state
   if (loading && alerts.length === 0) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
+      <div
+        className="p-6 flex items-center justify-center min-h-[400px]"
+        role="status"
+        aria-live="polite"
+      >
         <div className="text-center">
           <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500 dark:text-gray-400">Uyarılar yükleniyor...</p>
@@ -237,11 +282,15 @@ const AlertsPage: React.FC = () => {
   if (error && alerts.length === 0) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-100 rounded-xl p-6 text-center">
-          <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
-          <p className="text-sm text-red-600 mt-1">{error}</p>
-          <Button variant="danger" className="mt-4" onClick={refetch}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-xl p-6 text-center">
+          <XCircle className="w-10 h-10 text-error-400 mx-auto mb-3" />
+          <h3 className="font-semibold text-error-900 dark:text-error-100 text-lg">
+            Yükleme Hatası
+          </h3>
+          <p className="text-sm text-error-600 dark:text-error-400 mt-1">{error}</p>
+          <Button variant="danger" className="mt-4" onClick={refetch}>
+            Tekrar Dene
+          </Button>
         </div>
       </div>
     );
@@ -255,12 +304,17 @@ const AlertsPage: React.FC = () => {
         description={
           <>
             {stats.active > 0 ? (
-              <span className="text-red-600 font-medium">{stats.active} aktif uyarı</span>
+              <span className="text-error-600 dark:text-error-400 font-medium">
+                {stats.active} aktif uyarı
+              </span>
             ) : (
               'Aktif uyarı yok'
             )}
             {stats.critical > 0 && (
-              <span className="text-red-600 font-medium"> ({stats.critical} kritik)</span>
+              <span className="text-error-600 dark:text-error-400 font-medium">
+                {' '}
+                ({stats.critical} kritik)
+              </span>
             )}
           </>
         }
@@ -278,39 +332,47 @@ const AlertsPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="w-8 h-8 text-red-600" />
+            <AlertTriangle className="w-8 h-8 text-error-600 dark:text-error-400" />
             <div>
-              <p className="text-2xl font-bold text-red-900">{stats.critical}</p>
-              <p className="text-sm text-red-600">Kritik</p>
+              <p className="text-2xl font-bold text-error-900 dark:text-error-100">
+                {stats.critical}
+              </p>
+              <p className="text-sm text-error-600 dark:text-error-400">Kritik</p>
             </div>
           </div>
         </div>
-        <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-100 dark:border-warning-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="w-8 h-8 text-orange-600" />
+            <AlertTriangle className="w-8 h-8 text-warning-600 dark:text-warning-400" />
             <div>
-              <p className="text-2xl font-bold text-orange-900">{stats.high}</p>
-              <p className="text-sm text-orange-600">Yüksek</p>
+              <p className="text-2xl font-bold text-warning-900 dark:text-warning-100">
+                {stats.high}
+              </p>
+              <p className="text-sm text-warning-600 dark:text-warning-400">Yüksek</p>
             </div>
           </div>
         </div>
-        <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-100 dark:border-warning-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <Clock className="w-8 h-8 text-yellow-600" />
+            <Clock className="w-8 h-8 text-warning-600 dark:text-warning-400" />
             <div>
-              <p className="text-2xl font-bold text-yellow-900">{stats.acknowledged}</p>
-              <p className="text-sm text-yellow-600">Beklemede</p>
+              <p className="text-2xl font-bold text-warning-900 dark:text-warning-100">
+                {stats.acknowledged}
+              </p>
+              <p className="text-sm text-warning-600 dark:text-warning-400">Beklemede</p>
             </div>
           </div>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-xl p-4">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-100 dark:border-success-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+            <CheckCircle className="w-8 h-8 text-success-600 dark:text-success-400" />
             <div>
-              <p className="text-2xl font-bold text-green-900">{stats.resolved}</p>
-              <p className="text-sm text-green-600">Çözülen</p>
+              <p className="text-2xl font-bold text-success-900 dark:text-success-100">
+                {stats.resolved}
+              </p>
+              <p className="text-sm text-success-600 dark:text-success-400">Çözülen</p>
             </div>
           </div>
         </div>
@@ -339,16 +401,29 @@ const AlertsPage: React.FC = () => {
           {/* Severity Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <Select options={[{ value: 'all', label: 'Tüm Önem Dereceleri' }, { value: 'critical', label: 'Kritik' }, { value: 'high', label: 'Yüksek' }, { value: 'warning', label: 'Uyarı' }, { value: 'medium', label: 'Orta' }, { value: 'low', label: 'Düşük' }, { value: 'info', label: 'Bilgi' }]} value={filters.severity || 'all'} onChange={(e) =>
-        updateFilters({
-         severity: e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
-        })
-       } />
+            <Select
+              options={[
+                { value: 'all', label: 'Tüm Önem Dereceleri' },
+                { value: 'critical', label: 'Kritik' },
+                { value: 'high', label: 'Yüksek' },
+                { value: 'warning', label: 'Uyarı' },
+                { value: 'medium', label: 'Orta' },
+                { value: 'low', label: 'Düşük' },
+                { value: 'info', label: 'Bilgi' },
+              ]}
+              value={filters.severity || 'all'}
+              onChange={(e) =>
+                updateFilters({
+                  severity:
+                    e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
+                })
+              }
+            />
           </div>
 
           {/* Auto-refresh indicator */}
           <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
             Otomatik yenileme: 30s
           </div>
         </div>
@@ -356,10 +431,12 @@ const AlertsPage: React.FC = () => {
 
       {/* Error banner (non-blocking) */}
       {error && alerts.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">{error}</p>
-          <Button variant="ghost" onClick={refetch}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">{error}</p>
+          <Button variant="ghost" onClick={refetch}>
+            Tekrar Dene
+          </Button>
         </div>
       )}
 
@@ -367,7 +444,9 @@ const AlertsPage: React.FC = () => {
       {alerts.length === 0 && !loading && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Uyarı Bulunamadı</h3>
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Uyarı Bulunamadı
+          </h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             {filters.status !== 'all' || filters.severity
               ? 'Seçili filtrelerle eşleşen uyarı bulunamadı. Filtreleri değiştirmeyi deneyin.'
@@ -396,11 +475,27 @@ const AlertsPage: React.FC = () => {
             Sayfa {filters.page} - {alerts.length} sonuç gösteriliyor
           </p>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" iconOnly aria-label="Previous" onClick={() => setPage(filters.page - 1)} disabled={filters.page <= 1}><ChevronLeft className="w-4 h-4" /></Button>
+            <Button
+              variant="secondary"
+              iconOnly
+              aria-label="Previous"
+              onClick={() => setPage(filters.page - 1)}
+              disabled={filters.page <= 1}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
             <span className="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300">
               {filters.page}
             </span>
-            <Button variant="secondary" iconOnly aria-label="Next" onClick={() => setPage(filters.page + 1)} disabled={alerts.length < filters.limit}><ChevronRight className="w-4 h-4" /></Button>
+            <Button
+              variant="secondary"
+              iconOnly
+              aria-label="Next"
+              onClick={() => setPage(filters.page + 1)}
+              disabled={alerts.length < filters.limit}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
         </div>
       )}

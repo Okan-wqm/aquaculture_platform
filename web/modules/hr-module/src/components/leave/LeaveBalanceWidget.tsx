@@ -26,7 +26,10 @@ import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
  */
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?$/;
 
-export function sanitizeColor(value: string | null | undefined, fallback = colors.primary[500]): string {
+export function sanitizeColor(
+  value: string | null | undefined,
+  fallback = colors.primary[500],
+): string {
   if (value && HEX_COLOR_RE.test(value)) return value;
   return fallback;
 }
@@ -120,7 +123,12 @@ export function LeaveBalanceWidget({
 
   if (isLoading) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-center py-8">
           <Spinner size="md" />
         </div>
@@ -130,20 +138,37 @@ export function LeaveBalanceWidget({
 
   if (error || !data) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400">Failed to load leave balances</p>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+          Failed to load leave balances
+        </p>
       </div>
     );
   }
 
   if (variant === 'compact') {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Leave Balance</span>
-          <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Leave Balance
+          </span>
+          <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
             {data.totalAvailable}
-            <span className="text-sm font-normal text-gray-500 dark:text-gray-400"> / {data.totalEntitled}</span>
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+              {' '}
+              / {data.totalEntitled}
+            </span>
           </span>
         </div>
         <BalanceBar
@@ -161,12 +186,17 @@ export function LeaveBalanceWidget({
   }
 
   return (
-    <div className={cn('rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800', className)}>
+    <div
+      className={cn(
+        'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800',
+        className,
+      )}
+    >
       <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 dark:text-white">Leave Balance {year}</h3>
           <div className="text-right">
-            <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
               {data.totalAvailable}
             </span>
             <span className="text-sm text-gray-500 dark:text-gray-400"> days available</span>
@@ -195,7 +225,10 @@ export function LeaveBalanceWidget({
                 <span className="font-semibold text-gray-900 dark:text-white">
                   {balance.available}
                 </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400"> / {balance.entitled}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {' '}
+                  / {balance.entitled}
+                </span>
               </div>
             </div>
 

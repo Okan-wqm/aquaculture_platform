@@ -13,14 +13,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  Download,
-  Copy,
-  Check,
-  FileJson,
-  Eye,
-  EyeOff,
-} from 'lucide-react';
+import { Download, Copy, Check, FileJson, Eye, EyeOff } from 'lucide-react';
 import type {
   STBundleProgram,
   STBundleVariable,
@@ -114,14 +107,16 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
   const footer = (
     <>
-      <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+      <Button variant="ghost" size="sm" onClick={onClose}>
+        Cancel
+      </Button>
       <button
         onClick={handleCopy}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
       >
         {copied ? (
           <>
-            <Check className="w-3.5 h-3.5 text-green-400" />
+            <Check className="w-3.5 h-3.5 text-success-400" />
             Copied
           </>
         ) : (
@@ -131,7 +126,15 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           </>
         )}
       </button>
-      <Button variant="primary" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownload} disabled={bundleSize > 1_048_576}>Download .json</Button>
+      <Button
+        variant="primary"
+        size="sm"
+        leftIcon={<Download className="w-3.5 h-3.5" />}
+        onClick={handleDownload}
+        disabled={bundleSize > 1_048_576}
+      >
+        Download .json
+      </Button>
     </>
   );
 
@@ -143,7 +146,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       size="lg"
       title={
         <span className="flex items-center gap-2">
-          <FileJson className="w-5 h-5 text-blue-400" />
+          <FileJson className="w-5 h-5 text-info-400" />
           Export JSON Bundle
         </span>
       }
@@ -159,9 +162,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Code: </span>
-            <span className="text-gray-200 font-mono">
-              {program.programCode}
-            </span>
+            <span className="text-gray-200 font-mono">{program.programCode}</span>
           </div>
           <div>
             <span className="text-gray-500 dark:text-gray-400">Name: </span>
@@ -169,11 +170,11 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           </div>
           <div>
             <span className="text-gray-500 dark:text-gray-400">Type: </span>
-            <span className="text-blue-300">{program.programType}</span>
+            <span className="text-info-300">{program.programType}</span>
           </div>
           <div>
             <span className="text-gray-500 dark:text-gray-400">Mode: </span>
-            <span className="text-blue-300">{program.executionMode}</span>
+            <span className="text-info-300">{program.executionMode}</span>
           </div>
         </div>
       </div>
@@ -181,27 +182,19 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       {/* Statistics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="bg-gray-800 rounded p-2 text-center">
-          <div className="text-lg font-semibold text-gray-100">
-            {variables.length}
-          </div>
+          <div className="text-lg font-semibold text-gray-100">{variables.length}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Variables</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
-          <div className="text-lg font-semibold text-gray-100">
-            {steps.length}
-          </div>
+          <div className="text-lg font-semibold text-gray-100">{steps.length}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Steps</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
-          <div className="text-lg font-semibold text-gray-100">
-            {transitions.length}
-          </div>
+          <div className="text-lg font-semibold text-gray-100">{transitions.length}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Transitions</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
-          <div className="text-lg font-semibold text-gray-100">
-            {formatFileSize(codeSize)}
-          </div>
+          <div className="text-lg font-semibold text-gray-100">{formatFileSize(codeSize)}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Code Size</div>
         </div>
       </div>
@@ -216,7 +209,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             type="checkbox"
             checked={includeSteps}
             onChange={(e) => setIncludeSteps(e.target.checked)}
-            className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            className="rounded border-gray-600 bg-gray-700 text-info-500 focus:ring-info-500 focus:ring-offset-0"
           />
           Include SFC steps ({steps.length})
         </label>
@@ -225,7 +218,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             type="checkbox"
             checked={includeTransitions}
             onChange={(e) => setIncludeTransitions(e.target.checked)}
-            className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            className="rounded border-gray-600 bg-gray-700 text-info-500 focus:ring-info-500 focus:ring-offset-0"
           />
           Include SFC transitions ({transitions.length})
         </label>
@@ -237,19 +230,15 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           Bundle size: {formatFileSize(bundleSize)}
         </span>
         {bundleSize > 1_048_576 && (
-          <span className="text-red-400 text-xs">
-            Exceeds 1MB limit
-          </span>
+          <span className="text-error-400 text-xs">Exceeds 1MB limit</span>
         )}
       </div>
 
       {/* Preview Toggle */}
-      <Button variant="ghost" onClick={() => setShowPreview(!showPreview)}>{showPreview ? (
-          <EyeOff className="w-3.5 h-3.5" />
-        ) : (
-          <Eye className="w-3.5 h-3.5" />
-        )}
-        {showPreview ? 'Hide' : 'Show'} Preview</Button>
+      <Button variant="ghost" onClick={() => setShowPreview(!showPreview)}>
+        {showPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        {showPreview ? 'Hide' : 'Show'} Preview
+      </Button>
 
       {/* Preview Pane */}
       {showPreview && (

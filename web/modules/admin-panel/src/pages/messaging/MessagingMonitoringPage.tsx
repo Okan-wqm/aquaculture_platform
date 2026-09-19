@@ -44,8 +44,8 @@ const ErrorBanner: React.FC<{ message: string; onRetry: () => void; canRetry: bo
   onRetry,
   canRetry,
 }) => (
-  <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-4">
-    <p className="text-sm text-red-700">{message}</p>
+  <div className="p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center justify-between gap-4">
+    <p className="text-sm text-error-700 dark:text-error-300">{message}</p>
     {canRetry && (
       <Button onClick={onRetry} variant="secondary" size="sm">
         Retry
@@ -59,11 +59,13 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
   const hasFailures = outbox.failedCount > 0;
 
   return (
-    <Card className={hasFailures ? 'border-amber-300' : undefined}>
+    <Card className={hasFailures ? 'border-warning-300 dark:border-warning-700' : undefined}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Outbox Health</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Outbox Health
+            </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Transactional event outbox of the messaging service
             </p>
@@ -76,8 +78,8 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
         </div>
 
         {hasFailures && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-800">
+          <div className="mb-4 p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
+            <p className="text-sm text-warning-800 dark:text-warning-200">
               {outbox.failedCount.toLocaleString()} event(s) are dead-lettered and will not be
               retried automatically. Investigate the messaging-service dead-letter queue.
             </p>
@@ -91,16 +93,24 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
               {outbox.pendingCount.toLocaleString()}
             </dd>
           </div>
-          <div className={`p-3 rounded-lg ${hasFailures ? 'bg-red-50' : 'bg-gray-50 dark:bg-gray-800'}`}>
-            <dt className={`text-xs font-medium ${hasFailures ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}>
+          <div
+            className={`p-3 rounded-lg ${hasFailures ? 'bg-error-50 dark:bg-error-900/20' : 'bg-gray-50 dark:bg-gray-800'}`}
+          >
+            <dt
+              className={`text-xs font-medium ${hasFailures ? 'text-error-600 dark:text-error-400' : 'text-gray-500 dark:text-gray-400'}`}
+            >
               Dead-lettered events
             </dt>
-            <dd className={`text-xl font-bold mt-1 ${hasFailures ? 'text-red-700' : 'text-gray-900 dark:text-gray-100'}`}>
+            <dd
+              className={`text-xl font-bold mt-1 ${hasFailures ? 'text-error-700 dark:text-error-300' : 'text-gray-900 dark:text-gray-100'}`}
+            >
               {outbox.failedCount.toLocaleString()}
             </dd>
           </div>
           <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Oldest pending age</dt>
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Oldest pending age
+            </dt>
             <dd className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {outbox.oldestPendingAgeSeconds === null
                 ? '—'
@@ -225,7 +235,9 @@ const MessagingMonitoringPage: React.FC = () => {
             </div>
           ) : (
             <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-              {loading ? 'Loading tenant activity...' : 'No tenant messaging activity recorded yet.'}
+              {loading
+                ? 'Loading tenant activity...'
+                : 'No tenant messaging activity recorded yet.'}
             </p>
           )}
         </div>

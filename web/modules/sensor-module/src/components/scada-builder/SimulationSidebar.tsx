@@ -24,7 +24,13 @@ import {
   Settings,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { getTenantId, tenantScopedStorageKey, severityClasses, Button, Input } from '@aquaculture/shared-ui';
+import {
+  getTenantId,
+  tenantScopedStorageKey,
+  severityClasses,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
@@ -111,14 +117,16 @@ const Section: React.FC<{
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border-b border-gray-700">
-      <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>{open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {icon}
         <span className="flex-1 text-left">{title}</span>
         {badge !== undefined && (
           <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-200 text-[10px] font-medium">
             {badge}
           </span>
-        )}</Button>
+        )}
+      </Button>
       {open && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
@@ -134,7 +142,7 @@ const TagRow: React.FC<{
   onChange: (tagName: string, value: any) => void;
   changed: boolean;
 }> = ({ tag, value, onChange, changed }) => {
-  const bgClass = changed ? 'bg-yellow-900/30' : '';
+  const bgClass = changed ? 'bg-warning-900/30' : '';
 
   return (
     <div
@@ -153,7 +161,7 @@ const TagRow: React.FC<{
             aria-label={`Toggle ${tag.tagName}`}
             aria-pressed={!!value}
             className={`relative w-8 h-4 rounded-full transition-colors ${
-              value ? 'bg-cyan-500' : 'bg-gray-600'
+              value ? 'bg-info-500' : 'bg-gray-600'
             }`}
           >
             <span
@@ -172,13 +180,22 @@ const TagRow: React.FC<{
               step={1}
               value={typeof value === 'number' ? value : 0}
               onChange={(e) => onChange(tag.tagName, Number(e.target.value))}
-              className="w-16 h-1 accent-cyan-500"
+              className="w-16 h-1 accent-info-500"
             />
-            <Input className="text-right" type="number" value={typeof value === 'number' ? value : 0} onChange={(e) => onChange(tag.tagName, Number(e.target.value))} />
+            <Input
+              className="text-right"
+              type="number"
+              value={typeof value === 'number' ? value : 0}
+              onChange={(e) => onChange(tag.tagName, Number(e.target.value))}
+            />
           </div>
         )}
         {tag.dataHint === 'string' && (
-          <Input type="text" value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(tag.tagName, e.target.value)} />
+          <Input
+            type="text"
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(tag.tagName, e.target.value)}
+          />
         )}
       </div>
     </div>
@@ -271,35 +288,68 @@ export const SimulationSidebar: React.FC = () => {
     // Normal Operation
     const normalValues: Record<string, any> = {};
     for (const t of boolTags) {
-      const isPump = t.widgetType.toLowerCase().includes('pump') || t.tagName.toLowerCase().includes('pump');
-      const isValve = t.widgetType.toLowerCase().includes('valve') || t.tagName.toLowerCase().includes('valve');
+      const isPump =
+        t.widgetType.toLowerCase().includes('pump') || t.tagName.toLowerCase().includes('pump');
+      const isValve =
+        t.widgetType.toLowerCase().includes('valve') || t.tagName.toLowerCase().includes('valve');
       normalValues[t.tagName] = isPump || isValve;
     }
     for (const t of numTags) {
       const mid = ((t.min ?? 0) + (t.max ?? 100)) / 2;
       normalValues[t.tagName] = Math.round(mid);
     }
-    scenarios.push({ id: '__normal__', name: 'Normal Operation', values: normalValues, isBuiltIn: true });
+    scenarios.push({
+      id: '__normal__',
+      name: 'Normal Operation',
+      values: normalValues,
+      isBuiltIn: true,
+    });
 
     // Pump Fault
-    if (boolTags.some((t) => t.tagName.toLowerCase().includes('pump') || t.widgetType.toLowerCase().includes('pump'))) {
+    if (
+      boolTags.some(
+        (t) =>
+          t.tagName.toLowerCase().includes('pump') || t.widgetType.toLowerCase().includes('pump'),
+      )
+    ) {
       const faultValues = { ...normalValues };
-      const pumpTag = boolTags.find((t) => t.tagName.toLowerCase().includes('pump') || t.widgetType.toLowerCase().includes('pump'));
+      const pumpTag = boolTags.find(
+        (t) =>
+          t.tagName.toLowerCase().includes('pump') || t.widgetType.toLowerCase().includes('pump'),
+      );
       if (pumpTag) faultValues[pumpTag.tagName] = false;
-      const faultNum = numTags.find((t) => t.tagName.toLowerCase().includes('fault') || t.tagName.toLowerCase().includes('pump'));
+      const faultNum = numTags.find(
+        (t) =>
+          t.tagName.toLowerCase().includes('fault') || t.tagName.toLowerCase().includes('pump'),
+      );
       if (faultNum) faultValues[faultNum.tagName] = -1;
-      scenarios.push({ id: '__pump_fault__', name: 'Pump Fault', values: faultValues, isBuiltIn: true });
+      scenarios.push({
+        id: '__pump_fault__',
+        name: 'Pump Fault',
+        values: faultValues,
+        isBuiltIn: true,
+      });
     }
 
     // Tank Overflow
-    if (numTags.some((t) => t.tagName.toLowerCase().includes('tank') || t.tagName.toLowerCase().includes('level'))) {
+    if (
+      numTags.some(
+        (t) =>
+          t.tagName.toLowerCase().includes('tank') || t.tagName.toLowerCase().includes('level'),
+      )
+    ) {
       const overflowValues = { ...normalValues };
       for (const t of numTags) {
         if (t.tagName.toLowerCase().includes('tank') || t.tagName.toLowerCase().includes('level')) {
           overflowValues[t.tagName] = Math.round((t.max ?? 100) * 0.95);
         }
       }
-      scenarios.push({ id: '__tank_overflow__', name: 'Tank Overflow', values: overflowValues, isBuiltIn: true });
+      scenarios.push({
+        id: '__tank_overflow__',
+        name: 'Tank Overflow',
+        values: overflowValues,
+        isBuiltIn: true,
+      });
     }
 
     // All Stop
@@ -342,10 +392,7 @@ export const SimulationSidebar: React.FC = () => {
   );
 
   // ── Alarm Evaluation ──
-  const getSimTagValue = useCallback(
-    (tag: string) => simTagValues[tag],
-    [simTagValues],
-  );
+  const getSimTagValue = useCallback((tag: string) => simTagValues[tag], [simTagValues]);
 
   const firedAlarms = useAlarmEvaluation(alarmRules, getSimTagValue);
 
@@ -415,18 +462,14 @@ export const SimulationSidebar: React.FC = () => {
       if (!success) {
         // runOneCycleDirect returns false on ST runtime error (it sets error state internally).
         // Re-throw so the caller's try/catch can handle UI cleanup.
-        throw new Error(
-          'ST runtime error: error occurred while executing program',
-        );
+        throw new Error('ST runtime error: error occurred while executing program');
       }
 
       // 3. Read OUTPUT and INOUT variables synchronously from interpreter
       const snapshot = simulation.getVariableSnapshot();
       for (const vb of currentBinding.variableBindings) {
         if ((vb.scope === 'OUTPUT' || vb.scope === 'INOUT') && vb.boundTag) {
-          const varInfo = snapshot.find(
-            (v) => v.name.toLowerCase() === vb.varName.toLowerCase(),
-          );
+          const varInfo = snapshot.find((v) => v.name.toLowerCase() === vb.varName.toLowerCase());
           if (varInfo) {
             store.setSimTagValue(vb.boundTag, varInfo.value);
           }
@@ -544,7 +587,7 @@ export const SimulationSidebar: React.FC = () => {
     <div className="w-72 bg-gray-800 border-l border-gray-700 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2 border-b border-gray-700 flex items-center gap-2">
-        <Zap className="w-4 h-4 text-cyan-400" />
+        <Zap className="w-4 h-4 text-info-400" />
         <span className="text-sm font-semibold text-gray-200">Simulation</span>
       </div>
 
@@ -552,7 +595,9 @@ export const SimulationSidebar: React.FC = () => {
         {/* A. Tag Values */}
         <Section title="Tag Values" icon={<Settings className="w-3 h-3" />} badge={allTags.length}>
           {allTags.length === 0 ? (
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">Assign tags to widgets</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+              Assign tags to widgets
+            </p>
           ) : (
             <>
               <div className="space-y-0.5">
@@ -566,7 +611,15 @@ export const SimulationSidebar: React.FC = () => {
                   />
                 ))}
               </div>
-              <Button variant="ghost" size="xs" className="mt-2" leftIcon={<RotateCcw className="w-3 h-3" />} onClick={clearSimTagValues}>Reset All</Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="mt-2"
+                leftIcon={<RotateCcw className="w-3 h-3" />}
+                onClick={clearSimTagValues}
+              >
+                Reset All
+              </Button>
             </>
           )}
         </Section>
@@ -575,23 +628,56 @@ export const SimulationSidebar: React.FC = () => {
         <Section title="Scenarios" icon={<BookOpen className="w-3 h-3" />} defaultOpen={false}>
           <div className="space-y-1">
             {builtInScenarios.map((sc) => (
-              <Button variant="ghost" size="sm" key={sc.id} onClick={() => handleApplyScenario(sc)}>{sc.name}</Button>
+              <Button variant="ghost" size="sm" key={sc.id} onClick={() => handleApplyScenario(sc)}>
+                {sc.name}
+              </Button>
             ))}
             {customScenarios.length > 0 && (
               <>
                 <div className="h-px bg-gray-700 my-1" />
                 {customScenarios.map((sc) => (
                   <div key={sc.id} className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" className="flex-1" onClick={() => handleApplyScenario(sc)}>{sc.name}</Button>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => handleDeleteScenario(sc.id)} aria-label="Delete scenario"><Trash2 className="w-3 h-3" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleApplyScenario(sc)}
+                    >
+                      {sc.name}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      onClick={() => handleDeleteScenario(sc.id)}
+                      aria-label="Delete scenario"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
                   </div>
                 ))}
               </>
             )}
           </div>
           <div className="mt-2 flex items-center gap-1">
-            <Input type="text" value={newScenarioName} onChange={(e) => setNewScenarioName(e.target.value)} placeholder="Scenario name..." onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()} />
-            <Button variant="ghost" size="sm" iconOnly onClick={handleSaveScenario} disabled={!newScenarioName.trim()} aria-label="Save current values as scenario" title="Save current values as scenario"><Save className="w-3.5 h-3.5" /></Button>
+            <Input
+              type="text"
+              value={newScenarioName}
+              onChange={(e) => setNewScenarioName(e.target.value)}
+              placeholder="Scenario name..."
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={handleSaveScenario}
+              disabled={!newScenarioName.trim()}
+              aria-label="Save current values as scenario"
+              title="Save current values as scenario"
+            >
+              <Save className="w-3.5 h-3.5" />
+            </Button>
           </div>
         </Section>
 
@@ -602,16 +688,15 @@ export const SimulationSidebar: React.FC = () => {
           badge={firedAlarms.length > 0 ? firedAlarms.length : undefined}
         >
           {alarmRules.length === 0 ? (
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">No alarm rules defined</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+              No alarm rules defined
+            </p>
           ) : firedAlarms.length === 0 ? (
-            <p className="text-[11px] text-green-400">No alarms triggered</p>
+            <p className="text-[11px] text-success-400">No alarms triggered</p>
           ) : (
             <div className="space-y-1.5">
               {firedAlarms.map((alarm) => (
-                <div
-                  key={alarm.ruleId}
-                  className="p-2 rounded bg-gray-700 border border-gray-600"
-                >
+                <div key={alarm.ruleId} className="p-2 rounded bg-gray-700 border border-gray-600">
                   <div className="flex items-center gap-1.5 mb-1">
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
@@ -656,10 +741,10 @@ export const SimulationSidebar: React.FC = () => {
             </div>
 
             {automationError && (
-              <div className="mb-2 p-2 rounded bg-red-900/40 border border-red-700 text-[11px] text-red-300 flex items-start gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-red-400" />
+              <div className="mb-2 p-2 rounded bg-error-900/40 border border-error-700 text-[11px] text-error-300 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-error-400" />
                 <div>
-                  <div className="font-medium text-red-200 mb-0.5">Program stopped</div>
+                  <div className="font-medium text-error-200 mb-0.5">Program stopped</div>
                   <div>{automationError}</div>
                 </div>
               </div>
@@ -686,13 +771,25 @@ export const SimulationSidebar: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-1">
                       {!isActive ? (
-                        <Button variant="primary" leftIcon={<Play className="w-3 h-3" />} onClick={() => handleStartProgram(binding.programId)}>Run</Button>
+                        <Button
+                          variant="primary"
+                          leftIcon={<Play className="w-3 h-3" />}
+                          onClick={() => handleStartProgram(binding.programId)}
+                        >
+                          Run
+                        </Button>
                       ) : (
-                        <Button variant="danger" leftIcon={<Square className="w-3 h-3" />} onClick={stopAutomation}>Stop</Button>
+                        <Button
+                          variant="danger"
+                          leftIcon={<Square className="w-3 h-3" />}
+                          onClick={stopAutomation}
+                        >
+                          Stop
+                        </Button>
                       )}
                       {isActive && (
-                        <span className="text-[9px] text-green-400 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        <span className="text-[9px] text-success-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-success-400 animate-pulse" />
                           Cycle: {simulation.cycleCount}
                         </span>
                       )}

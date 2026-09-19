@@ -48,7 +48,7 @@ const PREVIEW_HEIGHT = 24;
 const MIN_STOPS = 2;
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Human-readable labels for gradient type options */
 const TYPE_LABELS: Record<GradientType, string> = {
@@ -130,7 +130,7 @@ const GradientPreview: React.FC<{
             onClick={() => onStopClick(i)}
             className={`absolute -translate-x-1/2 w-3 h-3 rounded-sm border-2 transition-colors ${
               selectedStop === i
-                ? 'border-cyan-500 ring-2 ring-cyan-200'
+                ? 'border-info-500 ring-2 ring-info-200'
                 : 'border-gray-400 hover:border-gray-600'
             }`}
             style={{
@@ -262,7 +262,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({ gradient, onChan
                   key={t}
                   className={`flex-1 text-center py-1.5 text-xs rounded-lg border-2 cursor-pointer transition-colors ${
                     gradient.type === t
-                      ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
+                      ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
                       : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
                   }`}
                 >
@@ -306,7 +306,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({ gradient, onChan
                       aria-hidden="true"
                     >
                       <div
-                        className="absolute top-1/2 left-1/2 w-2.5 h-0.5 bg-cyan-500 rounded-full origin-left"
+                        className="absolute top-1/2 left-1/2 w-2.5 h-0.5 bg-info-500 rounded-full origin-left"
                         style={{
                           transform: `translate(0, -50%) rotate(${gradient.angle}deg)`,
                         }}

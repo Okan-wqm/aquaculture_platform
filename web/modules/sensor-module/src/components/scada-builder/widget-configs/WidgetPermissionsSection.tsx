@@ -90,7 +90,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
           Permissions
           {hasAnyRestriction && (
             <span
-              className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400"
+              className="inline-block w-1.5 h-1.5 rounded-full bg-warning-400"
               title="Role restrictions active"
             />
           )}
@@ -120,7 +120,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
                     type="checkbox"
                     checked={permissions.showRoles.includes(role.id)}
                     onChange={() => toggleRole('showRoles', role.id)}
-                    className="text-cyan-600 rounded focus:ring-cyan-500"
+                    className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
                     data-testid={`show-role-${role.id}`}
                   />
                   <span className="text-xs text-gray-700 dark:text-gray-300">{role.label}</span>
@@ -149,7 +149,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
                     type="checkbox"
                     checked={permissions.enableRoles.includes(role.id)}
                     onChange={() => toggleRole('enableRoles', role.id)}
-                    className="text-cyan-600 rounded focus:ring-cyan-500"
+                    className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
                     data-testid={`enable-role-${role.id}`}
                   />
                   <span className="text-xs text-gray-700 dark:text-gray-300">{role.label}</span>

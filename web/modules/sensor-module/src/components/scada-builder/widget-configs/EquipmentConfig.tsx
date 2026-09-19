@@ -76,7 +76,9 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
     <div className="space-y-3">
       {/* Equipment sub-type badge (read-only) */}
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Equipment Type</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Equipment Type
+        </label>
         <div className="px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 font-medium">
           {SUBTYPE_LABELS[subType] || subType || 'Not specified'}
         </div>
@@ -96,7 +98,13 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Equipment label" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.label || ''}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Equipment label"
+        />
       </div>
 
       {/* Rotation selector */}
@@ -110,7 +118,7 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               onClick={() => onChange({ rotation: deg })}
               className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                 currentRotation === deg
-                  ? 'bg-cyan-50 border-cyan-500 text-cyan-700'
+                  ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
                   : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -126,7 +134,7 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
         <select
           value={config.demoState || ''}
           onChange={(e) => onChange({ demoState: e.target.value || undefined })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-900"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
         >
           {DEMO_STATE_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>

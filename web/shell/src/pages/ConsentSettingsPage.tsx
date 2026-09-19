@@ -52,8 +52,8 @@ const ConsentCard: React.FC<{
         onClick={() => onToggle(consentType, !granted)}
         className={`
           relative mt-0.5 inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent
-          transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-          ${isEssential ? 'bg-blue-400 cursor-not-allowed opacity-75' : granted ? 'bg-blue-600' : 'bg-gray-300'}
+          transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2
+          ${isEssential ? 'bg-info-400 cursor-not-allowed opacity-75' : granted ? 'bg-info-600' : 'bg-gray-300'}
           ${isLoading ? 'opacity-50 cursor-wait' : ''}
         `}
       >
@@ -71,14 +71,14 @@ const ConsentCard: React.FC<{
         <div className="flex items-center gap-2">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{info.label}</h4>
           {isEssential && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
               Required
             </span>
           )}
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
               isEssential || granted
-                ? 'bg-green-100 text-green-700'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
             }`}
           >
@@ -110,7 +110,9 @@ const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
     render: (_value, record) => (
       <span
         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-          record.granted ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          record.granted
+            ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+            : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
         }`}
       >
         {record.granted ? 'Granted' : 'Denied / Withdrawn'}
@@ -138,7 +140,7 @@ const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
     header: 'Status',
     render: (_value, record) =>
       record.isActive ? (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
           Active
         </span>
       ) : (
@@ -215,16 +217,18 @@ const ConsentSettingsPage: React.FC = () => {
 
       {/* Outdated Warning */}
       {isOutdated && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
+        <div className="rounded-lg bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 p-4">
           <div className="flex items-start gap-3">
             <TriangleAlert
-              className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0"
+              className="h-5 w-5 text-warning-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
             <div>
-              <h3 className="text-sm font-semibold text-amber-800">Consent Update Required</h3>
-              <p className="mt-1 text-sm text-amber-700">
+              <h3 className="text-sm font-semibold text-warning-800 dark:text-warning-200">
+                Consent Update Required
+              </h3>
+              <p className="mt-1 text-sm text-warning-700 dark:text-warning-300">
                 Our privacy policy has been updated. Please review your consent preferences below to
                 ensure they reflect your current choices.
               </p>
@@ -261,13 +265,13 @@ const ConsentSettingsPage: React.FC = () => {
           </div>
           <div>
             {status && !isOutdated && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-700">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
                 <Check className="h-4 w-4" aria-hidden="true" />
                 Up to Date
               </span>
             )}
             {isOutdated && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-amber-100 text-amber-700">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
                 <TriangleAlert className="h-4 w-4" aria-hidden="true" />
                 Update Required
               </span>
@@ -288,18 +292,18 @@ const ConsentSettingsPage: React.FC = () => {
 
       {/* Error State */}
       {statusError && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+        <div className="rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 p-4">
           <div className="flex items-start gap-3">
             <CircleAlert
-              className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0"
+              className="h-5 w-5 text-error-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
             <div>
-              <h3 className="text-sm font-semibold text-red-800">
+              <h3 className="text-sm font-semibold text-error-800 dark:text-error-200">
                 Failed to load consent preferences
               </h3>
-              <p className="mt-1 text-sm text-red-700">
+              <p className="mt-1 text-sm text-error-700 dark:text-error-300">
                 {statusError instanceof Error
                   ? statusError.message
                   : 'An unexpected error occurred.'}
@@ -307,7 +311,7 @@ const ConsentSettingsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => refetchStatus()}
-                className="mt-2 text-sm font-medium text-red-700 hover:text-red-800 underline"
+                className="mt-2 text-sm font-medium text-error-700 dark:text-error-300 hover:text-error-800 dark:hover:text-error-200 underline"
               >
                 Try again
               </button>
@@ -344,7 +348,7 @@ const ConsentSettingsPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="flex items-start gap-2">
             <CircleCheck
-              className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0"
+              className="h-4 w-4 text-info-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
@@ -359,7 +363,7 @@ const ConsentSettingsPage: React.FC = () => {
           </div>
           <div className="flex items-start gap-2">
             <CircleCheck
-              className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0"
+              className="h-4 w-4 text-info-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
@@ -374,7 +378,7 @@ const ConsentSettingsPage: React.FC = () => {
           </div>
           <div className="flex items-start gap-2">
             <CircleCheck
-              className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0"
+              className="h-4 w-4 text-info-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
@@ -389,7 +393,7 @@ const ConsentSettingsPage: React.FC = () => {
           </div>
           <div className="flex items-start gap-2">
             <CircleCheck
-              className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0"
+              className="h-4 w-4 text-info-500 mt-0.5 flex-shrink-0"
               strokeWidth={1.5}
               aria-hidden="true"
             />
@@ -419,13 +423,13 @@ const ConsentSettingsPage: React.FC = () => {
         )}
 
         {historyQuery.error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-4">
-            <p className="text-sm text-red-700">
+          <div className="rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 p-4">
+            <p className="text-sm text-error-700 dark:text-error-300">
               Failed to load consent history.{' '}
               <button
                 type="button"
                 onClick={() => historyQuery.refetch()}
-                className="font-medium underline hover:text-red-800"
+                className="font-medium underline hover:text-error-800 dark:hover:text-error-200"
               >
                 Try again
               </button>

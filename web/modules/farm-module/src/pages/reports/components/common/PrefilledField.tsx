@@ -65,18 +65,24 @@ export const PrefilledField: React.FC<PrefilledFieldProps> = ({
             aria-label={label}
             aria-invalid={isBlockingEmpty || undefined}
             className={`w-40 px-2 py-1 text-sm text-right rounded-md border ${
-              isBlockingEmpty ? 'border-red-400 bg-red-50' : 'border-gray-300 dark:border-gray-600'
-            } focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50`}
+              isBlockingEmpty
+                ? 'border-error-400 bg-error-50 dark:bg-error-900/20'
+                : 'border-gray-300 dark:border-gray-600'
+            } focus:outline-none focus:ring-1 focus:ring-info-500 disabled:opacity-50`}
             placeholder={meta?.blocking ? 'Required' : 'Optional'}
           />
           {isBlockingEmpty && meta?.message && (
-            <span className="text-xs text-red-600 mt-0.5">{meta.message}</span>
+            <span className="text-xs text-error-600 dark:text-error-400 mt-0.5">
+              {meta.message}
+            </span>
           )}
         </div>
       ) : (
         // RECORDS / SENSOR / plain: read-only. No input — corrections go to the
         // source record, not the report.
-        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{displayValue(value)}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+          {displayValue(value)}
+        </span>
       )}
     </div>
   );

@@ -61,32 +61,36 @@ const ChatRoomPage: React.FC = () => {
             <RefreshCw className="h-4 w-4 animate-spin" /> Loading…
           </div>
         )}
-        {messages?.filter((m) => !m.isDeleted).map((m) => {
-          const mine = m.senderId === myId;
-          return (
-            <div key={m.id} className={mine ? 'flex justify-end' : 'flex justify-start'}>
-              <div className="max-w-[80%]">
-                {!mine && (
-                  <div className="mb-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
-                    {m.isAiGenerated && <Sparkles className="h-3 w-3 text-green-600" />}
-                    {m.isAiGenerated ? 'AI Assistant' : senderName(m)}
+        {messages
+          ?.filter((m) => !m.isDeleted)
+          .map((m) => {
+            const mine = m.senderId === myId;
+            return (
+              <div key={m.id} className={mine ? 'flex justify-end' : 'flex justify-start'}>
+                <div className="max-w-[80%]">
+                  {!mine && (
+                    <div className="mb-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+                      {m.isAiGenerated && (
+                        <Sparkles className="h-3 w-3 text-success-600 dark:text-success-400" />
+                      )}
+                      {m.isAiGenerated ? 'AI Assistant' : senderName(m)}
+                    </div>
+                  )}
+                  <div
+                    className={
+                      mine
+                        ? 'rounded-2xl rounded-br-sm bg-success-600 px-3 py-2 text-sm text-white'
+                        : m.isAiGenerated
+                          ? 'rounded-2xl rounded-bl-sm border border-success-100 bg-success-50 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
+                          : 'rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
+                    }
+                  >
+                    <span className="whitespace-pre-wrap">{m.content}</span>
                   </div>
-                )}
-                <div
-                  className={
-                    mine
-                      ? 'rounded-2xl rounded-br-sm bg-green-600 px-3 py-2 text-sm text-white'
-                      : m.isAiGenerated
-                        ? 'rounded-2xl rounded-bl-sm border border-green-100 bg-green-50 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
-                        : 'rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
-                  }
-                >
-                  <span className="whitespace-pre-wrap">{m.content}</span>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       {/* Composer */}
@@ -103,12 +107,12 @@ const ChatRoomPage: React.FC = () => {
             }}
             rows={1}
             placeholder="Type a message…"
-            className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-green-500"
+            className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-success-500"
           />
           <button
             onClick={() => void handleSend()}
             disabled={!draft.trim() || sendMutation.isPending}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-success-600 text-white hover:bg-success-700 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Send"
           >
             <Send className="h-4 w-4" />

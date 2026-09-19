@@ -210,10 +210,12 @@ export function SchedulingSettingsPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-6">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-red-50 rounded-xl p-6 text-center">
-            <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-red-800 mb-2">Ayarlar yuklenemedi</h3>
-            <p className="text-red-600">{String(error)}</p>
+          <div className="bg-error-50 dark:bg-error-900/20 rounded-xl p-6 text-center">
+            <AlertTriangle className="h-12 w-12 text-error-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-error-800 dark:text-error-200 mb-2">
+              Ayarlar yuklenemedi
+            </h3>
+            <p className="text-error-600 dark:text-error-400">{String(error)}</p>
           </div>
         </div>
       </div>
@@ -227,7 +229,7 @@ export function SchedulingSettingsPage() {
         <PageHeader
           title={
             <>
-              <Settings className="h-6 w-6 text-indigo-600" />
+              <Settings className="h-6 w-6 text-primary-600 dark:text-primary-400" />
               Cizelge Ayarlari
             </>
           }
@@ -246,8 +248,8 @@ export function SchedulingSettingsPage() {
                     onClick={handleSubmit}
                     disabled={updateMutation.isPending}
                     className={cn(
-                      'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
-                      'hover:bg-indigo-700 transition-colors',
+                      'flex items-center gap-2 px-4 py-2 text-white bg-primary-600 rounded-lg',
+                      'hover:bg-primary-700 transition-colors',
                       'disabled:opacity-50',
                     )}
                   >
@@ -271,7 +273,7 @@ export function SchedulingSettingsPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Layers className="h-5 w-5 text-indigo-600" />
+              <Layers className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Vardiya Yonetimi</h2>
             </div>
             {!showShiftForm && (
@@ -435,8 +437,8 @@ export function SchedulingSettingsPage() {
                       updateShiftMutation.isPending
                     }
                     className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg',
-                      'hover:bg-indigo-700 transition-colors disabled:opacity-50',
+                      'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary-600 rounded-lg',
+                      'hover:bg-primary-700 transition-colors disabled:opacity-50',
                     )}
                   >
                     <Save className="h-3.5 w-3.5" />
@@ -444,7 +446,7 @@ export function SchedulingSettingsPage() {
                   </button>
                 </div>
                 {(createShiftMutation.error || updateShiftMutation.error) && (
-                  <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
+                  <div className="mt-3 p-2 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded text-xs text-error-600 dark:text-error-400">
                     {String(createShiftMutation.error || updateShiftMutation.error)}
                   </div>
                 )}
@@ -503,7 +505,7 @@ export function SchedulingSettingsPage() {
                         className={cn(
                           'px-2 py-1 text-xs rounded-full font-medium transition-colors',
                           shift.isActive
-                            ? 'text-green-700 bg-green-100 hover:bg-green-200'
+                            ? 'text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40 hover:bg-success-200 dark:hover:bg-success-800/60'
                             : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600',
                         )}
                       >
@@ -537,7 +539,7 @@ export function SchedulingSettingsPage() {
           {/* Work Hours Section */}
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-              <Clock className="h-5 w-5 text-indigo-600" />
+              <Clock className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Calisma Saatleri</h2>
             </div>
             <div className="p-6 space-y-4">
@@ -637,7 +639,7 @@ export function SchedulingSettingsPage() {
           {/* Schedule Settings Section */}
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-indigo-600" />
+              <CalendarDays className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Program Ayarlari</h2>
             </div>
             <div className="p-6 space-y-4">
@@ -649,7 +651,7 @@ export function SchedulingSettingsPage() {
                 <select
                   value={formData.workWeekStartDay || 'monday'}
                   onChange={(e) => handleChange('workWeekStartDay', e.target.value as WeekDay)}
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 >
                   {WEEKDAY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -667,7 +669,7 @@ export function SchedulingSettingsPage() {
                 <select
                   value={formData.defaultShiftId || ''}
                   onChange={(e) => handleChange('defaultShiftId', e.target.value || undefined)}
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 >
                   <option value="">Secilmedi</option>
                   {shifts?.map((shift) => (
@@ -705,7 +707,7 @@ export function SchedulingSettingsPage() {
                   id="allowOvertimeWithoutApproval"
                   checked={formData.allowOvertimeWithoutApproval || false}
                   onChange={(e) => handleChange('allowOvertimeWithoutApproval', e.target.checked)}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
+                  className="h-4 w-4 text-primary-600 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500"
                 />
                 <label
                   htmlFor="allowOvertimeWithoutApproval"
@@ -720,7 +722,7 @@ export function SchedulingSettingsPage() {
           {/* Notification Settings Section */}
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-              <Bell className="h-5 w-5 text-indigo-600" />
+              <Bell className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Bildirim Ayarlari</h2>
             </div>
             <div className="p-6 space-y-4">
@@ -731,7 +733,7 @@ export function SchedulingSettingsPage() {
                   id="autoNotifyEmployees"
                   checked={formData.autoNotifyEmployees || false}
                   onChange={(e) => handleChange('autoNotifyEmployees', e.target.checked)}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
+                  className="h-4 w-4 text-primary-600 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500"
                 />
                 <label
                   htmlFor="autoNotifyEmployees"
@@ -775,8 +777,8 @@ export function SchedulingSettingsPage() {
                 type="submit"
                 disabled={updateMutation.isPending}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
-                  'hover:bg-indigo-700 transition-colors',
+                  'flex items-center gap-2 px-4 py-2 text-white bg-primary-600 rounded-lg',
+                  'hover:bg-primary-700 transition-colors',
                   'disabled:opacity-50',
                 )}
               >
@@ -793,13 +795,13 @@ export function SchedulingSettingsPage() {
 
         {/* Success/Error Messages */}
         {updateMutation.isSuccess && (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
+          <div className="mt-4 p-4 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg text-success-700 dark:text-success-300">
             Ayarlar basariyla kaydedildi.
           </div>
         )}
 
         {updateMutation.error && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="mt-4 p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300">
             Hata: {String(updateMutation.error)}
           </div>
         )}

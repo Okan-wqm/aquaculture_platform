@@ -33,10 +33,14 @@ import AlertSummaryWidget, {
 // Mock the shared-ui components
 vi.mock('@aquaculture/shared-ui', () => ({
   Card: ({ children, className, ...props }: any) => (
-    <div className={`card ${className}`} {...props}>{children}</div>
+    <div className={`card ${className}`} {...props}>
+      {children}
+    </div>
   ),
   Badge: ({ children, variant, size, ...props }: any) => (
-    <span className={`badge badge-${variant} badge-${size}`} {...props}>{children}</span>
+    <span className={`badge badge-${variant} badge-${size}`} {...props}>
+      {children}
+    </span>
   ),
   Button: ({ children, variant, size, onClick, disabled, ...props }: any) => (
     <button
@@ -179,11 +183,11 @@ describe('Helper Functions', () => {
         createMockAlert({ id: '1', severity: 'low' }),
         createMockAlert({ id: '2', severity: 'critical' }),
       ];
-      const originalOrder = alerts.map(a => a.id);
+      const originalOrder = alerts.map((a) => a.id);
 
       sortAlerts(alerts);
 
-      expect(alerts.map(a => a.id)).toEqual(originalOrder);
+      expect(alerts.map((a) => a.id)).toEqual(originalOrder);
     });
 
     it('should handle empty array', () => {
@@ -210,7 +214,7 @@ describe('Helper Functions', () => {
       const filtered = filterAlerts(mockAlerts, ['critical', 'high']);
 
       expect(filtered).toHaveLength(2);
-      expect(filtered.every(a => ['critical', 'high'].includes(a.severity))).toBe(true);
+      expect(filtered.every((a) => ['critical', 'high'].includes(a.severity))).toBe(true);
     });
 
     it('should filter by single status', () => {
@@ -223,15 +227,15 @@ describe('Helper Functions', () => {
     it('should filter by multiple statuses', () => {
       const filtered = filterAlerts(mockAlerts, undefined, ['active', 'acknowledged']);
 
-      expect(filtered.every(a => ['active', 'acknowledged'].includes(a.status))).toBe(true);
+      expect(filtered.every((a) => ['active', 'acknowledged'].includes(a.status))).toBe(true);
     });
 
     it('should combine severity and status filters', () => {
       const filtered = filterAlerts(mockAlerts, ['critical', 'high'], ['active']);
 
-      expect(filtered.every(a =>
-        ['critical', 'high'].includes(a.severity) && a.status === 'active'
-      )).toBe(true);
+      expect(
+        filtered.every((a) => ['critical', 'high'].includes(a.severity) && a.status === 'active'),
+      ).toBe(true);
     });
 
     it('should return all alerts when no filters provided', () => {
@@ -314,8 +318,8 @@ describe('AlertIcon', () => {
     const { container } = render(<AlertIcon severity="critical" />);
     const icon = container.firstChild;
 
-    expect(icon).toHaveClass('bg-red-50');
-    expect(icon).toHaveClass('text-red-600');
+    expect(icon).toHaveClass('bg-error-50');
+    expect(icon).toHaveClass('text-error-600');
   });
 
   it('should apply custom className', () => {
@@ -334,7 +338,7 @@ describe('AlertIcon', () => {
   it('should render icon for all severity levels', () => {
     const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
 
-    severities.forEach(severity => {
+    severities.forEach((severity) => {
       const { unmount } = render(<AlertIcon severity={severity} />);
       expect(screen.getByTestId(`alert-icon-${severity}`)).toBeInTheDocument();
       unmount();
@@ -419,9 +423,9 @@ describe('AlertItemCard', () => {
 
   it('should disable buttons while processing', async () => {
     const user = userEvent.setup();
-    const onAcknowledge = vi.fn().mockImplementation(() =>
-      new Promise(resolve => setTimeout(resolve, 100))
-    );
+    const onAcknowledge = vi
+      .fn()
+      .mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)));
     render(<AlertItemCard alert={mockAlert} onAcknowledge={onAcknowledge} />);
 
     await user.click(screen.getByTestId('acknowledge-btn-test-alert'));
@@ -488,11 +492,7 @@ describe('SeverityFilter', () => {
 
   it('should render all severity options', () => {
     render(
-      <SeverityFilter
-        selectedSeverities={[]}
-        onFilterChange={() => {}}
-        alertCounts={mockCounts}
-      />
+      <SeverityFilter selectedSeverities={[]} onFilterChange={() => {}} alertCounts={mockCounts} />,
     );
 
     expect(screen.getByTestId('filter-critical')).toBeInTheDocument();
@@ -504,11 +504,7 @@ describe('SeverityFilter', () => {
 
   it('should display count for each severity', () => {
     render(
-      <SeverityFilter
-        selectedSeverities={[]}
-        onFilterChange={() => {}}
-        alertCounts={mockCounts}
-      />
+      <SeverityFilter selectedSeverities={[]} onFilterChange={() => {}} alertCounts={mockCounts} />,
     );
 
     expect(screen.getByText('Kritik (2)')).toBeInTheDocument();
@@ -524,15 +520,15 @@ describe('SeverityFilter', () => {
         selectedSeverities={['critical', 'high']}
         onFilterChange={() => {}}
         alertCounts={mockCounts}
-      />
+      />,
     );
 
     const criticalBtn = screen.getByTestId('filter-critical');
     const highBtn = screen.getByTestId('filter-high');
     const mediumBtn = screen.getByTestId('filter-medium');
 
-    expect(criticalBtn).toHaveClass('bg-red-50');
-    expect(highBtn).toHaveClass('bg-orange-50');
+    expect(criticalBtn).toHaveClass('bg-error-50');
+    expect(highBtn).toHaveClass('bg-warning-50');
     expect(mediumBtn).toHaveClass('bg-gray-100');
   });
 
@@ -544,7 +540,7 @@ describe('SeverityFilter', () => {
         selectedSeverities={[]}
         onFilterChange={onFilterChange}
         alertCounts={mockCounts}
-      />
+      />,
     );
 
     await user.click(screen.getByTestId('filter-critical'));
@@ -560,7 +556,7 @@ describe('SeverityFilter', () => {
         selectedSeverities={['critical', 'high']}
         onFilterChange={onFilterChange}
         alertCounts={mockCounts}
-      />
+      />,
     );
 
     await user.click(screen.getByTestId('filter-critical'));
@@ -570,11 +566,7 @@ describe('SeverityFilter', () => {
 
   it('should show reduced opacity for zero count', () => {
     render(
-      <SeverityFilter
-        selectedSeverities={[]}
-        onFilterChange={() => {}}
-        alertCounts={mockCounts}
-      />
+      <SeverityFilter selectedSeverities={[]} onFilterChange={() => {}} alertCounts={mockCounts} />,
     );
 
     const infoBtn = screen.getByTestId('filter-info');
@@ -633,7 +625,7 @@ describe('ErrorState', () => {
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
     // Generic safe message must appear instead
     expect(
-      screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.')
+      screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.'),
     ).toBeInTheDocument();
   });
 
@@ -642,7 +634,7 @@ describe('ErrorState', () => {
 
     expect(screen.queryByText('UNAUTHENTICATED')).not.toBeInTheDocument();
     expect(
-      screen.getByText('Oturum süreniz doldu. Lütfen tekrar giriş yapın.')
+      screen.getByText('Oturum süreniz doldu. Lütfen tekrar giriş yapın.'),
     ).toBeInTheDocument();
   });
 
@@ -651,7 +643,7 @@ describe('ErrorState', () => {
 
     expect(screen.queryByText('NETWORK_ERROR')).not.toBeInTheDocument();
     expect(
-      screen.getByText('Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.')
+      screen.getByText('Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.'),
     ).toBeInTheDocument();
   });
 
@@ -726,7 +718,7 @@ describe('AlertSummaryWidget', () => {
 
     it('should limit displayed alerts to maxAlerts', () => {
       const manyAlerts = Array.from({ length: 20 }, (_, i) =>
-        createMockAlert({ id: `alert-${i}`, title: `Alert ${i}` })
+        createMockAlert({ id: `alert-${i}`, title: `Alert ${i}` }),
       );
 
       render(<AlertSummaryWidget alerts={manyAlerts} maxAlerts={5} />);
@@ -763,7 +755,7 @@ describe('AlertSummaryWidget', () => {
       expect(screen.queryByText('Failed to load alerts')).not.toBeInTheDocument();
       // Safe generic message must appear instead
       expect(
-        screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.')
+        screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.'),
       ).toBeInTheDocument();
     });
 
@@ -819,25 +811,14 @@ describe('AlertSummaryWidget', () => {
     });
 
     it('should apply initial severity filter', () => {
-      render(
-        <AlertSummaryWidget
-          alerts={mockAlerts}
-          severityFilter={['critical']}
-          showFilters
-        />
-      );
+      render(<AlertSummaryWidget alerts={mockAlerts} severityFilter={['critical']} showFilters />);
 
       const criticalBtn = screen.getByTestId('filter-critical');
-      expect(criticalBtn).toHaveClass('bg-red-50');
+      expect(criticalBtn).toHaveClass('bg-error-50');
     });
 
     it('should filter by status', () => {
-      render(
-        <AlertSummaryWidget
-          alerts={mockAlerts}
-          statusFilter={['active']}
-        />
-      );
+      render(<AlertSummaryWidget alerts={mockAlerts} statusFilter={['active']} />);
 
       // Should not show acknowledged or resolved alerts
       expect(screen.queryByText('Low Oxygen')).not.toBeInTheDocument(); // acknowledged
@@ -951,9 +932,9 @@ describe('AlertSummaryWidget', () => {
 
       render(<AlertSummaryWidget alerts={alerts} />);
 
-      const alertItems = screen.getAllByRole('button').filter(
-        el => el.getAttribute('data-testid')?.startsWith('alert-item-')
-      );
+      const alertItems = screen
+        .getAllByRole('button')
+        .filter((el) => el.getAttribute('data-testid')?.startsWith('alert-item-'));
 
       // Critical alerts should appear first, with newer ones first
       expect(alertItems[0]).toHaveAttribute('data-testid', 'alert-item-critical-new');
@@ -980,7 +961,7 @@ describe('severityConfig', () => {
   it('should have configuration for all severity levels', () => {
     const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
 
-    severities.forEach(severity => {
+    severities.forEach((severity) => {
       expect(severityConfig[severity]).toBeDefined();
       expect(severityConfig[severity].bgColor).toBeDefined();
       expect(severityConfig[severity].borderColor).toBeDefined();
@@ -1007,11 +988,11 @@ describe('Accessibility', () => {
   it('should have accessible alert items', () => {
     render(<AlertSummaryWidget alerts={mockAlerts} />);
 
-    const alertItems = screen.getAllByRole('button').filter(
-      el => el.getAttribute('data-testid')?.startsWith('alert-item-')
-    );
+    const alertItems = screen
+      .getAllByRole('button')
+      .filter((el) => el.getAttribute('data-testid')?.startsWith('alert-item-'));
 
-    alertItems.forEach(item => {
+    alertItems.forEach((item) => {
       expect(item).toHaveAttribute('tabIndex', '0');
     });
   });
@@ -1022,7 +1003,7 @@ describe('Accessibility', () => {
         alerts={mockAlerts}
         onAcknowledge={() => Promise.resolve()}
         onResolve={() => Promise.resolve()}
-      />
+      />,
     );
 
     const acknowledgeButtons = screen.getAllByRole('button', { name: /onayla/i });
@@ -1041,7 +1022,7 @@ describe('Accessibility', () => {
     await user.keyboard('{Enter}');
 
     // Filter should be toggled via keyboard
-    expect(criticalFilter).toHaveClass('bg-red-50');
+    expect(criticalFilter).toHaveClass('bg-error-50');
   });
 });
 
@@ -1075,7 +1056,8 @@ describe('Edge Cases', () => {
   it('should handle very long alert titles', () => {
     const longTitleAlert = createMockAlert({
       id: 'long-title',
-      title: 'This is a very long alert title that should be truncated to prevent layout issues in the widget',
+      title:
+        'This is a very long alert title that should be truncated to prevent layout issues in the widget',
     });
 
     render(<AlertSummaryWidget alerts={[longTitleAlert]} />);

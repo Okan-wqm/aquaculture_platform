@@ -333,10 +333,10 @@ interface ReportCardProps {
 
 const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
   const categoryColors: Record<string, string> = {
-    Tenant: 'bg-blue-100 text-blue-800',
-    Financial: 'bg-green-100 text-green-800',
-    Usage: 'bg-purple-100 text-purple-800',
-    System: 'bg-orange-100 text-orange-800',
+    Tenant: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+    Financial: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+    Usage: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+    System: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   };
 
   return (
@@ -579,7 +579,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => setActiveCategory(cat)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeCategory === cat
-                ? 'bg-blue-600 text-white'
+                ? 'bg-info-600 text-white'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
@@ -620,7 +620,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('tenant_overview', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-info-400 hover:bg-info-50 transition-colors text-center"
           >
             <FileText
               className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
@@ -632,7 +632,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('financial_revenue', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-success-400 hover:bg-success-50 transition-colors text-center"
           >
             <DollarSign
               className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
@@ -644,7 +644,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('usage_modules', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-accent-400 hover:bg-accent-50 transition-colors text-center"
           >
             <ChartColumn
               className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
@@ -656,7 +656,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('system_performance', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-orange-400 hover:bg-orange-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-warning-400 hover:bg-warning-50 transition-colors text-center"
           >
             <Sparkles
               className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
@@ -676,7 +676,7 @@ const ReportsPage: React.FC = () => {
         >
           <div className="space-y-4">
             {runReport.error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              <div className="p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300 text-sm">
                 {runReport.error.message}
               </div>
             )}
@@ -739,7 +739,7 @@ const ReportsPage: React.FC = () => {
                     onClick={() => setSelectedFormat(format)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       selectedFormat === format
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-info-600 text-white'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >

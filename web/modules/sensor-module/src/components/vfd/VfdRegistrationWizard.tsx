@@ -213,9 +213,9 @@ export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistr
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                     index < wizard.currentStep
-                      ? 'bg-green-500 text-white'
+                      ? 'bg-success-500 text-white'
                       : index === wizard.currentStep
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-info-600 text-white'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
@@ -229,7 +229,7 @@ export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistr
                   <p
                     className={`text-sm font-medium ${
                       index === wizard.currentStep
-                        ? 'text-blue-600'
+                        ? 'text-info-600 dark:text-info-400'
                         : 'text-gray-600 dark:text-gray-400'
                     }`}
                   >
@@ -240,7 +240,7 @@ export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistr
               {index < STEPS.length - 1 && (
                 <div
                   className={`hidden md:block w-8 lg:w-12 h-0.5 mx-2 transition-colors ${
-                    index < wizard.currentStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                    index < wizard.currentStep ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'
                   }`}
                 />
               )}
@@ -253,7 +253,7 @@ export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistr
       <div className="p-6 overflow-y-auto flex-1 min-h-0">
         {/* Error message */}
         {wizard.error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center">
+          <div className="mb-4 p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300 flex items-center">
             <CircleX className="w-5 h-5 mr-2 flex-shrink-0" aria-hidden="true" />
             {wizard.error}
           </div>

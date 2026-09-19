@@ -44,9 +44,7 @@ interface StatItem {
   color: string;
 }
 
-export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
-  config,
-}) => {
+export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({ config }) => {
   const { data, history, loading, error } = useWidgetData(config);
   const [, forceUpdate] = useState(0);
 
@@ -103,28 +101,28 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
       value: stats.current,
       unit: stats.unit,
       icon: <Activity size={14} />,
-      color: 'text-cyan-600',
+      color: 'text-info-600 dark:text-info-400',
     },
     {
       label: 'Min',
       value: stats.min,
       unit: stats.unit,
       icon: <ArrowDown size={14} />,
-      color: 'text-blue-600',
+      color: 'text-info-600 dark:text-info-400',
     },
     {
       label: 'Max',
       value: stats.max,
       unit: stats.unit,
       icon: <ArrowUp size={14} />,
-      color: 'text-red-500',
+      color: 'text-error-500',
     },
     {
       label: 'Avg',
       value: stats.avg,
       unit: stats.unit,
       icon: <Minus size={14} />,
-      color: 'text-green-600',
+      color: 'text-success-600 dark:text-success-400',
     },
   ];
 

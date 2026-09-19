@@ -44,8 +44,10 @@ const FORMAT_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
-const SMALL_INPUT_CLS = 'w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded';
+const INPUT_CLS =
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
+const SMALL_INPUT_CLS =
+  'w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded';
 
 export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const columns = (config.columns ?? []) as ColumnDef[];
@@ -64,14 +66,22 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   /* ---------------------------------------------------------------- */
 
   const addColumn = () => {
-    const newCol: ColumnDef = { tagName: '', label: '', width: 120, format: 'auto', sortable: true };
+    const newCol: ColumnDef = {
+      tagName: '',
+      label: '',
+      width: 120,
+      format: 'auto',
+      sortable: true,
+    };
     onChange({ columns: [...columns, newCol] });
   };
 
-  const updateColumn = (index: number, field: keyof ColumnDef, value: string | number | boolean) => {
-    const updated = columns.map((c, i) =>
-      i === index ? { ...c, [field]: value } : c,
-    );
+  const updateColumn = (
+    index: number,
+    field: keyof ColumnDef,
+    value: string | number | boolean,
+  ) => {
+    const updated = columns.map((c, i) => (i === index ? { ...c, [field]: value } : c));
     onChange({ columns: updated });
   };
 
@@ -89,9 +99,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   };
 
   const updateRule = (index: number, field: keyof RowColorRule, value: string | number) => {
-    const updated = rowColorRules.map((r, i) =>
-      i === index ? { ...r, [field]: value } : r,
-    );
+    const updated = rowColorRules.map((r, i) => (i === index ? { ...r, [field]: value } : r));
     onChange({ rowColorRules: updated });
   };
 
@@ -105,14 +113,23 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       <div className="pt-1">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Columns</label>
-          <Button variant="ghost" size="xs" onClick={addColumn}>+ Add Column</Button>
+          <Button variant="ghost" size="xs" onClick={addColumn}>
+            + Add Column
+          </Button>
         </div>
         <div className="space-y-3">
           {columns.map((col, i) => (
-            <div key={i} className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2">
+            <div
+              key={i}
+              className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2"
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Column {i + 1}</span>
-                <Button variant="ghost" size="xs" onClick={() => removeColumn(i)}>X</Button>
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Column {i + 1}
+                </span>
+                <Button variant="ghost" size="xs" onClick={() => removeColumn(i)}>
+                  X
+                </Button>
               </div>
 
               {/* Tag binding */}
@@ -141,7 +158,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
                 {/* Width */}
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width (px)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Width (px)
+                  </label>
                   <input
                     type="number"
                     min={40}
@@ -154,14 +173,18 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
                 {/* Format */}
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Format</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Format
+                  </label>
                   <select
                     value={col.format}
                     onChange={(e) => updateColumn(i, 'format', e.target.value)}
                     className={SMALL_INPUT_CLS}
                   >
                     {FORMAT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -173,7 +196,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                       type="checkbox"
                       checked={col.sortable}
                       onChange={(e) => updateColumn(i, 'sortable', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                     />
                     Sort
                   </label>
@@ -195,7 +218,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               className={INPUT_CLS}
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size}</option>
+                <option key={size} value={size}>
+                  {size}
+                </option>
               ))}
             </select>
           </div>
@@ -218,7 +243,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               type="checkbox"
               checked={showPagination}
               onChange={(e) => onChange({ showPagination: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Show Pagination
           </label>
@@ -227,7 +252,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               type="checkbox"
               checked={showHeader}
               onChange={(e) => onChange({ showHeader: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Show Header
           </label>
@@ -236,7 +261,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
+          Colors
+        </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Header BG</label>
@@ -248,7 +275,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Header Text</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Header Text
+            </label>
             <input
               type="color"
               value={headerTextColor}
@@ -280,22 +309,43 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Row Color Rules */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Row Color Rules</label>
-          <Button variant="ghost" size="xs" onClick={addRule}>+ Add Rule</Button>
+          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+            Row Color Rules
+          </label>
+          <Button variant="ghost" size="xs" onClick={addRule}>
+            + Add Rule
+          </Button>
         </div>
         <div className="space-y-2">
           {rowColorRules.map((rule, i) => (
             <div key={i} className="flex items-center gap-1">
-              <Input type="text" value={rule.tagName} onChange={(e) => updateRule(i, 'tagName', e.target.value)} placeholder="Tag" />
-              <Input type="number" value={rule.min} onChange={(e) => updateRule(i, 'min', Number(e.target.value))} placeholder="Min" />
-              <Input type="number" value={rule.max} onChange={(e) => updateRule(i, 'max', Number(e.target.value))} placeholder="Max" />
+              <Input
+                type="text"
+                value={rule.tagName}
+                onChange={(e) => updateRule(i, 'tagName', e.target.value)}
+                placeholder="Tag"
+              />
+              <Input
+                type="number"
+                value={rule.min}
+                onChange={(e) => updateRule(i, 'min', Number(e.target.value))}
+                placeholder="Min"
+              />
+              <Input
+                type="number"
+                value={rule.max}
+                onChange={(e) => updateRule(i, 'max', Number(e.target.value))}
+                placeholder="Max"
+              />
               <input
                 type="color"
                 value={rule.color}
                 onChange={(e) => updateRule(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
-              <Button variant="ghost" size="xs" onClick={() => removeRule(i)}>X</Button>
+              <Button variant="ghost" size="xs" onClick={() => removeRule(i)}>
+                X
+              </Button>
             </div>
           ))}
         </div>

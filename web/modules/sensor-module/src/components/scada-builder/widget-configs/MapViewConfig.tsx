@@ -44,10 +44,10 @@ const STATUS_OPTIONS: { value: DeviceStatus; label: string }[] = [
 ];
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 const SMALL_INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -86,9 +86,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
   const updateMarker = useCallback(
     (id: string, field: keyof DeviceMarker, value: string | number) => {
-      updateMarkers(
-        markers.map((m) => (m.id === id ? { ...m, [field]: value } : m)),
-      );
+      updateMarkers(markers.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
     },
     [markers, updateMarkers],
   );
@@ -109,7 +107,9 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
       {/* Background Color */}
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Background Color</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Background Color
+        </label>
         <div className="flex items-center gap-2">
           <input
             type="color"
@@ -132,7 +132,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
           type="checkbox"
           checked={showGrid}
           onChange={(e) => onChange({ showGrid: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
         />
         Show grid lines
       </label>
@@ -140,11 +140,13 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
       {/* Markers */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Device Markers</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+            Device Markers
+          </label>
           <button
             type="button"
             onClick={addMarker}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-cyan-700 bg-cyan-50 rounded-md hover:bg-cyan-100 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 rounded-md hover:bg-info-100 dark:hover:bg-info-900/50 transition-colors"
           >
             <Plus className="w-3 h-3" />
             Add
@@ -168,12 +170,23 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
                 <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">
                   #{idx + 1}
                 </span>
-                <Button variant="ghost" iconOnly aria-label="Remove marker" type="button" onClick={() => removeMarker(marker.id)} title="Remove marker"><Trash2 className="w-3 h-3" /></Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Remove marker"
+                  type="button"
+                  onClick={() => removeMarker(marker.id)}
+                  title="Remove marker"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
               </div>
 
               {/* Label */}
               <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Label</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                  Label
+                </label>
                 <input
                   type="text"
                   value={marker.label}
@@ -186,27 +199,39 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               {/* X / Y coordinates */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X (0-100)</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                    X (0-100)
+                  </label>
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={marker.x}
                     onChange={(e) =>
-                      updateMarker(marker.id, 'x', Math.min(100, Math.max(0, Number(e.target.value))))
+                      updateMarker(
+                        marker.id,
+                        'x',
+                        Math.min(100, Math.max(0, Number(e.target.value))),
+                      )
                     }
                     className={SMALL_INPUT_CLASS}
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Y (0-100)</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                    Y (0-100)
+                  </label>
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={marker.y}
                     onChange={(e) =>
-                      updateMarker(marker.id, 'y', Math.min(100, Math.max(0, Number(e.target.value))))
+                      updateMarker(
+                        marker.id,
+                        'y',
+                        Math.min(100, Math.max(0, Number(e.target.value))),
+                      )
                     }
                     className={SMALL_INPUT_CLASS}
                   />
@@ -215,7 +240,9 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
               {/* Status */}
               <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Status</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                  Status
+                </label>
                 <select
                   value={marker.status}
                   onChange={(e) => updateMarker(marker.id, 'status', e.target.value)}

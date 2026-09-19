@@ -104,15 +104,18 @@ const ACTIVITY_PAGE_SIZE = 50;
  */
 const EMPTY_ACTIVITIES: readonly ActivityLog[] = [];
 
-async function fetchActivities(params: {
-  page?: number;
-  limit?: number;
-  category?: string;
-  severity?: string;
-  searchQuery?: string;
-  startDate?: string;
-  endDate?: string;
-}, signal?: AbortSignal): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
+async function fetchActivities(
+  params: {
+    page?: number;
+    limit?: number;
+    category?: string;
+    severity?: string;
+    searchQuery?: string;
+    startDate?: string;
+    endDate?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -164,9 +167,7 @@ async function fetchActivityStats(signal?: AbortSignal): Promise<ActivityStats> 
     uniqueUsers: stats.topUsers.length,
     uniqueIps: stats.topIPs.length,
     averageResponseTime: 0,
-    errorRate: stats.totalActivities > 0
-      ? (failedCount / stats.totalActivities) * 100
-      : 0,
+    errorRate: stats.totalActivities > 0 ? (failedCount / stats.totalActivities) * 100 : 0,
   };
 }
 
@@ -196,17 +197,17 @@ const getCategoryIcon = (category: ActivityCategory): React.ReactElement => {
 const getCategoryColor = (category: ActivityCategory): string => {
   switch (category) {
     case 'user_action':
-      return 'bg-blue-100 text-blue-800';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200';
     case 'system_event':
-      return 'bg-purple-100 text-purple-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'api_call':
-      return 'bg-green-100 text-green-800';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
     case 'data_access':
-      return 'bg-orange-100 text-orange-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     case 'security_event':
-      return 'bg-red-100 text-red-800';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
     case 'configuration':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     default:
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
@@ -215,13 +216,13 @@ const getCategoryColor = (category: ActivityCategory): string => {
 const getSeverityIcon = (severity: ActivitySeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
-      return <XCircle className="w-4 h-4 text-red-600" />;
+      return <XCircle className="w-4 h-4 text-error-600 dark:text-error-400" />;
     case 'error':
-      return <AlertCircle className="w-4 h-4 text-orange-600" />;
+      return <AlertCircle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'warning':
-      return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
+      return <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'debug':
-      return <Info className="w-4 h-4 text-blue-600" />;
+      return <Info className="w-4 h-4 text-info-600 dark:text-info-400" />;
     default:
       return <Info className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
@@ -230,13 +231,13 @@ const getSeverityIcon = (severity: ActivitySeverity): React.ReactElement => {
 const getSeverityColor = (severity: ActivitySeverity): string => {
   switch (severity) {
     case 'critical':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'error':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'debug':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800';
     default:
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
@@ -298,7 +299,9 @@ const ActivityDetailModal: React.FC<{
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(activity.createdAt)}</p>
+          <p className="text-sm text-gray-900 dark:text-gray-100">
+            {formatDate(activity.createdAt)}
+          </p>
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Category</span>
@@ -328,7 +331,9 @@ const ActivityDetailModal: React.FC<{
 
       {/* User Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          User Information
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
@@ -336,15 +341,21 @@ const ActivityDetailModal: React.FC<{
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Email</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">{activity.userEmail || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
+              {activity.userEmail || 'N/A'}
+            </p>
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">{activity.tenantName || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
+              {activity.tenantName || 'N/A'}
+            </p>
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">IP Address</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{activity.ipAddress || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+              {activity.ipAddress || 'N/A'}
+            </p>
           </div>
         </div>
       </div>
@@ -359,11 +370,15 @@ const ActivityDetailModal: React.FC<{
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Country</span>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{activity.geoLocation.country || 'N/A'}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {activity.geoLocation.country || 'N/A'}
+              </p>
             </div>
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">City</span>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{activity.geoLocation.city || 'N/A'}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {activity.geoLocation.city || 'N/A'}
+              </p>
             </div>
           </div>
         </div>
@@ -372,7 +387,9 @@ const ActivityDetailModal: React.FC<{
       {/* Target Entity */}
       {activity.entityType && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Target Entity</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            Target Entity
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
@@ -380,7 +397,9 @@ const ActivityDetailModal: React.FC<{
             </div>
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">ID</span>
-              <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{activity.entityId}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+                {activity.entityId}
+              </p>
             </div>
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
@@ -397,8 +416,8 @@ const ActivityDetailModal: React.FC<{
           <span
             className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
               activity.success
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-800'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
             }`}
           >
             {activity.success ? 'Success' : 'Failed'}
@@ -407,16 +426,20 @@ const ActivityDetailModal: React.FC<{
         {activity.duration !== undefined && (
           <div>
             <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Duration</span>
-            <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">{activity.duration}ms</span>
+            <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">
+              {activity.duration}ms
+            </span>
           </div>
         )}
       </div>
 
       {/* Error Message */}
       {activity.errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
-          <p className="text-sm text-red-700">{activity.errorMessage}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-error-800 dark:text-error-200 mb-2">
+            Error Message
+          </h3>
+          <p className="text-sm text-error-700 dark:text-error-300">{activity.errorMessage}</p>
         </div>
       )}
 
@@ -523,7 +546,7 @@ export const ActivityLogPage: React.FC = () => {
   if (loading && activities.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-info-600 dark:text-info-400" />
       </div>
     );
   }
@@ -546,8 +569,12 @@ export const ActivityLogPage: React.FC = () => {
       header: 'Timestamp',
       render: (_value, activity) => (
         <>
-          <div className="text-sm text-gray-900 dark:text-gray-100">{formatTimeAgo(activity.createdAt)}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(activity.createdAt)}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {formatTimeAgo(activity.createdAt)}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {formatDate(activity.createdAt)}
+          </div>
         </>
       ),
     },
@@ -567,7 +594,9 @@ export const ActivityLogPage: React.FC = () => {
       key: 'action',
       header: 'Action',
       render: (_value, activity) => (
-        <div className="text-sm text-gray-900 dark:text-gray-100 max-w-xs truncate">{activity.action}</div>
+        <div className="text-sm text-gray-900 dark:text-gray-100 max-w-xs truncate">
+          {activity.action}
+        </div>
       ),
     },
     {
@@ -584,7 +613,9 @@ export const ActivityLogPage: React.FC = () => {
       key: 'ipAddress',
       header: 'IP Address',
       render: (_value, activity) => (
-        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">{activity.ipAddress || '-'}</span>
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
+          {activity.ipAddress || '-'}
+        </span>
       ),
     },
     {
@@ -605,7 +636,9 @@ export const ActivityLogPage: React.FC = () => {
       render: (_value, activity) => (
         <span
           className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-            activity.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            activity.success
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+              : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
           }`}
         >
           {activity.success ? 'Success' : 'Failed'}
@@ -620,7 +653,7 @@ export const ActivityLogPage: React.FC = () => {
         <button
           type="button"
           onClick={() => setSelectedActivity(activity)}
-          className="text-blue-600 hover:text-blue-800"
+          className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           aria-label="View activity"
         >
           <Eye className="w-4 h-4" />
@@ -681,7 +714,7 @@ export const ActivityLogPage: React.FC = () => {
             <button
               onClick={() => void loadData()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -695,8 +728,8 @@ export const ActivityLogPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Activity className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Total Activities</p>
@@ -708,34 +741,40 @@ export const ActivityLogPage: React.FC = () => {
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <User className="w-5 h-5 text-green-600" />
+              <div className="p-2 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <User className="w-5 h-5 text-success-600 dark:text-success-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Unique Users</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.uniqueUsers ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.uniqueUsers ?? 0}
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Clock className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Clock className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Avg Response</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.averageResponseTime ?? 0}ms</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.averageResponseTime ?? 0}ms
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Error Rate</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{(stats.errorRate ?? 0).toFixed(1)}%</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {(stats.errorRate ?? 0).toFixed(1)}%
+                </p>
               </div>
             </div>
           </div>
@@ -752,13 +791,13 @@ export const ActivityLogPage: React.FC = () => {
               placeholder="Search by action, user, or IP..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           >
             <option value="all">All Categories</option>
             <option value="user_action">User Actions</option>
@@ -771,7 +810,7 @@ export const ActivityLogPage: React.FC = () => {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           >
             <option value="all">All Severities</option>
             <option value="info">Info</option>
@@ -784,7 +823,7 @@ export const ActivityLogPage: React.FC = () => {
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 border rounded-lg ${
               showFilters
-                ? 'border-blue-500 text-blue-600 bg-blue-50'
+                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20'
                 : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
@@ -804,7 +843,7 @@ export const ActivityLogPage: React.FC = () => {
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
               />
             </div>
             <div>
@@ -815,7 +854,7 @@ export const ActivityLogPage: React.FC = () => {
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
               />
             </div>
           </div>

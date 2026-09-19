@@ -44,12 +44,7 @@ interface GradingModalProps {
   onSuccess: () => void;
 }
 
-export const GradingModal: React.FC<GradingModalProps> = ({
-  isOpen,
-  onClose,
-  tank,
-  onSuccess,
-}) => {
+export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tank, onSuccess }) => {
   const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(tank.primaryBatchId);
 
   // Combined-tank scoping: grading splits the SELECTED batch, so the source stock,
@@ -102,7 +97,8 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     rows.forEach((row, index) => {
       if (!row.destinationTankId) errs.push(`Output ${index + 1}: select a destination tank`);
       if (row.quantity <= 0) errs.push(`Output ${index + 1}: quantity must be greater than 0`);
-      if (row.avgWeightG <= 0) errs.push(`Output ${index + 1}: average weight must be greater than 0`);
+      if (row.avgWeightG <= 0)
+        errs.push(`Output ${index + 1}: average weight must be greater than 0`);
     });
     const chosen = rows.map((r) => r.destinationTankId).filter(Boolean);
     if (new Set(chosen).size !== chosen.length) {
@@ -123,9 +119,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
   }, []);
 
   const addRow = useCallback(() => {
-    setRows((prev) =>
-      prev.length >= MAX_OUTPUTS ? prev : [...prev, emptyRow(sourceAvgWeightG)],
-    );
+    setRows((prev) => (prev.length >= MAX_OUTPUTS ? prev : [...prev, emptyRow(sourceAvgWeightG)]));
   }, [sourceAvgWeightG]);
 
   const removeRow = useCallback((index: number) => {
@@ -142,7 +136,11 @@ export const GradingModal: React.FC<GradingModalProps> = ({
   const handleSubmit = async () => {
     if (!isValid) return;
     if (!selectedBatchId) {
-      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'No batch assigned to this tank.',
+        variant: 'error',
+      });
       return;
     }
 
@@ -184,10 +182,12 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Grade Fish" size="lg">
       <div className="space-y-6">
         {/* Source Tank Info Header */}
-        <div className="bg-purple-50 rounded-lg p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-purple-600 uppercase font-medium">Source Tank</p>
+              <p className="text-xs text-accent-600 dark:text-accent-400 uppercase font-medium">
+                Source Tank
+              </p>
               <h3 className="font-medium text-gray-900 dark:text-gray-100">{tank.tankName}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Batch: {selectedBatchNumber || 'No batch assigned'}
@@ -198,7 +198,9 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {availableQuantity.toLocaleString()} fish
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{availableBiomassKg.toFixed(1)} kg</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {availableBiomassKg.toFixed(1)} kg
+              </p>
             </div>
           </div>
         </div>
@@ -221,7 +223,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               type="button"
               onClick={addRow}
               disabled={rows.length >= MAX_OUTPUTS}
-              className="px-2 py-1 text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 hover:bg-accent-200 dark:hover:bg-accent-800/60 rounded disabled:opacity-40 disabled:cursor-not-allowed"
             >
               + Add Output
             </button>
@@ -237,7 +239,15 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                   Output {index + 1}
                 </span>
-                <Button variant="ghost" size="xs" type="button" onClick={() => removeRow(index)} disabled={rows.length <= 1}>Remove</Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  type="button"
+                  onClick={() => removeRow(index)}
+                  disabled={rows.length <= 1}
+                >
+                  Remove
+                </Button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -246,16 +256,18 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     htmlFor={`grading-destination-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Destination Tank <span className="text-purple-500">*</span>
+                    Destination Tank <span className="text-accent-500">*</span>
                   </label>
                   {tanksLoading ? (
-                    <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">Loading tanks...</div>
+                    <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      Loading tanks...
+                    </div>
                   ) : (
                     <select
                       id={`grading-destination-${index}`}
                       value={row.destinationTankId}
                       onChange={(e) => updateRow(index, { destinationTankId: e.target.value })}
-                      className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                      className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
                     >
                       <option value="">Select destination tank...</option>
                       {destinationTanks.map((t: AvailableTank) => {
@@ -278,9 +290,18 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     htmlFor={`grading-quantity-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Quantity <span className="text-purple-500">*</span>
+                    Quantity <span className="text-accent-500">*</span>
                   </label>
-                  <Input fullWidth type="number" id={`grading-quantity-${index}`} min="1" max={availableQuantity} value={row.quantity || ''} onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })} placeholder="Fish count" />
+                  <Input
+                    fullWidth
+                    type="number"
+                    id={`grading-quantity-${index}`}
+                    min="1"
+                    max={availableQuantity}
+                    value={row.quantity || ''}
+                    onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })}
+                    placeholder="Fish count"
+                  />
                 </div>
 
                 <div>
@@ -288,11 +309,20 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     htmlFor={`grading-avgweight-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Avg Weight (g) <span className="text-purple-500">*</span>
+                    Avg Weight (g) <span className="text-accent-500">*</span>
                   </label>
-                  <Input fullWidth type="number" id={`grading-avgweight-${index}`} min="0.01" step="0.1" value={row.avgWeightG || ''} onChange={(e) =>
-           updateRow(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-          } placeholder="Measured size-class weight" />
+                  <Input
+                    fullWidth
+                    type="number"
+                    id={`grading-avgweight-${index}`}
+                    min="0.01"
+                    step="0.1"
+                    value={row.avgWeightG || ''}
+                    onChange={(e) =>
+                      updateRow(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="Measured size-class weight"
+                  />
                 </div>
 
                 <div className="col-span-2">
@@ -302,7 +332,15 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                   >
                     Size Class
                   </label>
-                  <Input fullWidth type="text" id={`grading-sizeclass-${index}`} maxLength={64} value={row.sizeClass} onChange={(e) => updateRow(index, { sizeClass: e.target.value })} placeholder="e.g. Small / Medium / Large or >250g" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    id={`grading-sizeclass-${index}`}
+                    maxLength={64}
+                    value={row.sizeClass}
+                    onChange={(e) => updateRow(index, { sizeClass: e.target.value })}
+                    placeholder="e.g. Small / Medium / Large or >250g"
+                  />
                 </div>
               </div>
 
@@ -318,29 +356,54 @@ export const GradingModal: React.FC<GradingModalProps> = ({
         {/* Date + Notes */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label htmlFor="gradedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="gradedAt"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Grading Date
             </label>
-            <Input fullWidth type="date" id="gradedAt" value={gradedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setGradedAt(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              id="gradedAt"
+              value={gradedAt}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setGradedAt(e.target.value)}
+            />
           </div>
           <div>
-            <label htmlFor="gradingNotes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="gradingNotes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Notes
             </label>
-            <Input fullWidth type="text" id="gradingNotes" maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional operation notes" />
+            <Input
+              fullWidth
+              type="text"
+              id="gradingNotes"
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional operation notes"
+            />
           </div>
         </div>
 
         {/* Totals summary */}
         {totalQuantity > 0 && (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
-                <p className="text-xs text-purple-600 uppercase">Total Graded</p>
-                <p className="text-lg font-bold text-purple-700">
+                <p className="text-xs text-accent-600 dark:text-accent-400 uppercase">
+                  Total Graded
+                </p>
+                <p className="text-lg font-bold text-accent-700 dark:text-accent-300">
                   {totalQuantity.toLocaleString()} fish
                 </p>
-                <p className="text-xs text-purple-600">{totalBiomassKg.toFixed(1)} kg</p>
+                <p className="text-xs text-accent-600 dark:text-accent-400">
+                  {totalBiomassKg.toFixed(1)} kg
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Source Before</p>
@@ -360,8 +423,8 @@ export const GradingModal: React.FC<GradingModalProps> = ({
 
         {/* Validation errors */}
         {errors.length > 0 && rows.some((r) => r.destinationTankId || r.quantity > 0) && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-error-600 dark:text-error-400 space-y-1">
               {errors.map((error, index) => (
                 <li key={index}>{error}</li>
               ))}
@@ -378,7 +441,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || recordGrading.isPending}
-            className="bg-purple-600 hover:bg-purple-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {recordGrading.isPending ? 'Grading...' : 'Grade Fish'}
           </Button>

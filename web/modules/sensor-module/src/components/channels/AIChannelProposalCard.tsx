@@ -41,27 +41,27 @@ interface AIChannelProposalCardProps {
 
 const confidenceConfig = {
   high: {
-    bgColor: 'bg-green-100',
-    textColor: 'text-green-800',
+    bgColor: 'bg-success-100 dark:bg-success-900/40',
+    textColor: 'text-success-800 dark:text-success-200',
     label: 'Yüksek',
   },
   medium: {
-    bgColor: 'bg-yellow-100',
-    textColor: 'text-yellow-800',
+    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
+    textColor: 'text-warning-800 dark:text-warning-200',
     label: 'Orta',
   },
   low: {
-    bgColor: 'bg-red-100',
-    textColor: 'text-red-800',
+    bgColor: 'bg-error-100 dark:bg-error-900/40',
+    textColor: 'text-error-800 dark:text-error-200',
     label: 'Düşük',
   },
 };
 
 const dataTypeBadgeColor: Record<string, string> = {
-  number: 'bg-blue-100 text-blue-800',
-  boolean: 'bg-purple-100 text-purple-800',
+  number: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  boolean: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   string: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-  enum: 'bg-orange-100 text-orange-800',
+  enum: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
 };
 
 // ============================================================================
@@ -75,20 +75,22 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
   onEdit,
 }) => {
   const conf = confidenceConfig[proposal.confidence] || confidenceConfig.medium;
-  const typeBadge = dataTypeBadgeColor[proposal.dataType] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+  const typeBadge =
+    dataTypeBadgeColor[proposal.dataType] ||
+    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
-  const hasRange =
-    proposal.operationalMin != null || proposal.operationalMax != null;
+  const hasRange = proposal.operationalMin != null || proposal.operationalMax != null;
 
-  const hasThresholds =
-    proposal.alertThresholds?.warning || proposal.alertThresholds?.critical;
+  const hasThresholds = proposal.alertThresholds?.warning || proposal.alertThresholds?.critical;
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-gray-300 dark:hover:border-gray-500 transition-colors bg-white dark:bg-gray-900">
       {/* Top row: channel key, type badge, confidence */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{proposal.channelKey}</span>
+          <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+            {proposal.channelKey}
+          </span>
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeBadge}`}
           >
@@ -103,13 +105,16 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
       </div>
 
       {/* Label */}
-      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{proposal.displayLabel}</p>
+      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+        {proposal.displayLabel}
+      </p>
 
       {/* Details row */}
       <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-3">
         {proposal.unit && (
           <span>
-            Birim: <span className="text-gray-700 dark:text-gray-300 font-medium">{proposal.unit}</span>
+            Birim:{' '}
+            <span className="text-gray-700 dark:text-gray-300 font-medium">{proposal.unit}</span>
           </span>
         )}
         {hasRange && (
@@ -127,7 +132,7 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
       {/* Alert thresholds (if present) */}
       {hasThresholds && (
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-3">
-          <AlertTriangle className="w-3 h-3 text-yellow-500" />
+          <AlertTriangle className="w-3 h-3 text-warning-500" />
           {proposal.alertThresholds?.warning && (
             <span>
               Uyari: {proposal.alertThresholds.warning.low ?? '...'} -{' '}
@@ -145,9 +150,30 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2">
-        <Button variant="primary" size="xs" leftIcon={<Check className="w-3.5 h-3.5" />} onClick={onApprove}>Onayla</Button>
-        <Button variant="primary" size="xs" leftIcon={<Edit className="w-3.5 h-3.5" />} onClick={onEdit}>Düzenle</Button>
-        <Button variant="danger" size="xs" leftIcon={<X className="w-3.5 h-3.5" />} onClick={onReject}>Reddet</Button>
+        <Button
+          variant="primary"
+          size="xs"
+          leftIcon={<Check className="w-3.5 h-3.5" />}
+          onClick={onApprove}
+        >
+          Onayla
+        </Button>
+        <Button
+          variant="primary"
+          size="xs"
+          leftIcon={<Edit className="w-3.5 h-3.5" />}
+          onClick={onEdit}
+        >
+          Düzenle
+        </Button>
+        <Button
+          variant="danger"
+          size="xs"
+          leftIcon={<X className="w-3.5 h-3.5" />}
+          onClick={onReject}
+        >
+          Reddet
+        </Button>
       </div>
     </div>
   );

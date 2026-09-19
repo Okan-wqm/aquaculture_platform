@@ -4,7 +4,15 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -27,9 +35,18 @@ import { useActiveProcesses, useProcess, Process } from '../../hooks/useProcess'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
   draft: { label: 'Draft', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' },
-  active: { label: 'Active', color: 'bg-green-100 text-green-700' },
-  inactive: { label: 'Inactive', color: 'bg-yellow-100 text-yellow-700' },
-  archived: { label: 'Archived', color: 'bg-red-100 text-red-700' },
+  active: {
+    label: 'Active',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+  },
+  inactive: {
+    label: 'Inactive',
+    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  },
+  archived: {
+    label: 'Archived',
+    color: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+  },
 };
 
 const ProcessListPage: React.FC = () => {
@@ -64,65 +81,82 @@ const ProcessListPage: React.FC = () => {
   };
 
   // Handle duplicate process
-  const handleDuplicate = useCallback(async (process: Process) => {
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const newName = `${process.name} (Copy)`;
-      const result = await duplicateProcess(process.id, newName);
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to duplicate:', result.message);
+  const handleDuplicate = useCallback(
+    async (process: Process) => {
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const newName = `${process.name} (Copy)`;
+        const result = await duplicateProcess(process.id, newName);
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to duplicate:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to duplicate process:', err);
+      } finally {
+        setActionLoading(null);
       }
-    } catch (err) {
-      console.error('Failed to duplicate process:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [duplicateProcess, refetch]);
+    },
+    [duplicateProcess, refetch],
+  );
 
   // Handle delete process
-  const handleDelete = useCallback(async (process: Process) => {
-    if (!(await confirm({ title: `Delete "${process.name}"?`, message: 'The process and its diagram are removed.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) {
-      return;
-    }
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const result = await deleteProcess(process.id);
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to delete:', result.message);
+  const handleDelete = useCallback(
+    async (process: Process) => {
+      if (
+        !(await confirm({
+          title: `Delete "${process.name}"?`,
+          message: 'The process and its diagram are removed.',
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          variant: 'danger',
+        }))
+      ) {
+        return;
       }
-    } catch (err) {
-      console.error('Failed to delete process:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [deleteProcess, refetch, confirm]);
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const result = await deleteProcess(process.id);
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to delete:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to delete process:', err);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [deleteProcess, refetch, confirm],
+  );
 
   // Handle status change (activate/pause)
-  const handleStatusChange = useCallback(async (process: Process, newStatus: 'active' | 'inactive') => {
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const result = await updateProcess({
-        processId: process.id,
-        status: newStatus,
-      });
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to update status:', result.message);
+  const handleStatusChange = useCallback(
+    async (process: Process, newStatus: 'active' | 'inactive') => {
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const result = await updateProcess({
+          processId: process.id,
+          status: newStatus,
+        });
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to update status:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to update process status:', err);
+      } finally {
+        setActionLoading(null);
       }
-    } catch (err) {
-      console.error('Failed to update process status:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [updateProcess, refetch]);
+    },
+    [updateProcess, refetch],
+  );
 
   // Loading state
   if (loading) {
@@ -144,10 +178,14 @@ const ProcessListPage: React.FC = () => {
       <div className="p-6">
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-            <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load processes</p>
+            <AlertCircle className="w-8 h-8 text-error-500 mx-auto" />
+            <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">
+              Failed to load processes
+            </p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
-            <Button variant="primary" className="mt-4" onClick={refetch}>Try Again</Button>
+            <Button variant="primary" className="mt-4" onClick={refetch}>
+              Try Again
+            </Button>
           </div>
         </div>
       </div>
@@ -160,11 +198,8 @@ const ProcessListPage: React.FC = () => {
       header: 'Process',
       render: (_value, process) => (
         <>
-          <Link
-            to={`/sensor/unified-editor/${process.id}`}
-            className="block"
-          >
-            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600">
+          <Link to={`/sensor/unified-editor/${process.id}`} className="block">
+            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-info-600">
               {process.name}
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">
@@ -234,9 +269,16 @@ const ProcessListPage: React.FC = () => {
               <Spinner size="md" color="gray" />
             ) : (
               <>
-                <Button variant="ghost" iconOnly aria-label="More actions" onClick={() =>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="More actions"
+                  onClick={() =>
                     setActiveDropdown(activeDropdown === process.id ? null : process.id)
-                  }><MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
+                  }
+                >
+                  <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                </Button>
 
                 {activeDropdown === process.id && (
                   <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
@@ -247,14 +289,38 @@ const ProcessListPage: React.FC = () => {
                       <Edit className="w-4 h-4" />
                       Edit
                     </Link>
-                    <Button variant="ghost" leftIcon={<Copy className="w-4 h-4" />} onClick={() => handleDuplicate(process)}>Duplicate</Button>
+                    <Button
+                      variant="ghost"
+                      leftIcon={<Copy className="w-4 h-4" />}
+                      onClick={() => handleDuplicate(process)}
+                    >
+                      Duplicate
+                    </Button>
                     {status === 'active' ? (
-                      <Button variant="ghost" leftIcon={<Pause className="w-4 h-4" />} onClick={() => handleStatusChange(process, 'inactive')}>Deactivate</Button>
+                      <Button
+                        variant="ghost"
+                        leftIcon={<Pause className="w-4 h-4" />}
+                        onClick={() => handleStatusChange(process, 'inactive')}
+                      >
+                        Deactivate
+                      </Button>
                     ) : status !== 'archived' ? (
-                      <Button variant="ghost" leftIcon={<Play className="w-4 h-4" />} onClick={() => handleStatusChange(process, 'active')}>Activate</Button>
+                      <Button
+                        variant="ghost"
+                        leftIcon={<Play className="w-4 h-4" />}
+                        onClick={() => handleStatusChange(process, 'active')}
+                      >
+                        Activate
+                      </Button>
                     ) : null}
                     <hr className="my-1 border-gray-200 dark:border-gray-700" />
-                    <Button variant="ghost" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => handleDelete(process)}>Delete</Button>
+                    <Button
+                      variant="ghost"
+                      leftIcon={<Trash2 className="w-4 h-4" />}
+                      onClick={() => handleDelete(process)}
+                    >
+                      Delete
+                    </Button>
                   </div>
                 )}
               </>
@@ -262,7 +328,7 @@ const ProcessListPage: React.FC = () => {
           </div>
         );
       },
-    }
+    },
   ];
 
   return (
@@ -273,7 +339,13 @@ const ProcessListPage: React.FC = () => {
         description="Create and manage equipment connection diagrams"
         actions={
           <div className="flex gap-3">
-            <Button variant="secondary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={refetch}>Refresh</Button>
+            <Button
+              variant="secondary"
+              leftIcon={<RefreshCw className="w-4 h-4" />}
+              onClick={refetch}
+            >
+              Refresh
+            </Button>
             <Link
               to="/sensor/processes/templates"
               className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -283,7 +355,7 @@ const ProcessListPage: React.FC = () => {
             </Link>
             <Link
               to="/sensor/unified-editor/new"
-              className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-white bg-info-600 rounded-lg hover:bg-info-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               New Process
@@ -303,14 +375,24 @@ const ProcessListPage: React.FC = () => {
             placeholder="Search processes..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
           />
         </div>
 
         {/* Status Filter */}
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <Select options={[{ value: 'all', label: 'All Status' }, { value: 'draft', label: 'Draft' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'archived', label: 'Archived' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <Select
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'draft', label: 'Draft' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'archived', label: 'Archived' },
+            ]}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          />
         </div>
       </div>
 
@@ -318,7 +400,9 @@ const ProcessListPage: React.FC = () => {
       {filteredProcesses.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <FileText className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No processes found</h3>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+            No processes found
+          </h3>
           <p className="text-gray-500 dark:text-gray-400 mb-4">
             {searchTerm || statusFilter !== 'all'
               ? 'Try adjusting your search or filters'
@@ -326,7 +410,7 @@ const ProcessListPage: React.FC = () => {
           </p>
           <Link
             to="/sensor/unified-editor/new"
-            className="inline-flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center gap-2 px-4 py-2 text-white bg-info-600 rounded-lg hover:bg-info-700"
           >
             <Plus className="w-4 h-4" />
             Create Process

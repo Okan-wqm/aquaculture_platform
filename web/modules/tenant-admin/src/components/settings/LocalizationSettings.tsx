@@ -79,7 +79,7 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
 
   const saving = updateMutation.isPending;
   const selectClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   // Seçilen zonda "şu an" — operatör kaydetmeden önce doğru zonu seçtiğini görür.
   let localNow = '';
@@ -95,9 +95,9 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <Clock className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-        <p className="text-sm text-blue-800">
+      <div className="flex items-start gap-2 p-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg">
+        <Clock className="w-4 h-4 text-info-600 dark:text-info-400 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-info-800 dark:text-info-200">
           Feeding jobs run on your tenant&apos;s <strong>local day</strong>: day-plan generation at
           06:00, the morning sweep at 05:00, stock coverage at 07:00, FCR alerts at 18:00 and the
           daily summary at 20:00 — all in the timezone selected here. Sites may override it
@@ -106,7 +106,10 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="tenant-timezone">
+        <label
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          htmlFor="tenant-timezone"
+        >
           Timezone
         </label>
         <select
@@ -131,7 +134,10 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="tenant-locale">
+        <label
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          htmlFor="tenant-locale"
+        >
           Language
         </label>
         <select
@@ -155,12 +161,17 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
       {canEdit && (
         <div className="flex items-center justify-end gap-3">
           {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
+            <p className="text-xs text-error-600 dark:text-error-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
               {saveError}
             </p>
           )}
-          <Button variant="primary" onClick={() => void handleSave()} disabled={saving || isLoading}>{saved ? (
+          <Button
+            variant="primary"
+            onClick={() => void handleSave()}
+            disabled={saving || isLoading}
+          >
+            {saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -175,7 +186,8 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}</Button>
+            )}
+          </Button>
         </div>
       )}
     </div>

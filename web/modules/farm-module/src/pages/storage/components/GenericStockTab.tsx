@@ -178,7 +178,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
             placeholder={`Search ${itemLabel}...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           />
           <SearchIcon
             className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -188,7 +188,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
         {/* Low-stock banner: items at/below their minimum — restock these first. */}
         {lowStockCount > 0 && (
-          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 whitespace-nowrap">
+          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 whitespace-nowrap">
             {lowStockCount} low stock
           </span>
         )}
@@ -209,8 +209,8 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
       {/* Error state */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load {itemLabel} stock.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load {itemLabel} stock.</p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -289,8 +289,8 @@ function renderCell(
             <span
               className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
                 lowStock.currentQuantity === 0
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
+                  ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
               }`}
               title={`${lowStock.currentQuantity} / min ${lowStock.minStock} ${lowStock.unit}`}
             >
@@ -317,12 +317,12 @@ function renderCell(
               the inventory list. Red = must be disposed/used immediately.
               Amber = plan to use within 30 days or risk waste. */}
           {item.expiryDate && isExpired(item.expiryDate) && (
-            <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">
+            <span className="ml-2 text-xs px-1.5 py-0.5 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded font-medium">
               EXPIRED
             </span>
           )}
           {item.expiryDate && isExpiringSoon(item.expiryDate) && (
-            <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">
+            <span className="ml-2 text-xs px-1.5 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded font-medium">
               EXPIRING SOON
             </span>
           )}

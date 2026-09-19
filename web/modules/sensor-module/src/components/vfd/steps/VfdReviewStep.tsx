@@ -64,7 +64,7 @@ export function VfdReviewStep({
                 {basicInfo.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full"
+                    className="px-2 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded-full"
                   >
                     {tag}
                   </span>
@@ -92,11 +92,16 @@ export function VfdReviewStep({
           <div className="flex items-center">
             {connectionTestResult.success ? (
               <>
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                  <CircleCheck className="w-5 h-5 text-green-600" aria-hidden="true" />
+                <div className="w-8 h-8 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mr-3">
+                  <CircleCheck
+                    className="w-5 h-5 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <span className="font-medium text-green-700">Bağlantı Başarılı</span>
+                  <span className="font-medium text-success-700 dark:text-success-300">
+                    Bağlantı Başarılı
+                  </span>
                   {connectionTestResult.latencyMs && (
                     <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                       ({connectionTestResult.latencyMs}ms)
@@ -106,11 +111,16 @@ export function VfdReviewStep({
               </>
             ) : (
               <>
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-3">
-                  <CircleX className="w-5 h-5 text-red-600" aria-hidden="true" />
+                <div className="w-8 h-8 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mr-3">
+                  <CircleX
+                    className="w-5 h-5 text-error-600 dark:text-error-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <span className="font-medium text-red-700">Bağlantı Başarısız</span>
+                  <span className="font-medium text-error-700 dark:text-error-300">
+                    Bağlantı Başarısız
+                  </span>
                   {connectionTestResult.error && (
                     <span className="text-sm text-gray-500 dark:text-gray-400 block">
                       {connectionTestResult.error}
@@ -122,11 +132,16 @@ export function VfdReviewStep({
           </div>
         ) : (
           <div className="flex items-center">
-            <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
-              <TriangleAlert className="w-5 h-5 text-yellow-600" aria-hidden="true" />
+            <div className="w-8 h-8 bg-warning-100 dark:bg-warning-900/40 rounded-full flex items-center justify-center mr-3">
+              <TriangleAlert
+                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <span className="font-medium text-yellow-700">Test Yapılmadı</span>
+              <span className="font-medium text-warning-700 dark:text-warning-300">
+                Test Yapılmadı
+              </span>
               <span className="text-sm text-gray-500 dark:text-gray-400 block">
                 Bağlantı testi atlandı. Cihaz kayıt sonrası test edilebilir.
               </span>
@@ -136,11 +151,14 @@ export function VfdReviewStep({
       </ReviewSection>
 
       {/* Summary Card */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+      <div className="bg-gradient-to-r from-info-50 to-primary-50 rounded-lg p-6 border border-info-200 dark:border-info-800">
         <div className="flex items-start">
           <div className="flex-shrink-0">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <CircleCheck className="w-6 h-6 text-blue-600" aria-hidden="true" />
+            <div className="w-12 h-12 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <CircleCheck
+                className="w-6 h-6 text-info-600 dark:text-info-400"
+                aria-hidden="true"
+              />
             </div>
           </div>
           <div className="ml-4 flex-1">
@@ -198,7 +216,7 @@ function ReviewItem({ label, value, required }: ReviewItemProps) {
         <span className="font-medium text-gray-900 dark:text-gray-100">{value}</span>
       ) : (
         <span
-          className={`text-sm ${required ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}
+          className={`text-sm ${required ? 'text-error-500' : 'text-gray-500 dark:text-gray-400'}`}
         >
           {required ? 'Gerekli' : 'Belirtilmedi'}
         </span>

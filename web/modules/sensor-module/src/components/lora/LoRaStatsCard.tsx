@@ -23,7 +23,7 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-2 mb-4">
-        <Radio className="w-5 h-5 text-cyan-600" />
+        <Radio className="w-5 h-5 text-info-600 dark:text-info-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Ozet</h3>
       </div>
 
@@ -32,31 +32,31 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Aktif Cihaz</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {joined} <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ {total}</span>
+            {joined}{' '}
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ {total}</span>
           </p>
           <div className="mt-2 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full bg-cyan-500"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="h-full rounded-full bg-info-500" style={{ width: `${pct}%` }} />
           </div>
         </div>
 
         {/* Toplam Uplink */}
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-            <ArrowUpCircle className="w-5 h-5 text-blue-600" />
+          <div className="w-9 h-9 rounded-lg bg-info-50 dark:bg-info-900/20 flex items-center justify-center shrink-0">
+            <ArrowUpCircle className="w-5 h-5 text-info-600 dark:text-info-400" />
           </div>
           <div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Uplink</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{totalUplinks.toLocaleString('tr-TR')}</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              {totalUplinks.toLocaleString('tr-TR')}
+            </p>
           </div>
         </div>
 
         {/* Join Sayisi */}
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
-            <Link2 className="w-5 h-5 text-green-600" />
+          <div className="w-9 h-9 rounded-lg bg-success-50 dark:bg-success-900/20 flex items-center justify-center shrink-0">
+            <Link2 className="w-5 h-5 text-success-600 dark:text-success-400" />
           </div>
           <div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Join Sayisi</p>
@@ -66,8 +66,8 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
 
         {/* Bekleyen (pending join) */}
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-yellow-50 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5 text-yellow-600" />
+          <div className="w-9 h-9 rounded-lg bg-warning-50 dark:bg-warning-900/20 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5 text-warning-600 dark:text-warning-400" />
           </div>
           <div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Bekleyen</p>

@@ -47,11 +47,6 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 };
 
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: `1px solid ${chartChrome.border}`,
-  borderRadius: '8px',
-};
 
 // ============================================================================
 // Skeleton Components
@@ -77,7 +72,7 @@ const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, 
   <Card className="p-4">
     <div className="text-center py-4">
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
-      <p className="text-xs text-red-500 mb-2">Veri yuklenemedi</p>
+      <p className="text-xs text-error-500 mb-2">Veri yuklenemedi</p>
       <Button variant="ghost" size="xs" type="button" onClick={onRetry}>
         Tekrar Dene
       </Button>
@@ -153,7 +148,6 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({
           <XAxis dataKey="day" hide />
           <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
           <Tooltip
-            contentStyle={tooltipStyle}
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 return (
@@ -263,7 +257,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
                   {waterQualityLabels[key] ?? key}
                 </span>
                 <span
-                  className={`font-medium ${isWarning ? 'text-yellow-600' : 'text-gray-900 dark:text-gray-100'}`}
+                  className={`font-medium ${isWarning ? 'text-warning-600 dark:text-warning-400' : 'text-gray-900 dark:text-gray-100'}`}
                 >
                   {value.toFixed(1)} {waterQualityUnits[key] ?? ''}
                 </span>
@@ -271,7 +265,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                    isWarning ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${progress}%` }}
                 />
@@ -329,11 +323,11 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
               <div
                 className={`w-2 h-2 rounded-full mr-2 ${
                   task.status === 'COMPLETED'
-                    ? 'bg-green-500'
+                    ? 'bg-success-500'
                     : task.status === 'IN_PROGRESS'
-                      ? 'bg-yellow-500'
+                      ? 'bg-warning-500'
                       : task.status === 'OVERDUE'
-                        ? 'bg-red-500'
+                        ? 'bg-error-500'
                         : 'bg-gray-300'
                 }`}
               />
@@ -402,7 +396,7 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-500 dark:text-gray-400">{stock.itemName}</span>
                 <span
-                  className={`font-medium ${isLow ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}
+                  className={`font-medium ${isLow ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
                 >
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
@@ -410,7 +404,7 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isLow ? 'bg-red-500' : percentage < 150 ? 'bg-yellow-500' : 'bg-green-500'
+                    isLow ? 'bg-error-500' : percentage < 150 ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${Math.min(percentage, 100)}%` }}
                 />

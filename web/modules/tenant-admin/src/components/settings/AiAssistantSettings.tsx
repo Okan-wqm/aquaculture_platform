@@ -93,7 +93,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
@@ -105,7 +105,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
   }
   if (isError) {
     return (
-      <p className="text-sm text-red-600 flex items-center gap-1">
+      <p className="text-sm text-error-600 dark:text-error-400 flex items-center gap-1">
         <AlertCircle className="w-4 h-4" />
         Could not load AI settings.
       </p>
@@ -116,7 +116,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     <div className="space-y-6">
       {/* Enablement banner — steers the admin to add a key when missing. */}
       {settings?.enablementReason === 'key_missing' && (
-        <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+        <div className="flex items-start gap-2 rounded-lg bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 px-4 py-3 text-sm text-warning-800 dark:text-warning-200">
           <KeyRound className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             AI is not active yet — add a valid {PROVIDER_LABEL[provider]} API key below to turn on
@@ -125,14 +125,16 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
         </div>
       )}
       {settings?.enablementReason === 'ok' && settings.isEnabled && (
-        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+        <div className="flex items-center gap-2 rounded-lg bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 px-4 py-3 text-sm text-success-800 dark:text-success-200">
           <Sparkles className="w-4 h-4 shrink-0" />
           AI assistant is active for this tenant.
         </div>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Provider</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          AI Provider
+        </label>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as LlmProviderId)}
@@ -153,7 +155,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
           checked={isEnabled}
           onChange={(e) => setIsEnabled(e.target.checked)}
           disabled={!canEdit}
-          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed"
+          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500 disabled:cursor-not-allowed"
         />
         Enable the AI assistant
       </label>
@@ -200,7 +202,10 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Chat Model <span className="text-xs font-normal text-gray-400 dark:text-gray-500">(optional override)</span>
+          Chat Model{' '}
+          <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+            (optional override)
+          </span>
         </label>
         <input
           type="text"
@@ -244,12 +249,13 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       {canEdit && (
         <div className="flex items-center justify-end gap-3">
           {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
+            <p className="text-xs text-error-600 dark:text-error-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
               {saveError}
             </p>
           )}
-          <Button variant="primary" onClick={handleSave} disabled={saving}>{saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -264,7 +270,8 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}</Button>
+            )}
+          </Button>
         </div>
       )}
     </div>

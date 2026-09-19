@@ -59,11 +59,14 @@ const StatCard: React.FC<{
   color?: 'blue' | 'green' | 'yellow' | 'red' | 'purple';
 }> = ({ title, value, subtitle, color = 'blue' }) => {
   const colorMap = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+    blue: 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800',
+    green:
+      'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800',
+    yellow:
+      'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800',
+    red: 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800',
+    purple:
+      'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800',
   };
 
   return (
@@ -83,7 +86,7 @@ const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
   <span
     className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
       active
-        ? 'bg-red-100 text-red-800'
+        ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
     }`}
   >
@@ -93,9 +96,9 @@ const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
 
 const ExportStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const map: Record<string, string> = {
-    completed: 'bg-green-100 text-green-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    failed: 'bg-red-100 text-red-800',
+    completed: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+    pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    failed: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   };
   return (
     <span
@@ -142,7 +145,7 @@ const AuditOperationsChart: React.FC<{ data: DailyAuditData[]; height?: number }
               width={barWidth}
               height={barHeight}
               rx={3}
-              className="fill-indigo-500"
+              className="fill-primary-500"
             />
             <text
               x={i * (barWidth + 4) + barWidth / 2}
@@ -204,15 +207,15 @@ const ErrorBanner: React.FC<{
   onRetry?: () => void;
   canRetry?: boolean;
 }> = ({ message, onRetry, canRetry }) => (
-  <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between">
+  <div className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 p-4 flex items-center justify-between">
     <div className="flex items-center gap-2">
-      <TriangleAlert className="w-5 h-5 text-red-500 flex-shrink-0" aria-hidden="true" />
-      <p className="text-sm text-red-700">{message}</p>
+      <TriangleAlert className="w-5 h-5 text-error-500 flex-shrink-0" aria-hidden="true" />
+      <p className="text-sm text-error-700 dark:text-error-300">{message}</p>
     </div>
     {canRetry && onRetry && (
       <button
         onClick={onRetry}
-        className="text-xs px-3 py-1 rounded font-medium text-red-600 hover:bg-red-100"
+        className="text-xs px-3 py-1 rounded font-medium text-error-600 dark:text-error-400 hover:bg-error-100 dark:hover:bg-error-900/50"
       >
         Retry
       </button>
@@ -249,10 +252,10 @@ const MessagingCompliancePage: React.FC = () => {
   // the messaging-service exposes the corresponding aggregation queries.
   const exports: ExportRecord[] = [];
   const retentionBuckets: RetentionBucket[] = [
-    { label: '90 days', tenantCount: 0, color: 'bg-blue-500' },
-    { label: '1 year', tenantCount: 0, color: 'bg-green-500' },
-    { label: '3 years', tenantCount: 0, color: 'bg-yellow-500' },
-    { label: 'Indefinite', tenantCount: 0, color: 'bg-purple-500' },
+    { label: '90 days', tenantCount: 0, color: 'bg-info-500' },
+    { label: '1 year', tenantCount: 0, color: 'bg-success-500' },
+    { label: '3 years', tenantCount: 0, color: 'bg-warning-500' },
+    { label: 'Indefinite', tenantCount: 0, color: 'bg-accent-500' },
   ];
   const dailyAudit: DailyAuditData[] = [];
 
@@ -328,7 +331,7 @@ const MessagingCompliancePage: React.FC = () => {
       render: (_value, exp) => (
         <>
           {exp.isUnderLegalHold && (
-            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
               HOLD
             </span>
           )}
@@ -350,7 +353,7 @@ const MessagingCompliancePage: React.FC = () => {
           {exp.status === 'completed' && exp.downloadUrl && (
             <button
               onClick={() => handleDownloadExport(exp.id)}
-              className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
+              className="text-xs px-2 py-1 rounded font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/30"
             >
               Download
             </button>
@@ -402,7 +405,7 @@ const MessagingCompliancePage: React.FC = () => {
             <button
               onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
               disabled={releaseLoading === hold.id}
-              className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="text-xs px-2 py-1 rounded font-medium text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 disabled:opacity-50"
             >
               {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
             </button>
@@ -525,7 +528,10 @@ const MessagingCompliancePage: React.FC = () => {
           ) : legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <CircleCheck className="w-10 h-10 text-green-400 mx-auto mb-2" aria-hidden="true" />
+                <CircleCheck
+                  className="w-10 h-10 text-success-400 mx-auto mb-2"
+                  aria-hidden="true"
+                />
                 <p className="text-sm text-gray-500 dark:text-gray-400">No legal holds</p>
               </div>
             </div>

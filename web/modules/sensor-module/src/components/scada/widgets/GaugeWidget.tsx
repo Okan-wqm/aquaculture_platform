@@ -82,7 +82,8 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
     // Warning low zone
     if (reading.warningLow !== undefined) {
       const warningLowPct = (reading.warningLow - minValue) / range;
-      const startPct = reading.criticalLow !== undefined ? (reading.criticalLow - minValue) / range : 0;
+      const startPct =
+        reading.criticalLow !== undefined ? (reading.criticalLow - minValue) / range : 0;
       zoneList.push({
         start: startAngle + startPct * totalAngle,
         end: startAngle + warningLowPct * totalAngle,
@@ -91,8 +92,10 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
     }
 
     // Normal zone
-    const normalStart = reading.warningLow !== undefined ? (reading.warningLow - minValue) / range : 0;
-    const normalEnd = reading.warningHigh !== undefined ? (reading.warningHigh - minValue) / range : 1;
+    const normalStart =
+      reading.warningLow !== undefined ? (reading.warningLow - minValue) / range : 0;
+    const normalEnd =
+      reading.warningHigh !== undefined ? (reading.warningHigh - minValue) / range : 1;
     zoneList.push({
       start: startAngle + normalStart * totalAngle,
       end: startAngle + normalEnd * totalAngle,
@@ -102,7 +105,8 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
     // Warning high zone
     if (reading.warningHigh !== undefined) {
       const warningHighPct = (reading.warningHigh - minValue) / range;
-      const endPct = reading.criticalHigh !== undefined ? (reading.criticalHigh - minValue) / range : 1;
+      const endPct =
+        reading.criticalHigh !== undefined ? (reading.criticalHigh - minValue) / range : 1;
       zoneList.push({
         start: startAngle + warningHighPct * totalAngle,
         end: startAngle + endPct * totalAngle,
@@ -127,7 +131,11 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
 
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      <svg width={config.width} height={config.height} viewBox={`0 0 ${config.width} ${config.height}`}>
+      <svg
+        width={config.width}
+        height={config.height}
+        viewBox={`0 0 ${config.width} ${config.height}`}
+      >
         {/* Zone arcs (background) */}
         {zones.map((zone, index) => (
           <path
@@ -220,12 +228,12 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
           <span
             className={`text-xs font-medium capitalize px-2 py-0.5 rounded-full ${
               status === 'normal'
-                ? 'bg-green-100 text-green-700'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                 : status === 'warning'
-                ? 'bg-yellow-100 text-yellow-700'
-                : status === 'critical'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                  : status === 'critical'
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
             }`}
           >
             {reading.type.replace('_', ' ')}

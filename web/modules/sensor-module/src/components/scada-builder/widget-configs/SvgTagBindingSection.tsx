@@ -71,7 +71,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
           Data Binding
           {tagName && (
             <span
-              className="inline-block w-1.5 h-1.5 rounded-full bg-green-500"
+              className="inline-block w-1.5 h-1.5 rounded-full bg-success-500"
               title="Tag bound"
             />
           )}
@@ -109,7 +109,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
           )}
 
           {!deviceId && (
-            <p className="text-[10px] text-amber-500">
+            <p className="text-[10px] text-warning-500">
               Select a target device in widget properties to browse tags.
             </p>
           )}

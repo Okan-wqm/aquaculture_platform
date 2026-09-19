@@ -75,8 +75,13 @@ const HRFinancePage: React.FC = () => {
   if (!canView) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div role="alert" className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Finance is restricted</h2>
+        <div
+          role="alert"
+          className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow"
+        >
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Finance is restricted
+          </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
             You need a manager or admin role to view the HR finance tab.
           </p>
@@ -121,7 +126,7 @@ const HRFinancePage: React.FC = () => {
               onClick={() => setTab(tab.id)}
               className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
                 activeTab === tab.id
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400'
               }`}
               aria-current={activeTab === tab.id ? 'page' : undefined}

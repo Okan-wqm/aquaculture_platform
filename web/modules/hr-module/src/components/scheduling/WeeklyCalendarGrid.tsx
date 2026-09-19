@@ -62,9 +62,9 @@ export function WeeklyCalendarGrid({
   const dayDates = useMemo(() => {
     // PERF-011: new Date('YYYY-MM-DD') parses as UTC midnight which shifts the
     // calendar date for UTC+ timezones.  Append T00:00:00 to parse as local time.
-    const startDate = new Date(plan.weekStartDate.includes('T')
-      ? plan.weekStartDate
-      : `${plan.weekStartDate}T00:00:00`);
+    const startDate = new Date(
+      plan.weekStartDate.includes('T') ? plan.weekStartDate : `${plan.weekStartDate}T00:00:00`,
+    );
     const dates: Record<WeekDay, string> = {} as Record<WeekDay, string>;
     WEEKDAYS.forEach((day, index) => {
       const date = new Date(startDate);
@@ -112,7 +112,7 @@ export function WeeklyCalendarGrid({
                 'text-center py-2 rounded-t-lg',
                 day === 'saturday' || day === 'sunday'
                   ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-                  : 'bg-indigo-50 text-indigo-700'
+                  : 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300',
               )}
             >
               <div className="text-sm font-medium">
@@ -158,14 +158,18 @@ export function WeeklyCalendarGrid({
             </span>
           </div>
 
-          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">|</div>
+          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">
+            |
+          </div>
 
           <div className="text-gray-600 dark:text-gray-400">
             <span className="font-medium">{plan.plannedWorkDays}</span>
             <span className="text-gray-400 dark:text-gray-500 ml-1">is gunu</span>
           </div>
 
-          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">|</div>
+          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">
+            |
+          </div>
 
           <div className="text-gray-600 dark:text-gray-400">
             <span className="font-medium">{plan.plannedOffDays}</span>
@@ -181,8 +185,8 @@ export function WeeklyCalendarGrid({
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
               plan.plannedOvertimeMinutes > 300
-                ? 'bg-red-100 text-red-700'
-                : 'bg-amber-100 text-amber-700'
+                ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
             )}
           >
             <AlertTriangle className="h-3 w-3" aria-hidden="true" />
@@ -194,10 +198,10 @@ export function WeeklyCalendarGrid({
       {/* Status indicator */}
       {plan.status === 'published' && (
         <div className="mt-2 flex items-center justify-end">
-          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             Yayinlandi
             {plan.publishedAt && (
-              <span className="ml-1 text-green-500">
+              <span className="ml-1 text-success-500">
                 ({new Date(plan.publishedAt).toLocaleDateString('tr-TR')})
               </span>
             )}

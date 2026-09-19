@@ -25,9 +25,9 @@ import {
 import { Plus, Search as SearchIcon, Users } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  on_leave: 'bg-yellow-100 text-yellow-800',
-  terminated: 'bg-red-100 text-red-800',
+  active: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  on_leave: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  terminated: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   suspended: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -241,7 +241,7 @@ export const WorkersTab: React.FC = () => {
               placeholder="Search workers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -264,8 +264,10 @@ export const WorkersTab: React.FC = () => {
 
       {/* Error */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load workers. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load workers. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -399,7 +401,7 @@ export const WorkersTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
                   }
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                  className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                 />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinarian (can be attributed to treatments)

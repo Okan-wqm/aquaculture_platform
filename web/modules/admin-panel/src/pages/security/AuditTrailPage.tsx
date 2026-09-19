@@ -223,21 +223,21 @@ function buildAuditChanges(
 const getActionColor = (action: AuditAction): string => {
   switch (action) {
     case 'create':
-      return 'bg-green-100 text-green-800';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
     case 'update':
-      return 'bg-blue-100 text-blue-800';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200';
     case 'delete':
-      return 'bg-red-100 text-red-800';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
     case 'login':
     case 'logout':
-      return 'bg-purple-100 text-purple-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'permission_change':
-      return 'bg-orange-100 text-orange-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     case 'export':
     case 'import':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     case 'config_change':
-      return 'bg-indigo-100 text-indigo-800';
+      return 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200';
     default:
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
@@ -246,9 +246,9 @@ const getActionColor = (action: AuditAction): string => {
 const getSeverityColor = (severity: AuditSeverity): string => {
   switch (severity) {
     case 'critical':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     default:
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
@@ -257,9 +257,9 @@ const getSeverityColor = (severity: AuditSeverity): string => {
 const getSeverityIcon = (severity: AuditSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
-      return <XCircle className="w-4 h-4 text-red-600" />;
+      return <XCircle className="w-4 h-4 text-error-600 dark:text-error-400" />;
     case 'warning':
-      return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
+      return <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     default:
       return <Info className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
@@ -343,7 +343,9 @@ const AuditDetailModal: React.FC<{
 
       {/* Entity Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Entity Information</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Entity Information
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
@@ -364,7 +366,9 @@ const AuditDetailModal: React.FC<{
 
       {/* User Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          User Information
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
@@ -380,7 +384,9 @@ const AuditDetailModal: React.FC<{
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">IP Address</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.ipAddress || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+              {entry.ipAddress || 'N/A'}
+            </p>
           </div>
         </div>
       </div>
@@ -392,16 +398,18 @@ const AuditDetailModal: React.FC<{
           <div className="space-y-2">
             {entry.changes.map((change, idx) => (
               <div key={idx} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{change.field}</p>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {change.field}
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                   <div>
-                    <span className="text-xs text-red-600">Old:</span>
+                    <span className="text-xs text-error-600 dark:text-error-400">Old:</span>
                     <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
                       {JSON.stringify(change.oldValue)}
                     </pre>
                   </div>
                   <div>
-                    <span className="text-xs text-green-600">New:</span>
+                    <span className="text-xs text-success-600 dark:text-success-400">New:</span>
                     <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
                       {JSON.stringify(change.newValue)}
                     </pre>
@@ -542,7 +550,7 @@ export const AuditTrailPage: React.FC = () => {
   if (loading && entries.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-info-600 dark:text-info-400" />
       </div>
     );
   }
@@ -570,11 +578,7 @@ export const AuditTrailPage: React.FC = () => {
     {
       key: 'window',
       header: 'Window',
-      render: (_value, policy) => (
-        <>
-          {policy.retentionDays} days
-        </>
-      ),
+      render: (_value, policy) => <>{policy.retentionDays} days</>,
     },
     {
       key: 'owner',
@@ -587,7 +591,7 @@ export const AuditTrailPage: React.FC = () => {
       render: (_value, policy) => (
         <>
           {policy.legalHoldAware ? (
-            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
               held rows preserved
             </span>
           ) : (
@@ -595,7 +599,7 @@ export const AuditTrailPage: React.FC = () => {
           )}
         </>
       ),
-    }
+    },
   ];
 
   const auditEntryColumns: DataTableColumn<AuditEntry>[] = [
@@ -607,7 +611,9 @@ export const AuditTrailPage: React.FC = () => {
           <div className="text-sm text-gray-900 dark:text-gray-100">
             {formatTimeAgo(entry.createdAt)}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(entry.createdAt)}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {formatDate(entry.createdAt)}
+          </div>
         </>
       ),
     },
@@ -639,7 +645,9 @@ export const AuditTrailPage: React.FC = () => {
       header: 'User',
       render: (_value, entry) => (
         <>
-          <div className="text-sm text-gray-900 dark:text-gray-100">{entry.userName || 'System'}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {entry.userName || 'System'}
+          </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">{entry.tenantName}</div>
         </>
       ),
@@ -675,13 +683,13 @@ export const AuditTrailPage: React.FC = () => {
         <>
           <button
             onClick={() => setSelectedEntry(entry)}
-            className="text-blue-600 hover:text-blue-800"
+            className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           >
             <Eye className="w-4 h-4" />
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -709,7 +717,7 @@ export const AuditTrailPage: React.FC = () => {
             <button
               onClick={() => void loadData()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -723,8 +731,8 @@ export const AuditTrailPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <FileText className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <FileText className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Total Entries</p>
@@ -736,19 +744,21 @@ export const AuditTrailPage: React.FC = () => {
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Clock className="w-5 h-5 text-green-600" />
+              <div className="p-2 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <Clock className="w-5 h-5 text-success-600 dark:text-success-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Last 24 Hours</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.last24Hours ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats?.last24Hours ?? 0}
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Archive className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Archive className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Retention Policies</p>
@@ -760,12 +770,14 @@ export const AuditTrailPage: React.FC = () => {
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Bell className="w-5 h-5 text-orange-600" />
+              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                <Bell className="w-5 h-5 text-warning-600 dark:text-warning-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Alert Rules</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.alertRulesCount ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats?.alertRulesCount ?? 0}
+                </p>
               </div>
             </div>
           </div>
@@ -785,7 +797,7 @@ export const AuditTrailPage: React.FC = () => {
               onClick={() => setActiveTab(id as typeof activeTab)}
               className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
                 activeTab === id
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-info-500 text-info-600 dark:text-info-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
@@ -809,13 +821,13 @@ export const AuditTrailPage: React.FC = () => {
                   placeholder="Search by entity, user, or action..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
                 />
               </div>
               <select
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Actions</option>
                 <option value="create">Create</option>
@@ -828,7 +840,7 @@ export const AuditTrailPage: React.FC = () => {
               <select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Severities</option>
                 <option value="info">Info</option>
@@ -879,14 +891,16 @@ export const AuditTrailPage: React.FC = () => {
 
       {activeTab === 'retention' && (
         <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+          <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4 text-sm text-info-900 dark:text-info-100">
             Retention windows are compliance commitments declared in code and enforced by the
             platform&apos;s single retention service. They are reviewed as code, not edited here.
           </div>
 
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
             {retentionPolicies.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No retention policies registered</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                No retention policies registered
+              </div>
             ) : (
               <DataTable<RetentionPolicy>
                 data={retentionPolicies}
@@ -905,7 +919,7 @@ export const AuditTrailPage: React.FC = () => {
       {activeTab === 'alerts' && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700">
               <Plus className="w-4 h-4" />
               Add Rule
             </button>
@@ -918,15 +932,20 @@ export const AuditTrailPage: React.FC = () => {
               </div>
             ) : (
               alertRules.map((rule) => (
-                <div key={rule.id} className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div
+                  key={rule.id}
+                  className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6"
+                >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{rule.name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                          {rule.name}
+                        </h3>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
                             rule.enabled
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                               : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                           }`}
                         >
@@ -939,13 +958,15 @@ export const AuditTrailPage: React.FC = () => {
                           {rule.severity}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Condition: {rule.condition}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Condition: {rule.condition}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-red-600">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -954,15 +975,21 @@ export const AuditTrailPage: React.FC = () => {
                   <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Threshold:</span>{' '}
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">{rule.threshold || 'N/A'}</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {rule.threshold || 'N/A'}
+                      </span>
                     </div>
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Actions:</span>{' '}
-                      <span className="text-gray-900 dark:text-gray-100">{rule.actions.join(', ')}</span>
+                      <span className="text-gray-900 dark:text-gray-100">
+                        {rule.actions.join(', ')}
+                      </span>
                     </div>
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Triggered:</span>{' '}
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">{rule.triggeredCount} times</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {rule.triggeredCount} times
+                      </span>
                     </div>
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Last Triggered:</span>{' '}

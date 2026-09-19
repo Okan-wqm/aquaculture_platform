@@ -82,11 +82,25 @@ const RangeFieldset: React.FC<{
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-        <Input fullWidth type="number" name={minName} value={minValue} onChange={onChange} step="any" />
+        <Input
+          fullWidth
+          type="number"
+          name={minName}
+          value={minValue}
+          onChange={onChange}
+          step="any"
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-        <Input fullWidth type="number" name={maxName} value={maxValue} onChange={onChange} step="any" />
+        <Input
+          fullWidth
+          type="number"
+          name={maxName}
+          value={maxValue}
+          onChange={onChange}
+          step="any"
+        />
       </div>
     </div>
   </fieldset>
@@ -128,7 +142,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
       size="md"
     >
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
           {error.message}
         </div>
       )}
@@ -136,31 +150,63 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Code */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Code *</label>
-          <Input fullWidth type="text" name="code" value={formData.code} onChange={handleChange} required disabled={mode === 'edit'} placeholder="e.g., dissolved_oxygen" />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Code *
+          </label>
+          <Input
+            fullWidth
+            type="text"
+            name="code"
+            value={formData.code}
+            onChange={handleChange}
+            required
+            disabled={mode === 'edit'}
+            placeholder="e.g., dissolved_oxygen"
+          />
         </div>
 
         {/* Name + Unit */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-            <Input fullWidth type="text" name="name" value={formData.name} onChange={handleChange} required />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Name *
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              required
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unit *</label>
-            <Input fullWidth type="text" name="unit" value={formData.unit} onChange={handleChange} required placeholder="e.g., mg/L" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Unit *
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              name="unit"
+              value={formData.unit}
+              onChange={handleChange}
+              required
+              placeholder="e.g., mg/L"
+            />
           </div>
         </div>
 
         {/* Data Type + Group */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Type</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Data Type
+            </label>
             <select
               name="dataType"
               value={formData.dataType}
               onChange={handleChange}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               {DATA_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -170,12 +216,14 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Group</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Group
+            </label>
             <select
               name="group"
               value={formData.group}
               onChange={handleChange}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               {GROUP_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -188,8 +236,17 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Precision */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Precision (0-6)</label>
-          <Input type="number" name="precision" value={formData.precision} onChange={handleChange} min={0} max={6} />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Precision (0-6)
+          </label>
+          <Input
+            type="number"
+            name="precision"
+            value={formData.precision}
+            onChange={handleChange}
+            min={0}
+            max={6}
+          />
         </div>
 
         {/* Range Fieldsets */}
@@ -220,9 +277,17 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Chart Color */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chart Color</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Chart Color
+          </label>
           <div className="flex items-center space-x-3">
-            <Input type="text" name="chartColor" value={formData.chartColor} onChange={handleChange} placeholder={colors.info[500]} />
+            <Input
+              type="text"
+              name="chartColor"
+              value={formData.chartColor}
+              onChange={handleChange}
+              placeholder={colors.info[500]}
+            />
             <div
               className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600"
               style={{ backgroundColor: formData.chartColor || '#ccc' }}
@@ -238,7 +303,9 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Chart Axis Group */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Chart Axis Group</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Chart Axis Group
+          </label>
           <div className="flex items-center space-x-6">
             <label className="flex items-center space-x-2 cursor-pointer">
               <input
@@ -247,7 +314,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
                 value="left"
                 checked={formData.chartAxisGroup === 'left'}
                 onChange={handleChange}
-                className="text-blue-600 focus:ring-blue-500"
+                className="text-info-600 dark:text-info-400 focus:ring-info-500"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">Left</span>
             </label>
@@ -258,7 +325,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
                 value="right"
                 checked={formData.chartAxisGroup === 'right'}
                 onChange={handleChange}
-                className="text-blue-600 focus:ring-blue-500"
+                className="text-info-600 dark:text-info-400 focus:ring-info-500"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">Right</span>
             </label>
@@ -273,7 +340,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
               name="isVisible"
               checked={formData.isVisible}
               onChange={handleChange}
-              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             <span className="text-sm text-gray-700 dark:text-gray-300">Visible</span>
           </label>
@@ -283,7 +350,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
               name="isRequired"
               checked={formData.isRequired}
               onChange={handleChange}
-              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             <span className="text-sm text-gray-700 dark:text-gray-300">Required</span>
           </label>
@@ -291,8 +358,12 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save'}
+          </Button>
         </div>
       </form>
     </Modal>

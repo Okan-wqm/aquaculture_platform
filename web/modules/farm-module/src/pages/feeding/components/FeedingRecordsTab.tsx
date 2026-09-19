@@ -181,8 +181,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   // the table and surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load feeding records: {(error as Error).message}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <p className="text-error-800 dark:text-error-200">
+          Failed to load feeding records: {(error as Error).message}
+        </p>
       </div>
     );
   }
@@ -234,10 +236,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
           <span
             className={`${
               record.isVarianceAcceptable
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : record.isBelowPlan
-                  ? 'text-red-600'
-                  : 'text-orange-600'
+                  ? 'text-error-600 dark:text-error-400'
+                  : 'text-warning-600 dark:text-warning-400'
             }`}
           >
             {Number(record.variancePercent) > 0 ? '+' : ''}
@@ -257,11 +259,11 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
       render: (_value, record) => (
         <>
           {record.isVarianceAcceptable ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
               OK
             </span>
           ) : (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
               Variance
             </span>
           )}
@@ -286,14 +288,16 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
     <div className="space-y-4">
       {/* Non-blocking refresh error — keeps the last-loaded records visible. */}
       {error && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh feeding records — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -472,7 +476,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
       size="lg"
     >
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
           {(error as Error).message}
         </div>
       )}
@@ -490,7 +494,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                 value={formData.batchId}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">Select batch...</option>
                 {batches.map((b) => (
@@ -513,7 +517,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                 value={formData.feedId}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">Select feed...</option>
                 {feeds.map((f: any) => (

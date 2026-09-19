@@ -23,7 +23,14 @@ import { useI18n, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import type { ProtocolFeedForecastView } from '../../../hooks/useProtocolFeeding';
 
-const SERIES_COLORS = [colors.info[600], colors.success[600], colors.warning[600], colors.error[600], colors.primary[800], colors.primary[600]];
+const SERIES_COLORS = [
+  colors.info[600],
+  colors.success[600],
+  colors.warning[600],
+  colors.error[600],
+  colors.primary[800],
+  colors.primary[600],
+];
 
 function addDays(isoDay: string, days: number): string {
   const date = new Date(`${isoDay}T00:00:00.000Z`);
@@ -66,10 +73,12 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t('feedingV2.forecast.chartTitle')}</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          {t('feedingV2.forecast.chartTitle')}
+        </h3>
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           {forecast.mortalityAssumption.applied ? (
-            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+            <span className="px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
               {t('feedingV2.forecast.mortalityApplied')}
             </span>
           ) : (
@@ -83,7 +92,7 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
             </span>
           )}
           {forecast.stale && (
-            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700">
+            <span className="px-2 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
               {t('feedingV2.forecast.stale')}
             </span>
           )}
@@ -134,8 +143,8 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
               key={feed.feedId}
               className={`text-xs px-2 py-1 rounded ${
                 feed.daysOfCover <= 3
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-amber-100 text-amber-800'
+                  ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
               }`}
             >
               {t('feedingV2.forecast.stockoutBadge', {

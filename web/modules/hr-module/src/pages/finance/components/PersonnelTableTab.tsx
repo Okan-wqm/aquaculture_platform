@@ -24,7 +24,7 @@ const personnelColumns: DataTableColumn<HrPersonnelRow>[] = [
     header: 'Personnel category',
     render: (_value, row) =>
       row.category === null ? (
-        <span className="text-amber-800">
+        <span className="text-warning-800 dark:text-warning-200">
           Unclassified —{' '}
           <Link to="/hr/employees" className="font-medium underline">
             assign a category
@@ -44,29 +44,40 @@ const personnelColumns: DataTableColumn<HrPersonnelRow>[] = [
 
 export const PersonnelTableTab: React.FC<PersonnelTableTabProps> = ({ data, isLoading, error }) => {
   if (isLoading) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading personnel table…</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+        Loading personnel table…
+      </div>
+    );
   }
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+      <div className="rounded-lg bg-error-50 p-4 text-sm text-error-700 dark:bg-error-900/30 dark:text-error-300">
         Failed to load — manager or admin access is required to view HR finance data.
       </div>
     );
   }
   if (!data) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">No personnel data.</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">No personnel data.</div>
+    );
   }
 
   const classified = data.rows.filter((r) => r.category !== null);
   const unclassified = data.rows.find((r) => r.category === null);
-  const rows = unclassified && unclassified.headcount > 0 ? [...classified, unclassified] : classified;
+  const rows =
+    unclassified && unclassified.headcount > 0 ? [...classified, unclassified] : classified;
 
   return (
     <DataTable<HrPersonnelRow>
       data={rows}
       columns={personnelColumns}
       keyExtractor={(row) => row.category ?? 'unclassified'}
-      rowClassName={(row) => (row.category === null ? 'bg-amber-50 text-amber-800' : '')}
+      rowClassName={(row) =>
+        row.category === null
+          ? 'bg-warning-50 dark:bg-warning-900/20 text-warning-800 dark:text-warning-200'
+          : ''
+      }
       summaryRow={{ category: 'Number of employees', headcount: data.totalHeadcount }}
       searchable={false}
       sortable={false}

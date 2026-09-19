@@ -59,7 +59,7 @@ const ColorPicker = memo<ColorPickerProps>(({ value, onChange }) => {
     (colorValue: string) => {
       onChange(colorValue);
     },
-    [onChange]
+    [onChange],
   );
 
   return (
@@ -108,86 +108,85 @@ interface RoleFormData {
   panelPermissions: PanelPermissions;
 }
 
-const RoleModal = memo<RoleModalProps>(({
-  isOpen,
-  onClose,
-  role,
-  categories,
-  onSave,
-  isLoading,
-}) => {
-  const isEditing = !!role;
+const RoleModal = memo<RoleModalProps>(
+  ({ isOpen, onClose, role, categories, onSave, isLoading }) => {
+    const isEditing = !!role;
 
+    // Memoize initial form data to avoid recreating on each render
+    const initialFormData = useMemo<RoleFormData>(
+      () => ({
+        name: role?.name || '',
+        description: role?.description || '',
+        color: role?.color || DEFAULT_ROLE_COLOR,
+        icon: role?.icon || 'shield',
+        level: role?.level || 50,
+        isDefault: role?.isDefault || false,
+        panelPermissions: role?.permissions?.panelPermissions || {},
+      }),
+      [role],
+    );
 
+    const [formData, setFormData] = useState<RoleFormData>(initialFormData);
 
-  // Memoize initial form data to avoid recreating on each render
-  const initialFormData = useMemo<RoleFormData>(() => ({
-    name: role?.name || '',
-    description: role?.description || '',
-    color: role?.color || DEFAULT_ROLE_COLOR,
-    icon: role?.icon || 'shield',
-    level: role?.level || 50,
-    isDefault: role?.isDefault || false,
-    panelPermissions: role?.permissions?.panelPermissions || {},
-  }), [role]);
+    // Reset form when role changes
+    React.useEffect(() => {
+      if (isOpen) {
+        setFormData(initialFormData);
+      }
+    }, [isOpen, initialFormData]);
 
-  const [formData, setFormData] = useState<RoleFormData>(initialFormData);
+    // Memoized field handlers
+    const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData((prev) => ({ ...prev, name: e.target.value }));
+    }, []);
 
-  // Reset form when role changes
-  React.useEffect(() => {
-    if (isOpen) {
-      setFormData(initialFormData);
-    }
-  }, [isOpen, initialFormData]);
+    const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setFormData((prev) => ({ ...prev, description: e.target.value }));
+    }, []);
 
-  // Memoized field handlers
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData((prev) => ({ ...prev, name: e.target.value }));
-  }, []);
+    const handleLevelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData((prev) => ({ ...prev, level: parseInt(e.target.value) || 50 }));
+    }, []);
 
-  const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setFormData((prev) => ({ ...prev, description: e.target.value }));
-  }, []);
+    const handleColorChange = useCallback((color: string) => {
+      setFormData((prev) => ({ ...prev, color }));
+    }, []);
 
-  const handleLevelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData((prev) => ({ ...prev, level: parseInt(e.target.value) || 50 }));
-  }, []);
+    const handleIsDefaultChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData((prev) => ({ ...prev, isDefault: e.target.checked }));
+    }, []);
 
-  const handleColorChange = useCallback((color: string) => {
-    setFormData((prev) => ({ ...prev, color }));
-  }, []);
+    const handlePermissionsChange = useCallback((panelPermissions: PanelPermissions) => {
+      setFormData((prev) => ({ ...prev, panelPermissions }));
+    }, []);
 
-  const handleIsDefaultChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData((prev) => ({ ...prev, isDefault: e.target.checked }));
-  }, []);
+    const handleSubmit = useCallback(
+      (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData);
+      },
+      [formData, onSave],
+    );
 
-  const handlePermissionsChange = useCallback((panelPermissions: PanelPermissions) => {
-    setFormData((prev) => ({ ...prev, panelPermissions }));
-  }, []);
+    // Memoize validation state
+    const isSubmitDisabled = useMemo(() => {
+      return isLoading || role?.isSystem || !formData.name.trim();
+    }, [isLoading, role?.isSystem, formData.name]);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    onSave(formData);
-  }, [formData, onSave]);
+    if (!isOpen) return null;
 
-  // Memoize validation state
-  const isSubmitDisabled = useMemo(() => {
-    return isLoading || role?.isSystem || !formData.name.trim();
-  }, [isLoading, role?.isSystem, formData.name]);
-
-  if (!isOpen) return null;
-
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      size="xl"
-      className="max-h-[90vh] overflow-hidden flex flex-col"
-      bodyClassName="flex-1 min-h-0 flex flex-col"
-      title={isEditing ? 'Edit Role' : 'Create New Role'}
-      description={isEditing ? `Editing "${role.name}" role` : 'Define a new role with custom permissions'}
-    >
-
+    return (
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        size="xl"
+        className="max-h-[90vh] overflow-hidden flex flex-col"
+        bodyClassName="flex-1 min-h-0 flex flex-col"
+        title={isEditing ? 'Edit Role' : 'Create New Role'}
+        description={
+          isEditing ? `Editing "${role.name}" role` : 'Define a new role with custom permissions'
+        }
+      >
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
@@ -197,14 +196,29 @@ const RoleModal = memo<RoleModalProps>(({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Role Name *
                 </label>
-                <Input fullWidth type="text" value={formData.name} onChange={handleNameChange} placeholder="e.g., Supervisor, Technician" required disabled={role?.isSystem} />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.name}
+                  onChange={handleNameChange}
+                  placeholder="e.g., Supervisor, Technician"
+                  required
+                  disabled={role?.isSystem}
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Priority Level
                 </label>
-                <Input fullWidth type="number" min="1" max="100" value={formData.level} onChange={handleLevelChange} />
+                <Input
+                  fullWidth
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={formData.level}
+                  onChange={handleLevelChange}
+                />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Higher = more authority (1-100)
                 </p>
@@ -215,7 +229,14 @@ const RoleModal = memo<RoleModalProps>(({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Description
               </label>
-              <Textarea className="resize-none" fullWidth value={formData.description} onChange={handleDescriptionChange} placeholder="Describe what this role is for..." rows={2} />
+              <Textarea
+                className="resize-none"
+                fullWidth
+                value={formData.description}
+                onChange={handleDescriptionChange}
+                placeholder="Describe what this role is for..."
+                rows={2}
+              />
             </div>
 
             {/* Color Selection */}
@@ -224,20 +245,17 @@ const RoleModal = memo<RoleModalProps>(({
                 <Palette className="w-4 h-4 inline mr-1" />
                 Role Color
               </label>
-              <ColorPicker
-                value={formData.color}
-                onChange={handleColorChange}
-              />
+              <ColorPicker value={formData.color} onChange={handleColorChange} />
             </div>
 
             {/* Default Role Toggle */}
-            <div className="flex items-center gap-3 p-4 bg-yellow-50 rounded-xl border border-yellow-100">
+            <div className="flex items-center gap-3 p-4 bg-warning-50 dark:bg-warning-900/20 rounded-xl border border-warning-100 dark:border-warning-800">
               <input
                 type="checkbox"
                 id="isDefault"
                 checked={formData.isDefault}
                 onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500"
               />
               <label htmlFor="isDefault" className="flex-1">
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -247,7 +265,7 @@ const RoleModal = memo<RoleModalProps>(({
                   New users will be assigned this role by default
                 </p>
               </label>
-              <Star className="w-5 h-5 text-yellow-500" />
+              <Star className="w-5 h-5 text-warning-500" />
             </div>
 
             {/* Permissions */}
@@ -277,13 +295,16 @@ const RoleModal = memo<RoleModalProps>(({
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
             {role?.isSystem && (
-              <p className="text-xs text-amber-600">
+              <p className="text-xs text-warning-600 dark:text-warning-400">
                 System roles cannot be modified
               </p>
             )}
             <div className="flex items-center gap-3 ml-auto">
-              <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" type="submit" disabled={isSubmitDisabled}>{isLoading ? (
+              <Button variant="secondary" type="button" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit" disabled={isSubmitDisabled}>
+                {isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     Saving...
@@ -293,13 +314,15 @@ const RoleModal = memo<RoleModalProps>(({
                     <Check className="w-4 h-4" />
                     {isEditing ? 'Update Role' : 'Create Role'}
                   </>
-                )}</Button>
+                )}
+              </Button>
             </div>
           </div>
         </form>
-    </Modal>
-  );
-});
+      </Modal>
+    );
+  },
+);
 RoleModal.displayName = 'RoleModal';
 
 /**
@@ -315,54 +338,44 @@ interface DeleteModalProps {
   errorMessage?: string;
 }
 
-const DeleteModal = memo<DeleteModalProps>(({
-  isOpen,
-  onClose,
-  role,
-  onConfirm,
-  isLoading,
-  errorMessage,
-}) => {
+const DeleteModal = memo<DeleteModalProps>(
+  ({ isOpen, onClose, role, onConfirm, isLoading, errorMessage }) => {
+    if (!isOpen || !role) return null;
 
+    // RBAC-M8: the backend HARD-BLOCKS deleting a role while users still hold it
+    // (tenant-role.service delete guard). The UI must state that same rule and
+    // block confirm — not offer a "they will lose access" delete that the server
+    // will reject with a raw ForbiddenException.
+    const hasActiveHolders = (role.userCount ?? 0) > 0;
 
-  if (!isOpen || !role) return null;
-
-  // RBAC-M8: the backend HARD-BLOCKS deleting a role while users still hold it
-  // (tenant-role.service delete guard). The UI must state that same rule and
-  // block confirm — not offer a "they will lose access" delete that the server
-  // will reject with a raw ForbiddenException.
-  const hasActiveHolders = (role.userCount ?? 0) > 0;
-
-  return (
-    <Modal
-      isOpen={isOpen && !!role}
-      onClose={onClose}
-      size="sm"
-      title={
-        <span className="flex items-center gap-3">
-          <span className="p-2 rounded-full bg-red-100" aria-hidden="true">
-            <Trash2 className="w-5 h-5 text-red-600" />
+    return (
+      <Modal
+        isOpen={isOpen && !!role}
+        onClose={onClose}
+        size="sm"
+        title={
+          <span className="flex items-center gap-3">
+            <span className="p-2 rounded-full bg-error-100 dark:bg-error-900/40" aria-hidden="true">
+              <Trash2 className="w-5 h-5 text-error-600 dark:text-error-400" />
+            </span>
+            Delete Role
           </span>
-          Delete Role
-        </span>
-      }
-      description={`Are you sure you want to delete "${role.name}"?`}
-    >
-
+        }
+        description={`Are you sure you want to delete "${role.name}"?`}
+      >
         {hasActiveHolders && (
-          <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
-            <p className="text-sm text-amber-700">
+          <div className="mt-4 p-3 bg-warning-50 dark:bg-warning-900/20 rounded-lg border border-warning-100 dark:border-warning-800">
+            <p className="text-sm text-warning-700 dark:text-warning-300">
               <AlertCircle className="w-4 h-4 inline mr-1" />
-              This role cannot be deleted while it is assigned to{' '}
-              {role.userCount ?? 0} user(s). Reassign those users to another
-              role first.
+              This role cannot be deleted while it is assigned to {role.userCount ?? 0} user(s).
+              Reassign those users to another role first.
             </p>
           </div>
         )}
 
         {errorMessage && (
-          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
-            <p className="text-sm text-red-700">
+          <div className="mt-4 p-3 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-100 dark:border-error-800">
+            <p className="text-sm text-error-700 dark:text-error-300">
               <AlertCircle className="w-4 h-4 inline mr-1" />
               {errorMessage}
             </p>
@@ -370,19 +383,24 @@ const DeleteModal = memo<DeleteModalProps>(({
         )}
 
         <div className="mt-6 flex items-center justify-end gap-3">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm} disabled={isLoading || hasActiveHolders}>{isLoading ? (
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm} disabled={isLoading || hasActiveHolders}>
+            {isLoading ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Deleting...
               </>
             ) : (
               'Delete Role'
-            )}</Button>
+            )}
+          </Button>
         </div>
-    </Modal>
-  );
-});
+      </Modal>
+    );
+  },
+);
 DeleteModal.displayName = 'DeleteModal';
 
 // PERF-009: Use shared RoleCard from components/roles instead of inline duplicate
@@ -435,22 +453,25 @@ const TenantRolesPage: React.FC = () => {
     setEditingRole(null);
   }, []);
 
-  const handleSave = useCallback(async (data: CreateTenantRoleInput | UpdateTenantRoleInput) => {
-    try {
-      if (editingRole) {
-        await updateMutation.mutateAsync({
-          roleId: editingRole.id,
-          input: data,
-        });
-      } else {
-        await createMutation.mutateAsync(data as CreateTenantRoleInput);
+  const handleSave = useCallback(
+    async (data: CreateTenantRoleInput | UpdateTenantRoleInput) => {
+      try {
+        if (editingRole) {
+          await updateMutation.mutateAsync({
+            roleId: editingRole.id,
+            input: data,
+          });
+        } else {
+          await createMutation.mutateAsync(data as CreateTenantRoleInput);
+        }
+        setIsModalOpen(false);
+        setEditingRole(null);
+      } catch (err) {
+        logError('TenantRolesPage.handleSave', err);
       }
-      setIsModalOpen(false);
-      setEditingRole(null);
-    } catch (err) {
-      logError('TenantRolesPage.handleSave', err);
-    }
-  }, [editingRole, updateMutation, createMutation]);
+    },
+    [editingRole, updateMutation, createMutation],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!deletingRole) return;
@@ -471,12 +492,15 @@ const TenantRolesPage: React.FC = () => {
     }
   }, [seedMutation]);
 
-  const handleDeleteRole = useCallback((role: TenantRole) => {
-    // Reset any error from a previous delete attempt so a fresh dialog
-    // never opens pre-populated with a stale server rejection (RBAC-M8).
-    deleteMutation.reset();
-    setDeletingRole(role);
-  }, [deleteMutation]);
+  const handleDeleteRole = useCallback(
+    (role: TenantRole) => {
+      // Reset any error from a previous delete attempt so a fresh dialog
+      // never opens pre-populated with a stale server rejection (RBAC-M8).
+      deleteMutation.reset();
+      setDeletingRole(role);
+    },
+    [deleteMutation],
+  );
 
   const handleCloseDeleteModal = useCallback(() => {
     setDeletingRole(null);
@@ -495,7 +519,7 @@ const TenantRolesPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-success-600 dark:text-success-400" />
       </div>
     );
   }
@@ -508,7 +532,15 @@ const TenantRolesPage: React.FC = () => {
         description="Define custom roles with granular permission control"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={handleRefresh}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
             {/* RBAC-HIGH-004: seed + create require the roles:create capability.
                 RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
                 on a query error `roles` is just the [] default, and offering a
@@ -516,14 +548,26 @@ const TenantRolesPage: React.FC = () => {
             {canCreateRoles && (
               <>
                 {!error && roles.length === 0 && (
-                  <Button variant="secondary" onClick={handleSeedRoles} disabled={seedMutation.isPending}>{seedMutation.isPending ? (
+                  <Button
+                    variant="secondary"
+                    onClick={handleSeedRoles}
+                    disabled={seedMutation.isPending}
+                  >
+                    {seedMutation.isPending ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <Shield className="w-4 h-4" />
                     )}
-                    Seed Default Roles</Button>
+                    Seed Default Roles
+                  </Button>
                 )}
-                <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleOpenCreate}>Create Role</Button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus className="w-4 h-4" />}
+                  onClick={handleOpenCreate}
+                >
+                  Create Role
+                </Button>
               </>
             )}
           </div>
@@ -532,15 +576,17 @@ const TenantRolesPage: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
               Failed to load roles
             </p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
+            <p className="text-sm text-error-600 dark:text-error-400">{(error as Error).message}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -567,19 +613,31 @@ const TenantRolesPage: React.FC = () => {
             No roles defined
           </h3>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            Create custom roles to manage user permissions. You can also seed
-            default roles to get started quickly.
+            Create custom roles to manage user permissions. You can also seed default roles to get
+            started quickly.
           </p>
           {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
           {canCreateRoles && (
             <div className="mt-6 flex items-center justify-center gap-3">
-              <Button variant="secondary" onClick={handleSeedRoles} disabled={seedMutation.isPending}>{seedMutation.isPending ? (
+              <Button
+                variant="secondary"
+                onClick={handleSeedRoles}
+                disabled={seedMutation.isPending}
+              >
+                {seedMutation.isPending ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <Shield className="w-4 h-4" />
                 )}
-                Seed Default Roles</Button>
-              <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleOpenCreate}>Create Role</Button>
+                Seed Default Roles
+              </Button>
+              <Button
+                variant="primary"
+                leftIcon={<Plus className="w-4 h-4" />}
+                onClick={handleOpenCreate}
+              >
+                Create Role
+              </Button>
             </div>
           )}
         </div>

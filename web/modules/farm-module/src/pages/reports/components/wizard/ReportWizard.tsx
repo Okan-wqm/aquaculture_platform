@@ -175,18 +175,20 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
 
         {/* Current Step Info */}
         {currentStepData && (
-          <div className="px-6 py-3 bg-blue-50 border-b border-blue-100">
+          <div className="px-6 py-3 bg-info-50 dark:bg-info-900/20 border-b border-info-100 dark:border-info-800">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium text-blue-900">
+                <h3 className="text-sm font-medium text-info-900 dark:text-info-100">
                   Step {currentStep + 1}: {currentStepData.title}
                 </h3>
                 {currentStepData.description && (
-                  <p className="text-xs text-blue-700">{currentStepData.description}</p>
+                  <p className="text-xs text-info-700 dark:text-info-300">
+                    {currentStepData.description}
+                  </p>
                 )}
               </div>
               {currentStepData.optional && (
-                <span className="px-2 py-0.5 text-xs font-medium text-blue-600 bg-blue-100 rounded">
+                <span className="px-2 py-0.5 text-xs font-medium text-info-600 dark:text-info-400 bg-info-100 dark:bg-info-900/40 rounded">
                   Optional
                 </span>
               )}
@@ -198,11 +200,11 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-280px)]">
           {/* Error Message */}
           {displayError && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="mb-4 p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
               <div className="flex">
-                <CircleX className="h-5 w-5 text-red-400" aria-hidden="true" />
+                <CircleX className="h-5 w-5 text-error-400" aria-hidden="true" />
                 <div className="ml-3">
-                  <p className="text-sm text-red-700">{displayError}</p>
+                  <p className="text-sm text-error-700 dark:text-error-300">{displayError}</p>
                 </div>
                 <Button variant="ghost" type="button" onClick={clearErrors}>
                   <X className="w-4 h-4" aria-hidden="true" />

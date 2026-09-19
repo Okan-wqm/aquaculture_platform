@@ -474,7 +474,7 @@ const UserManagementPage: React.FC = () => {
               setDeleteModalOpen(true);
             }}
           >
-            <Trash2 className="w-4 h-4 text-red-500" aria-hidden="true" />
+            <Trash2 className="w-4 h-4 text-error-500" aria-hidden="true" />
           </Button>
         </div>
       ),
@@ -531,19 +531,19 @@ const UserManagementPage: React.FC = () => {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats ? stats.activeUsers.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Logins (Last 24h)</p>
-          <p className="text-2xl font-bold text-blue-600">
+          <p className="text-2xl font-bold text-info-600 dark:text-info-400">
             {stats ? stats.loginsLast24Hours.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">New (Last 30 Days)</p>
-          <p className="text-2xl font-bold text-purple-600">
+          <p className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {stats ? stats.newUsersLast30Days.toLocaleString() : '—'}
           </p>
         </Card>
@@ -850,7 +850,9 @@ const UserManagementPage: React.FC = () => {
           {userLimitCheck && (
             <div
               className={`p-3 rounded-lg text-sm ${
-                userLimitCheck.canCreate ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                userLimitCheck.canCreate
+                  ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
+                  : 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300'
               }`}
             >
               <div className="flex items-center justify-between">
@@ -865,7 +867,7 @@ const UserManagementPage: React.FC = () => {
                 <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
                     className={`h-2 rounded-full ${
-                      userLimitCheck.canCreate ? 'bg-green-500' : 'bg-red-500'
+                      userLimitCheck.canCreate ? 'bg-success-500' : 'bg-error-500'
                     }`}
                     style={{
                       width: `${Math.min(100, (userLimitCheck.currentCount / userLimitCheck.limit) * 100)}%`,
@@ -932,7 +934,7 @@ const UserManagementPage: React.FC = () => {
               Message (Optional)
             </label>
             <textarea
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
               rows={3}
               value={inviteFormData.message}
               onChange={(e) => setInviteFormData({ ...inviteFormData, message: e.target.value })}
@@ -940,7 +942,7 @@ const UserManagementPage: React.FC = () => {
             />
           </div>
 
-          <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
+          <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-3 text-sm text-info-700 dark:text-info-300">
             <strong>Note:</strong> An email will be sent to the invited user. The user will create
             their password by clicking the invite link.
           </div>

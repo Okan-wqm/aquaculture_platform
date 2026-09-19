@@ -228,10 +228,12 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Transfer Fish" size="lg">
       <div className="space-y-6">
         {/* Source Tank Info Header */}
-        <div className="bg-blue-50 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-blue-600 uppercase font-medium">Source Tank</p>
+              <p className="text-xs text-info-600 dark:text-info-400 uppercase font-medium">
+                Source Tank
+              </p>
               <h3 className="font-medium text-gray-900 dark:text-gray-100">{tank.tankName}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Batch: {selectedBatchNumber || 'No batch assigned'}
@@ -265,7 +267,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               htmlFor="destinationTank"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Destination Tank <span className="text-blue-500">*</span>
+              Destination Tank <span className="text-info-500">*</span>
             </label>
             {tanksLoading ? (
               <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">Loading tanks...</div>
@@ -274,7 +276,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                 id="destinationTank"
                 value={destinationTankId}
                 onChange={(e) => setDestinationTankId(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">Select destination tank...</option>
                 {destinationTanks.map((t: AvailableTank) => {
@@ -315,7 +317,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               </div>
               {/* Mixed batch warning */}
               {selectedDestinationTank.currentCount > 0 && (
-                <div className="mt-2 flex items-center gap-2 text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
+                <div className="mt-2 flex items-center gap-2 text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 px-2 py-1 rounded">
                   <TriangleAlert className="w-4 h-4" aria-hidden="true" />
                   <span className="text-sm">
                     This tank already has fish. Transfer will create a mixed batch.
@@ -331,7 +333,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               htmlFor="quantity"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Transfer Quantity <span className="text-blue-500">*</span>
+              Transfer Quantity <span className="text-info-500">*</span>
             </label>
             <Input
               fullWidth
@@ -400,10 +402,12 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Biomass Calculation */}
           {quantity > 0 && avgWeightG > 0 && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-blue-800">Biomass to Transfer</span>
-                <span className="text-lg font-bold text-blue-600">
+                <span className="text-sm font-medium text-info-800 dark:text-info-200">
+                  Biomass to Transfer
+                </span>
+                <span className="text-lg font-bold text-info-600 dark:text-info-400">
                   {calculatedBiomass.toFixed(2)} kg
                 </span>
               </div>
@@ -416,13 +420,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               htmlFor="reason"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Transfer Reason <span className="text-blue-500">*</span>
+              Transfer Reason <span className="text-info-500">*</span>
             </label>
             <select
               id="reason"
               value={transferReason}
               onChange={(e) => setTransferReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               {Object.entries(TransferReasons).map(([key, label]) => (
                 <option key={key} value={key}>
@@ -456,7 +460,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               htmlFor="notes"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Transfer Notes <span className="text-blue-500">*</span>
+              Transfer Notes <span className="text-info-500">*</span>
             </label>
             <Textarea
               fullWidth
@@ -496,10 +500,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                   />
                   <div className="text-right">
                     <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
-                    <p className="text-sm font-medium text-blue-600">
+                    <p className="text-sm font-medium text-info-600 dark:text-info-400">
                       {postOperationStates.sourceAfter.quantity.toLocaleString()} fish
                     </p>
-                    <p className="text-xs text-blue-600">
+                    <p className="text-xs text-info-600 dark:text-info-400">
                       {postOperationStates.sourceAfter.biomass.toFixed(1)} kg
                     </p>
                   </div>
@@ -528,10 +532,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                     />
                     <div className="text-right">
                       <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
-                      <p className="text-sm font-medium text-green-600">
+                      <p className="text-sm font-medium text-success-600 dark:text-success-400">
                         {postOperationStates.destAfter.quantity.toLocaleString()} fish
                       </p>
-                      <p className="text-xs text-green-600">
+                      <p className="text-xs text-success-600 dark:text-success-400">
                         {postOperationStates.destAfter.biomass.toFixed(1)} kg
                       </p>
                     </div>
@@ -544,13 +548,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Capacity Warning (non-blocking) */}
         {warnings.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
             <div className="flex items-start gap-2">
               <TriangleAlert
-                className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"
+                className="w-5 h-5 text-warning-500 flex-shrink-0 mt-0.5"
                 aria-hidden="true"
               />
-              <ul className="text-sm text-amber-700 space-y-1">
+              <ul className="text-sm text-warning-700 dark:text-warning-300 space-y-1">
                 {warnings.map((warning, index) => (
                   <li key={index}>{warning}</li>
                 ))}
@@ -561,8 +565,8 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Validation Errors (blocking) */}
         {errors.length > 0 && (quantity > 0 || destinationTankId) && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-error-600 dark:text-error-400 space-y-1">
               {errors.map((error, index) => (
                 <li key={index}>{error}</li>
               ))}
@@ -572,11 +576,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Validation Errors */}
         {errors.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm font-medium text-red-800 mb-1">Please fix the following:</p>
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm font-medium text-error-800 dark:text-error-200 mb-1">
+              Please fix the following:
+            </p>
             <ul className="list-disc list-inside space-y-1">
               {errors.map((error, index) => (
-                <li key={index} className="text-sm text-red-700">
+                <li key={index} className="text-sm text-error-700 dark:text-error-300">
                   {error}
                 </li>
               ))}
@@ -593,7 +599,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || transferBatch.isPending}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-info-600 hover:bg-info-700"
           >
             {transferBatch.isPending ? 'Transferring...' : 'Transfer Fish'}
           </Button>

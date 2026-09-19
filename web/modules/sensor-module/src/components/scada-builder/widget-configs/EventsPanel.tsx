@@ -14,11 +14,23 @@
 import React, { useState } from 'react';
 import { Button, Input } from '@aquaculture/shared-ui';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
-import type { WidgetEventDef, EventTrigger, EventAction, ScadaScript } from '../../../engine/events/types';
+import type {
+  WidgetEventDef,
+  EventTrigger,
+  EventAction,
+  ScadaScript,
+} from '../../../engine/events/types';
 import { useScadaPackageStore } from '../../../store/scada';
 import { TagBrowser } from '../TagBrowser';
 
-const TRIGGERS: EventTrigger[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mouseover', 'mouseout'];
+const TRIGGERS: EventTrigger[] = [
+  'click',
+  'dblclick',
+  'mousedown',
+  'mouseup',
+  'mouseover',
+  'mouseout',
+];
 
 /**
  * All available event actions including sandbox-backed runScript and openUrl.
@@ -72,21 +84,26 @@ const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> 
 
   return (
     <div data-testid="openurl-config">
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">URL (https:// only)</label>
+      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+        URL (https:// only)
+      </label>
       <input
         type="url"
         value={url}
         onChange={(e) => onChange(e.target.value)}
         placeholder="https://example.com/dashboard"
-        className={`w-full px-2 py-1.5 text-xs border rounded-lg focus:ring-2 focus:border-cyan-500 ${
+        className={`w-full px-2 py-1.5 text-xs border rounded-lg focus:ring-2 focus:border-info-500 ${
           !isValid
-            ? 'border-red-300 focus:ring-red-500 bg-red-50'
-            : 'border-gray-300 dark:border-gray-600 focus:ring-cyan-500'
+            ? 'border-error-300 dark:border-error-700 focus:ring-error-500 bg-error-50 dark:bg-error-900/20'
+            : 'border-gray-300 dark:border-gray-600 focus:ring-info-500'
         }`}
         data-testid="openurl-input"
       />
       {!isValid && url !== '' && (
-        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-600" data-testid="openurl-error">
+        <div
+          className="flex items-center gap-1 mt-1 text-[10px] text-error-600 dark:text-error-400"
+          data-testid="openurl-error"
+        >
           <AlertTriangle className="w-3 h-3" />
           Only https:// URLs are allowed for security.
         </div>
@@ -95,7 +112,12 @@ const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> 
   );
 };
 
-export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, deviceId, scripts = [] }) => {
+export const EventsPanel: React.FC<EventsPanelProps> = ({
+  events,
+  onChange,
+  deviceId,
+  scripts = [],
+}) => {
   const screens = useScadaPackageStore((s) => s.screens);
 
   const addEvent = () => {
@@ -109,9 +131,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
   };
 
   const updateEvent = (id: string, updates: Partial<WidgetEventDef>) => {
-    onChange(
-      events.map((ev) => (ev.id === id ? { ...ev, ...updates } : ev)),
-    );
+    onChange(events.map((ev) => (ev.id === id ? { ...ev, ...updates } : ev)));
   };
 
   const updateEventParams = (id: string, paramUpdates: Record<string, unknown>) => {
@@ -135,18 +155,34 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Events</h4>
-        <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={addEvent}>Add Event</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Plus className="w-3 h-3" />}
+          onClick={addEvent}
+        >
+          Add Event
+        </Button>
       </div>
 
       {events.length === 0 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">No events configured.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">
+          No events configured.
+        </p>
       )}
 
       {events.map((ev) => (
-        <div key={ev.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700">
+        <div
+          key={ev.id}
+          className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase">Event</span>
-            <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => removeEvent(ev.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+            <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase">
+              Event
+            </span>
+            <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => removeEvent(ev.id)}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
           </div>
 
           {/* Trigger */}
@@ -155,10 +191,12 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
             <select
               value={ev.trigger}
               onChange={(e) => updateEvent(ev.id, { trigger: e.target.value as EventTrigger })}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               {TRIGGERS.map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
             </select>
           </div>
@@ -169,10 +207,12 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
             <select
               value={ev.action}
               onChange={(e) => handleActionChange(ev.id, e.target.value as EventAction)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               {ACTIONS.map((a) => (
-                <option key={a} value={a}>{ACTION_LABELS[a]}</option>
+                <option key={a} value={a}>
+                  {ACTION_LABELS[a]}
+                </option>
               ))}
             </select>
           </div>
@@ -180,11 +220,15 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {/* Conditional fields based on action */}
           {(ev.action === 'navigate' || ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Screen</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Target Screen
+              </label>
               <select
                 value={(ev.params.targetScreenId as string) || ''}
-                onChange={(e) => updateEventParams(ev.id, { targetScreenId: e.target.value || undefined })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                onChange={(e) =>
+                  updateEventParams(ev.id, { targetScreenId: e.target.value || undefined })
+                }
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
               >
                 <option value="">Select screen...</option>
                 {screens.map((screen) => (
@@ -200,11 +244,35 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
-                <Input fullWidth type="number" value={(ev.params.width as number) ?? ''} onChange={(e) => updateEventParams(ev.id, { width: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder="px" min={100} />
+                <Input
+                  fullWidth
+                  type="number"
+                  value={(ev.params.width as number) ?? ''}
+                  onChange={(e) =>
+                    updateEventParams(ev.id, {
+                      width: e.target.value === '' ? undefined : Number(e.target.value),
+                    })
+                  }
+                  placeholder="px"
+                  min={100}
+                />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Height</label>
-                <Input fullWidth type="number" value={(ev.params.height as number) ?? ''} onChange={(e) => updateEventParams(ev.id, { height: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder="px" min={100} />
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Height
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  value={(ev.params.height as number) ?? ''}
+                  onChange={(e) =>
+                    updateEventParams(ev.id, {
+                      height: e.target.value === '' ? undefined : Number(e.target.value),
+                    })
+                  }
+                  placeholder="px"
+                  min={100}
+                />
               </div>
             </div>
           )}
@@ -213,46 +281,73 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] text-gray-500 dark:text-gray-400">Variable Mapping</label>
-                <Button variant="ghost" onClick={() => {
+                <label className="text-[10px] text-gray-500 dark:text-gray-400">
+                  Variable Mapping
+                </label>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
                     const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
                     const map: Record<string, string> = { ...existing };
                     map[`placeholder_${Object.keys(map).length + 1}`] = '';
                     updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
-                  }}>+ Add</Button>
+                  }}
+                >
+                  + Add
+                </Button>
               </div>
-              {Object.entries(((ev.params.variableMap ?? {}) as Record<string, string>)).map(([placeholder, realTag]) => (
-                <div key={placeholder} className="flex items-center gap-1 mb-1">
-                  <Input type="text" value={placeholder} onChange={(e) => {
-           const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
-           const map: Record<string, string> = { ...existing };
-           const val = map[placeholder];
-           delete map[placeholder];
-           map[e.target.value] = val ?? '';
-           updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
-          }} placeholder="placeholder_tag" />
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{'\u2192'}</span>
-                  <Input type="text" value={realTag} onChange={(e) => {
-           const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
-           const map: Record<string, string> = { ...existing };
-           map[placeholder] = e.target.value;
-           updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
-          }} placeholder="real_tag" />
-                  <Button variant="ghost" size="xs" onClick={() => {
-                      const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
-                      const map: Record<string, string> = { ...existing };
-                      delete map[placeholder];
-                      updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
-                    }}>{'\u00d7'}</Button>
-                </div>
-              ))}
+              {Object.entries((ev.params.variableMap ?? {}) as Record<string, string>).map(
+                ([placeholder, realTag]) => (
+                  <div key={placeholder} className="flex items-center gap-1 mb-1">
+                    <Input
+                      type="text"
+                      value={placeholder}
+                      onChange={(e) => {
+                        const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                        const map: Record<string, string> = { ...existing };
+                        const val = map[placeholder];
+                        delete map[placeholder];
+                        map[e.target.value] = val ?? '';
+                        updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                      }}
+                      placeholder="placeholder_tag"
+                    />
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500">{'\u2192'}</span>
+                    <Input
+                      type="text"
+                      value={realTag}
+                      onChange={(e) => {
+                        const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                        const map: Record<string, string> = { ...existing };
+                        map[placeholder] = e.target.value;
+                        updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                      }}
+                      placeholder="real_tag"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => {
+                        const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                        const map: Record<string, string> = { ...existing };
+                        delete map[placeholder];
+                        updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                      }}
+                    >
+                      {'\u00d7'}
+                    </Button>
+                  </div>
+                ),
+              )}
             </div>
           )}
 
           {ev.action === 'setValue' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Tag</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Target Tag
+                </label>
                 <TagBrowser
                   deviceId={deviceId ?? null}
                   value={(ev.params.targetTag as string) || ''}
@@ -262,14 +357,22 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
               </div>
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input fullWidth type="text" value={ev.params.value != null ? String(ev.params.value) : ''} onChange={(e) => updateEventParams(ev.id, { value: e.target.value })} placeholder="Value to set" />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={ev.params.value != null ? String(ev.params.value) : ''}
+                  onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
+                  placeholder="Value to set"
+                />
               </div>
             </>
           )}
 
           {ev.action === 'toggleValue' && (
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Toggle Tag</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Toggle Tag
+              </label>
               <TagBrowser
                 deviceId={deviceId ?? null}
                 value={(ev.params.toggleTag as string) || ''}
@@ -287,19 +390,23 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
               {scripts.length > 0 ? (
                 <select
                   value={(ev.params.scriptId as string) || ''}
-                  onChange={(e) => updateEventParams(ev.id, { scriptId: e.target.value || undefined })}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  onChange={(e) =>
+                    updateEventParams(ev.id, { scriptId: e.target.value || undefined })
+                  }
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   data-testid="runscript-select"
                 >
                   <option value="">Select script...</option>
-                  {scripts.filter((s) => s.enabled).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
+                  {scripts
+                    .filter((s) => s.enabled)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
                 </select>
               ) : (
-                <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">
+                <p className="text-[10px] text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-2 py-1.5 rounded-lg">
                   No scripts defined. Add scripts in the Scripts tab first.
                 </p>
               )}
@@ -321,31 +428,65 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {ev.action === 'setProperty' && (
             <div className="space-y-2" data-testid="setproperty-config">
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Widget ID</label>
-                <Input className="font-mono" fullWidth type="text" value={(ev.params.targetWidgetId as string) || ''} onChange={(e) => updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })} placeholder="widget-uuid-here" data-testid="target-widget-id-input" />
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Target Widget ID
+                </label>
+                <Input
+                  className="font-mono"
+                  fullWidth
+                  type="text"
+                  value={(ev.params.targetWidgetId as string) || ''}
+                  onChange={(e) =>
+                    updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })
+                  }
+                  placeholder="widget-uuid-here"
+                  data-testid="target-widget-id-input"
+                />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Property Path</label>
-                <Input className="font-mono" fullWidth type="text" value={(ev.params.propertyPath as string) || ''} onChange={(e) => updateEventParams(ev.id, { propertyPath: e.target.value || undefined })} placeholder="fill, config.opacity, etc." data-testid="property-path-input" />
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Property Path
+                </label>
+                <Input
+                  className="font-mono"
+                  fullWidth
+                  type="text"
+                  value={(ev.params.propertyPath as string) || ''}
+                  onChange={(e) =>
+                    updateEventParams(ev.id, { propertyPath: e.target.value || undefined })
+                  }
+                  placeholder="fill, config.opacity, etc."
+                  data-testid="property-path-input"
+                />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input fullWidth type="text" value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''} onChange={(e) => {
-          const raw = e.target.value;
-          // Auto-detect type: boolean, number, or string
-          let parsed: string | number | boolean = raw;
-          if (raw === 'true') parsed = true;
-          else if (raw === 'false') parsed = false;
-          else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
-          updateEventParams(ev.id, { propertyValue: parsed });
-         }} placeholder="Value (auto-detects type)" data-testid="property-value-input" />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    // Auto-detect type: boolean, number, or string
+                    let parsed: string | number | boolean = raw;
+                    if (raw === 'true') parsed = true;
+                    else if (raw === 'false') parsed = false;
+                    else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
+                    updateEventParams(ev.id, { propertyValue: parsed });
+                  }}
+                  placeholder="Value (auto-detects type)"
+                  data-testid="property-value-input"
+                />
               </div>
             </div>
           )}
 
           {/* closeDialog: Closes the topmost overlay — no parameters needed. */}
           {ev.action === 'closeDialog' && (
-            <div className="px-2 py-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg" data-testid="closedialog-config">
+            <div
+              className="px-2 py-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg"
+              data-testid="closedialog-config"
+            >
               Closes the topmost popup card or modal dialog. No additional configuration needed.
             </div>
           )}

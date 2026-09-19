@@ -32,7 +32,9 @@ import { Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
     <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</p>
-    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{value ?? 'Belirtilmemiş'}</p>
+    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+      {value ?? 'Belirtilmemiş'}
+    </p>
   </div>
 );
 
@@ -83,18 +85,25 @@ export const VfdDeviceDetailPage: React.FC = () => {
   if (error || !device) {
     return (
       <div className="p-6">
-        <Link to="/sensor/devices" className="inline-flex items-center gap-2 text-cyan-600 mb-6">
+        <Link
+          to="/sensor/devices"
+          className="inline-flex items-center gap-2 text-info-600 dark:text-info-400 mb-6"
+        >
           <ArrowLeft className="w-4 h-4" /> Cihazlara Dön
         </Link>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-500" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-6 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-error-500" />
           <div>
-            <p className="text-red-800 font-medium">VFD cihazı yüklenemedi</p>
-            {error && <p className="text-red-600 text-sm">{(error as Error).message}</p>}
+            <p className="text-error-800 dark:text-error-200 font-medium">VFD cihazı yüklenemedi</p>
+            {error && (
+              <p className="text-error-600 dark:text-error-400 text-sm">
+                {(error as Error).message}
+              </p>
+            )}
           </div>
           <button
             onClick={() => refetch()}
-            className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+            className="ml-auto px-3 py-1 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded hover:bg-error-200 dark:hover:bg-error-800/60"
           >
             Tekrar Dene
           </button>
@@ -107,7 +116,10 @@ export const VfdDeviceDetailPage: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <Link to="/sensor/devices" className="inline-flex items-center gap-2 text-cyan-600">
+      <Link
+        to="/sensor/devices"
+        className="inline-flex items-center gap-2 text-info-600 dark:text-info-400"
+      >
         <ArrowLeft className="w-4 h-4" /> Cihazlara Dön
       </Link>
 
@@ -123,15 +135,17 @@ export const VfdDeviceDetailPage: React.FC = () => {
             </>
           }
           leading={
-            <div className="w-12 h-12 rounded-lg bg-cyan-50 flex items-center justify-center">
-              <Zap className="w-6 h-6 text-cyan-600" />
+            <div className="w-12 h-12 rounded-lg bg-info-50 dark:bg-info-900/20 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-info-600 dark:text-info-400" />
             </div>
           }
           actions={
             <>
               <span
                 className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                  connected
+                    ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                 }`}
               >
                 {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
@@ -147,7 +161,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
               */}
               <Link
                 to={`/sensor/vfd-programming/${device.id}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
+                className="inline-flex items-center gap-1.5 rounded-md border border-info-200 dark:border-info-800 bg-info-50 dark:bg-info-900/20 px-3 py-1.5 text-sm font-medium text-info-700 dark:text-info-300 hover:bg-info-100 dark:hover:bg-info-900/50"
               >
                 <Settings className="w-4 h-4" /> Parametreleri Programla
               </Link>
@@ -175,22 +189,37 @@ export const VfdDeviceDetailPage: React.FC = () => {
               Devre Dışı Bırak
             </button>
           ) : (
-            <Button variant="primary" size="sm" type="button" onClick={() => void runLifecycle('activate')} disabled={lifecycleBusy || !connected} data-testid="vfd-activate">{lifecycleBusy ? (
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={() => void runLifecycle('activate')}
+              disabled={lifecycleBusy || !connected}
+              data-testid="vfd-activate"
+            >
+              {lifecycleBusy ? (
                 <Spinner size="sm" color="inherit" />
               ) : (
                 <Power className="w-4 h-4" />
               )}
-              Etkinleştir</Button>
+              Etkinleştir
+            </Button>
           )}
           {/* The server refuses activation without a passed connection test; say so up front. */}
           {device.status !== VfdDeviceStatus.ACTIVE && !connected && (
-            <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="vfd-activate-blocked-reason">
+            <p
+              className="text-sm text-gray-500 dark:text-gray-400"
+              data-testid="vfd-activate-blocked-reason"
+            >
               Etkinleştirmeden önce bağlantı testi başarılı olmalı.
             </p>
           )}
         </div>
         {lifecycleError && (
-          <p className="text-sm text-red-600" data-testid="vfd-lifecycle-error">
+          <p
+            className="text-sm text-error-600 dark:text-error-400"
+            data-testid="vfd-lifecycle-error"
+          >
             {lifecycleError}
           </p>
         )}
@@ -219,7 +248,8 @@ export const VfdDeviceDetailPage: React.FC = () => {
           label="Poll Aralığı"
           value={
             <span className="inline-flex items-center gap-1">
-              <Clock className="w-3 h-3 text-gray-400 dark:text-gray-500" /> {device.pollIntervalMs} ms
+              <Clock className="w-3 h-3 text-gray-400 dark:text-gray-500" /> {device.pollIntervalMs}{' '}
+              ms
               {device.isPollingEnabled ? '' : ' (kapalı)'}
             </span>
           }
@@ -229,8 +259,12 @@ export const VfdDeviceDetailPage: React.FC = () => {
       {/* Description */}
       {device.description && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-          <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Açıklama / Notlar</p>
-          <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{device.description}</p>
+          <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+            Açıklama / Notlar
+          </p>
+          <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+            {device.description}
+          </p>
         </div>
       )}
 
@@ -238,7 +272,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
       {device.latestReading && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 inline-flex items-center gap-2">
-            <Activity className="w-4 h-4 text-cyan-600" /> Son Okuma
+            <Activity className="w-4 h-4 text-info-600 dark:text-info-400" /> Son Okuma
           </p>
           <pre className="text-xs bg-gray-50 dark:bg-gray-800 rounded-lg p-3 overflow-x-auto">
             {JSON.stringify(device.latestReading.parameters, null, 2)}

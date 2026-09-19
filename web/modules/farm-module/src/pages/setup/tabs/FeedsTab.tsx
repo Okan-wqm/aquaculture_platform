@@ -42,13 +42,13 @@ import { FeedingMatrixEditor } from '../../../components/feeding';
 import { Box, ChevronDown, Plus, Search as SearchIcon, Trash2 } from 'lucide-react';
 
 const typeColors: Record<string, string> = {
-  STARTER: 'bg-yellow-100 text-yellow-800',
-  GROWER: 'bg-green-100 text-green-800',
-  FINISHER: 'bg-blue-100 text-blue-800',
-  BROODSTOCK: 'bg-purple-100 text-purple-800',
-  MEDICATED: 'bg-red-100 text-red-800',
-  LARVAL: 'bg-cyan-100 text-cyan-800',
-  FRY: 'bg-orange-100 text-orange-800',
+  STARTER: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  GROWER: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  FINISHER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  BROODSTOCK: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  MEDICATED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  LARVAL: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  FRY: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -569,7 +569,7 @@ export const FeedsTab: React.FC = () => {
               placeholder="Search feeds..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -579,7 +579,7 @@ export const FeedsTab: React.FC = () => {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Types</option>
             {feedTypes.map((type) => (
@@ -613,8 +613,10 @@ export const FeedsTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load feeds. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load feeds. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -636,8 +638,11 @@ export const FeedsTab: React.FC = () => {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
-                    <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center mr-4">
-                      <Box className="w-6 h-6 text-amber-600" aria-hidden="true" />
+                    <div className="w-12 h-12 bg-warning-100 dark:bg-warning-900/40 rounded-lg flex items-center justify-center mr-4">
+                      <Box
+                        className="w-6 h-6 text-warning-600 dark:text-warning-400"
+                        aria-hidden="true"
+                      />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -674,7 +679,7 @@ export const FeedsTab: React.FC = () => {
                     )}
                     <div className="text-right">
                       <p className="text-sm text-gray-500 dark:text-gray-400">Price</p>
-                      <p className="text-lg font-semibold text-green-600">
+                      <p className="text-lg font-semibold text-success-600 dark:text-success-400">
                         {formatCurrency(
                           parseMoney(feed.pricePerKgDecimal ?? feed.unitPriceDecimal),
                           DEFAULT_CURRENCY,
@@ -888,7 +893,7 @@ export const FeedsTab: React.FC = () => {
                       required
                       value={formData.type}
                       onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select</option>
                       {feedTypes.map((type) => (
@@ -911,7 +916,7 @@ export const FeedsTab: React.FC = () => {
                       required
                       value={formData.siteId}
                       onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Site</option>
                       {sites.map((site) => (
@@ -931,7 +936,7 @@ export const FeedsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select</option>
                     {suppliers.map((supplier) => (
@@ -1012,7 +1017,7 @@ export const FeedsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, floatingType: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(floatingTypeLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -1294,7 +1299,7 @@ export const FeedsTab: React.FC = () => {
                       value="1d"
                       checked={formData.curveType === '1d'}
                       onChange={() => setFormData((prev) => ({ ...prev, curveType: '1d' }))}
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
                     <span className="text-sm text-gray-600 dark:text-gray-400">
                       Simple (Weight only)
@@ -1307,7 +1312,7 @@ export const FeedsTab: React.FC = () => {
                       value="2d"
                       checked={formData.curveType === '2d'}
                       onChange={() => setFormData((prev) => ({ ...prev, curveType: '2d' }))}
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
                     <span className="text-sm text-gray-600 dark:text-gray-400">
                       Advanced (Temperature x Weight)
@@ -1341,13 +1346,15 @@ export const FeedsTab: React.FC = () => {
 
                     {/* 1D Calculator */}
                     {formData.feedingCurve.length > 0 && (
-                      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                        <h5 className="text-sm font-medium text-blue-800 mb-2">
+                      <div className="mt-4 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg">
+                        <h5 className="text-sm font-medium text-info-800 dark:text-info-200 mb-2">
                           Feeding Rate Calculator
                         </h5>
                         <div className="flex items-center gap-4">
                           <div className="flex-1">
-                            <label className="block text-xs text-blue-700">Fish Weight (g)</label>
+                            <label className="block text-xs text-info-700 dark:text-info-300">
+                              Fish Weight (g)
+                            </label>
                             <Input
                               fullWidth
                               type="number"
@@ -1361,18 +1368,20 @@ export const FeedsTab: React.FC = () => {
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="block text-xs text-blue-700">
+                            <label className="block text-xs text-info-700 dark:text-info-300">
                               Estimated Feeding Rate
                             </label>
-                            <div className="mt-1 py-2 px-3 bg-white dark:bg-gray-900 border border-blue-300 rounded-md">
+                            <div className="mt-1 py-2 px-3 bg-white dark:bg-gray-900 border border-info-300 rounded-md">
                               {calculatedRate
                                 ? `${calculatedRate.feedingRate.toFixed(2)}% BW`
                                 : '-'}
                             </div>
                           </div>
                           <div className="flex-1">
-                            <label className="block text-xs text-blue-700">Estimated FCR</label>
-                            <div className="mt-1 py-2 px-3 bg-white dark:bg-gray-900 border border-blue-300 rounded-md">
+                            <label className="block text-xs text-info-700 dark:text-info-300">
+                              Estimated FCR
+                            </label>
+                            <div className="mt-1 py-2 px-3 bg-white dark:bg-gray-900 border border-info-300 rounded-md">
                               {calculatedRate ? calculatedRate.fcr.toFixed(2) : '-'}
                             </div>
                           </div>
@@ -1670,7 +1679,7 @@ export const FeedsTab: React.FC = () => {
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([value, label]) => (
                       <option key={value} value={value}>

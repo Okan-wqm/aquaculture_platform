@@ -92,41 +92,41 @@ export const severityConfig: Record<
   }
 > = {
   critical: {
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    iconColor: 'text-red-600',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
+    iconColor: 'text-error-600 dark:text-error-400',
     badgeVariant: 'error',
     label: 'Kritik',
     priority: 5,
   },
   high: {
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    iconColor: 'text-orange-600',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Yüksek',
     priority: 4,
   },
   medium: {
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    iconColor: 'text-yellow-600',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Orta',
     priority: 3,
   },
   warning: {
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    iconColor: 'text-amber-600',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Uyari',
     priority: 3,
   },
   low: {
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    iconColor: 'text-blue-600',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
+    iconColor: 'text-info-600 dark:text-info-400',
     badgeVariant: 'info',
     label: 'Düşük',
     priority: 2,
@@ -355,7 +355,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
           </div>
 
           {alert.occurrenceCount > 1 && (
-            <span className="text-xs text-orange-600 mt-1 inline-block">
+            <span className="text-xs text-warning-600 dark:text-warning-400 mt-1 inline-block">
               {alert.occurrenceCount} kez tekrarlandı
             </span>
           )}
@@ -458,8 +458,8 @@ interface EmptyStateProps {
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'Aktif uyarı bulunmuyor' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-      <CheckIcon className="w-6 h-6 text-green-600" aria-hidden="true" />
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+      <CheckIcon className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
@@ -525,11 +525,11 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-      <CircleAlert className="w-6 h-6 text-red-600" aria-hidden="true" />
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+      <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
     {/* DASH-SEC-007: never render raw backend error string — map to safe message */}
-    <p className="text-sm text-red-600 mb-2">{toSafeErrorMessage(message)}</p>
+    <p className="text-sm text-error-600 dark:text-error-400 mb-2">{toSafeErrorMessage(message)}</p>
     {onRetry && (
       <Button variant="ghost" size="sm" onClick={onRetry}>
         Tekrar Dene

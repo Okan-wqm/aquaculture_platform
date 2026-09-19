@@ -197,7 +197,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Görev ara..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             />
             <Search
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -260,8 +260,10 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
 
       {/* Bulk Actions */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
-          <span className="text-sm text-blue-700 font-medium">{selectedIds.size} görev seçili</span>
+        <div className="flex items-center gap-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg px-4 py-2">
+          <span className="text-sm text-info-700 dark:text-info-300 font-medium">
+            {selectedIds.size} görev seçili
+          </span>
           <Button variant="primary" size="sm" onClick={handleBulkComplete}>
             Tamamla
           </Button>

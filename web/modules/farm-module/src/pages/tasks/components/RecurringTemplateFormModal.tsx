@@ -137,26 +137,43 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
         <div className="space-y-4">
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Şablon Adı *</label>
-            <Input fullWidth type="text" value={formData.title} onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))} required />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Şablon Adı *
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
+              required
+            />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <Textarea fullWidth value={formData.description} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} rows={3} />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Açıklama
+            </label>
+            <Textarea
+              fullWidth
+              value={formData.description}
+              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+              rows={3}
+            />
           </div>
 
           {/* Category + Priority */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategori *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Kategori *
+              </label>
               <select
                 value={formData.category}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -166,13 +183,15 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Öncelik *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Öncelik *
+              </label>
               <select
                 value={formData.priority}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -186,7 +205,9 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           {/* Frequency + Frequency Detail */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sıklık *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Sıklık *
+              </label>
               <select
                 value={formData.frequency}
                 onChange={(e) =>
@@ -195,7 +216,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                     frequency: e.target.value as RecurrenceFrequency,
                   }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 {Object.entries(FREQUENCY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -209,20 +230,28 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Saat cinsinden interval
                 </label>
-                <Input fullWidth type="text" value={formData.frequencyDetail} onChange={(e) =>
-          setFormData((prev) => ({ ...prev, frequencyDetail: e.target.value }))
-         } placeholder="Örn: 8 (8 saatte bir)" />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.frequencyDetail}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, frequencyDetail: e.target.value }))
+                  }
+                  placeholder="Örn: 8 (8 saatte bir)"
+                />
               </div>
             )}
           </div>
 
           {/* Assignee */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Atanan Kişi *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Atanan Kişi *
+            </label>
             <select
               value={formData.assignedTo}
               onChange={(e) => handleAssigneeChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               required
             >
               <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
@@ -237,35 +266,59 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           {/* Location + Estimated Minutes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Konum</label>
-              <Input fullWidth type="text" value={formData.location} onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))} placeholder="Kafes 1, Tank 2..." />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Konum
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={formData.location}
+                onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+                placeholder="Kafes 1, Tank 2..."
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tahmini Süre (dk)
               </label>
-              <Input fullWidth type="number" value={formData.estimatedMinutes} onChange={(e) =>
-         setFormData((prev) => ({
-          ...prev,
-          estimatedMinutes: parseInt(e.target.value) || 0,
-         }))
-        } min={0} />
+              <Input
+                fullWidth
+                type="number"
+                value={formData.estimatedMinutes}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    estimatedMinutes: parseInt(e.target.value) || 0,
+                  }))
+                }
+                min={0}
+              />
             </div>
           </div>
 
           {/* Checklist */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kontrol Listesi</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Kontrol Listesi
+            </label>
             {formData.checklistItems.map((item) => (
               <div key={item.id} className="flex items-center gap-2 mb-1">
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded">
                   {item.text}
                 </span>
-                <Button variant="ghost" type="button" onClick={() => removeChecklistItem(item.id)}>Sil</Button>
+                <Button variant="ghost" type="button" onClick={() => removeChecklistItem(item.id)}>
+                  Sil
+                </Button>
               </div>
             ))}
             <div className="flex gap-2 mt-1">
-              <Input type="text" value={newChecklistItem} onChange={(e) => setNewChecklistItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addChecklistItem())} placeholder="Yeni madde ekle..." />
+              <Input
+                type="text"
+                value={newChecklistItem}
+                onChange={(e) => setNewChecklistItem(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addChecklistItem())}
+                placeholder="Yeni madde ekle..."
+              />
               <button
                 type="button"
                 onClick={addChecklistItem}
@@ -278,7 +331,9 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Etiketler</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Etiketler
+            </label>
             <div className="flex flex-wrap gap-1 mb-2">
               {formData.tags.map((tag) => (
                 <span
@@ -286,12 +341,20 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
                   {tag}
-                  <Button variant="ghost" type="button" onClick={() => removeTag(tag)}>&times;</Button>
+                  <Button variant="ghost" type="button" onClick={() => removeTag(tag)}>
+                    &times;
+                  </Button>
                 </span>
               ))}
             </div>
             <div className="flex gap-2">
-              <Input type="text" value={newTag} onChange={(e) => setNewTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())} placeholder="Etiket ekle..." />
+              <Input
+                type="text"
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                placeholder="Etiket ekle..."
+              />
               <button
                 type="button"
                 onClick={addTag}
@@ -305,8 +368,12 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
 
         {/* Footer */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>İptal</Button>
-          <Button variant="primary" type="submit" disabled={loading}>{loading ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            İptal
+          </Button>
+          <Button variant="primary" type="submit" disabled={loading}>
+            {loading ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
+          </Button>
         </div>
       </form>
     </Modal>

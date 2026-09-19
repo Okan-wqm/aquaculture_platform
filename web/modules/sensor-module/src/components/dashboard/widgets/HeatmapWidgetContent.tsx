@@ -38,20 +38,20 @@ function colorFromScale(t: number, scale: ColorScale): string {
 
   switch (scale) {
     case 'blues':
-      return lerp([219, 234, 254], [29, 78, 216], v);   // blue-100 → blue-700
+      return lerp([219, 234, 254], [29, 78, 216], v); // blue-100 → blue-700
     case 'greens':
-      return lerp([220, 252, 231], [21, 128, 61], v);   // green-100 → green-700
+      return lerp([220, 252, 231], [21, 128, 61], v); // green-100 → green-700
     case 'reds':
-      return lerp([254, 226, 226], [185, 28, 28], v);   // red-100 → red-700
+      return lerp([254, 226, 226], [185, 28, 28], v); // red-100 → red-700
     case 'viridis':
     default: {
       // Three-stop viridis-like: blue → green → yellow-red
       if (v < 0.5) {
         const t2 = v * 2;
-        return lerp([68, 1, 84], [33, 145, 140], t2);   // purple → teal
+        return lerp([68, 1, 84], [33, 145, 140], t2); // purple → teal
       }
       const t2 = (v - 0.5) * 2;
-      return lerp([33, 145, 140], [253, 231, 37], t2);  // teal → yellow
+      return lerp([33, 145, 140], [253, 231, 37], t2); // teal → yellow
     }
   }
 }
@@ -98,8 +98,8 @@ interface HeatmapCell {
 }
 
 interface HeatmapGrid {
-  sensors: string[];         // ordered list of sensor labels (Y-axis)
-  buckets: Date[];           // ordered list of bucket start times (X-axis)
+  sensors: string[]; // ordered list of sensor labels (Y-axis)
+  buckets: Date[]; // ordered list of bucket start times (X-axis)
   cells: HeatmapCell[];
   minValue: number;
   maxValue: number;
@@ -113,16 +113,15 @@ function buildGrid(history: HistoryPoint[], timeRange: TimeRange): HeatmapGrid {
   const bucketMs = rangeMs / bucketCount;
 
   // Build bucket start times
-  const buckets: Date[] = Array.from({ length: bucketCount }, (_, i) =>
-    new Date(startTime.getTime() + i * bucketMs)
+  const buckets: Date[] = Array.from(
+    { length: bucketCount },
+    (_, i) => new Date(startTime.getTime() + i * bucketMs),
   );
 
   // Collect unique sensor labels
   const sensorOrder = new Map<string, string>(); // sensorId → display label
   for (const pt of history) {
-    const label = pt.channelLabel
-      ? `${pt.sensorName} - ${pt.channelLabel}`
-      : pt.sensorName;
+    const label = pt.channelLabel ? `${pt.sensorName} - ${pt.channelLabel}` : pt.sensorName;
     if (!sensorOrder.has(pt.sensorId)) {
       sensorOrder.set(pt.sensorId, label);
     }
@@ -133,9 +132,7 @@ function buildGrid(history: HistoryPoint[], timeRange: TimeRange): HeatmapGrid {
   const accumulator = new Map<string, { sum: number; count: number }>();
 
   for (const pt of history) {
-    const bucketIdx = Math.floor(
-      (pt.timestamp.getTime() - startTime.getTime()) / bucketMs
-    );
+    const bucketIdx = Math.floor((pt.timestamp.getTime() - startTime.getTime()) / bucketMs);
     if (bucketIdx < 0 || bucketIdx >= bucketCount) continue;
 
     const label = sensorOrder.get(pt.sensorId) || pt.sensorName;
@@ -198,7 +195,9 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
     <table className="w-full border-collapse">
       <thead>
         <tr>
-          <th className="text-left p-1 font-medium text-gray-600 dark:text-gray-400 sticky left-0 bg-white dark:bg-gray-900">Sensor</th>
+          <th className="text-left p-1 font-medium text-gray-600 dark:text-gray-400 sticky left-0 bg-white dark:bg-gray-900">
+            Sensor
+          </th>
           {grid.buckets.slice(0, 8).map((b, i) => (
             <th key={i} className="p-1 font-medium text-gray-500 dark:text-gray-400 text-center">
               {b.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -209,12 +208,15 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
       <tbody>
         {grid.sensors.map((sensor) => (
           <tr key={sensor}>
-            <td className="p-1 font-medium text-gray-700 dark:text-gray-300 sticky left-0 bg-white dark:bg-gray-900 truncate max-w-[80px]" title={sensor}>
+            <td
+              className="p-1 font-medium text-gray-700 dark:text-gray-300 sticky left-0 bg-white dark:bg-gray-900 truncate max-w-[80px]"
+              title={sensor}
+            >
               {sensor}
             </td>
             {grid.buckets.slice(0, 8).map((_, bucketIdx) => {
               const cell = grid.cells.find(
-                (c) => c.sensorLabel === sensor && c.bucketIndex === bucketIdx
+                (c) => c.sensorLabel === sensor && c.bucketIndex === bucketIdx,
               );
               const normalized = cell
                 ? (cell.value - grid.minValue) / (grid.maxValue - grid.minValue)
@@ -224,7 +226,8 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
                   key={bucketIdx}
                   className="p-1 text-center"
                   style={{
-                    backgroundColor: normalized !== null ? colorFromScale(normalized, scale) : colors.neutral[100],
+                    backgroundColor:
+                      normalized !== null ? colorFromScale(normalized, scale) : colors.neutral[100],
                     color: normalized !== null && normalized > 0.6 ? '#fff' : colors.neutral[700],
                   }}
                 >
@@ -243,8 +246,8 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
 // Canvas heatmap
 // ============================================================================
 
-const LABEL_WIDTH = 90;    // px reserved for Y-axis labels
-const HEADER_HEIGHT = 24;  // px reserved for X-axis labels
+const LABEL_WIDTH = 90; // px reserved for Y-axis labels
+const HEADER_HEIGHT = 24; // px reserved for X-axis labels
 const MIN_CELL_HEIGHT = 16;
 
 interface CanvasHeatmapProps {
@@ -260,88 +263,91 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
   const rafRef = useRef<number | null>(null);
   const cellMapRef = useRef<Map<string, HeatmapCell>>(new Map());
 
-  const draw = useCallback((width: number, height: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const draw = useCallback(
+    (width: number, height: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.scale(dpr, dpr);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.scale(dpr, dpr);
 
-    const { sensors, buckets, cells, minValue, maxValue } = grid;
-    if (sensors.length === 0 || buckets.length === 0) {
-      ctx.fillStyle = colors.neutral[100];
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = colors.neutral[400];
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('No data in selected range', width / 2, height / 2);
-      return;
-    }
-
-    const gridWidth = width - LABEL_WIDTH;
-    const gridHeight = height - HEADER_HEIGHT;
-    const cellWidth = gridWidth / buckets.length;
-    const cellHeight = Math.max(MIN_CELL_HEIGHT, gridHeight / sensors.length);
-
-    // Background
-    ctx.fillStyle = colors.neutral[50];
-    ctx.fillRect(0, 0, width, height);
-
-    // Build lookup for quick access (also stored in ref for mouse handler)
-    const cellMap = new Map<string, HeatmapCell>();
-    for (const cell of cells) {
-      cellMap.set(`${cell.sensorLabel}::${cell.bucketIndex}`, cell);
-    }
-    cellMapRef.current = cellMap;
-
-    // Draw cells
-    for (let si = 0; si < sensors.length; si++) {
-      for (let bi = 0; bi < buckets.length; bi++) {
-        const cell = cellMap.get(`${sensors[si]}::${bi}`);
-        const x = LABEL_WIDTH + bi * cellWidth;
-        const y = HEADER_HEIGHT + si * cellHeight;
-
-        if (cell) {
-          const normalized = (cell.value - minValue) / (maxValue - minValue);
-          ctx.fillStyle = colorFromScale(normalized, scale);
-        } else {
-          ctx.fillStyle = colors.neutral[200]; // empty bucket
-        }
-
-        ctx.fillRect(x + 0.5, y + 0.5, cellWidth - 1, cellHeight - 1);
+      const { sensors, buckets, cells, minValue, maxValue } = grid;
+      if (sensors.length === 0 || buckets.length === 0) {
+        ctx.fillStyle = colors.neutral[100];
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = colors.neutral[400];
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data in selected range', width / 2, height / 2);
+        return;
       }
-    }
 
-    // Y-axis labels
-    ctx.fillStyle = colors.neutral[700];
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (let si = 0; si < sensors.length; si++) {
-      const y = HEADER_HEIGHT + si * cellHeight + cellHeight / 2;
-      const label = sensors[si].length > 14 ? sensors[si].slice(0, 13) + '…' : sensors[si];
-      ctx.fillText(label, LABEL_WIDTH - 4, y);
-    }
+      const gridWidth = width - LABEL_WIDTH;
+      const gridHeight = height - HEADER_HEIGHT;
+      const cellWidth = gridWidth / buckets.length;
+      const cellHeight = Math.max(MIN_CELL_HEIGHT, gridHeight / sensors.length);
 
-    // X-axis labels (show ~6 evenly spaced)
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = colors.gray[400];
-    ctx.font = '9px sans-serif';
-    const labelStep = Math.max(1, Math.floor(buckets.length / 6));
-    for (let bi = 0; bi < buckets.length; bi += labelStep) {
-      const x = LABEL_WIDTH + bi * cellWidth + cellWidth / 2;
-      const label = buckets[bi].toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      ctx.fillText(label, x, 4);
-    }
-  }, [grid, scale]);
+      // Background
+      ctx.fillStyle = colors.neutral[50];
+      ctx.fillRect(0, 0, width, height);
+
+      // Build lookup for quick access (also stored in ref for mouse handler)
+      const cellMap = new Map<string, HeatmapCell>();
+      for (const cell of cells) {
+        cellMap.set(`${cell.sensorLabel}::${cell.bucketIndex}`, cell);
+      }
+      cellMapRef.current = cellMap;
+
+      // Draw cells
+      for (let si = 0; si < sensors.length; si++) {
+        for (let bi = 0; bi < buckets.length; bi++) {
+          const cell = cellMap.get(`${sensors[si]}::${bi}`);
+          const x = LABEL_WIDTH + bi * cellWidth;
+          const y = HEADER_HEIGHT + si * cellHeight;
+
+          if (cell) {
+            const normalized = (cell.value - minValue) / (maxValue - minValue);
+            ctx.fillStyle = colorFromScale(normalized, scale);
+          } else {
+            ctx.fillStyle = colors.neutral[200]; // empty bucket
+          }
+
+          ctx.fillRect(x + 0.5, y + 0.5, cellWidth - 1, cellHeight - 1);
+        }
+      }
+
+      // Y-axis labels
+      ctx.fillStyle = colors.neutral[700];
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (let si = 0; si < sensors.length; si++) {
+        const y = HEADER_HEIGHT + si * cellHeight + cellHeight / 2;
+        const label = sensors[si].length > 14 ? sensors[si].slice(0, 13) + '…' : sensors[si];
+        ctx.fillText(label, LABEL_WIDTH - 4, y);
+      }
+
+      // X-axis labels (show ~6 evenly spaced)
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = colors.gray[400];
+      ctx.font = '9px sans-serif';
+      const labelStep = Math.max(1, Math.floor(buckets.length / 6));
+      for (let bi = 0; bi < buckets.length; bi += labelStep) {
+        const x = LABEL_WIDTH + bi * cellWidth + cellWidth / 2;
+        const label = buckets[bi].toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        ctx.fillText(label, x, 4);
+      }
+    },
+    [grid, scale],
+  );
 
   // ResizeObserver for responsive canvas
   useEffect(() => {
@@ -367,50 +373,56 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
   }, [draw]);
 
   // Mouse move handler for tooltip — uses O(1) cellMap lookup instead of O(N) cells.find()
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
 
-    const { sensors, buckets } = grid;
-    if (sensors.length === 0 || buckets.length === 0) return;
+      const { sensors, buckets } = grid;
+      if (sensors.length === 0 || buckets.length === 0) return;
 
-    // Use CSS dimensions (rect) for hit-testing, not canvas.width which includes DPR scaling
-    const cssWidth = rect.width;
-    const cssHeight = rect.height;
-    const gridWidth = cssWidth - LABEL_WIDTH;
-    const gridHeight = cssHeight - HEADER_HEIGHT;
-    const cellWidth = gridWidth / buckets.length;
-    const cellHeight = Math.max(MIN_CELL_HEIGHT, gridHeight / sensors.length);
+      // Use CSS dimensions (rect) for hit-testing, not canvas.width which includes DPR scaling
+      const cssWidth = rect.width;
+      const cssHeight = rect.height;
+      const gridWidth = cssWidth - LABEL_WIDTH;
+      const gridHeight = cssHeight - HEADER_HEIGHT;
+      const cellWidth = gridWidth / buckets.length;
+      const cellHeight = Math.max(MIN_CELL_HEIGHT, gridHeight / sensors.length);
 
-    const relX = mx - LABEL_WIDTH;
-    const relY = my - HEADER_HEIGHT;
-    if (relX < 0 || relY < 0) { onTooltip(null); return; }
+      const relX = mx - LABEL_WIDTH;
+      const relY = my - HEADER_HEIGHT;
+      if (relX < 0 || relY < 0) {
+        onTooltip(null);
+        return;
+      }
 
-    const si = Math.floor(relY / cellHeight);
-    const bi = Math.floor(relX / cellWidth);
-    if (si < 0 || si >= sensors.length || bi < 0 || bi >= buckets.length) {
-      onTooltip(null);
-      return;
-    }
+      const si = Math.floor(relY / cellHeight);
+      const bi = Math.floor(relX / cellWidth);
+      if (si < 0 || si >= sensors.length || bi < 0 || bi >= buckets.length) {
+        onTooltip(null);
+        return;
+      }
 
-    const key = `${sensors[si]}::${bi}`;
-    const cell = cellMapRef.current.get(key);
-    if (cell) {
-      onTooltip({
-        x: e.clientX,
-        y: e.clientY,
-        label: cell.sensorLabel,
-        value: cell.value,
-        unit,
-        timestamp: cell.timestamp,
-      });
-    } else {
-      onTooltip(null);
-    }
-  }, [grid, onTooltip, unit]);
+      const key = `${sensors[si]}::${bi}`;
+      const cell = cellMapRef.current.get(key);
+      if (cell) {
+        onTooltip({
+          x: e.clientX,
+          y: e.clientY,
+          label: cell.sensorLabel,
+          value: cell.value,
+          unit,
+          timestamp: cell.timestamp,
+        });
+      } else {
+        onTooltip(null);
+      }
+    },
+    [grid, onTooltip, unit],
+  );
 
   return (
     <div ref={containerRef} className="w-full h-full">
@@ -456,9 +468,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-red-500 text-sm">
-        {error}
-      </div>
+      <div className="flex items-center justify-center h-full text-error-500 text-sm">{error}</div>
     );
   }
 
@@ -473,12 +483,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
   return (
     <div className="relative w-full h-full">
       {canvasSupported ? (
-        <CanvasHeatmap
-          grid={grid}
-          scale={colorScale}
-          onTooltip={setTooltip}
-          unit={unit}
-        />
+        <CanvasHeatmap grid={grid} scale={colorScale} onTooltip={setTooltip} unit={unit} />
       ) : (
         <FallbackTable grid={grid} scale={colorScale} />
       )}
@@ -491,7 +496,8 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
         >
           <div className="font-semibold truncate max-w-[160px]">{tooltip.label}</div>
           <div className="mt-0.5">
-            {tooltip.value.toFixed(2)}{tooltip.unit && ` ${tooltip.unit}`}
+            {tooltip.value.toFixed(2)}
+            {tooltip.unit && ` ${tooltip.unit}`}
           </div>
           <div className="text-gray-400 dark:text-gray-500 mt-0.5">
             {tooltip.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

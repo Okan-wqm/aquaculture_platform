@@ -160,7 +160,7 @@ interface ReportSettingsModalProps {
 
 const StatusBadge: React.FC<{ label: string; configured: boolean }> = ({ label, configured }) => (
   <span
-    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
   >
     {configured ? (
       <Check className="w-3 h-3 mr-1" aria-hidden="true" />
@@ -362,16 +362,16 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             {/* Configuration Status Banner */}
             {statusData && (
               <div
-                className={`rounded-lg p-4 ${statusData.isFullyConfigured ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}
+                className={`rounded-lg p-4 ${statusData.isFullyConfigured ? 'bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800' : 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'}`}
               >
                 <div className="flex items-center">
                   {statusData.isFullyConfigured ? (
-                    <CircleCheck className="w-5 h-5 text-green-500 mr-2" aria-hidden="true" />
+                    <CircleCheck className="w-5 h-5 text-success-500 mr-2" aria-hidden="true" />
                   ) : (
-                    <TriangleAlert className="w-5 h-5 text-yellow-500 mr-2" aria-hidden="true" />
+                    <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
                   )}
                   <span
-                    className={`font-medium ${statusData.isFullyConfigured ? 'text-green-800' : 'text-yellow-800'}`}
+                    className={`font-medium ${statusData.isFullyConfigured ? 'text-success-800 dark:text-success-200' : 'text-warning-800 dark:text-warning-200'}`}
                   >
                     {statusData.isFullyConfigured
                       ? 'Report settings are fully configured'
@@ -398,8 +398,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
             {/* Success Message */}
             {saveSuccess && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center text-green-800">
+              <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
+                <div className="flex items-center text-success-800 dark:text-success-200">
                   <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
                   Settings saved successfully!
                 </div>
@@ -413,7 +413,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                   Maskinporten Integration
                 </h3>
                 {settingsData?.maskinportenConfigured && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                     Configured
                   </span>
                 )}
@@ -513,7 +513,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
               {connectionTestResult && (
                 <div
-                  className={`mt-4 p-3 rounded-md ${connectionTestResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
+                  className={`mt-4 p-3 rounded-md ${connectionTestResult.success ? 'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200' : 'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200'}`}
                 >
                   <div className="flex items-center">
                     {connectionTestResult.success ? (
@@ -635,8 +635,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                 <span
                   className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
                     statusData?.hasSlaughterApproval
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-amber-100 text-amber-800'
+                      ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                      : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
                   }`}
                 >
                   {statusData?.hasSlaughterApproval
@@ -677,7 +677,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                           })
                         }
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-                          enabled ? 'bg-blue-600' : 'bg-gray-300'
+                          enabled ? 'bg-info-600' : 'bg-gray-300'
                         }`}
                       >
                         <span

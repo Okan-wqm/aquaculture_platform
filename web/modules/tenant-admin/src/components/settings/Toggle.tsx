@@ -12,7 +12,9 @@ export const Toggle: React.FC<{
   <div className="flex items-center justify-between py-4">
     <div>
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
-      {description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>}
+      {description && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
+      )}
     </div>
     {/* A11y: this IS a switch, so it announces as one and carries the row's
         label as its accessible name — otherwise a screen-reader user hears an
@@ -23,8 +25,8 @@ export const Toggle: React.FC<{
       aria-checked={enabled}
       aria-label={label}
       onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
-        enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:ring-offset-2 ${
+        enabled ? 'bg-success-600' : 'bg-gray-200 dark:bg-gray-700'
       }`}
     >
       <span
@@ -47,7 +49,7 @@ export const SmallToggle: React.FC<{
     type="button"
     onClick={() => onChange(!enabled)}
     className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-      enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+      enabled ? 'bg-success-600' : 'bg-gray-200 dark:bg-gray-700'
     }`}
   >
     <span

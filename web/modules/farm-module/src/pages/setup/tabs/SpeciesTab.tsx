@@ -430,7 +430,7 @@ export const SpeciesTab: React.FC = () => {
               placeholder="Search species..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -440,7 +440,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {Object.entries(speciesCategoryLabels).map(([value, label]) => (
@@ -452,7 +452,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedWaterType}
             onChange={(e) => setSelectedWaterType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Water Types</option>
             {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
@@ -464,7 +464,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Statuses</option>
             {Object.entries(speciesStatusLabels).map(([value, label]) => (
@@ -489,8 +489,10 @@ export const SpeciesTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load species. Please try again.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load species. Please try again.
+          </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>
@@ -502,7 +504,7 @@ export const SpeciesTab: React.FC = () => {
           now request an explicit page (SPECIES_LIST_LIMIT); when MORE exist, disclose
           it instead of silently truncating. */}
       {!isLoading && !error && speciesData?.hasNextPage && (
-        <div className="mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        <div className="mb-6 px-4 py-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-800 dark:text-warning-200">
           Showing the first {SPECIES_LIST_LIMIT} species; this catalog has more.
         </div>
       )}
@@ -561,8 +563,8 @@ export const SpeciesTab: React.FC = () => {
                         key={tag}
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           PREDEFINED_TAGS.includes(tag)
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-green-50 text-green-700 border border-green-200'
+                            ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800'
+                            : 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                         }`}
                       >
                         {tag}
@@ -580,7 +582,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.temperature && (
                       <div className="flex items-center">
-                        <ChartColumn className="w-4 h-4 mr-2 text-orange-500" aria-hidden="true" />
+                        <ChartColumn className="w-4 h-4 mr-2 text-warning-500" aria-hidden="true" />
                         <span>
                           Temp: {species.optimalConditions.temperature.min}-
                           {species.optimalConditions.temperature.max}°C
@@ -590,7 +592,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.ph && (
                       <div className="flex items-center">
-                        <SwatchBook className="w-4 h-4 mr-2 text-purple-500" aria-hidden="true" />
+                        <SwatchBook className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
                         <span>
                           pH: {species.optimalConditions.ph.min}-{species.optimalConditions.ph.max}
                         </span>
@@ -599,14 +601,14 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.dissolvedOxygen && (
                       <div className="flex items-center">
-                        <Box className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+                        <Box className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
                         <span>O2: min {species.optimalConditions.dissolvedOxygen.min} mg/L</span>
                       </div>
                     )}
 
                     {species.optimalConditions.co2 && (
                       <div className="flex items-center">
-                        <Monitor className="w-4 h-4 mr-2 text-green-500" aria-hidden="true" />
+                        <Monitor className="w-4 h-4 mr-2 text-success-500" aria-hidden="true" />
                         <span>
                           CO2: {species.optimalConditions.co2.min}-
                           {species.optimalConditions.co2.max} mg/L
@@ -616,7 +618,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.lightRegime && (
                       <div className="flex items-center">
-                        <Sun className="w-4 h-4 mr-2 text-yellow-500" aria-hidden="true" />
+                        <Sun className="w-4 h-4 mr-2 text-warning-500" aria-hidden="true" />
                         <span>
                           Light: {species.optimalConditions.lightRegime.lightHours}h / Dark:{' '}
                           {species.optimalConditions.lightRegime.darkHours}h
@@ -656,11 +658,11 @@ export const SpeciesTab: React.FC = () => {
 
       {/* Delete Error */}
       {deleteError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md">
           <div className="flex items-center justify-between">
             <div className="flex">
-              <CircleX className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" aria-hidden="true" />
-              <p className="text-sm text-red-700">{deleteError}</p>
+              <CircleX className="h-5 w-5 text-error-400 mr-2 flex-shrink-0" aria-hidden="true" />
+              <p className="text-sm text-error-700 dark:text-error-300">{deleteError}</p>
             </div>
             <Button variant="ghost" type="button" onClick={() => setDeleteError(null)}>
               <X className="h-4 w-4" aria-hidden="true" />
@@ -692,10 +694,13 @@ export const SpeciesTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             {formError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md">
                 <div className="flex">
-                  <CircleX className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" aria-hidden="true" />
-                  <p className="text-sm text-red-700">{formError}</p>
+                  <CircleX
+                    className="h-5 w-5 text-error-400 mr-2 flex-shrink-0"
+                    aria-hidden="true"
+                  />
+                  <p className="text-sm text-error-700 dark:text-error-300">{formError}</p>
                 </div>
               </div>
             )}
@@ -828,7 +833,7 @@ export const SpeciesTab: React.FC = () => {
                       onClick={() => handleTagToggle(tag)}
                       className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                         formData.tags.includes(tag)
-                          ? 'bg-blue-500 text-white'
+                          ? 'bg-info-500 text-white'
                           : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                       }`}
                     >
@@ -868,7 +873,7 @@ export const SpeciesTab: React.FC = () => {
                         .map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-700"
+                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                           >
                             {tag}
                             <Button
@@ -913,7 +918,7 @@ export const SpeciesTab: React.FC = () => {
                         category: e.target.value as SpeciesCategory,
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select Category</option>
                     {Object.entries(speciesCategoryLabels).map(([value, label]) => (
@@ -936,7 +941,7 @@ export const SpeciesTab: React.FC = () => {
                         waterType: e.target.value as SpeciesWaterType,
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select Water Type</option>
                     {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
@@ -988,7 +993,7 @@ export const SpeciesTab: React.FC = () => {
                 <select
                   value={formData.supplierId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                 >
                   <option value="">Select Supplier (Optional)</option>
                   {suppliers.map((supplier) => (
@@ -1306,7 +1311,7 @@ export const SpeciesTab: React.FC = () => {
                             type="checkbox"
                             checked={formData.feedIds.includes(feed.id)}
                             onChange={() => handleFeedToggle(feed.id)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                           />
                           <span className="ml-3 text-sm text-gray-700 dark:text-gray-300">
                             {feed.name}
@@ -1343,7 +1348,7 @@ export const SpeciesTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(speciesStatusLabels).map(([value, label]) => (
                       <option key={value} value={value}>

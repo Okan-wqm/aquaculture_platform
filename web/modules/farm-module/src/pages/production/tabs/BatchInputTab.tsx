@@ -12,14 +12,14 @@ import { ChartColumn, Layers, Plus, Scale, Search as SearchIcon, Users } from 'l
 
 // Status badge colors
 const statusColors: Record<BatchStatus, string> = {
-  QUARANTINE: 'bg-yellow-100 text-yellow-800',
-  ACTIVE: 'bg-green-100 text-green-800',
-  GROWING: 'bg-blue-100 text-blue-800',
-  PRE_HARVEST: 'bg-purple-100 text-purple-800',
-  HARVESTING: 'bg-orange-100 text-orange-800',
+  QUARANTINE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  GROWING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PRE_HARVEST: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HARVESTING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   HARVESTED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  TRANSFERRED: 'bg-indigo-100 text-indigo-800',
-  FAILED: 'bg-red-100 text-red-800',
+  TRANSFERRED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  FAILED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   CLOSED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
@@ -191,7 +191,7 @@ export const BatchInputTab: React.FC = () => {
       align: 'right',
       render: (_value, batch) => (
         <div
-          className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-green-600' : getSurvivalRate(batch) >= 90 ? 'text-yellow-600' : 'text-red-600'}`}
+          className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-success-600 dark:text-success-400' : getSurvivalRate(batch) >= 90 ? 'text-warning-600 dark:text-warning-400' : 'text-error-600 dark:text-error-400'}`}
         >
           {getSurvivalRate(batch).toFixed(1)}%
         </div>
@@ -203,7 +203,7 @@ export const BatchInputTab: React.FC = () => {
       align: 'right',
       render: (_value, batch) => (
         <div
-          className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-green-600' : 'text-red-600'}`}
+          className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-success-600 dark:text-success-400' : 'text-error-600 dark:text-error-400'}`}
         >
           {batch.fcr?.actual?.toFixed(2) || '-'}
         </div>
@@ -233,7 +233,7 @@ export const BatchInputTab: React.FC = () => {
               placeholder="Search batches..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pl-10"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm pl-10"
             />
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
               <SearchIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
@@ -244,7 +244,7 @@ export const BatchInputTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as BatchStatus | 'all')}
-            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="all">All Status</option>
             {Object.entries(statusLabels).map(([value, label]) => (
@@ -317,8 +317,8 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Layers className="w-6 h-6 text-blue-600" aria-hidden="true" />
+              <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Layers className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
               </div>
             </div>
             <div className="ml-4">
@@ -333,8 +333,11 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-green-100 rounded-lg">
-                <Users className="w-6 h-6 text-green-600" aria-hidden="true" />
+              <div className="p-3 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <Users
+                  className="w-6 h-6 text-success-600 dark:text-success-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">
@@ -349,8 +352,11 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <Scale className="w-6 h-6 text-purple-600" aria-hidden="true" />
+              <div className="p-3 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Scale
+                  className="w-6 h-6 text-accent-600 dark:text-accent-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">
@@ -366,8 +372,11 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <ChartColumn className="w-6 h-6 text-yellow-600" aria-hidden="true" />
+              <div className="p-3 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                <ChartColumn
+                  className="w-6 h-6 text-warning-600 dark:text-warning-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">

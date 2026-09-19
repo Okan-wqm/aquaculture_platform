@@ -345,9 +345,9 @@ export function SensorRegistrationWizard({
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                     index < currentStep
-                      ? 'bg-green-500 text-white'
+                      ? 'bg-success-500 text-white'
                       : index === currentStep
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-info-600 text-white'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
@@ -360,7 +360,9 @@ export function SensorRegistrationWizard({
                 <div className="ml-2 hidden md:block">
                   <p
                     className={`text-sm font-medium ${
-                      index === currentStep ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'
+                      index === currentStep
+                        ? 'text-info-600 dark:text-info-400'
+                        : 'text-gray-600 dark:text-gray-400'
                     }`}
                   >
                     {step.title}
@@ -370,7 +372,7 @@ export function SensorRegistrationWizard({
               {index < STEPS.length - 1 && (
                 <div
                   className={`hidden md:block w-12 h-0.5 mx-2 ${
-                    index < currentStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                    index < currentStep ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'
                   }`}
                 />
               )}
@@ -383,7 +385,7 @@ export function SensorRegistrationWizard({
       <div className="p-6 overflow-y-auto flex-1 min-h-0">
         {/* Error message */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="mb-4 p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300">
             {error}
           </div>
         )}

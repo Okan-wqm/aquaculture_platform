@@ -91,17 +91,20 @@ const categoryDescriptions: Record<
   A: {
     label: 'Liste A - Exotic Diseases',
     urgency: 'IMMEDIATE REPORT REQUIRED',
-    color: 'bg-red-100 border-red-300 text-red-800',
+    color:
+      'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-800 dark:text-error-200',
   },
   C: {
     label: 'Liste C - Non-exotic Notifiable',
     urgency: 'IMMEDIATE REPORT REQUIRED',
-    color: 'bg-orange-100 border-orange-300 text-orange-800',
+    color:
+      'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
   },
   F: {
     label: 'Liste F - Other Notifiable',
     urgency: 'Report within 24 hours',
-    color: 'bg-yellow-100 border-yellow-300 text-yellow-800',
+    color:
+      'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
   },
 };
 
@@ -120,10 +123,30 @@ function getClinicalSignCategories(_category: 'A' | 'C' | 'F'): string[] {
 }
 
 const severityOptions: { value: FormData['severity']; label: string; color: string }[] = [
-  { value: 'minor', label: 'Minor', color: 'bg-blue-50 border-blue-300 text-blue-800' },
-  { value: 'moderate', label: 'Moderate', color: 'bg-yellow-50 border-yellow-300 text-yellow-800' },
-  { value: 'severe', label: 'Severe', color: 'bg-orange-50 border-orange-300 text-orange-800' },
-  { value: 'critical', label: 'Critical', color: 'bg-red-50 border-red-300 text-red-800' },
+  {
+    value: 'minor',
+    label: 'Minor',
+    color:
+      'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-800 dark:text-info-200',
+  },
+  {
+    value: 'moderate',
+    label: 'Moderate',
+    color:
+      'bg-warning-50 dark:bg-warning-900/20 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
+  },
+  {
+    value: 'severe',
+    label: 'Severe',
+    color:
+      'bg-warning-50 dark:bg-warning-900/20 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
+  },
+  {
+    value: 'critical',
+    label: 'Critical',
+    color:
+      'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-800 dark:text-error-200',
+  },
 ];
 
 export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
@@ -394,7 +417,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           <div
             role="alert"
             aria-live="assertive"
-            className="rounded-md bg-red-50 border border-red-300 p-3 text-sm text-red-800"
+            className="rounded-md bg-error-50 dark:bg-error-900/20 border border-error-300 dark:border-error-700 p-3 text-sm text-error-800 dark:text-error-200"
           >
             {submitError}
           </div>
@@ -408,7 +431,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             onClick={() => setHealthEventExpanded(!healthEventExpanded)}
           >
             <div className="flex items-center gap-2">
-              <LinkIcon className="w-4 h-4 text-blue-500" aria-hidden="true" />
+              <LinkIcon className="w-4 h-4 text-info-500" aria-hidden="true" />
               <span>Link to existing Health Event (optional)</span>
             </div>
             <ChevronDown
@@ -444,7 +467,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Disease Category */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Disease Category <span className="text-red-500">*</span>
+            Disease Category <span className="text-error-500">*</span>
           </label>
           <div className="space-y-2">
             {(['A', 'C', 'F'] as const).map((cat) => {
@@ -470,7 +493,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       handleChange('diseaseCategory', e.target.value as 'A' | 'C' | 'F');
                       handleChange('diseaseCode', '');
                     }}
-                    className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
+                    className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600"
                   />
                   <div className="ml-3">
                     <span className="block text-sm font-medium">{info.label}</span>
@@ -485,15 +508,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Disease Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Disease <span className="text-red-500">*</span>
+            Disease <span className="text-error-500">*</span>
           </label>
           <select
             value={formData.diseaseCode}
             onChange={(e) => handleChange('diseaseCode', e.target.value)}
             className={`
                     block w-full rounded-md shadow-sm text-sm
-                    ${errors.diseaseCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                    focus:ring-blue-500 focus:border-blue-500
+                    ${errors.diseaseCode ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                    focus:ring-info-500 focus:border-info-500
                   `}
           >
             <option value="">Select disease...</option>
@@ -503,7 +526,9 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               </option>
             ))}
           </select>
-          {errors.diseaseCode && <p className="mt-1 text-sm text-red-600">{errors.diseaseCode}</p>}
+          {errors.diseaseCode && (
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">{errors.diseaseCode}</p>
+          )}
         </div>
 
         {/* Suspected/Confirmed */}
@@ -522,7 +547,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         flex items-center px-4 py-2 rounded-md border cursor-pointer
                         ${
                           formData.suspectedOrConfirmed === option.value
-                            ? 'border-blue-500 bg-blue-50'
+                            ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                             : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                         }
                       `}
@@ -538,7 +563,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       e.target.value as 'suspected' | 'lab_confirmed',
                     )
                   }
-                  className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
+                  className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600"
                 />
                 <span className="ml-2 text-sm">{option.label}</span>
               </label>
@@ -549,7 +574,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Severity */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Severity <span className="text-red-500">*</span>
+            Severity <span className="text-error-500">*</span>
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {severityOptions.map((opt) => (
@@ -595,14 +620,16 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   <label
                     key={tank.id}
                     className={`flex items-center px-3 py-2 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0 ${
-                      isSelected ? 'bg-blue-50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                      isSelected
+                        ? 'bg-info-50 dark:bg-info-900/20'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleTank(tank.id)}
-                      className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+                      className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
                     />
                     <div className="ml-3 flex-1">
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -636,7 +663,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               {selectedTanks.map((tank: Tank) => (
                 <div
                   key={tank.id}
-                  className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded text-xs"
+                  className="flex items-center gap-2 bg-info-50 dark:bg-info-900/20 px-3 py-1.5 rounded text-xs"
                 >
                   <span className="font-medium text-gray-700 dark:text-gray-300">{tank.name}</span>
                   {tank.batchMetrics ? (
@@ -675,7 +702,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Estimated Affected <span className="text-red-500">*</span>
+              Estimated Affected <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -683,13 +710,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               onChange={(e) => handleChange('estimatedAffected', e.target.value)}
               className={`
                       block w-full rounded-md shadow-sm text-sm
-                      ${errors.estimatedAffected ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                      focus:ring-blue-500 focus:border-blue-500
+                      ${errors.estimatedAffected ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                      focus:ring-info-500 focus:border-info-500
                     `}
               placeholder="Number of fish"
             />
             {errors.estimatedAffected && (
-              <p className="mt-1 text-xs text-red-600">{errors.estimatedAffected}</p>
+              <p className="mt-1 text-xs text-error-600 dark:text-error-400">
+                {errors.estimatedAffected}
+              </p>
             )}
           </div>
           <div>
@@ -710,7 +739,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Clinical Signs */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Clinical Signs <span className="text-red-500">*</span>
+            Clinical Signs <span className="text-error-500">*</span>
           </label>
 
           {/* Predefined symptom suggestions */}
@@ -731,7 +760,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         disabled={isAdded}
                         className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                           isAdded
-                            ? 'bg-blue-100 border-blue-300 text-blue-700 cursor-default'
+                            ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 cursor-default'
                             : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer'
                         }`}
                       >
@@ -785,14 +814,16 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             </button>
           </div>
           {errors.clinicalSigns && (
-            <p className="mt-1 text-sm text-red-600">{errors.clinicalSigns}</p>
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">
+              {errors.clinicalSigns}
+            </p>
           )}
         </div>
 
         {/* Immediate Actions */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Immediate Actions <span className="text-red-500">*</span>
+            Immediate Actions <span className="text-error-500">*</span>
           </label>
           <div className="space-y-2">
             {formData.immediateActions.map((action, index) => (
@@ -833,7 +864,9 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             </button>
           </div>
           {errors.immediateActions && (
-            <p className="mt-1 text-sm text-red-600">{errors.immediateActions}</p>
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">
+              {errors.immediateActions}
+            </p>
           )}
         </div>
 
@@ -846,7 +879,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             {formData.quarantineMeasures.map((measure, index) => (
               <div
                 key={index}
-                className="flex items-center gap-2 bg-yellow-50 px-3 py-2 rounded-md border border-yellow-200"
+                className="flex items-center gap-2 bg-warning-50 dark:bg-warning-900/20 px-3 py-2 rounded-md border border-warning-200 dark:border-warning-800"
               >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{measure}</span>
                 <Button
@@ -896,10 +929,10 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             }}
           >
             <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-purple-500" aria-hidden="true" />
+              <FlaskConical className="w-4 h-4 text-accent-500" aria-hidden="true" />
               <span>Lab Results (Optional)</span>
               {formData.labResults.length > 0 && (
-                <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
                   {formData.labResults.length}
                 </span>
               )}
@@ -937,7 +970,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       <select
                         value={lr.sampleType}
                         onChange={(e) => updateLabResult(idx, 'sampleType', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-info-500 focus:border-info-500"
                       >
                         {['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => (
                           <option key={t} value={t}>
@@ -1011,7 +1044,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               <button
                 type="button"
                 onClick={addLabResult}
-                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100"
+                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-md hover:bg-accent-100 dark:hover:bg-accent-900/50"
               >
                 <Plus className="w-3 h-3 mr-1" aria-hidden="true" />
                 Add Lab Result
@@ -1021,13 +1054,13 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         </div>
 
         {/* Veterinarian */}
-        <div className="space-y-3 p-4 bg-blue-50 rounded-md border border-blue-200">
+        <div className="space-y-3 p-4 bg-info-50 dark:bg-info-900/20 rounded-md border border-info-200 dark:border-info-800">
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={formData.veterinarianNotified}
               onChange={(e) => handleChange('veterinarianNotified', e.target.checked)}
-              className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+              className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
             />
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Veterinarian Notified
@@ -1037,7 +1070,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Veterinarian Name <span className="text-red-500">*</span>
+                  Veterinarian Name <span className="text-error-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -1045,13 +1078,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   onChange={(e) => handleChange('veterinarianName', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.veterinarianName ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                          focus:ring-blue-500 focus:border-blue-500
+                          ${errors.veterinarianName ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                          focus:ring-info-500 focus:border-info-500
                         `}
                   placeholder="Dr. Name"
                 />
                 {errors.veterinarianName && (
-                  <p className="mt-1 text-xs text-red-600">{errors.veterinarianName}</p>
+                  <p className="mt-1 text-xs text-error-600 dark:text-error-400">
+                    {errors.veterinarianName}
+                  </p>
                 )}
               </div>
               <div>

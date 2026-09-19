@@ -6,9 +6,20 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
-import { useChannelManagement, SensorDataChannel, CreateChannelInput, UpdateChannelInput } from '../../hooks/useChannelManagement';
+import {
+  useChannelManagement,
+  SensorDataChannel,
+  CreateChannelInput,
+  UpdateChannelInput,
+} from '../../hooks/useChannelManagement';
 import { ChannelEditorModal } from '../registration/ChannelEditorModal';
 import { AIDetectionPanel } from './AIDetectionPanel';
 import { DataChannelConfig, ChannelDataType } from '../../types/registration.types';
@@ -108,19 +119,19 @@ function getSourceBadge(source?: string) {
   switch (source) {
     case 'template':
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
           Sablon
         </span>
       );
     case 'manual':
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
           Manuel
         </span>
       );
     case 'auto':
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200">
           Otomatik
         </span>
       );
@@ -186,7 +197,15 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   // --- Delete Channel (L2: Turkish confirm, M6: specific error feedback) ---
   const handleDeleteChannel = useCallback(
     async (channelId: string, channelKey: string) => {
-      if (!(await confirm({ title: `"${channelKey}" kanalını sil?`, message: 'Kanal ve bağlı okuma eşlemesi kaldırılır.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' }))) {
+      if (
+        !(await confirm({
+          title: `"${channelKey}" kanalını sil?`,
+          message: 'Kanal ve bağlı okuma eşlemesi kaldırılır.',
+          confirmText: 'Sil',
+          cancelText: 'Vazgeç',
+          variant: 'danger',
+        }))
+      ) {
         return;
       }
       setDeletingId(channelId);
@@ -228,11 +247,11 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   if (error) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400 flex-shrink-0" />
           <div>
-            <p className="text-red-800 font-medium">Kanallar yuklenemedi</p>
-            <p className="text-red-600 text-sm">{error.message}</p>
+            <p className="text-error-800 dark:text-error-200 font-medium">Kanallar yuklenemedi</p>
+            <p className="text-error-600 dark:text-error-400 text-sm">{error.message}</p>
           </div>
         </div>
       </div>
@@ -277,7 +296,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       render: (_value, ch) => (
         <>
           {ch.isEnabled ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
               Aktif
             </span>
           ) : (
@@ -300,16 +319,34 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       render: (_value, ch) => (
         <div className="flex items-center justify-end gap-1">
           {/* L3: aria-label */}
-          <Button variant="ghost" size="sm" iconOnly onClick={() => handleEditChannel(ch)} aria-label="Kanali duzenle" title="Kanali duzenle"><Edit className="w-4 h-4" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            onClick={() => handleEditChannel(ch)}
+            aria-label="Kanali duzenle"
+            title="Kanali duzenle"
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
           {/* L3: aria-label */}
-          <Button variant="ghost" size="sm" onClick={() => handleDeleteChannel(ch.id, ch.channelKey)} disabled={deletingId === ch.id} aria-label="Kanali sil" title="Kanali sil">{deletingId === ch.id ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
+            disabled={deletingId === ch.id}
+            aria-label="Kanali sil"
+            title="Kanali sil"
+          >
+            {deletingId === ch.id ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <Trash2 className="w-4 h-4" />
-            )}</Button>
+            )}
+          </Button>
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -322,14 +359,20 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
             onClick={() => setShowAIDetection((prev) => !prev)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
               showAIDetection
-                ? 'bg-purple-100 text-purple-700 border border-purple-300'
-                : 'bg-purple-600 text-white hover:bg-purple-700'
+                ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
+                : 'bg-accent-600 text-white hover:bg-accent-700'
             }`}
           >
             <Sparkles className="w-4 h-4" />
             AI Tespit
           </button>
-          <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleAddChannel}>Kanal Ekle</Button>
+          <Button
+            variant="primary"
+            leftIcon={<Plus className="w-4 h-4" />}
+            onClick={handleAddChannel}
+          >
+            Kanal Ekle
+          </Button>
         </div>
       </div>
 
@@ -345,9 +388,9 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
 
       {/* M6: Mutation error feedback (separate from fetch error) */}
       {(mutationError || deleteError) && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 mb-4">
-          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-          <p className="text-red-700 text-sm">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+          <AlertCircle className="w-4 h-4 text-error-600 dark:text-error-400 flex-shrink-0" />
+          <p className="text-error-700 dark:text-error-300 text-sm">
             {deleteError || mutationError?.message || 'Islem basarisiz oldu'}
           </p>
         </div>

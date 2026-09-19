@@ -52,9 +52,9 @@ export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
                   ${compact ? 'w-6 h-6' : 'w-8 h-8'}
                   ${
                     index < currentStep
-                      ? 'bg-green-500 text-white'
+                      ? 'bg-success-500 text-white'
                       : index === currentStep
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-info-600 text-white'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }
                 `}
@@ -71,7 +71,9 @@ export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
                 <div className="ml-2 hidden md:block">
                   <p
                     className={`text-sm font-medium ${
-                      index === currentStep ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'
+                      index === currentStep
+                        ? 'text-info-600 dark:text-info-400'
+                        : 'text-gray-600 dark:text-gray-400'
                     }`}
                   >
                     {step.title}
@@ -87,7 +89,7 @@ export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
               className={`
                 hidden md:block flex-1 mx-2
                 ${compact ? 'h-0.5' : 'h-0.5'}
-                ${index < currentStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'}
+                ${index < currentStep ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'}
               `}
             />
           )}

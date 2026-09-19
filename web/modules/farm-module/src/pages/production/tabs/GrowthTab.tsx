@@ -18,18 +18,30 @@ import { ChartColumn, Circle, CircleCheck, Plus } from 'lucide-react';
 // ============================================================================
 
 const performanceLabels: Record<string, { label: string; color: string }> = {
-  excellent: { label: 'Mukemmel', color: 'bg-green-100 text-green-800' },
-  good: { label: 'Iyi', color: 'bg-blue-100 text-blue-800' },
-  average: { label: 'Orta', color: 'bg-yellow-100 text-yellow-800' },
-  below_average: { label: 'Ortalamanin Alti', color: 'bg-orange-100 text-orange-800' },
-  poor: { label: 'Zayif', color: 'bg-red-100 text-red-800' },
+  excellent: {
+    label: 'Mukemmel',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  },
+  good: { label: 'Iyi', color: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200' },
+  average: {
+    label: 'Orta',
+    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  },
+  below_average: {
+    label: 'Ortalamanin Alti',
+    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  },
+  poor: {
+    label: 'Zayif',
+    color: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  },
 };
 
 const growthStatusLabels: Record<string, { label: string; color: string }> = {
-  ahead: { label: 'Hedefin Onunde', color: 'text-green-600' },
-  on_track: { label: 'Hedefte', color: 'text-blue-600' },
-  behind: { label: 'Hedefin Gerisinde', color: 'text-yellow-600' },
-  critical: { label: 'Kritik', color: 'text-red-600' },
+  ahead: { label: 'Hedefin Onunde', color: 'text-success-600 dark:text-success-400' },
+  on_track: { label: 'Hedefte', color: 'text-info-600 dark:text-info-400' },
+  behind: { label: 'Hedefin Gerisinde', color: 'text-warning-600 dark:text-warning-400' },
+  critical: { label: 'Kritik', color: 'text-error-600 dark:text-error-400' },
 };
 
 // ============================================================================
@@ -64,8 +76,8 @@ const LoadingSpinner: React.FC = () => (
 );
 
 const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
-  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-    <p className="text-sm text-red-700">{message}</p>
+  <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+    <p className="text-sm text-error-700 dark:text-error-300">{message}</p>
   </div>
 );
 
@@ -125,7 +137,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">SGR</p>
-            <p className="text-lg font-semibold text-blue-600">
+            <p className="text-lg font-semibold text-info-600 dark:text-info-400">
               {metrics.specificGrowthRate.toFixed(2)} %/gun
             </p>
           </div>
@@ -149,7 +161,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <div
-              className="h-2 rounded-full bg-blue-500"
+              className="h-2 rounded-full bg-info-500"
               style={{
                 width: `${Math.min(
                   getTargetProgress(
@@ -172,7 +184,9 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Yasama Orani</p>
-            <p className="font-medium text-green-600">{metrics.survivalRate.toFixed(1)}%</p>
+            <p className="font-medium text-success-600 dark:text-success-400">
+              {metrics.survivalRate.toFixed(1)}%
+            </p>
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Uretimde</p>
@@ -189,9 +203,9 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
                 key={idx}
                 className={`text-xs mb-1 px-2 py-1 rounded ${
                   rec.priority === 'high'
-                    ? 'bg-red-50 text-red-700'
+                    ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300'
                     : rec.priority === 'medium'
-                      ? 'bg-yellow-50 text-yellow-700'
+                      ? 'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300'
                       : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                 }`}
               >
@@ -258,10 +272,10 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
               <div
                 className={`w-full rounded-t ${
                   m.performance === 'excellent' || m.performance === 'good'
-                    ? 'bg-blue-400'
+                    ? 'bg-info-400'
                     : m.performance === 'average'
-                      ? 'bg-yellow-400'
-                      : 'bg-red-400'
+                      ? 'bg-warning-400'
+                      : 'bg-error-400'
                 }`}
                 style={{ height: `${heightPercent}%`, minHeight: '4px' }}
               />
@@ -298,7 +312,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
         </div>
         <div>
           <p className="text-xs text-gray-500 dark:text-gray-400">Artis</p>
-          <p className="font-medium text-green-600">
+          <p className="font-medium text-success-600 dark:text-success-400">
             +
             {(
               (sortedHistory[sortedHistory.length - 1]?.averageWeight ?? 0) -
@@ -397,7 +411,7 @@ export const GrowthTab: React.FC = () => {
       align: 'right',
       render: (_value, sample) => (
         <span
-          className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-green-600' : sample.weightCV <= 20 ? 'text-yellow-600' : 'text-red-600'}`}
+          className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-success-600 dark:text-success-400' : sample.weightCV <= 20 ? 'text-warning-600 dark:text-warning-400' : 'text-error-600 dark:text-error-400'}`}
         >
           {sample.weightCV.toFixed(1)}%
         </span>
@@ -434,7 +448,7 @@ export const GrowthTab: React.FC = () => {
       render: (_value, sample) => (
         <>
           {sample.isVerified ? (
-            <CircleCheck className="h-5 w-5 text-green-500 inline" aria-hidden="true" />
+            <CircleCheck className="h-5 w-5 text-success-500 inline" aria-hidden="true" />
           ) : (
             <Circle className="h-5 w-5 text-gray-300 inline" aria-hidden="true" />
           )}
@@ -452,7 +466,7 @@ export const GrowthTab: React.FC = () => {
             onClick={() => setActiveView('overview')}
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'overview'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -462,7 +476,7 @@ export const GrowthTab: React.FC = () => {
             onClick={() => setActiveView('samples')}
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'samples'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -475,7 +489,7 @@ export const GrowthTab: React.FC = () => {
           <select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
           >
             <option value="">Tum Batch'ler</option>
             {activeBatches.map((batch) => (
@@ -519,10 +533,10 @@ export const GrowthTab: React.FC = () => {
                         <span
                           className={`text-sm font-medium ${
                             analysisData.trend.direction === 'improving'
-                              ? 'text-green-600'
+                              ? 'text-success-600 dark:text-success-400'
                               : analysisData.trend.direction === 'stable'
-                                ? 'text-blue-600'
-                                : 'text-red-600'
+                                ? 'text-info-600 dark:text-info-400'
+                                : 'text-error-600 dark:text-error-400'
                           }`}
                         >
                           {analysisData.trend.direction === 'improving'
@@ -553,10 +567,10 @@ export const GrowthTab: React.FC = () => {
                         <span
                           className={`text-sm font-medium ${
                             analysisData.trend.fcrTrend === 'improving'
-                              ? 'text-green-600'
+                              ? 'text-success-600 dark:text-success-400'
                               : analysisData.trend.fcrTrend === 'stable'
-                                ? 'text-blue-600'
-                                : 'text-red-600'
+                                ? 'text-info-600 dark:text-info-400'
+                                : 'text-error-600 dark:text-error-400'
                           }`}
                         >
                           {analysisData.trend.fcrTrend === 'improving'

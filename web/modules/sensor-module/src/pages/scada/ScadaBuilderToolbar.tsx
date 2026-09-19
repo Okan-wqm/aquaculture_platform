@@ -114,20 +114,26 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           <span>Back</span>
         </Link>
         <div className="h-5 w-px bg-gray-300" />
-        <Input type="text" value={packageName} onChange={(e) => onPackageNameChange(e.target.value)} placeholder="Package Name" aria-label="Package name" />
+        <Input
+          type="text"
+          value={packageName}
+          onChange={(e) => onPackageNameChange(e.target.value)}
+          placeholder="Package Name"
+          aria-label="Package name"
+        />
         {isDirty && (
-          <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
+          <span className="text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-2 py-0.5 rounded">
             Unsaved
           </span>
         )}
         {saveSuccess && (
-          <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
+          <span className="flex items-center gap-1 text-xs text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 px-2 py-0.5 rounded">
             <CheckCircle className="w-3 h-3" />
             Saved
           </span>
         )}
         {saveError && (
-          <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded">
+          <span className="text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 px-2 py-0.5 rounded">
             {saveError}
           </span>
         )}
@@ -144,7 +150,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
               <span className="flex items-center gap-1.5">
                 <span className="truncate max-w-[120px]">{selectedDevice.deviceName}</span>
                 {selectedDevice.isOnline ? (
-                  <Wifi className="w-3 h-3 text-green-500" />
+                  <Wifi className="w-3 h-3 text-success-500" />
                 ) : (
                   <WifiOff className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                 )}
@@ -157,10 +163,16 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
           {showDeviceDropdown && (
             <div className="absolute left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-64 overflow-y-auto">
-              <Button variant="ghost" size="sm" onClick={() => {
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
                   onTargetDeviceChange(null);
                   setShowDeviceDropdown(false);
-                }}>No Device</Button>
+                }}
+              >
+                No Device
+              </Button>
               {devices.map((device) => (
                 <button
                   key={device.id}
@@ -169,14 +181,18 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
                     setShowDeviceDropdown(false);
                   }}
                   className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between ${
-                    targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700 dark:text-gray-300'
+                    targetDeviceId === device.id
+                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                      : 'text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   <span className="truncate">{device.deviceName}</span>
                   <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{device.deviceCode}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {device.deviceCode}
+                    </span>
                     {device.isOnline ? (
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="w-2 h-2 rounded-full bg-success-500" />
                     ) : (
                       <span className="w-2 h-2 rounded-full bg-gray-300" />
                     )}
@@ -184,7 +200,9 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
                 </button>
               ))}
               {devices.length === 0 && (
-                <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">No edge devices found</p>
+                <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  No edge devices found
+                </p>
               )}
             </div>
           )}
@@ -200,7 +218,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             onClick={() => setShowSearch(!showSearch)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
               showSearch
-                ? 'text-white bg-cyan-600 hover:bg-cyan-700'
+                ? 'text-white bg-info-600 hover:bg-info-700'
                 : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
             title="Search Widgets"
@@ -221,7 +239,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             onClick={() => setShowTemplates(!showTemplates)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
               showTemplates
-                ? 'text-white bg-cyan-600 hover:bg-cyan-700'
+                ? 'text-white bg-info-600 hover:bg-info-700'
                 : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
             title="Templates"
@@ -238,15 +256,39 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
         {/* Load Demo Template */}
         {onLoadDemo && (
-          <Button variant="primary" size="sm" leftIcon={<FlaskConical className="w-4 h-4" />} onClick={onLoadDemo} title="Load RAS Demo Template">Demo</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<FlaskConical className="w-4 h-4" />}
+            onClick={onLoadDemo}
+            title="Load RAS Demo Template"
+          >
+            Demo
+          </Button>
         )}
 
         {/* CSV Tag Import/Export */}
-        <Button variant="secondary" size="sm" leftIcon={<FileSpreadsheet className="w-4 h-4" />} onClick={onCsvDialogOpen} title="CSV Tag Import/Export">CSV</Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<FileSpreadsheet className="w-4 h-4" />}
+          onClick={onCsvDialogOpen}
+          title="CSV Tag Import/Export"
+        >
+          CSV
+        </Button>
 
         {/* PNG/PDF Export */}
         {onExportDialogOpen && (
-          <Button variant="secondary" size="sm" leftIcon={<ImageDown className="w-4 h-4" />} onClick={onExportDialogOpen} title="Export as PNG/PDF">Export</Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<ImageDown className="w-4 h-4" />}
+            onClick={onExportDialogOpen}
+            title="Export as PNG/PDF"
+          >
+            Export
+          </Button>
         )}
 
         <button
@@ -254,20 +296,20 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           disabled={isSaving || !packageName.trim()}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded-lg transition-colors ${
             isSaving || !packageName.trim()
-              ? 'bg-cyan-400 cursor-not-allowed'
-              : 'bg-cyan-600 hover:bg-cyan-700'
+              ? 'bg-info-400 cursor-not-allowed'
+              : 'bg-info-600 hover:bg-info-700'
           }`}
         >
-          {isSaving ? (
-            <Spinner size="sm" color="inherit" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
+          {isSaving ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
           {isSaving ? 'Saving...' : 'Save'}
         </button>
 
         {/* Mode Segment Control */}
-        <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 border border-gray-200 dark:border-gray-700" role="radiogroup" aria-label="Builder mode">
+        <div
+          className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 border border-gray-200 dark:border-gray-700"
+          role="radiogroup"
+          aria-label="Builder mode"
+        >
           <button
             onClick={() => onModeChange('edit')}
             role="radio"
@@ -303,7 +345,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             aria-label="Simulation mode"
             className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
               mode === 'simulation'
-                ? 'bg-cyan-600 text-white shadow-sm font-medium'
+                ? 'bg-info-600 text-white shadow-sm font-medium'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -313,14 +355,29 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
         </div>
 
         <div className="relative" ref={deployMenuRef}>
-          <Button variant="primary" size="sm" rightIcon={<ChevronDown className="w-3.5 h-3.5" />} onClick={() => setShowDeployMenu(!showDeployMenu)}>Deploy</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            rightIcon={<ChevronDown className="w-3.5 h-3.5" />}
+            onClick={() => setShowDeployMenu(!showDeployMenu)}
+          >
+            Deploy
+          </Button>
           {showDeployMenu && (
             <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
-              <Button variant="ghost" size="sm" onClick={() => {
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
                   setShowDeployMenu(false);
                   onDeployClick();
-                }}>Deploy to Edge Device</Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowDeployMenu(false)}>Publish to Cloud</Button>
+                }}
+              >
+                Deploy to Edge Device
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowDeployMenu(false)}>
+                Publish to Cloud
+              </Button>
             </div>
           )}
         </div>

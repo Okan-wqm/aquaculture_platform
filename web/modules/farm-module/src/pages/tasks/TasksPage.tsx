@@ -261,8 +261,8 @@ const TasksPage: React.FC = () => {
           title="Görev Yönetimi"
           description="Günlük operasyonlar, tekrarlayan görevler ve otomatik kurallarla çiftlik yönetimi"
           leading={
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Clipboard className="w-6 h-6 text-blue-600" aria-hidden="true" />
+            <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <Clipboard className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
             </div>
           }
           className="px-4 sm:px-6 py-6"
@@ -281,7 +281,7 @@ const TasksPage: React.FC = () => {
                   flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors
                   ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}

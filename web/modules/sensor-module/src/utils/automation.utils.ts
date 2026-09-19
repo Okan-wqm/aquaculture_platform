@@ -29,10 +29,13 @@ export enum ProgramType {
 export const getStatusColor = (status: ProgramStatus): string => {
   const colors: Record<ProgramStatus, string> = {
     [ProgramStatus.DRAFT]: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-    [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700',
-    [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700',
-    [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700',
-    [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700',
+    [ProgramStatus.PENDING_REVIEW]:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    [ProgramStatus.APPROVED]: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    [ProgramStatus.DEPLOYING]:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    [ProgramStatus.DEPLOYED]:
+      'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     [ProgramStatus.ARCHIVED]: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
   };
   return colors[status] || colors[ProgramStatus.DRAFT];

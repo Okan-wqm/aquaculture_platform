@@ -41,13 +41,13 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
   return (
     <Modal isOpen onClose={onClose} title="Apply Parameter Template" size="lg">
       {/* Warning Banner */}
-      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+      <div className="mb-4 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
         <div className="flex">
           <TriangleAlert
-            className="h-5 w-5 text-amber-400 mr-2 flex-shrink-0 mt-0.5"
+            className="h-5 w-5 text-warning-400 mr-2 flex-shrink-0 mt-0.5"
             aria-hidden="true"
           />
-          <p className="text-sm text-amber-800">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             This will configure your water quality parameters. Existing parameters can be kept or
             replaced.
           </p>
@@ -62,7 +62,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
       )}
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
           Failed to load templates: {(error as Error).message}
         </div>
       )}
@@ -84,7 +84,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                 onClick={() => setSelectedId(tpl.templateId)}
                 className={`text-left border-2 rounded-lg p-4 transition-colors ${
                   isSelected
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                     : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 bg-white dark:bg-gray-900'
                 }`}
               >
@@ -94,7 +94,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                   </h4>
                   {isSelected && (
                     <CircleCheck
-                      className="w-5 h-5 text-blue-600 flex-shrink-0"
+                      className="w-5 h-5 text-info-600 dark:text-info-400 flex-shrink-0"
                       aria-hidden="true"
                     />
                   )}
@@ -109,7 +109,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                     {tpl.species.map((sp: string) => (
                       <span
                         key={sp}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800"
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
                       >
                         {sp}
                       </span>
@@ -134,7 +134,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
             type="checkbox"
             checked={overwrite}
             onChange={(e) => setOverwrite(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
           <span className="text-sm text-gray-700 dark:text-gray-300">
             Replace existing parameters

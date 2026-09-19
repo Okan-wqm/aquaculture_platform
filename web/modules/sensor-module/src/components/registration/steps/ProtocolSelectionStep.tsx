@@ -37,8 +37,8 @@ function CategoryCard({
       onClick={onClick}
       className={`p-4 border-2 rounded-lg text-left transition-all ${
         isSelected
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex items-center space-x-3">
@@ -46,7 +46,7 @@ function CategoryCard({
         <div>
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
-          <span className="text-xs text-blue-600">{count} protocols</span>
+          <span className="text-xs text-info-600 dark:text-info-400">{count} protocols</span>
         </div>
       </div>
     </button>
@@ -68,8 +68,8 @@ function ProtocolCard({
       onClick={onClick}
       className={`p-4 border-2 rounded-lg text-left transition-all w-full ${
         isSelected
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex justify-between items-start">
@@ -88,7 +88,7 @@ function ProtocolCard({
           </div>
         </div>
         {isSelected && (
-          <span className="text-blue-500">
+          <span className="text-info-500">
             <CircleCheck className="w-6 h-6" aria-hidden="true" />
           </span>
         )}
@@ -96,18 +96,22 @@ function ProtocolCard({
       {/* Capabilities */}
       <div className="flex flex-wrap gap-1 mt-3">
         {protocol.capabilities?.supportsDiscovery && (
-          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">Discovery</span>
+          <span className="px-2 py-0.5 bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-xs rounded">
+            Discovery
+          </span>
         )}
         {protocol.capabilities?.supportsPolling && (
-          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Polling</span>
+          <span className="px-2 py-0.5 bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-xs rounded">
+            Polling
+          </span>
         )}
         {protocol.capabilities?.supportsSubscription && (
-          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">
+          <span className="px-2 py-0.5 bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 text-xs rounded">
             Subscribe
           </span>
         )}
         {protocol.capabilities?.supportsEncryption && (
-          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">
+          <span className="px-2 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs rounded">
             Encrypted
           </span>
         )}
@@ -156,7 +160,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+      <div className="p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300">
         Failed to load protocols: {error.message}
       </div>
     );

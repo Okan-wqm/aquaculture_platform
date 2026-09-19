@@ -48,18 +48,21 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
     description: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [provisioningResult, setProvisioningResult] = useState<ProvisionedDeviceResponse | null>(null);
+  const [provisioningResult, setProvisioningResult] = useState<ProvisionedDeviceResponse | null>(
+    null,
+  );
   const [showInstallerModal, setShowInstallerModal] = useState(false);
 
   const { mutate: createDevice, isPending: isCreating } = useCreateProvisionedDevice();
 
   const handleInputChange = useCallback(
-    (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-      const value = e.target.value;
-      setFormData((prev) => ({ ...prev, [field]: value }));
-      setError(null);
-    },
-    []
+    (field: keyof FormData) =>
+      (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const value = e.target.value;
+        setFormData((prev) => ({ ...prev, [field]: value }));
+        setError(null);
+      },
+    [],
   );
 
   const validateForm = useCallback((): boolean => {
@@ -91,7 +94,9 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
       },
       onError: (err) => {
         console.error('Failed to provision edge device:', err);
-        setError(err instanceof Error ? err.message : 'Cihaz oluşturulamadı. Lütfen tekrar deneyin.');
+        setError(
+          err instanceof Error ? err.message : 'Cihaz oluşturulamadı. Lütfen tekrar deneyin.',
+        );
       },
     });
   }, [formData, validateForm, createDevice, onSuccess]);
@@ -138,8 +143,11 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         bodyClassName="p-6 space-y-5"
         footer={
           <div className="flex w-full items-center justify-between">
-            <Button variant="secondary" onClick={handleClose}>İptal</Button>
-            <Button variant="primary" size="lg" onClick={handleSubmit} disabled={isCreating}>{isCreating ? (
+            <Button variant="secondary" onClick={handleClose}>
+              İptal
+            </Button>
+            <Button variant="primary" size="lg" onClick={handleSubmit} disabled={isCreating}>
+              {isCreating ? (
                 <>
                   <Spinner size="sm" color="inherit" />
                   Oluşturuluyor...
@@ -149,22 +157,23 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
                   <CheckCircle className="w-4 h-4" />
                   Cihaz Oluştur
                 </>
-              )}</Button>
+              )}
+            </Button>
           </div>
         }
       >
         {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="flex items-center gap-2 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <span className="text-sm">{error}</span>
           </div>
         )}
 
         {/* Info Box */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
-            Cihaz oluşturulduktan sonra size bir kurulum komutu verilecek.
-            Bu komutu Linux cihazınızda çalıştırarak otomatik kurulum yapabilirsiniz.
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+          <p className="text-sm text-info-800 dark:text-info-200">
+            Cihaz oluşturulduktan sonra size bir kurulum komutu verilecek. Bu komutu Linux
+            cihazınızda çalıştırarak otomatik kurulum yapabilirsiniz.
           </p>
         </div>
 
@@ -176,7 +185,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
           <select
             value={formData.deviceModel}
             onChange={handleInputChange('deviceModel')}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-900"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
           >
             <option value="">Model seçin (opsiyonel)...</option>
             {DEVICE_MODELS.map((model) => (
@@ -193,19 +202,44 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Cihaz Adı
             </label>
-            <Input fullWidth type="text" value={formData.deviceName} onChange={handleInputChange('deviceName')} placeholder="Bodrum RAS Controller" />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Opsiyonel - otomatik oluşturulur</p>
+            <Input
+              fullWidth
+              type="text"
+              value={formData.deviceName}
+              onChange={handleInputChange('deviceName')}
+              placeholder="Bodrum RAS Controller"
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Opsiyonel - otomatik oluşturulur
+            </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Seri Numarasi</label>
-            <Input fullWidth type="text" value={formData.serialNumber} onChange={handleInputChange('serialNumber')} placeholder="123456789" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Seri Numarasi
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={formData.serialNumber}
+              onChange={handleInputChange('serialNumber')}
+              placeholder="123456789"
+            />
           </div>
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama (Opsiyonel)</label>
-          <Textarea className="resize-none" fullWidth value={formData.description} onChange={handleInputChange('description')} placeholder="Ana RAS sistemini kontrol eden edge controller..." rows={2} />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Açıklama (Opsiyonel)
+          </label>
+          <Textarea
+            className="resize-none"
+            fullWidth
+            value={formData.description}
+            onChange={handleInputChange('description')}
+            placeholder="Ana RAS sistemini kontrol eden edge controller..."
+            rows={2}
+          />
         </div>
       </Modal>
 

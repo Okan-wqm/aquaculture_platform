@@ -24,7 +24,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
         className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-100 text-green-700 text-xs font-bold">
+          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-xs font-bold">
             {number}
           </span>
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h3>

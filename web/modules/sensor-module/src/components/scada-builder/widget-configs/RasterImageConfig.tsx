@@ -24,15 +24,10 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Allowed MIME types for raster image upload */
-const ALLOWED_MIME_TYPES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-]);
+const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 const ACCEPT_ATTR = '.png,.jpg,.jpeg,.gif,.webp';
 
@@ -112,7 +107,9 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Image</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        Image
+      </div>
 
       {/* Image preview */}
       {imageSrc && (
@@ -122,7 +119,17 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
             alt={(config.altText as string) || (config.alt as string) || 'Widget image'}
             className="w-full h-24 object-contain rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
           />
-          <Button variant="danger" size="xs" className="absolute top-1 right-1 w-5 h-5 justify-center" type="button" onClick={handleRemoveImage} aria-label="Remove image" title="Remove image">X</Button>
+          <Button
+            variant="danger"
+            size="xs"
+            className="absolute top-1 right-1 w-5 h-5 justify-center"
+            type="button"
+            onClick={handleRemoveImage}
+            aria-label="Remove image"
+            title="Remove image"
+          >
+            X
+          </Button>
         </div>
       )}
 
@@ -140,7 +147,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="w-full py-2 text-sm text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 rounded-lg transition-colors"
+          className="w-full py-2 text-sm text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 hover:bg-info-100 dark:hover:bg-info-900/50 border border-info-200 dark:border-info-800 rounded-lg transition-colors"
         >
           {imageSrc ? 'Replace Image' : 'Upload Image'}
         </button>
@@ -149,7 +156,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Error / warning messages */}
       {error && (
         <div
-          className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2"
+          className="text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-2"
           role="alert"
           data-testid="image-error"
         >
@@ -158,7 +165,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       )}
       {warning && (
         <div
-          className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-2"
+          className="text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-2"
           role="status"
           data-testid="image-warning"
         >

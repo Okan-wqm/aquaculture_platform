@@ -1,11 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Package,
-  Search,
-  RefreshCw,
-  AlertCircle,
-} from 'lucide-react';
+import { Package, Search, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
@@ -13,24 +8,30 @@ import type { DisplayModule } from '../components/modules';
 
 /** Module route mapping -- correct dashboard routes. */
 const moduleRouteMap: Record<string, string> = {
-  'farm': '/farm/dashboard',
-  'sensor': '/sensor/dashboard',
-  'hr': '/hr/dashboard',
-  'hydroponics': '/hydroponics/setup',
+  farm: '/farm/dashboard',
+  sensor: '/sensor/dashboard',
+  hr: '/hr/dashboard',
+  hydroponics: '/hydroponics/setup',
 };
 
 const moduleIconMap: Record<string, string> = {
-  'farm': '\uD83D\uDC1F',
-  'sensor': '\uD83D\uDCCA',
-  'hr': '\uD83D\uDC65',
-  'hydroponics': '\uD83C\uDF31',
+  farm: '\uD83D\uDC1F',
+  sensor: '\uD83D\uDCCA',
+  hr: '\uD83D\uDC65',
+  hydroponics: '\uD83C\uDF31',
 };
 
 const moduleFeaturesMap: Record<string, string[]> = {
-  'farm': ['Site Management', 'Tank Tracking', 'Batch Management', 'Feeding', 'Growth Monitoring'],
-  'sensor': ['Real-time Data', 'Alerts', 'Historical Trends', 'Device Management'],
-  'hr': ['Employee Records', 'Attendance', 'Payroll', 'Leave Management'],
-  'hydroponics': ['System Management', 'Nutrient Solutions', 'Growing Beds', 'Climate Control', 'Harvest Tracking'],
+  farm: ['Site Management', 'Tank Tracking', 'Batch Management', 'Feeding', 'Growth Monitoring'],
+  sensor: ['Real-time Data', 'Alerts', 'Historical Trends', 'Device Management'],
+  hr: ['Employee Records', 'Attendance', 'Payroll', 'Leave Management'],
+  hydroponics: [
+    'System Management',
+    'Nutrient Solutions',
+    'Growing Beds',
+    'Climate Control',
+    'Harvest Tracking',
+  ],
 };
 
 /**
@@ -102,7 +103,7 @@ const TenantModules: React.FC = () => {
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-success-600 dark:text-success-400" />
       </div>
     );
   }
@@ -112,11 +113,19 @@ const TenantModules: React.FC = () => {
       {/* Page Header */}
       <PageHeader
         title="Modules"
-        description="Manage your tenant&apos;s modules and assign managers"
+        description="Manage your tenant's modules and assign managers"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refreshAuth()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
-            <span className="px-3 py-1.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium">
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={() => refreshAuth()}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
+            <span className="px-3 py-1.5 rounded-lg bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 text-sm font-medium">
               {modules.filter((m) => m.status === 'active').length} Active
             </span>
           </div>
@@ -125,15 +134,19 @@ const TenantModules: React.FC = () => {
 
       {/* FIX MED-17: Error state when fetch fails */}
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load module data</p>
-            <p className="text-sm text-red-600">
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load module data
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">
               {fetchError instanceof Error ? fetchError.message : 'Unknown error occurred'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refreshAuth()}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={() => refreshAuth()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -147,10 +160,19 @@ const TenantModules: React.FC = () => {
               placeholder="Search modules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
             />
           </div>
-          <Select options={[{ value: 'all', label: 'All Status' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'pending', label: 'Pending' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <Select
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'pending', label: 'Pending' },
+            ]}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          />
         </div>
       </div>
 

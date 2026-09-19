@@ -98,7 +98,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
     <div
       className={`
         bg-white dark:bg-gray-900 rounded-lg border shadow-sm hover:shadow-md transition-shadow
-        ${isUrgent ? 'border-red-200' : 'border-gray-200 dark:border-gray-700'}
+        ${isUrgent ? 'border-error-200 dark:border-error-800' : 'border-gray-200 dark:border-gray-700'}
         ${onClick ? 'cursor-pointer' : ''}
       `}
       onClick={onClick}
@@ -107,12 +107,12 @@ export const ReportCard: React.FC<ReportCardProps> = ({
       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`${isUrgent ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+            <span className={`${isUrgent ? 'text-error-500' : 'text-gray-500 dark:text-gray-400'}`}>
               {typeConfig.icon}
             </span>
             <span className="font-medium text-gray-900 dark:text-gray-100">{typeConfig.label}</span>
             {isUrgent && (
-              <span className="px-1.5 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded">
+              <span className="px-1.5 py-0.5 text-xs font-medium text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40 rounded">
                 URGENT
               </span>
             )}

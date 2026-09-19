@@ -84,7 +84,13 @@ export { Tabs, TabPanel, tabId, panelId } from './Tabs';
 export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
 
 // Severity + tag quality — one vocabulary, one palette
-export { SeverityBadge, SEVERITIES, normalizeSeverity, severityClasses, severityColor } from './Severity';
+export {
+  SeverityBadge,
+  SEVERITIES,
+  normalizeSeverity,
+  severityClasses,
+  severityColor,
+} from './Severity';
 export type { Severity, SeverityTone, SeverityBadgeProps } from './Severity';
 export { QualityIndicator, normalizeQuality, qualityClasses, qualityColor } from './Quality';
 export type { TagQuality, QualityIndicatorProps } from './Quality';
@@ -154,6 +160,7 @@ export {
   ChartContainer,
   ChartLegend,
   ChartTooltip,
+  ChartTooltipContent,
 } from './Charts';
 export type {
   AreaChartProps,
@@ -167,6 +174,9 @@ export type {
   ChartContainerProps,
   ChartLegendProps,
   ChartTooltipProps,
+  ChartTooltipContentProps,
+  ChartTooltipPayloadItem,
+  ChartTooltipFormatter,
   BarDataset,
   DataPoint,
   LegendItem,
@@ -187,4 +197,9 @@ export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
 export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent } from './a11y';
-export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps, SkipToContentProps } from './a11y';
+export type {
+  VisuallyHiddenProps,
+  FocusTrapProps,
+  RouteAnnouncerProps,
+  SkipToContentProps,
+} from './a11y';

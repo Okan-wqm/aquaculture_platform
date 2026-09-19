@@ -365,10 +365,13 @@ const ModulePricingPage: React.FC = () => {
       )}
 
       {/* Info Banner */}
-      <Card className="p-4 bg-indigo-50 border-indigo-200">
+      <Card className="p-4 bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800">
         <div className="flex items-start gap-3">
-          <InfoIcon className="w-5 h-5 text-indigo-600 mt-0.5" aria-hidden="true" />
-          <div className="text-sm text-indigo-800">
+          <InfoIcon
+            className="w-5 h-5 text-primary-600 dark:text-primary-400 mt-0.5"
+            aria-hidden="true"
+          />
+          <div className="text-sm text-primary-800 dark:text-primary-200">
             <strong>Module-Based Pricing:</strong> Each module has a base price plus usage-based
             metrics. Tier multipliers apply discounts for higher plan tiers. Included quantities are
             free.
@@ -465,7 +468,7 @@ const ModulePricingPage: React.FC = () => {
                     return (
                       <span
                         key={tier}
-                        className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full"
+                        className="px-2 py-1 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 text-xs rounded-full"
                       >
                         {tier}: {discount}
                       </span>
@@ -540,7 +543,7 @@ const ModulePricingPage: React.FC = () => {
                   key={metric.metricType}
                   className={`p-4 rounded-lg ${
                     isBasePrice(metric.metricType)
-                      ? 'bg-indigo-50 border border-indigo-200'
+                      ? 'bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800'
                       : 'bg-gray-50 dark:bg-gray-800'
                   }`}
                 >
@@ -563,7 +566,7 @@ const ModulePricingPage: React.FC = () => {
                     </div>
                   </div>
                   {metric.includedQuantity && metric.includedQuantity > 0 && (
-                    <div className="mt-2 text-sm text-green-600">
+                    <div className="mt-2 text-sm text-success-600 dark:text-success-400">
                       {metric.includedQuantity} included free
                     </div>
                   )}
@@ -587,7 +590,7 @@ const ModulePricingPage: React.FC = () => {
                     </div>
                     <div className="font-bold">{`${Number(multiplier ?? '1') * 100}%`}</div>
                     {Number(multiplier ?? '1') < 1 && (
-                      <div className="text-xs text-green-600">
+                      <div className="text-xs text-success-600 dark:text-success-400">
                         {Math.round((1 - Number(multiplier)) * 100)}% off
                       </div>
                     )}
@@ -651,7 +654,7 @@ const ModulePricingPage: React.FC = () => {
                   key={metric.metricType}
                   className={`p-4 rounded-lg border ${
                     isBasePrice(metric.metricType)
-                      ? 'bg-indigo-50 border-indigo-200'
+                      ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800'
                       : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                   }`}
                 >
@@ -662,7 +665,7 @@ const ModulePricingPage: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleRemoveMetric(metric.metricType)}
-                        className="text-red-600 hover:text-red-700"
+                        className="text-error-600 dark:text-error-400 hover:text-error-700 dark:hover:text-error-200"
                       >
                         Remove
                       </Button>
@@ -754,7 +757,7 @@ const ModulePricingPage: React.FC = () => {
               Notes
             </label>
             <textarea
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               rows={3}
               value={editForm.notes}
               onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}

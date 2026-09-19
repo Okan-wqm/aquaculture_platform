@@ -105,9 +105,13 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Service Status</h3>
         <div className="flex items-center space-x-2 text-sm">
-          <span className="text-green-600">{healthyCount} Healthy</span>
-          {degradedCount > 0 && <span className="text-yellow-600">{degradedCount} Degraded</span>}
-          {unhealthyCount > 0 && <span className="text-red-600">{unhealthyCount} Unhealthy</span>}
+          <span className="text-success-600 dark:text-success-400">{healthyCount} Healthy</span>
+          {degradedCount > 0 && (
+            <span className="text-warning-600 dark:text-warning-400">{degradedCount} Degraded</span>
+          )}
+          {unhealthyCount > 0 && (
+            <span className="text-error-600 dark:text-error-400">{unhealthyCount} Unhealthy</span>
+          )}
         </div>
       </div>
       <div className="p-4">
@@ -117,20 +121,20 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
               key={service.name}
               className={`p-3 rounded-lg border ${
                 service.status === 'healthy'
-                  ? 'border-green-200 bg-green-50'
+                  ? 'border-success-200 dark:border-success-800 bg-success-50 dark:bg-success-900/20'
                   : service.status === 'degraded'
-                    ? 'border-yellow-200 bg-yellow-50'
-                    : 'border-red-200 bg-red-50'
+                    ? 'border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20'
+                    : 'border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20'
               }`}
             >
               <div className="flex items-center space-x-2">
                 <div
                   className={`w-2 h-2 rounded-full ${
                     service.status === 'healthy'
-                      ? 'bg-green-500'
+                      ? 'bg-success-500'
                       : service.status === 'degraded'
-                        ? 'bg-yellow-500'
-                        : 'bg-red-500'
+                        ? 'bg-warning-500'
+                        : 'bg-error-500'
                   }`}
                 />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -275,12 +279,22 @@ const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) =
 // ============================================================================
 
 const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
-  closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
-  open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
+  closed: {
+    bg: 'bg-success-50 dark:bg-success-900/20',
+    border: 'border-success-200 dark:border-success-800',
+    dot: 'bg-success-500',
+    label: 'Closed',
+  },
+  open: {
+    bg: 'bg-error-50 dark:bg-error-900/20',
+    border: 'border-error-200 dark:border-error-800',
+    dot: 'bg-error-500',
+    label: 'Open',
+  },
   half_open: {
-    bg: 'bg-yellow-50',
-    border: 'border-yellow-200',
-    dot: 'bg-yellow-500',
+    bg: 'bg-warning-50 dark:bg-warning-900/20',
+    border: 'border-warning-200 dark:border-warning-800',
+    dot: 'bg-warning-500',
     label: 'Half-Open',
   },
 };

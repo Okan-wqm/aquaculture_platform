@@ -29,14 +29,7 @@
  *   - CSS animations run entirely on the compositor thread
  */
 
-import React, {
-  memo,
-  Suspense,
-  useMemo,
-  useCallback,
-  Component,
-  type ErrorInfo,
-} from 'react';
+import React, { memo, Suspense, useMemo, useCallback, Component, type ErrorInfo } from 'react';
 
 import type {
   WidgetAction,
@@ -48,21 +41,21 @@ import type { ScadaWidgetType } from '../../../types/scada-widget.types';
 
 import { useRealtimeData } from '../../../hooks/useRealtimeData';
 import { useOperatorPermission } from '../../../hooks/useOperatorPermission';
-import { useWidgetActions }      from '../../../hooks/useWidgetActions';
-import { useWidgetEvents }       from '../../../hooks/useWidgetEvents';
+import { useWidgetActions } from '../../../hooks/useWidgetActions';
+import { useWidgetEvents } from '../../../hooks/useWidgetEvents';
 
 // Existing editor-mode renderers (delegated with isEditing=false)
-import { WidgetRenderer }        from '../../scada-builder/WidgetRenderer';
+import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
 import { Spinner } from '@aquaculture/shared-ui';
 
 // Runtime-only components (lazy-loaded for code splitting)
-const RuntimeGauge     = React.lazy(() => import('./RuntimeGauge'));
-const RuntimeInput     = React.lazy(() => import('./RuntimeInput'));
-const RuntimePipe      = React.lazy(() => import('./RuntimePipe'));
-const RuntimeTable     = React.lazy(() => import('./RuntimeTable'));
-const RuntimeVideo     = React.lazy(() => import('./RuntimeVideo'));
+const RuntimeGauge = React.lazy(() => import('./RuntimeGauge'));
+const RuntimeInput = React.lazy(() => import('./RuntimeInput'));
+const RuntimePipe = React.lazy(() => import('./RuntimePipe'));
+const RuntimeTable = React.lazy(() => import('./RuntimeTable'));
+const RuntimeVideo = React.lazy(() => import('./RuntimeVideo'));
 const RuntimeScheduler = React.lazy(() => import('./RuntimeScheduler'));
-const RuntimeChart     = React.lazy(() => import('./RuntimeChart'));
+const RuntimeChart = React.lazy(() => import('./RuntimeChart'));
 
 /* ------------------------------------------------------------------ */
 /*  CSS injection (blink keyframes — once per document)                */
@@ -151,14 +144,16 @@ class RuntimeErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <div
-          className="flex flex-col items-center justify-center bg-red-50 text-red-700 text-xs rounded gap-1 p-2 text-center"
+          className="flex flex-col items-center justify-center bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 text-xs rounded gap-1 p-2 text-center"
           style={{ width: this.props.w, height: this.props.h }}
           role="alert"
           aria-label={`Widget error: ${this.props.widgetType}`}
         >
           <span className="text-base">⚠</span>
           <span>{this.props.widgetType}</span>
-          <span className="text-[10px] text-red-400 truncate max-w-full">{this.state.message}</span>
+          <span className="text-[10px] text-error-400 truncate max-w-full">
+            {this.state.message}
+          </span>
         </div>
       );
     }
@@ -176,11 +171,11 @@ class RuntimeErrorBoundary extends Component<
  */
 function isRuntimeOnlyType(t: AnyWidgetType): t is RuntimeOnlyWidgetType {
   return (
-    t === 'runtimeGauge'     ||
-    t === 'runtimeInput'     ||
-    t === 'runtimePipe'      ||
-    t === 'runtimeTable'     ||
-    t === 'runtimeVideo'     ||
+    t === 'runtimeGauge' ||
+    t === 'runtimeInput' ||
+    t === 'runtimePipe' ||
+    t === 'runtimeTable' ||
+    t === 'runtimeVideo' ||
     t === 'runtimeScheduler' ||
     t === 'runtimeChart'
   );
@@ -223,63 +218,68 @@ const RuntimeOnlyRenderer = memo<{
   onCommand: ((command: string, value?: unknown) => void) | undefined;
   w: number;
   h: number;
-}>(({
-  widgetType,
-  config,
-  tagIds,
-  tagValues,
-  primaryValue,
-  primaryTimestamp,
-  primaryQuality,
-  isEnabled,
-  isVisible,
-  actions,
-  events,
-  onCommand,
-  w,
-  h,
-}) => {
-  // Base props shared by all Runtime* components (matches RuntimeWidgetProps)
-  const sharedProps = {
-    value:          primaryValue,
-    timestamp:      primaryTimestamp,
-    quality:        primaryQuality,
+}>(
+  ({
+    widgetType,
     config,
-    isOperatorMode: true,
-    isVisible,
+    tagIds,
+    tagValues,
+    primaryValue,
+    primaryTimestamp,
+    primaryQuality,
     isEnabled,
-    onCommand,
+    isVisible,
     actions,
     events,
-    tagValues,
-    width:  w,
-    height: h,
-  };
+    onCommand,
+    w,
+    h,
+  }) => {
+    // Base props shared by all Runtime* components (matches RuntimeWidgetProps)
+    const sharedProps = {
+      value: primaryValue,
+      timestamp: primaryTimestamp,
+      quality: primaryQuality,
+      config,
+      isOperatorMode: true,
+      isVisible,
+      isEnabled,
+      onCommand,
+      actions,
+      events,
+      tagValues,
+      width: w,
+      height: h,
+    };
 
-  switch (widgetType) {
-    case 'runtimeGauge':
-      return <RuntimeGauge {...sharedProps} />;
-    case 'runtimeInput':
-      return <RuntimeInput {...sharedProps} />;
-    case 'runtimePipe':
-      return <RuntimePipe {...sharedProps} />;
-    case 'runtimeTable':
-      // RuntimeTable accepts the extra tagIds prop for history-mode queries
-      return <RuntimeTable {...sharedProps} tagIds={tagIds} />;
-    case 'runtimeVideo':
-      return <RuntimeVideo {...sharedProps} />;
-    case 'runtimeScheduler':
-      return <RuntimeScheduler {...sharedProps} />;
-    case 'runtimeChart':
-      return <RuntimeChart {...sharedProps} />;
-    default:
-      return (
-        <div className="flex items-center justify-center text-xs text-gray-400 dark:text-gray-500" style={{ width: w, height: h }}>
-          Unknown runtime widget: {widgetType}
-        </div>
-      );
-  }
-});
+    switch (widgetType) {
+      case 'runtimeGauge':
+        return <RuntimeGauge {...sharedProps} />;
+      case 'runtimeInput':
+        return <RuntimeInput {...sharedProps} />;
+      case 'runtimePipe':
+        return <RuntimePipe {...sharedProps} />;
+      case 'runtimeTable':
+        // RuntimeTable accepts the extra tagIds prop for history-mode queries
+        return <RuntimeTable {...sharedProps} tagIds={tagIds} />;
+      case 'runtimeVideo':
+        return <RuntimeVideo {...sharedProps} />;
+      case 'runtimeScheduler':
+        return <RuntimeScheduler {...sharedProps} />;
+      case 'runtimeChart':
+        return <RuntimeChart {...sharedProps} />;
+      default:
+        return (
+          <div
+            className="flex items-center justify-center text-xs text-gray-400 dark:text-gray-500"
+            style={{ width: w, height: h }}
+          >
+            Unknown runtime widget: {widgetType}
+          </div>
+        );
+    }
+  },
+);
 RuntimeOnlyRenderer.displayName = 'RuntimeOnlyRenderer';
 
 /* ------------------------------------------------------------------ */
@@ -287,16 +287,7 @@ RuntimeOnlyRenderer.displayName = 'RuntimeOnlyRenderer';
 /* ------------------------------------------------------------------ */
 
 export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
-  ({
-    widgetType,
-    config,
-    tagIds,
-    position,
-    permission,
-    actions,
-    events,
-    onNavigate,
-  }) => {
+  ({ widgetType, config, tagIds, position, permission, actions, events, onNavigate }) => {
     // Inject blink CSS once
     React.useEffect(injectRuntimeStyles, []);
 
@@ -309,13 +300,10 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     const { visible, enabled } = useOperatorPermission(permission);
 
     /* ---- 3. Widget actions evaluation ---- */
-    const {
-      isHidden,
-      isBlinking,
-      currentColor,
-      rotation,
-      translation,
-    } = useWidgetActions(actions, tagValues);
+    const { isHidden, isBlinking, currentColor, rotation, translation } = useWidgetActions(
+      actions,
+      tagValues,
+    );
 
     /* ---- 4. Widget event bindings ---- */
     const { handleEvent } = useWidgetEvents(events, onNavigate);
@@ -335,19 +323,19 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     /* ---- 6. Primary tag value (first tagId drives the main value) ---- */
     const primaryTagId = tagIds[0] ?? '';
     const primaryChange: TagValueChange | undefined = tagValues[primaryTagId];
-    const primaryValue    = primaryChange?.value     ?? null;
-    const primaryTs       = primaryChange?.timestamp ?? 0;
-    const primaryQuality  = primaryChange?.quality   ?? 'good';
+    const primaryValue = primaryChange?.value ?? null;
+    const primaryTs = primaryChange?.timestamp ?? 0;
+    const primaryQuality = primaryChange?.quality ?? 'good';
 
     /* ---- 7. Wrapper styles from action effects ---- */
     const wrapperStyle = useMemo<React.CSSProperties>(() => {
       const style: React.CSSProperties = {
-        position:  'absolute',
-        left:      position.x,
-        top:       position.y,
-        width:     w,
-        height:    h,
-        overflow:  'hidden',
+        position: 'absolute',
+        left: position.x,
+        top: position.y,
+        width: w,
+        height: h,
+        overflow: 'hidden',
       };
 
       // Hide
@@ -385,7 +373,8 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     }, [
       position.x,
       position.y,
-      w, h,
+      w,
+      h,
       visible,
       isHidden,
       isBlinking,

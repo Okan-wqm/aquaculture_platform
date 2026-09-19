@@ -504,54 +504,54 @@ const STATUS_CONFIG: Record<
   },
   planned: {
     label: 'Planned',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-100',
+    color: 'text-info-700 dark:text-info-300',
+    bgColor: 'bg-info-100 dark:bg-info-900/40',
     icon: <Calendar className="w-4 h-4" />,
   },
   approved: {
     label: 'Approved',
-    color: 'text-indigo-700',
-    bgColor: 'bg-indigo-100',
+    color: 'text-primary-700 dark:text-primary-300',
+    bgColor: 'bg-primary-100 dark:bg-primary-900/40',
     icon: <CheckCircle className="w-4 h-4" />,
   },
   scheduled: {
     label: 'Scheduled',
-    color: 'text-purple-700',
-    bgColor: 'bg-purple-100',
+    color: 'text-accent-700 dark:text-accent-300',
+    bgColor: 'bg-accent-100 dark:bg-accent-900/40',
     icon: <Clock className="w-4 h-4" />,
   },
   in_progress: {
     label: 'In Progress',
-    color: 'text-yellow-700',
-    bgColor: 'bg-yellow-100',
+    color: 'text-warning-700 dark:text-warning-300',
+    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
     icon: <Play className="w-4 h-4" />,
   },
   completed: {
     label: 'Completed',
-    color: 'text-green-700',
-    bgColor: 'bg-green-100',
+    color: 'text-success-700 dark:text-success-300',
+    bgColor: 'bg-success-100 dark:bg-success-900/40',
     icon: <Check className="w-4 h-4" />,
   },
   cancelled: {
     label: 'Cancelled',
-    color: 'text-red-700',
-    bgColor: 'bg-red-100',
+    color: 'text-error-700 dark:text-error-300',
+    bgColor: 'bg-error-100 dark:bg-error-900/40',
     icon: <XCircle className="w-4 h-4" />,
   },
   postponed: {
     label: 'Postponed',
-    color: 'text-orange-700',
-    bgColor: 'bg-orange-100',
+    color: 'text-warning-700 dark:text-warning-300',
+    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
     icon: <Pause className="w-4 h-4" />,
   },
 };
 
 const HARVEST_TYPE_CONFIG: Record<HarvestType, { label: string; color: string }> = {
-  full: { label: 'Full Harvest', color: 'text-blue-600' },
-  partial: { label: 'Partial Harvest', color: 'text-purple-600' },
-  selective: { label: 'Selective', color: 'text-indigo-600' },
-  emergency: { label: 'Emergency', color: 'text-red-600' },
-  thinning: { label: 'Thinning', color: 'text-orange-600' },
+  full: { label: 'Full Harvest', color: 'text-info-600 dark:text-info-400' },
+  partial: { label: 'Partial Harvest', color: 'text-accent-600 dark:text-accent-400' },
+  selective: { label: 'Selective', color: 'text-primary-600 dark:text-primary-400' },
+  emergency: { label: 'Emergency', color: 'text-error-600 dark:text-error-400' },
+  thinning: { label: 'Thinning', color: 'text-warning-600 dark:text-warning-400' },
 };
 
 const PRODUCT_FORM_LABELS: Record<ProductForm, string> = {
@@ -663,7 +663,7 @@ const PlanCard: React.FC<{
         label: 'Submit for Approval',
         action: 'submit',
         icon: <ArrowRight className="w-4 h-4" />,
-        color: 'text-blue-600',
+        color: 'text-info-600 dark:text-info-400',
       });
     }
     if (plan.canApprove) {
@@ -671,7 +671,7 @@ const PlanCard: React.FC<{
         label: 'Approve',
         action: 'approve',
         icon: <CheckCircle className="w-4 h-4" />,
-        color: 'text-green-600',
+        color: 'text-success-600 dark:text-success-400',
       });
     }
     if (plan.canSchedule) {
@@ -679,7 +679,7 @@ const PlanCard: React.FC<{
         label: 'Schedule',
         action: 'schedule',
         icon: <Calendar className="w-4 h-4" />,
-        color: 'text-purple-600',
+        color: 'text-accent-600 dark:text-accent-400',
       });
     }
     if (plan.canStartHarvest) {
@@ -687,7 +687,7 @@ const PlanCard: React.FC<{
         label: 'Start Harvest',
         action: 'start',
         icon: <Play className="w-4 h-4" />,
-        color: 'text-yellow-600',
+        color: 'text-warning-600 dark:text-warning-400',
       });
     }
     if (plan.canComplete) {
@@ -695,7 +695,7 @@ const PlanCard: React.FC<{
         label: 'Complete Harvest',
         action: 'complete',
         icon: <Check className="w-4 h-4" />,
-        color: 'text-green-600',
+        color: 'text-success-600 dark:text-success-400',
       });
     }
     if (plan.canEdit && plan.status !== 'completed' && plan.status !== 'cancelled') {
@@ -703,13 +703,13 @@ const PlanCard: React.FC<{
         label: 'Postpone',
         action: 'postpone',
         icon: <Pause className="w-4 h-4" />,
-        color: 'text-orange-600',
+        color: 'text-warning-600 dark:text-warning-400',
       });
       actions.push({
         label: 'Cancel',
         action: 'cancel',
         icon: <XCircle className="w-4 h-4" />,
-        color: 'text-red-600',
+        color: 'text-error-600 dark:text-error-400',
       });
     }
 
@@ -785,7 +785,7 @@ const PlanCard: React.FC<{
           <Calendar className="w-3 h-3" />
           {formatDate(plan.plannedDate)}
           {plan.isOverdue && (
-            <span className="text-red-600 font-medium flex items-center gap-1">
+            <span className="text-error-600 dark:text-error-400 font-medium flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
               Overdue
             </span>
@@ -812,7 +812,7 @@ const PlanCard: React.FC<{
               </h3>
               <StatusBadge status={plan.status} />
               {plan.isOverdue && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
                   <AlertTriangle className="w-3 h-3" />
                   Overdue
                 </span>
@@ -938,9 +938,9 @@ const PlanCard: React.FC<{
         {plan.financialProjection && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-2 text-sm">
-              <DollarSign className="w-4 h-4 text-green-500" />
+              <DollarSign className="w-4 h-4 text-success-500" />
               <span className="text-gray-600 dark:text-gray-400">Est. Revenue:</span>
-              <span className="font-semibold text-green-600">
+              <span className="font-semibold text-success-600 dark:text-success-400">
                 {formatCurrency(
                   plan.financialProjection.estimatedRevenue,
                   plan.financialProjection.currency,
@@ -966,24 +966,28 @@ const PlanCard: React.FC<{
 
         {/* Actual Results for Completed */}
         {plan.status === 'completed' && plan.actualBiomassHarvested && (
-          <div className="bg-green-50 rounded-md p-3 mt-2">
-            <p className="text-xs font-medium text-green-800 mb-2">Actual Results</p>
+          <div className="bg-success-50 dark:bg-success-900/20 rounded-md p-3 mt-2">
+            <p className="text-xs font-medium text-success-800 dark:text-success-200 mb-2">
+              Actual Results
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-xs text-green-600">Quantity</p>
-                <p className="text-sm font-semibold text-green-800">
+                <p className="text-xs text-success-600 dark:text-success-400">Quantity</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
                   {formatNumber(plan.actualQuantityHarvested || 0)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-green-600">Biomass</p>
-                <p className="text-sm font-semibold text-green-800">
+                <p className="text-xs text-success-600 dark:text-success-400">Biomass</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
                   {formatNumber(plan.actualBiomassHarvested)} kg
                 </p>
               </div>
               <div>
-                <p className="text-xs text-green-600">Avg Weight</p>
-                <p className="text-sm font-semibold text-green-800">{plan.actualAvgWeight}g</p>
+                <p className="text-xs text-success-600 dark:text-success-400">Avg Weight</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
+                  {plan.actualAvgWeight}g
+                </p>
               </div>
             </div>
           </div>
@@ -1029,7 +1033,7 @@ const FilterPanel: React.FC<{
               value={filters.searchText}
               onChange={(e) => onFilterChange({ ...filters, searchText: e.target.value })}
               placeholder="Search by plan code, name..."
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm pl-9"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm pl-9"
             />
             <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
@@ -1045,7 +1049,7 @@ const FilterPanel: React.FC<{
             onChange={(e) =>
               onFilterChange({ ...filters, status: e.target.value as HarvestPlanStatus | '' })
             }
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
           >
             <option value="">All Statuses</option>
             {Object.entries(STATUS_CONFIG).map(([value, config]) => (
@@ -1066,7 +1070,7 @@ const FilterPanel: React.FC<{
             onChange={(e) =>
               onFilterChange({ ...filters, harvestType: e.target.value as HarvestType | '' })
             }
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
           >
             <option value="">All Types</option>
             {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
@@ -1085,7 +1089,7 @@ const FilterPanel: React.FC<{
           <select
             value={filters.batchId}
             onChange={(e) => onFilterChange({ ...filters, batchId: e.target.value })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
           >
             <option value="">All Batches</option>
             {batches.map((batch) => (
@@ -1129,7 +1133,7 @@ const FilterPanel: React.FC<{
               type="checkbox"
               checked={filters.activeOnly}
               onChange={(e) => onFilterChange({ ...filters, activeOnly: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Active Only</span>
           </label>
@@ -1138,7 +1142,7 @@ const FilterPanel: React.FC<{
               type="checkbox"
               checked={filters.overdueOnly}
               onChange={(e) => onFilterChange({ ...filters, overdueOnly: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Overdue Only</span>
           </label>
@@ -1211,7 +1215,7 @@ const HarvestPlanFormModal: React.FC<{
                   onClick={() => setActiveSection(section.id)}
                   className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors ${
                     activeSection === section.id
-                      ? 'bg-blue-100 text-blue-700'
+                      ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
@@ -1266,7 +1270,7 @@ const HarvestPlanFormModal: React.FC<{
                     required
                     value={formData.batchId || ''}
                     onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                   >
                     <option value="">Select a batch</option>
                     {batches.map((batch) => (
@@ -1288,7 +1292,7 @@ const HarvestPlanFormModal: React.FC<{
                       onChange={(e) =>
                         setFormData({ ...formData, harvestType: e.target.value as HarvestType })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                     >
                       {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
                         <option key={value} value={value}>
@@ -1310,7 +1314,7 @@ const HarvestPlanFormModal: React.FC<{
                           harvestMethod: (e.target.value as HarvestMethod) || undefined,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                     >
                       <option value="">Select method</option>
                       {Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => (
@@ -1336,7 +1340,7 @@ const HarvestPlanFormModal: React.FC<{
                           productForm: e.target.value as ProductForm,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
                     >
                       {Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => (
                         <option key={value} value={value}>
@@ -1899,7 +1903,7 @@ const HarvestPlanFormModal: React.FC<{
                             },
                           })
                         }
-                        className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                        className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                       />
                       <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
                         Cold Chain Required
@@ -2112,8 +2116,8 @@ const CompleteHarvestModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-blue-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-blue-800">
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-info-800 dark:text-info-200">
             Enter the actual harvest results for <strong>{plan.planCode}</strong>
           </p>
         </div>
@@ -2203,8 +2207,8 @@ const ScheduleModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-purple-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-purple-800">
+        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-accent-800 dark:text-accent-200">
             Set the confirmed harvest date for <strong>{plan.planCode}</strong>
           </p>
         </div>
@@ -2257,8 +2261,8 @@ const PostponeModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-orange-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-orange-800">
+        <div className="bg-warning-50 dark:bg-warning-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Postpone <strong>{plan.planCode}</strong> to a new date
           </p>
         </div>
@@ -2305,8 +2309,8 @@ const ConfirmDeleteModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="flex items-center gap-4 mb-4">
-        <div className="flex-shrink-0 p-3 bg-red-100 rounded-full">
-          <Trash2 className="w-6 h-6 text-red-600" />
+        <div className="flex-shrink-0 p-3 bg-error-100 dark:bg-error-900/40 rounded-full">
+          <Trash2 className="w-6 h-6 text-error-600 dark:text-error-400" />
         </div>
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -2633,7 +2637,7 @@ export const HarvestPlansPage: React.FC = () => {
         <>
           <StatusBadge status={plan.status} />
           {plan.isOverdue && (
-            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
               Overdue
             </span>
           )}
@@ -2682,7 +2686,7 @@ export const HarvestPlansPage: React.FC = () => {
       render: (_value, plan) => (
         <>
           {plan.financialProjection ? (
-            <span className="text-sm font-medium text-green-600">
+            <span className="text-sm font-medium text-success-600 dark:text-success-400">
               {formatCurrency(
                 plan.financialProjection.estimatedRevenue,
                 plan.financialProjection.currency,
@@ -2740,7 +2744,7 @@ export const HarvestPlansPage: React.FC = () => {
                   onClick={() => setShowFilters(!showFilters)}
                   className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
                     showFilters
-                      ? 'border-blue-500 text-blue-700 bg-blue-50'
+                      ? 'border-info-500 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20'
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -2778,36 +2782,36 @@ export const HarvestPlansPage: React.FC = () => {
           <StatsCard
             title="Planned"
             value={stats.planned}
-            icon={<Calendar className="w-5 h-5 text-blue-600" />}
-            color="bg-blue-100"
+            icon={<Calendar className="w-5 h-5 text-info-600 dark:text-info-400" />}
+            color="bg-info-100 dark:bg-info-900/40"
             onClick={() => setFilters({ ...filters, status: 'planned' })}
           />
           <StatsCard
             title="Approved"
             value={stats.approved}
-            icon={<CheckCircle className="w-5 h-5 text-indigo-600" />}
-            color="bg-indigo-100"
+            icon={<CheckCircle className="w-5 h-5 text-primary-600 dark:text-primary-400" />}
+            color="bg-primary-100 dark:bg-primary-900/40"
             onClick={() => setFilters({ ...filters, status: 'approved' })}
           />
           <StatsCard
             title="Scheduled"
             value={stats.scheduled}
-            icon={<Clock className="w-5 h-5 text-purple-600" />}
-            color="bg-purple-100"
+            icon={<Clock className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
+            color="bg-accent-100 dark:bg-accent-900/40"
             onClick={() => setFilters({ ...filters, status: 'scheduled' })}
           />
           <StatsCard
             title="In Progress"
             value={stats.inProgress}
-            icon={<Play className="w-5 h-5 text-yellow-600" />}
-            color="bg-yellow-100"
+            icon={<Play className="w-5 h-5 text-warning-600 dark:text-warning-400" />}
+            color="bg-warning-100 dark:bg-warning-900/40"
             onClick={() => setFilters({ ...filters, status: 'in_progress' })}
           />
           <StatsCard
             title="Completed"
             value={stats.completed}
-            icon={<Check className="w-5 h-5 text-green-600" />}
-            color="bg-green-100"
+            icon={<Check className="w-5 h-5 text-success-600 dark:text-success-400" />}
+            color="bg-success-100 dark:bg-success-900/40"
             onClick={() => setFilters({ ...filters, status: 'completed' })}
           />
         </div>
@@ -2818,29 +2822,29 @@ export const HarvestPlansPage: React.FC = () => {
             title="Est. Biomass"
             value={`${formatNumber(stats.totalEstimatedBiomass)} kg`}
             subtitle="Total planned"
-            icon={<Scale className="w-5 h-5 text-blue-600" />}
-            color="bg-blue-100"
+            icon={<Scale className="w-5 h-5 text-info-600 dark:text-info-400" />}
+            color="bg-info-100 dark:bg-info-900/40"
           />
           <StatsCard
             title="Actual Harvested"
             value={`${formatNumber(stats.totalActualBiomass)} kg`}
             subtitle="Completed harvests"
-            icon={<TrendingUp className="w-5 h-5 text-green-600" />}
-            color="bg-green-100"
+            icon={<TrendingUp className="w-5 h-5 text-success-600 dark:text-success-400" />}
+            color="bg-success-100 dark:bg-success-900/40"
           />
           <StatsCard
             title="Upcoming"
             value={stats.upcomingCount}
             subtitle="Next 30 days"
-            icon={<Calendar className="w-5 h-5 text-purple-600" />}
-            color="bg-purple-100"
+            icon={<Calendar className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
+            color="bg-accent-100 dark:bg-accent-900/40"
           />
           <StatsCard
             title="Overdue"
             value={stats.overdueCount}
             subtitle="Requires attention"
-            icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
-            color="bg-red-100"
+            icon={<AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />}
+            color="bg-error-100 dark:bg-error-900/40"
             onClick={() => setFilters({ ...filters, overdueOnly: true })}
           />
         </div>
@@ -2867,7 +2871,7 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('cards')}
               className={`p-2 rounded-md ${
                 viewMode === 'cards'
-                  ? 'bg-blue-100 text-blue-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
                   : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Card View"
@@ -2878,7 +2882,7 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('table')}
               className={`p-2 rounded-md ${
                 viewMode === 'table'
-                  ? 'bg-blue-100 text-blue-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
                   : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Table View"
@@ -2889,7 +2893,7 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('kanban')}
               className={`p-2 rounded-md ${
                 viewMode === 'kanban'
-                  ? 'bg-blue-100 text-blue-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
                   : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Kanban View"

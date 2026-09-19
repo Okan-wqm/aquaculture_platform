@@ -11,7 +11,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Spinner, PageHeader, severityClasses, Button, Input } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Spinner,
+  PageHeader,
+  severityClasses,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -128,7 +135,9 @@ const EMPTY_FORM: RuleFormData = {
 const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_OPTIONS.find((s) => s.value === severity) || SEVERITY_OPTIONS[3];
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+    >
       {config.label}
     </span>
   );
@@ -148,9 +157,7 @@ const ConditionEditor: React.FC<{
   onChange: (conditions: AlertCondition[]) => void;
 }> = ({ conditions, onChange }) => {
   const updateCondition = (index: number, field: keyof AlertCondition, value: unknown) => {
-    const updated = conditions.map((c, i) =>
-      i === index ? { ...c, [field]: value } : c,
-    );
+    const updated = conditions.map((c, i) => (i === index ? { ...c, [field]: value } : c));
     onChange(updated);
   };
 
@@ -167,9 +174,16 @@ const ConditionEditor: React.FC<{
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Koşullar <span className="text-red-500">*</span>
+          Koşullar <span className="text-error-500">*</span>
         </label>
-        <Button variant="ghost" leftIcon={<Plus className="w-4 h-4" />} type="button" onClick={addCondition}>Koşul Ekle</Button>
+        <Button
+          variant="ghost"
+          leftIcon={<Plus className="w-4 h-4" />}
+          type="button"
+          onClick={addCondition}
+        >
+          Koşul Ekle
+        </Button>
       </div>
 
       {conditions.map((condition, index) => (
@@ -178,20 +192,32 @@ const ConditionEditor: React.FC<{
           className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Koşul #{index + 1}</span>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Koşul #{index + 1}
+            </span>
             {conditions.length > 1 && (
-              <Button variant="ghost" iconOnly aria-label="Close" type="button" onClick={() => removeCondition(index)}><X className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Close"
+                type="button"
+                onClick={() => removeCondition(index)}
+              >
+                <X className="w-4 h-4" />
+              </Button>
             )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {/* Parameter */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Parametre</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Parametre
+              </label>
               <select
                 value={condition.parameter}
                 onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
               >
                 {PARAMETER_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -203,11 +229,15 @@ const ConditionEditor: React.FC<{
 
             {/* Operator */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Operator</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Operator
+              </label>
               <select
                 value={condition.operator}
-                onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                onChange={(e) =>
+                  updateCondition(index, 'operator', e.target.value as AlertOperator)
+                }
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
               >
                 {OPERATOR_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -219,17 +249,31 @@ const ConditionEditor: React.FC<{
 
             {/* Threshold */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Eşik Değer</label>
-              <Input fullWidth type="number" step="any" value={condition.threshold} onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)} />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Eşik Değer
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                step="any"
+                value={condition.threshold}
+                onChange={(e) =>
+                  updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)
+                }
+              />
             </div>
 
             {/* Severity */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Önem Derecesi</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Önem Derecesi
+              </label>
               <select
                 value={condition.severity}
-                onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                onChange={(e) =>
+                  updateCondition(index, 'severity', e.target.value as AlertSeverity)
+                }
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
               >
                 {SEVERITY_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -284,7 +328,9 @@ const RuleForm: React.FC<{
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Alarm Kuralı' : 'Alarm Kuralını Düzenle'}
         </h2>
-        <Button variant="ghost" iconOnly aria-label="Close" onClick={onCancel}><X className="w-5 h-5" /></Button>
+        <Button variant="ghost" iconOnly aria-label="Close" onClick={onCancel}>
+          <X className="w-5 h-5" />
+        </Button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -292,29 +338,70 @@ const RuleForm: React.FC<{
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Kural Adı <span className="text-red-500">*</span>
+              Kural Adı <span className="text-error-500">*</span>
             </label>
-            <Input fullWidth type="text" value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="Örneğin: Yüksek Sıcaklık Alarmı" maxLength={100} required />
+            <Input
+              fullWidth
+              type="text"
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              placeholder="Örneğin: Yüksek Sıcaklık Alarmı"
+              maxLength={100}
+              required
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <Input fullWidth type="text" value={form.description} onChange={(e) => updateField('description', e.target.value)} placeholder="Kuralın kisa aciklamasi" maxLength={500} />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Açıklama
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={form.description}
+              onChange={(e) => updateField('description', e.target.value)}
+              placeholder="Kuralın kisa aciklamasi"
+              maxLength={500}
+            />
           </div>
         </div>
 
         {/* Farm, Pond, Sensor IDs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Farm ID</label>
-            <Input fullWidth type="text" value={form.farmId} onChange={(e) => updateField('farmId', e.target.value)} placeholder="Opsiyonel" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Farm ID
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={form.farmId}
+              onChange={(e) => updateField('farmId', e.target.value)}
+              placeholder="Opsiyonel"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Havuz ID</label>
-            <Input fullWidth type="text" value={form.pondId} onChange={(e) => updateField('pondId', e.target.value)} placeholder="Opsiyonel" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Havuz ID
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={form.pondId}
+              onChange={(e) => updateField('pondId', e.target.value)}
+              placeholder="Opsiyonel"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sensor ID</label>
-            <Input fullWidth type="text" value={form.sensorId} onChange={(e) => updateField('sensorId', e.target.value)} placeholder="Opsiyonel" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Sensor ID
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={form.sensorId}
+              onChange={(e) => updateField('sensorId', e.target.value)}
+              placeholder="Opsiyonel"
+            />
           </div>
         </div>
 
@@ -326,7 +413,9 @@ const RuleForm: React.FC<{
 
         {/* Notification Channels */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bildirim Kanalları</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Bildirim Kanalları
+          </label>
           <div className="flex flex-wrap gap-2">
             {CHANNEL_OPTIONS.map((ch) => (
               <button
@@ -335,7 +424,7 @@ const RuleForm: React.FC<{
                 onClick={() => toggleChannel(ch.value)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   form.notificationChannels.includes(ch.value)
-                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800'
                     : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
@@ -353,8 +442,16 @@ const RuleForm: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Alıcılar
           </label>
-          <Input fullWidth type="text" value={form.recipients} onChange={(e) => updateField('recipients', e.target.value)} placeholder="Virgul ile ayrilmis e-posta adresleri veya kullanici ID'leri" />
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Birden fazla alici icin virgul kullanin</p>
+          <Input
+            fullWidth
+            type="text"
+            value={form.recipients}
+            onChange={(e) => updateField('recipients', e.target.value)}
+            placeholder="Virgul ile ayrilmis e-posta adresleri veya kullanici ID'leri"
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            Birden fazla alici icin virgul kullanin
+          </p>
         </div>
 
         {/* Cooldown */}
@@ -362,7 +459,12 @@ const RuleForm: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Bekleme Süresi (dakika)
           </label>
-          <Input type="number" min={1} value={form.cooldownMinutes} onChange={(e) => updateField('cooldownMinutes', parseInt(e.target.value, 10) || 5)} />
+          <Input
+            type="number"
+            min={1}
+            value={form.cooldownMinutes}
+            onChange={(e) => updateField('cooldownMinutes', parseInt(e.target.value, 10) || 5)}
+          />
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Aynı kural için tekrar alarm göndermeden önceki minimum bekleme süresi
           </p>
@@ -378,8 +480,15 @@ const RuleForm: React.FC<{
           >
             İptal
           </button>
-          <Button variant="primary" size="lg" type="submit" disabled={isPending || !form.name.trim()}>{isPending && <Spinner size="sm" color="inherit" />}
-            {mode === 'create' ? 'Oluştur' : 'Kaydet'}</Button>
+          <Button
+            variant="primary"
+            size="lg"
+            type="submit"
+            disabled={isPending || !form.name.trim()}
+          >
+            {isPending && <Spinner size="sm" color="inherit" />}
+            {mode === 'create' ? 'Oluştur' : 'Kaydet'}
+          </Button>
         </div>
       </form>
     </div>
@@ -404,8 +513,8 @@ const DeleteDialog: React.FC<{
       title="Kuralı Sil"
       message={
         <>
-          <strong>"{ruleName}"</strong> alarm kuralini silmek istediginizden emin misiniz?
-          Bu işlem geri alınamaz.
+          <strong>"{ruleName}"</strong> alarm kuralini silmek istediginizden emin misiniz? Bu işlem
+          geri alınamaz.
         </>
       }
       confirmText="Evet, Sil"
@@ -454,7 +563,7 @@ const RuleCard: React.FC<{
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                 rule.isActive
-                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
               }`}
             >
@@ -470,9 +579,7 @@ const RuleCard: React.FC<{
             <span>{rule.conditions.length} kosul</span>
             {rule.cooldownMinutes > 0 && <span>Bekleme: {rule.cooldownMinutes} dk</span>}
             {rule.notificationChannels && rule.notificationChannels.length > 0 && (
-              <span>
-                Kanallar: {rule.notificationChannels.join(', ')}
-              </span>
+              <span>Kanallar: {rule.notificationChannels.join(', ')}</span>
             )}
             {rule.farmId && (
               <span className="text-xs font-mono">Farm: {rule.farmId.slice(0, 8)}...</span>
@@ -488,7 +595,7 @@ const RuleCard: React.FC<{
             title={rule.isActive ? 'Pasif yap' : 'Aktif yap'}
             className={`p-2 rounded-lg transition-colors ${
               rule.isActive
-                ? 'text-green-600 hover:bg-green-50'
+                ? 'text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30'
                 : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
             } disabled:opacity-50`}
           >
@@ -500,9 +607,31 @@ const RuleCard: React.FC<{
               <BellOff className="w-4 h-4" />
             )}
           </button>
-          <Button variant="ghost" iconOnly aria-label="Düzenle" onClick={() => onEdit(rule)} title="Düzenle"><Edit3 className="w-4 h-4" /></Button>
-          <Button variant="ghost" iconOnly aria-label="Sil" onClick={() => onDelete(rule)} title="Sil"><Trash2 className="w-4 h-4" /></Button>
-          <Button variant="ghost" onClick={() => setExpanded(!expanded)} title={expanded ? 'Daralt' : 'Genişlet'}>{expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Düzenle"
+            onClick={() => onEdit(rule)}
+            title="Düzenle"
+          >
+            <Edit3 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Sil"
+            onClick={() => onDelete(rule)}
+            title="Sil"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setExpanded(!expanded)}
+            title={expanded ? 'Daralt' : 'Genişlet'}
+          >
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </Button>
         </div>
       </div>
 
@@ -520,7 +649,9 @@ const RuleCard: React.FC<{
                   {parameterLabel(condition.parameter)}
                 </span>
                 <OperatorLabel operator={condition.operator} />
-                <span className="font-semibold text-gray-900 dark:text-gray-100">{condition.threshold}</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {condition.threshold}
+                </span>
                 <SeverityBadge severity={condition.severity} />
               </div>
             ))}
@@ -529,7 +660,9 @@ const RuleCard: React.FC<{
           {/* Recipients */}
           {rule.recipients && rule.recipients.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Alıcılar</h4>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Alıcılar
+              </h4>
               <div className="flex flex-wrap gap-1.5">
                 {rule.recipients.map((r, i) => (
                   <span
@@ -599,7 +732,10 @@ const AlertRulesPage: React.FC = () => {
         notificationChannels:
           formData.notificationChannels.length > 0 ? formData.notificationChannels : undefined,
         recipients: formData.recipients.trim()
-          ? formData.recipients.split(',').map((r) => r.trim()).filter(Boolean)
+          ? formData.recipients
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean)
           : undefined,
         cooldownMinutes: formData.cooldownMinutes,
       };
@@ -622,7 +758,10 @@ const AlertRulesPage: React.FC = () => {
         notificationChannels:
           formData.notificationChannels.length > 0 ? formData.notificationChannels : undefined,
         recipients: formData.recipients.trim()
-          ? formData.recipients.split(',').map((r) => r.trim()).filter(Boolean)
+          ? formData.recipients
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean)
           : undefined,
         cooldownMinutes: formData.cooldownMinutes,
       };
@@ -685,11 +824,17 @@ const AlertRulesPage: React.FC = () => {
   if (error && !rules) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-100 rounded-xl p-6 text-center">
-          <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
-          <p className="text-sm text-red-600 mt-1">{(error as Error).message}</p>
-          <Button variant="danger" className="mt-4" onClick={() => refetch()}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-xl p-6 text-center">
+          <XCircle className="w-10 h-10 text-error-400 mx-auto mb-3" />
+          <h3 className="font-semibold text-error-900 dark:text-error-100 text-lg">
+            Yükleme Hatası
+          </h3>
+          <p className="text-sm text-error-600 dark:text-error-400 mt-1">
+            {(error as Error).message}
+          </p>
+          <Button variant="danger" className="mt-4" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       </div>
     );
@@ -706,8 +851,9 @@ const AlertRulesPage: React.FC = () => {
           <>
             {ruleList.length} kural tanımlı
             {ruleList.filter((r) => r.isActive).length > 0 && (
-              <span className="text-green-600 font-medium">
-                {' '}({ruleList.filter((r) => r.isActive).length} aktif)
+              <span className="text-success-600 dark:text-success-400 font-medium">
+                {' '}
+                ({ruleList.filter((r) => r.isActive).length} aktif)
               </span>
             )}
           </>
@@ -722,10 +868,16 @@ const AlertRulesPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Yenile
             </button>
-            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => {
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => {
                 setEditingRule(null);
                 setFormMode('create');
-              }}>Yeni Kural</Button>
+              }}
+            >
+              Yeni Kural
+            </Button>
           </div>
         }
       />
@@ -761,9 +913,21 @@ const AlertRulesPage: React.FC = () => {
 
           {/* Farm ID Filter */}
           <div className="flex items-center gap-2">
-            <Input type="text" value={filterFarmId} onChange={(e) => setFilterFarmId(e.target.value)} placeholder="Farm ID ile filtrele..." />
+            <Input
+              type="text"
+              value={filterFarmId}
+              onChange={(e) => setFilterFarmId(e.target.value)}
+              placeholder="Farm ID ile filtrele..."
+            />
             {filterFarmId && (
-              <Button variant="ghost" iconOnly aria-label="Close" onClick={() => setFilterFarmId('')}><X className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Close"
+                onClick={() => setFilterFarmId('')}
+              >
+                <X className="w-4 h-4" />
+              </Button>
             )}
           </div>
         </div>
@@ -771,30 +935,38 @@ const AlertRulesPage: React.FC = () => {
 
       {/* Error banner (non-blocking) */}
       {error && ruleList.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">{(error as Error).message}</p>
-          <Button variant="ghost" onClick={() => refetch()}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">{(error as Error).message}</p>
+          <Button variant="ghost" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       )}
 
       {/* Mutation error banners */}
       {createMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Oluşturma hatası: {(createMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Oluşturma hatası: {(createMutation.error as Error).message}
+          </p>
         </div>
       )}
       {updateMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Güncelleme hatası: {(updateMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Güncelleme hatası: {(updateMutation.error as Error).message}
+          </p>
         </div>
       )}
       {deleteMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Silme hatası: {(deleteMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Silme hatası: {(deleteMutation.error as Error).message}
+          </p>
         </div>
       )}
 
@@ -825,14 +997,23 @@ const AlertRulesPage: React.FC = () => {
       {ruleList.length === 0 && !isLoading && formMode === 'closed' && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Alarm Kuralı Bulunamadı</h3>
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Alarm Kuralı Bulunamadı
+          </h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
             {filterFarmId || filterIsActive !== 'all'
               ? 'Seçili filtrelerle eşleşen alarm kuralı bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henüz tanımlanmış alarm kuralı bulunmuyor. İlk kuralı oluşturun.'}
           </p>
           {!filterFarmId && filterIsActive === 'all' && (
-            <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setFormMode('create')}>İlk Kuralı Oluştur</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => setFormMode('create')}
+            >
+              İlk Kuralı Oluştur
+            </Button>
           )}
         </div>
       )}

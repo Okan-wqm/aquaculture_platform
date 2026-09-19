@@ -261,7 +261,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                   }}
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     category === cat.value
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -320,7 +320,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
               <select
                 value={selectedItemId}
                 onChange={(e) => setSelectedItemId(e.target.value)}
-                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-info-500 focus:border-info-500"
               >
                 <option value="">Select item to add...</option>
                 {itemOptions

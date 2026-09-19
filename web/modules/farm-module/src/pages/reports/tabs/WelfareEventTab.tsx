@@ -68,7 +68,7 @@ export const WelfareAssembledReview: React.FC<{
 
   if (!p.assessmentId) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4 text-sm text-warning-800 dark:text-warning-200">
         No welfare assessment on record for this site. Record one in Fish Health (or the mobile app)
         before filing the welfare varsling — the report assembles from the assessment.
       </div>
@@ -155,13 +155,13 @@ const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({
   const remaining = tankNames.length - 5;
 
   return (
-    <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-6">
+    <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-300 dark:border-warning-700 rounded-lg p-4 mb-6">
       <div className="flex items-start">
         <div className="flex-shrink-0">
-          <TriangleAlert className="h-5 w-5 text-amber-500 mt-0.5" aria-hidden="true" />
+          <TriangleAlert className="h-5 w-5 text-warning-500 mt-0.5" aria-hidden="true" />
         </div>
         <div className="ml-3 flex-1">
-          <p className="text-sm font-medium text-amber-800">
+          <p className="text-sm font-medium text-warning-800 dark:text-warning-200">
             Elevated mortality detected in {displayNames}
             {remaining > 0 && ` and ${remaining} more`}. Review and report if threshold exceeded.
           </p>
@@ -169,7 +169,7 @@ const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({
             <button
               type="button"
               onClick={onCreateReport}
-              className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-amber-700 bg-amber-100 hover:bg-amber-200 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+              className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-warning-700 dark:text-warning-300 bg-warning-100 dark:bg-warning-900/40 hover:bg-warning-200 dark:hover:bg-warning-800/60 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-warning-500"
             >
               Report Welfare Event
             </button>
@@ -189,14 +189,16 @@ interface ThresholdAlertProps {
 }
 
 const ThresholdAlert: React.FC<ThresholdAlertProps> = ({ onCreateReport }) => (
-  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+  <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 mb-6">
     <div className="flex">
       <div className="flex-shrink-0">
-        <TriangleAlert className="h-5 w-5 text-red-400" aria-hidden="true" />
+        <TriangleAlert className="h-5 w-5 text-error-400" aria-hidden="true" />
       </div>
       <div className="ml-3 flex-1">
-        <h3 className="text-sm font-medium text-red-800">Reporting Thresholds</h3>
-        <div className="mt-2 text-sm text-red-700">
+        <h3 className="text-sm font-medium text-error-800 dark:text-error-200">
+          Reporting Thresholds
+        </h3>
+        <div className="mt-2 text-sm text-error-700 dark:text-error-300">
           <p>Norwegian regulations require immediate reporting when:</p>
           <ul className="list-disc list-inside mt-1 space-y-1">
             <li>Daily mortality exceeds {MORTALITY_THRESHOLDS.DAILY.ELEVATED}%</li>
@@ -210,7 +212,7 @@ const ThresholdAlert: React.FC<ThresholdAlertProps> = ({ onCreateReport }) => (
           <button
             type="button"
             onClick={onCreateReport}
-            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40 hover:bg-error-200 dark:hover:bg-error-800/60 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-error-500"
           >
             Report Welfare Event
           </button>

@@ -26,10 +26,10 @@ const activityIcons: Record<RecentActivity['type'], React.ReactNode> = {
 };
 
 const severityColors: Record<NonNullable<RecentActivity['severity']>, string> = {
-  info: 'bg-blue-100 text-blue-600',
-  warning: 'bg-yellow-100 text-yellow-600',
-  error: 'bg-red-100 text-red-600',
-  success: 'bg-green-100 text-green-600',
+  info: 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400',
+  warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-600 dark:text-warning-400',
+  error: 'bg-error-100 dark:bg-error-900/40 text-error-600 dark:text-error-400',
+  success: 'bg-success-100 dark:bg-success-900/40 text-success-600 dark:text-success-400',
 };
 
 // ============================================================================
@@ -60,7 +60,15 @@ const RecentActivityList: React.FC = () => {
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Son Aktiviteler</h3>
         {/* BUG-M3: accessible button instead of non-interactive <span> */}
-        <Button variant="ghost" type="button" onClick={() => { /* TODO: navigate to /activities */ }}>Tumunu Gor</Button>
+        <Button
+          variant="ghost"
+          type="button"
+          onClick={() => {
+            /* TODO: navigate to /activities */
+          }}
+        >
+          Tumunu Gor
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -75,8 +83,10 @@ const RecentActivityList: React.FC = () => {
       {/* Error State */}
       {isError && (
         <div className="p-8 text-center">
-          <p className="text-sm text-red-500 mb-2">Aktiviteler yuklenemedi</p>
-          <Button variant="ghost" size="xs" type="button" onClick={() => refetch()}>Tekrar Dene</Button>
+          <p className="text-sm text-error-500 mb-2">Aktiviteler yuklenemedi</p>
+          <Button variant="ghost" size="xs" type="button" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       )}
 
@@ -112,12 +122,16 @@ const RecentActivityList: React.FC = () => {
                 {/* Icerik */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{activity.title}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {activity.title}
+                    </p>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                       {formatRelativeTime(activity.timestamp)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{activity.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                    {activity.description}
+                  </p>
                   {activity.user && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       <span className="inline-flex items-center">

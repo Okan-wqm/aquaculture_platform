@@ -14,13 +14,7 @@
  *    empty states); severity tints the row, status and severity are pills
  */
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  memo,
-} from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -41,7 +35,13 @@ import type {
   AlarmHistoryFilter,
 } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
-import { DataTable, type DataTableColumn, severityClasses, Button, Input } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  severityClasses,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -55,7 +55,10 @@ type PanelTab = 'active' | 'history';
 
 const SEVERITY_ORDER: AlarmSeverity[] = ['critical', 'high', 'warning', 'info'];
 
-const SEVERITY_STYLES: Record<AlarmSeverity, { badge: string; row: string; icon: React.ReactNode }> = {
+const SEVERITY_STYLES: Record<
+  AlarmSeverity,
+  { badge: string; row: string; icon: React.ReactNode }
+> = {
   critical: {
     badge: severityClasses('critical', 'solid'),
     row: severityClasses('critical', 'row'),
@@ -150,9 +153,9 @@ const SeverityBadge: React.FC<{ severity: AlarmSeverity }> = ({ severity }) => {
 };
 
 const STATUS_PILL: Record<string, string> = {
-  active: 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-300',
-  cleared: 'text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300',
-  acknowledged: 'text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-300',
+  active: 'text-error-700 bg-error-100 dark:bg-error-900/30 dark:text-error-300',
+  cleared: 'text-warning-700 bg-warning-100 dark:bg-warning-900/30 dark:text-warning-300',
+  acknowledged: 'text-success-700 bg-success-100 dark:bg-success-900/30 dark:text-success-300',
 };
 
 const StatusPill: React.FC<{ status: string }> = ({ status }) => (
@@ -209,7 +212,9 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
   const availableGroups = useMemo(() => {
     const source = tab === 'active' ? activeAlarms : history;
     const groups = new Set<string>();
-    source.forEach((a) => { if (a.group) groups.add(a.group); });
+    source.forEach((a) => {
+      if (a.group) groups.add(a.group);
+    });
     return Array.from(groups).sort();
   }, [activeAlarms, history, tab]);
 
@@ -222,10 +227,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       if (groupFilter && alarm.group !== groupFilter) return false;
       if (textSearch) {
         const q = textSearch.toLowerCase();
-        if (
-          !alarm.message.toLowerCase().includes(q) &&
-          !alarm.ruleName.toLowerCase().includes(q)
-        ) {
+        if (!alarm.message.toLowerCase().includes(q) && !alarm.ruleName.toLowerCase().includes(q)) {
           return false;
         }
       }
@@ -261,13 +263,12 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
     if (tab === 'history') {
       void handleHistoryQuery();
     }
-  }, [tab]);  
+  }, [tab]);
 
   // ── CSV export ───────────────────────────────────────────────────────────
   const handleExport = useCallback(() => {
-    const filename = tab === 'active'
-      ? `alarms-active-${Date.now()}.csv`
-      : `alarms-history-${Date.now()}.csv`;
+    const filename =
+      tab === 'active' ? `alarms-active-${Date.now()}.csv` : `alarms-history-${Date.now()}.csv`;
     exportCsv(sortedAlarms, filename);
   }, [sortedAlarms, tab]);
 
@@ -337,7 +338,15 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         header: 'ACK',
         render: (_value, alarm) =>
           alarm.status !== 'acknowledged' ? (
-            <Button variant="primary" size="xs" leftIcon={<CheckCircle className="h-3.5 w-3.5" />} onClick={() => acknowledgeAlarm(alarm.id)} title="Acknowledge alarm">ACK</Button>
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<CheckCircle className="h-3.5 w-3.5" />}
+              onClick={() => acknowledgeAlarm(alarm.id)}
+              title="Acknowledge alarm"
+            >
+              ACK
+            </Button>
           ) : null,
       });
     }
@@ -356,7 +365,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-orange-500" />
+          <AlertTriangle className="h-5 w-5 text-warning-500" />
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             Alarm Management
           </h2>
@@ -368,15 +377,40 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         <div className="flex items-center gap-2">
           {/* ACK All */}
           {tab === 'active' && activeAlarms.some((a) => a.status !== 'acknowledged') && (
-            <Button variant="primary" size="xs" leftIcon={<CheckCheck className="h-3.5 w-3.5" />} onClick={acknowledgeAll}>ACK All</Button>
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<CheckCheck className="h-3.5 w-3.5" />}
+              onClick={acknowledgeAll}
+            >
+              ACK All
+            </Button>
           )}
 
           {/* Export */}
-          <Button variant="ghost" size="sm" iconOnly aria-label="Export to CSV" onClick={handleExport} title="Export to CSV"><Download className="h-4 w-4" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Export to CSV"
+            onClick={handleExport}
+            title="Export to CSV"
+          >
+            <Download className="h-4 w-4" />
+          </Button>
 
           {/* Close */}
           {onClose && (
-            <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose} title="Close"><X className="h-4 w-4" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="Close"
+              onClick={onClose}
+              title="Close"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           )}
         </div>
       </div>
@@ -390,7 +424,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
               ${
                 tab === t
-                  ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  ? 'border-info-600 text-info-600 dark:border-info-400 dark:text-info-400'
                   : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
           >
@@ -404,19 +438,27 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         {/* Text search */}
         <div className="relative flex-1 min-w-40">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
-          <Input fullWidth type="text" placeholder="Search alarms…" value={textSearch} onChange={(e) => setTextSearch(e.target.value)} />
+          <Input
+            fullWidth
+            type="text"
+            placeholder="Search alarms…"
+            value={textSearch}
+            onChange={(e) => setTextSearch(e.target.value)}
+          />
         </div>
 
         {/* Severity filter */}
         <div className="relative">
-          <Button variant="secondary" size="sm" onClick={() => setShowSeverityDropdown((v) => !v)}><Filter className="h-3.5 w-3.5" />
+          <Button variant="secondary" size="sm" onClick={() => setShowSeverityDropdown((v) => !v)}>
+            <Filter className="h-3.5 w-3.5" />
             Severity
             {selectedSeverities.size > 0 && (
-              <span className="ml-1 px-1 rounded bg-blue-500 text-white text-xs">
+              <span className="ml-1 px-1 rounded bg-info-500 text-white text-xs">
                 {selectedSeverities.size}
               </span>
             )}
-            <ChevronDown className="h-3.5 w-3.5" /></Button>
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
 
           {showSeverityDropdown && (
             <div
@@ -435,13 +477,24 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
                     onChange={() => toggleSeverity(sev)}
                     className="rounded"
                   />
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${SEVERITY_STYLES[sev].badge}`}>
+                  <span
+                    className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${SEVERITY_STYLES[sev].badge}`}
+                  >
                     {sev}
                   </span>
                 </label>
               ))}
               <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-1">
-                <Button variant="ghost" size="xs" onClick={() => { setSelectedSeverities(new Set()); setShowSeverityDropdown(false); }}>Clear filter</Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => {
+                    setSelectedSeverities(new Set());
+                    setShowSeverityDropdown(false);
+                  }}
+                >
+                  Clear filter
+                </Button>
               </div>
             </div>
           )}
@@ -454,7 +507,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
             onChange={(e) => setGroupFilter(e.target.value)}
             className="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
                        bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300
-                       focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                       focus:outline-hidden focus:ring-1 focus:ring-info-500"
           >
             <option value="">All groups</option>
             {availableGroups.map((g) => (
@@ -468,10 +521,26 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         {/* History date range */}
         {tab === 'history' && (
           <>
-            <Input type="datetime-local" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+            <Input
+              type="datetime-local"
+              value={historyFrom}
+              onChange={(e) => setHistoryFrom(e.target.value)}
+            />
             <span className="text-gray-400 dark:text-gray-500 text-xs">to</span>
-            <Input type="datetime-local" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
-            <Button variant="primary" size="xs" leftIcon={<RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />} onClick={() => void handleHistoryQuery()} disabled={isLoading}>Query</Button>
+            <Input
+              type="datetime-local"
+              value={historyTo}
+              onChange={(e) => setHistoryTo(e.target.value)}
+            />
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />}
+              onClick={() => void handleHistoryQuery()}
+              disabled={isLoading}
+            >
+              Query
+            </Button>
           </>
         )}
       </div>
@@ -484,7 +553,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
           keyExtractor={(alarm) => alarm.id}
           loading={isLoading}
           loadingMessage="Loading…"
-          emptyIcon={<CheckCircle className="h-8 w-8 text-green-400" />}
+          emptyIcon={<CheckCircle className="h-8 w-8 text-success-400" />}
           emptyMessage={`No alarms${tab === 'active' ? ' active' : ' in history'}`}
           searchable={false}
           sortable={false}
@@ -500,9 +569,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       {/* ── Footer ─────────────────────────────────────────────────── */}
       <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-400 dark:text-gray-500">
         Showing {sortedAlarms.length} alarm{sortedAlarms.length !== 1 ? 's' : ''}
-        {tab === 'active' && (
-          <span className="ml-2">• Live updates active</span>
-        )}
+        {tab === 'active' && <span className="ml-2">• Live updates active</span>}
       </div>
     </div>
   );

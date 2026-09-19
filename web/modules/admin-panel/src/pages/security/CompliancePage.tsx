@@ -154,13 +154,16 @@ const EMPTY_REQUESTS: readonly DataRequest[] = [];
 const EMPTY_REPORTS: readonly ComplianceReport[] = [];
 const EMPTY_CHECKS: readonly ComplianceCheck[] = [];
 
-async function fetchDataRequests(params: {
-  page?: number;
-  limit?: number;
-  status?: string;
-  requestType?: string;
-  searchQuery?: string;
-}, signal?: AbortSignal): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
+async function fetchDataRequests(
+  params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    requestType?: string;
+    searchQuery?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -251,9 +254,8 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
       violation.description ?? violation.message,
       'Compliance violation',
     ),
-    recommendation: typeof violation.recommendation === 'string'
-      ? violation.recommendation
-      : undefined,
+    recommendation:
+      typeof violation.recommendation === 'string' ? violation.recommendation : undefined,
   }));
   // Reads the nested paths the persisted shape actually has, and routes every
   // rendered field through toPrimitiveString.
@@ -266,19 +268,20 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
   // applied the toPrimitiveString guard; this branch did not, so the object
   // reached JSX and crashed the Reports tab — on a report the monthly cron
   // guarantees exists.
-  const findings = resultFindings.length > 0
-    ? resultFindings.map((finding) => ({
-        category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
-        status: finding.status === 'non_compliant'
-          ? 'fail' as const
-          : finding.status === 'partial'
-            ? 'warning' as const
-            : 'pass' as const,
-        description: toPrimitiveString(finding.details, 'Compliance check'),
-        recommendation:
-          typeof finding.remediation === 'string' ? finding.remediation : undefined,
-      }))
-    : violationFindings;
+  const findings =
+    resultFindings.length > 0
+      ? resultFindings.map((finding) => ({
+          category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
+          status:
+            finding.status === 'non_compliant'
+              ? ('fail' as const)
+              : finding.status === 'partial'
+                ? ('warning' as const)
+                : ('pass' as const),
+          description: toPrimitiveString(finding.details, 'Compliance check'),
+          recommendation: typeof finding.remediation === 'string' ? finding.remediation : undefined,
+        }))
+      : violationFindings;
 
   return {
     id: report.id,
@@ -353,8 +356,7 @@ const REQUEST_TYPE_ICONS: Record<DataRequestType, React.ReactElement> = {
   rectification: <FileCheck className="w-4 h-4" />,
   restriction: <Lock className="w-4 h-4" />,
 };
-const getRequestTypeIcon = (type: DataRequestType): React.ReactElement =>
-  REQUEST_TYPE_ICONS[type];
+const getRequestTypeIcon = (type: DataRequestType): React.ReactElement => REQUEST_TYPE_ICONS[type];
 
 // GDPR's own wording lives HERE, on the label, rather than in a renamed value
 // the request had to be translated into and back out of.
@@ -374,10 +376,10 @@ const getRequestTypeLabel = (type: DataRequestType): string => REQUEST_TYPE_LABE
 // (ADMIN-HIGH-115).
 const STATUS_COLORS: Record<DataRequestStatus, string> = {
   pending: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  in_progress: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-  expired: 'bg-amber-100 text-amber-800',
+  in_progress: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  completed: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  rejected: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  expired: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
 };
 const getStatusColor = (status: DataRequestStatus): string => STATUS_COLORS[status];
 
@@ -393,13 +395,13 @@ const getComplianceStatusColor = (status: string): string => {
   switch (status) {
     case 'compliant':
     case 'pass':
-      return 'bg-green-100 text-green-800 border-green-200';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800';
     case 'non_compliant':
     case 'fail':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'partial':
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'not_applicable':
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
     default:
@@ -433,9 +435,9 @@ const DataRequestDetailModal: React.FC<{
         <div className="w-full">
           {/* SECURITY: Show error inline so admin can retry without losing context */}
           {actionError && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-              <p className="text-sm text-red-700">{actionError}</p>
+            <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+              <XCircle className="w-4 h-4 text-error-600 dark:text-error-400 flex-shrink-0" />
+              <p className="text-sm text-error-700 dark:text-error-300">{actionError}</p>
             </div>
           )}
           <div className="flex justify-between">
@@ -451,7 +453,7 @@ const DataRequestDetailModal: React.FC<{
                 <button
                   onClick={() => onAction('verify')}
                   disabled={actionLoading}
-                  className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
+                  className="px-4 py-2 text-sm font-medium text-white bg-warning-600 rounded-lg hover:bg-warning-700 disabled:opacity-50"
                 >
                   {actionLoading ? 'Processing...' : 'Verify Identity'}
                 </button>
@@ -461,14 +463,14 @@ const DataRequestDetailModal: React.FC<{
                   <button
                     onClick={() => onAction('reject')}
                     disabled={actionLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-error-600 rounded-lg hover:bg-error-700 disabled:opacity-50"
                   >
                     {actionLoading ? 'Processing...' : 'Reject'}
                   </button>
                   <button
                     onClick={() => onAction('complete')}
                     disabled={actionLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-success-600 rounded-lg hover:bg-success-700 disabled:opacity-50"
                   >
                     {actionLoading ? 'Processing...' : 'Complete'}
                   </button>
@@ -481,11 +483,13 @@ const DataRequestDetailModal: React.FC<{
     >
       {/* Status Banner */}
       {request.isOverdue && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-600" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
           <div>
-            <p className="font-medium text-red-800">This request is overdue</p>
-            <p className="text-sm text-red-600">
+            <p className="font-medium text-error-800 dark:text-error-200">
+              This request is overdue
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">
               Due date was {formatDate(request.dueDate)}
             </p>
           </div>
@@ -513,11 +517,15 @@ const DataRequestDetailModal: React.FC<{
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Submitted</span>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(request.submittedAt)}</p>
+          <p className="text-sm text-gray-900 dark:text-gray-100">
+            {formatDateTime(request.submittedAt)}
+          </p>
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Due Date</span>
-          <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900 dark:text-gray-100'}`}>
+          <p
+            className={`text-sm ${request.isOverdue ? 'text-error-600 dark:text-error-400 font-medium' : 'text-gray-900 dark:text-gray-100'}`}
+          >
             {formatDate(request.dueDate)}
           </p>
         </div>
@@ -525,15 +533,21 @@ const DataRequestDetailModal: React.FC<{
 
       {/* Requester Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Requester Information</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Requester Information
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            <span className="text-sm text-gray-900 dark:text-gray-100">{request.requesterName}</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {request.requesterName}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            <span className="text-sm text-gray-900 dark:text-gray-100">{request.requesterEmail}</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {request.requesterEmail}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -541,9 +555,9 @@ const DataRequestDetailModal: React.FC<{
           </div>
           <div className="flex items-center gap-2">
             {request.identityVerified ? (
-              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <CheckCircle2 className="w-4 h-4 text-success-600 dark:text-success-400" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+              <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />
             )}
             <span className="text-sm text-gray-900 dark:text-gray-100">
               {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
@@ -561,12 +575,14 @@ const DataRequestDetailModal: React.FC<{
       {/* Data Categories */}
       {request.dataCategories && request.dataCategories.length > 0 && (
         <div>
-          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Data Categories</span>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            Data Categories
+          </span>
           <div className="flex flex-wrap gap-2 mt-2">
             {request.dataCategories.map((cat) => (
               <span
                 key={cat}
-                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
+                className="px-2 py-1 bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 rounded text-xs font-medium"
               >
                 {cat}
               </span>
@@ -585,36 +601,50 @@ const DataRequestDetailModal: React.FC<{
 
       {/* Timeline */}
       <div>
-        <span className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 block">Timeline</span>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 block">
+          Timeline
+        </span>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-              <Check className="w-4 h-4 text-green-600" />
+            <div className="w-8 h-8 rounded-full bg-success-100 dark:bg-success-900/40 flex items-center justify-center">
+              <Check className="w-4 h-4 text-success-600 dark:text-success-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Request Submitted</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.submittedAt)}</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                Request Submitted
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {formatDateTime(request.submittedAt)}
+              </p>
             </div>
           </div>
           {request.verifiedAt && (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                <Check className="w-4 h-4 text-green-600" />
+              <div className="w-8 h-8 rounded-full bg-success-100 dark:bg-success-900/40 flex items-center justify-center">
+                <Check className="w-4 h-4 text-success-600 dark:text-success-400" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Identity Verified</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.verifiedAt)}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Identity Verified
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {formatDateTime(request.verifiedAt)}
+                </p>
               </div>
             </div>
           )}
           {request.completedAt && (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                <Check className="w-4 h-4 text-green-600" />
+              <div className="w-8 h-8 rounded-full bg-success-100 dark:bg-success-900/40 flex items-center justify-center">
+                <Check className="w-4 h-4 text-success-600 dark:text-success-400" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Request Completed</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.completedAt)}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Request Completed
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {formatDateTime(request.completedAt)}
+                </p>
               </div>
             </div>
           )}
@@ -741,7 +771,7 @@ export const CompliancePage: React.FC = () => {
   if (loading && dataRequests.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-info-600 dark:text-info-400" />
       </div>
     );
   }
@@ -757,7 +787,9 @@ export const CompliancePage: React.FC = () => {
       render: (_value, request) => (
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{request.id}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(request.submittedAt)}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {formatDate(request.submittedAt)}
+          </div>
         </>
       ),
     },
@@ -801,12 +833,12 @@ export const CompliancePage: React.FC = () => {
       header: 'Due Date',
       render: (_value, request) => (
         <>
-          <div className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900 dark:text-gray-100'}`}>
+          <div
+            className={`text-sm ${request.isOverdue ? 'text-error-600 dark:text-error-400 font-medium' : 'text-gray-900 dark:text-gray-100'}`}
+          >
             {formatDate(request.dueDate)}
           </div>
-          {request.isOverdue && (
-            <div className="text-xs text-red-500">Overdue</div>
-          )}
+          {request.isOverdue && <div className="text-xs text-error-500">Overdue</div>}
         </>
       ),
     },
@@ -823,13 +855,13 @@ export const CompliancePage: React.FC = () => {
         <>
           <button
             onClick={() => setSelectedRequest(request)}
-            className="text-blue-600 hover:text-blue-800"
+            className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           >
             <Eye className="w-4 h-4" />
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -852,7 +884,7 @@ export const CompliancePage: React.FC = () => {
             <button
               onClick={() => void loadData()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -866,12 +898,14 @@ export const CompliancePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <FileText className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <FileText className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Total Requests</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.totalRequests}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.totalRequests}
+                </p>
               </div>
             </div>
           </div>
@@ -882,40 +916,48 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.pendingRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.pendingRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <RefreshCw className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <RefreshCw className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.inProgressRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.inProgressRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <div className="p-2 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <CheckCircle2 className="w-5 h-5 text-success-600 dark:text-success-400" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Completed</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.completedRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.completedRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-error-600 dark:text-error-400">
+                  {stats.overdueRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
@@ -935,7 +977,7 @@ export const CompliancePage: React.FC = () => {
               onClick={() => setActiveTab(id as typeof activeTab)}
               className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
                 activeTab === id
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-info-500 text-info-600 dark:text-info-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
@@ -959,13 +1001,13 @@ export const CompliancePage: React.FC = () => {
                   placeholder="Search by name or email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
                 />
               </div>
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Types</option>
                 {/* Built from the union the API sends, so an option cannot
@@ -979,7 +1021,7 @@ export const CompliancePage: React.FC = () => {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Statuses</option>
                 {/* Identity Verification and Processing used to be offered here
@@ -1012,7 +1054,7 @@ export const CompliancePage: React.FC = () => {
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700">
               <Plus className="w-4 h-4" />
               Generate Report
             </button>
@@ -1038,17 +1080,18 @@ export const CompliancePage: React.FC = () => {
                         <span
                           className={`px-3 py-1 rounded-full text-sm font-medium ${
                             report.overallScore >= 80
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                               : report.overallScore >= 60
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
+                                ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
+                                : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                           }`}
                         >
                           Score: {report.overallScore}%
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Period: {formatDate(report.reportPeriodStart)} - {formatDate(report.reportPeriodEnd)}
+                        Period: {formatDate(report.reportPeriodStart)} -{' '}
+                        {formatDate(report.reportPeriodEnd)}
                       </p>
                     </div>
                     <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
@@ -1059,26 +1102,36 @@ export const CompliancePage: React.FC = () => {
 
                   <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
-                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{report.totalChecks}</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                        {report.totalChecks}
+                      </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Total Checks</p>
                     </div>
-                    <div className="bg-green-50 rounded-lg p-3 text-center">
-                      <p className="text-2xl font-bold text-green-600">{report.passedChecks}</p>
+                    <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-success-600 dark:text-success-400">
+                        {report.passedChecks}
+                      </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Passed</p>
                     </div>
-                    <div className="bg-red-50 rounded-lg p-3 text-center">
-                      <p className="text-2xl font-bold text-red-600">{report.failedChecks}</p>
+                    <div className="bg-error-50 dark:bg-error-900/20 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-error-600 dark:text-error-400">
+                        {report.failedChecks}
+                      </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Failed</p>
                     </div>
-                    <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                      <p className="text-2xl font-bold text-yellow-600">{report.warnings}</p>
+                    <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                        {report.warnings}
+                      </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Warnings</p>
                     </div>
                   </div>
 
                   {report.findings.length > 0 && (
                     <div className="mt-4">
-                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Key Findings</h4>
+                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Key Findings
+                      </h4>
                       <div className="space-y-2">
                         {report.findings.slice(0, 3).map((finding, idx) => (
                           <div
@@ -1123,12 +1176,14 @@ export const CompliancePage: React.FC = () => {
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">GDPR Compliance Checklist</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  GDPR Compliance Checklist
+                </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Current compliance status based on latest assessments
                 </p>
               </div>
-              <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+              <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700">
                 <RefreshCw className="w-4 h-4" />
                 Run Assessment
               </button>
@@ -1154,17 +1209,25 @@ export const CompliancePage: React.FC = () => {
                         >
                           {check.status.replace('_', ' ')}
                         </span>
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{check.category}</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {check.category}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">{check.requirement}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{check.description}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">
+                        {check.requirement}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {check.description}
+                      </p>
                       {/* The check's own verdict. The backend has always sent
                           `details`; the page discarded it and rendered only the
                           static requirement text, so the table said what was
                           being checked but never what the check found. */}
-                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">{check.details}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">
+                        {check.details}
+                      </p>
                       {check.remediation && (
-                        <p className="text-sm text-amber-700 mt-1">
+                        <p className="text-sm text-warning-700 dark:text-warning-300 mt-1">
                           Remediation: {check.remediation}
                         </p>
                       )}

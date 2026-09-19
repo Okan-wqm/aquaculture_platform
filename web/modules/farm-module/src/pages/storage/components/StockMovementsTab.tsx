@@ -16,12 +16,12 @@ import { DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquacu
 import { Search as SearchIcon } from 'lucide-react';
 
 const typeBadge: Record<string, string> = {
-  IN: 'bg-green-100 text-green-800',
-  OUT: 'bg-red-100 text-red-800',
-  TRANSFER: 'bg-blue-100 text-blue-800',
+  IN: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  OUT: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  TRANSFER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   WASTE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  ADJUSTMENT: 'bg-yellow-100 text-yellow-800',
-  RETURN: 'bg-purple-100 text-purple-800',
+  ADJUSTMENT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  RETURN: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
 };
 
 const TYPES = ['IN', 'OUT', 'TRANSFER', 'WASTE', 'ADJUSTMENT', 'RETURN'];
@@ -113,7 +113,7 @@ export const StockMovementsTab: React.FC = () => {
           {/* Show lot number in standard view when available,
               since it helps staff cross-reference delivery notes */}
           {!lotTraceMode && m.lotNumber && (
-            <div className="text-xs text-purple-500">Lot: {m.lotNumber}</div>
+            <div className="text-xs text-accent-500">Lot: {m.lotNumber}</div>
           )}
         </>
       ),
@@ -125,8 +125,8 @@ export const StockMovementsTab: React.FC = () => {
         <span
           className={
             m.movementType === 'OUT' || m.movementType === 'WASTE'
-              ? 'text-red-600'
-              : 'text-green-600'
+              ? 'text-error-600 dark:text-error-400'
+              : 'text-success-600 dark:text-success-400'
           }
         >
           {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}
@@ -177,7 +177,7 @@ export const StockMovementsTab: React.FC = () => {
             placeholder="Search movements..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           />
           <SearchIcon
             className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -202,7 +202,7 @@ export const StockMovementsTab: React.FC = () => {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
         >
           <option value="all">All Types</option>
           {TYPES.map((t) => (
@@ -229,7 +229,7 @@ export const StockMovementsTab: React.FC = () => {
             }}
             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               lotTraceMode
-                ? 'bg-purple-600 text-white'
+                ? 'bg-accent-600 text-white'
                 : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
@@ -249,8 +249,8 @@ export const StockMovementsTab: React.FC = () => {
           typed at least 2 characters, matching the backend minimum length
           to avoid overly broad searches. */}
       {lotTraceMode && (
-        <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-          <label className="block text-sm font-medium text-purple-800 mb-1">
+        <div className="mb-4 p-4 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg">
+          <label className="block text-sm font-medium text-accent-800 dark:text-accent-200 mb-1">
             Lot Number (EU 178/2002 Traceability)
           </label>
           <Input
@@ -261,7 +261,7 @@ export const StockMovementsTab: React.FC = () => {
             placeholder="Enter lot number to trace..."
           />
           {lotTraceNumber.length > 0 && lotTraceNumber.length < 2 && (
-            <p className="mt-1 text-xs text-purple-600">
+            <p className="mt-1 text-xs text-accent-600 dark:text-accent-400">
               Type at least 2 characters to begin tracing.
             </p>
           )}
@@ -274,15 +274,15 @@ export const StockMovementsTab: React.FC = () => {
           <Spinner
             size="lg"
             color="inherit"
-            className={lotTraceMode ? 'text-purple-500' : 'text-primary-500'}
+            className={lotTraceMode ? 'text-accent-500' : 'text-primary-500'}
           />
         </div>
       )}
 
       {/* Error state — shows the appropriate error based on active mode */}
       {(error || lotTraceError) && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
             {lotTraceMode ? 'Failed to trace lot movements.' : 'Failed to load movements.'}
           </p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
@@ -298,8 +298,8 @@ export const StockMovementsTab: React.FC = () => {
               chain: Received (IN) -> Stored -> Transferred -> Consumed/Disposed.
               This gives auditors an at-a-glance view of the lot's journey. */}
           {lotTraceMode && lotTraceData && lotTraceData.length > 0 && (
-            <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-              <h4 className="text-sm font-semibold text-purple-900 mb-2">
+            <div className="mb-4 p-4 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg">
+              <h4 className="text-sm font-semibold text-accent-900 dark:text-accent-100 mb-2">
                 Lot Trace Chain: {lotTraceNumber}
               </h4>
               <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -316,7 +316,7 @@ export const StockMovementsTab: React.FC = () => {
                   const location = m.toLocationName || m.fromLocationName || 'Unknown';
                   return (
                     <React.Fragment key={m.id}>
-                      {idx > 0 && <span className="text-purple-400">&rarr;</span>}
+                      {idx > 0 && <span className="text-accent-400">&rarr;</span>}
                       <span
                         className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                           typeBadge[m.movementType] ||
@@ -337,7 +337,7 @@ export const StockMovementsTab: React.FC = () => {
                   );
                 })}
               </div>
-              <p className="mt-2 text-xs text-purple-600">
+              <p className="mt-2 text-xs text-accent-600 dark:text-accent-400">
                 {lotTraceData.length} movement{lotTraceData.length !== 1 ? 's' : ''} found for this
                 lot.
               </p>
@@ -346,7 +346,9 @@ export const StockMovementsTab: React.FC = () => {
 
           <div
             className={`bg-white dark:bg-gray-900 rounded-lg shadow-sm border overflow-hidden ${
-              lotTraceMode ? 'border-purple-200' : 'border-gray-200 dark:border-gray-700'
+              lotTraceMode
+                ? 'border-accent-200 dark:border-accent-800'
+                : 'border-gray-200 dark:border-gray-700'
             }`}
           >
             <DataTable<MRow>

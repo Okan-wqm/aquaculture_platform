@@ -3,7 +3,12 @@
  * Handles CRUD operations for water quality parameter configurations via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -324,7 +329,9 @@ export function useCreateParameterConfig() {
       return response.createParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs'),
+      });
     },
   });
 }
@@ -345,7 +352,9 @@ export function useUpdateParameterConfig() {
       return response.updateParameterConfig;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs'),
+      });
     },
   });
 }
@@ -366,7 +375,9 @@ export function useDeleteParameterConfig() {
       return response.deleteParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs'),
+      });
     },
   });
 }
@@ -387,7 +398,9 @@ export function useApplyParameterTemplate() {
       return response.applyParameterTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs'),
+      });
     },
   });
 }
@@ -408,7 +421,9 @@ export function useReorderParameterConfigs() {
       return response.reorderParameterConfigs;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs'),
+      });
     },
   });
 }
@@ -445,17 +460,17 @@ export function getGroupLabel(group: ParameterGroup): string {
 export function getGroupColor(group: ParameterGroup): string {
   switch (group) {
     case 'BASIC':
-      return 'text-blue-600 bg-blue-100';
+      return 'text-info-600 dark:text-info-400 bg-info-100 dark:bg-info-900/40';
     case 'NITROGEN_CYCLE':
-      return 'text-green-600 bg-green-100';
+      return 'text-success-600 dark:text-success-400 bg-success-100 dark:bg-success-900/40';
     case 'METALS':
       return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
     case 'BIOLOGICAL':
-      return 'text-purple-600 bg-purple-100';
+      return 'text-accent-600 dark:text-accent-400 bg-accent-100 dark:bg-accent-900/40';
     case 'ORGANIC':
-      return 'text-amber-600 bg-amber-100';
+      return 'text-warning-600 dark:text-warning-400 bg-warning-100 dark:bg-warning-900/40';
     case 'CUSTOM':
-      return 'text-teal-600 bg-teal-100';
+      return 'text-info-600 dark:text-info-400 bg-info-100 dark:bg-info-900/40';
     default:
       return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
   }

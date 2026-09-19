@@ -106,16 +106,16 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          Tank Allocations <span className="text-red-500">*</span>
+          Tank Allocations <span className="text-error-500">*</span>
         </h4>
         <div className="text-sm">
           <span
             className={
               remainingQuantity === 0
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : isOverAllocated
-                  ? 'text-red-600'
-                  : 'text-amber-600'
+                  ? 'text-error-600 dark:text-error-400'
+                  : 'text-warning-600 dark:text-warning-400'
             }
           >
             {allocatedQuantity.toLocaleString()}
@@ -132,22 +132,28 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
         <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full transition-all ${
-              isOverAllocated ? 'bg-red-500' : isFullyAllocated ? 'bg-green-500' : 'bg-amber-500'
+              isOverAllocated
+                ? 'bg-error-500'
+                : isFullyAllocated
+                  ? 'bg-success-500'
+                  : 'bg-warning-500'
             }`}
             style={{ width: `${Math.min(allocationPercentage, 100)}%` }}
           />
         </div>
         {!isFullyAllocated && !isOverAllocated && remainingQuantity > 0 && (
-          <p className="text-xs text-amber-600 mt-1">
+          <p className="text-xs text-warning-600 dark:text-warning-400 mt-1">
             {remainingQuantity.toLocaleString()} remaining to allocate
           </p>
         )}
         {isOverAllocated && (
-          <p className="text-xs text-red-600 mt-1">
+          <p className="text-xs text-error-600 dark:text-error-400 mt-1">
             Over-allocated by {Math.abs(remainingQuantity).toLocaleString()} units
           </p>
         )}
-        {isFullyAllocated && <p className="text-xs text-green-600 mt-1">All units allocated</p>}
+        {isFullyAllocated && (
+          <p className="text-xs text-success-600 dark:text-success-400 mt-1">All units allocated</p>
+        )}
       </div>
 
       {/* Allocation List */}
@@ -169,16 +175,16 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                   {/* Tank Selection */}
                   <div className="col-span-5">
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Tank <span className="text-red-500">*</span>
+                      Tank <span className="text-error-500">*</span>
                     </label>
                     <select
                       value={allocation.tankId}
                       onChange={(e) =>
                         handleAllocationChange(allocation.id, 'tankId', e.target.value)
                       }
-                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
                         !allocation.tankId
-                          ? 'border-amber-300'
+                          ? 'border-warning-300 dark:border-warning-700'
                           : 'border-gray-300 dark:border-gray-600'
                       }`}
                       disabled={isLoadingTanks}
@@ -203,7 +209,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                   {/* Quantity */}
                   <div className="col-span-3">
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Quantity <span className="text-red-500">*</span>
+                      Quantity <span className="text-error-500">*</span>
                     </label>
                     <input
                       type="number"
@@ -212,15 +218,15 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                       onChange={(e) =>
                         handleAllocationChange(allocation.id, 'quantity', e.target.value)
                       }
-                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
                         !capacityCheck.hasCapacity
-                          ? 'border-amber-400'
+                          ? 'border-warning-400'
                           : 'border-gray-300 dark:border-gray-600'
                       }`}
                       placeholder="0"
                     />
                     {!capacityCheck.hasCapacity && (
-                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <p className="text-xs text-warning-600 dark:text-warning-400 mt-1 flex items-center gap-1">
                         <TriangleAlert className="w-3 h-3" aria-hidden="true" />
                         {capacityCheck.message} (Warning - will still be added)
                       </p>
@@ -290,15 +296,15 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
           Loading available tanks...
         </div>
       ) : tanksError ? (
-        <div className="text-center py-4 text-red-600 bg-red-50 rounded-lg">
+        <div className="text-center py-4 text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 rounded-lg">
           <CircleAlert className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
           <p className="font-medium">Failed to load tanks</p>
-          <p className="text-sm text-red-500 mt-1">
+          <p className="text-sm text-error-500 mt-1">
             {tanksError instanceof Error ? tanksError.message : 'An unexpected error occurred'}
           </p>
         </div>
       ) : availableTanks.length === 0 ? (
-        <div className="text-center py-4 text-amber-600 bg-amber-50 rounded-lg">
+        <div className="text-center py-4 text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 rounded-lg">
           <TriangleAlert className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
           No tanks available. Please create tanks in Equipment setup first.
         </div>
@@ -306,7 +312,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
       {/* Validation Messages */}
       {allocations.length === 0 && totalQuantity > 0 && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-warning-600 dark:text-warning-400">
           Please add at least one tank allocation to distribute the batch quantity.
         </p>
       )}

@@ -24,11 +24,7 @@ import {
   Shield,
 } from 'lucide-react';
 import type { STBundle } from '../../../types/st-editor.types';
-import {
-  deserializeBundle,
-  formatFileSize,
-  type BundleValidationResult,
-} from './bundle.utils';
+import { deserializeBundle, formatFileSize, type BundleValidationResult } from './bundle.utils';
 import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -47,11 +43,7 @@ type ImportStage = 'input' | 'validating' | 'preview' | 'error';
 // Component
 // ============================================================================
 
-const ImportDialog: React.FC<ImportDialogProps> = ({
-  open,
-  onClose,
-  onImport,
-}) => {
+const ImportDialog: React.FC<ImportDialogProps> = ({ open, onClose, onImport }) => {
   const [stage, setStage] = useState<ImportStage>('input');
   const [dragOver, setDragOver] = useState(false);
   const [result, setResult] = useState<BundleValidationResult | null>(null);
@@ -84,7 +76,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       if (file.size > 1_048_576) {
         setResult({
           valid: false,
-          errors: [{ field: '_size', message: `File too large: ${formatFileSize(file.size)} (max 1MB)` }],
+          errors: [
+            { field: '_size', message: `File too large: ${formatFileSize(file.size)} (max 1MB)` },
+          ],
           warnings: [],
         });
         setStage('error');
@@ -159,7 +153,12 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       // Clipboard API may not be available
       setResult({
         valid: false,
-        errors: [{ field: '_clipboard', message: 'Cannot access clipboard. Try drag & drop or file input.' }],
+        errors: [
+          {
+            field: '_clipboard',
+            message: 'Cannot access clipboard. Try drag & drop or file input.',
+          },
+        ],
         warnings: [],
       });
       setStage('error');
@@ -183,15 +182,22 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     <div className="flex w-full items-center justify-between">
       <div className="text-xs text-gray-500 dark:text-gray-400">
         {rawJson && (
-          <span>
-            Bundle size: {formatFileSize(new TextEncoder().encode(rawJson).length)}
-          </span>
+          <span>Bundle size: {formatFileSize(new TextEncoder().encode(rawJson).length)}</span>
         )}
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={handleClose}>Cancel</Button>
+        <Button variant="ghost" size="sm" onClick={handleClose}>
+          Cancel
+        </Button>
         {stage === 'preview' && result?.valid && (
-          <Button variant="primary" size="sm" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={handleImport}>Import Program</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Upload className="w-3.5 h-3.5" />}
+            onClick={handleImport}
+          >
+            Import Program
+          </Button>
         )}
       </div>
     </div>
@@ -205,7 +211,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       size="lg"
       title={
         <span className="flex items-center gap-2">
-          <Upload className="w-5 h-5 text-blue-400" />
+          <Upload className="w-5 h-5 text-info-400" />
           Import JSON Bundle
         </span>
       }
@@ -227,14 +233,14 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
               transition-colors
               ${
                 dragOver
-                  ? 'border-blue-400 bg-blue-900/20'
+                  ? 'border-info-400 bg-info-900/20'
                   : 'border-gray-600 hover:border-gray-500 bg-gray-800/50'
               }
             `}
           >
             <FileJson
               className={`w-10 h-10 mx-auto mb-3 ${
-                dragOver ? 'text-blue-400' : 'text-gray-500 dark:text-gray-400'
+                dragOver ? 'text-info-400' : 'text-gray-500 dark:text-gray-400'
               }`}
             />
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -280,28 +286,21 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       {/* Error Stage */}
       {stage === 'error' && result && (
         <>
-          <div className="bg-red-900/20 border border-red-800 rounded-lg p-3 space-y-2">
+          <div className="bg-error-900/20 border border-error-800 rounded-lg p-3 space-y-2">
             <div className="flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              <h3 className="text-sm font-medium text-red-300">
-                Validation Failed
-              </h3>
+              <XCircle className="w-4 h-4 text-error-400 flex-shrink-0" />
+              <h3 className="text-sm font-medium text-error-300">Validation Failed</h3>
             </div>
             <ul className="space-y-1 ml-6">
               {result.errors.map((err, i) => (
-                <li key={i} className="text-xs text-red-300">
-                  <span className="text-red-500 font-mono">
-                    {err.field}
-                  </span>
-                  : {err.message}
+                <li key={i} className="text-xs text-error-300">
+                  <span className="text-error-500 font-mono">{err.field}</span>: {err.message}
                 </li>
               ))}
             </ul>
           </div>
 
-          {result.warnings.length > 0 && (
-            <SecurityWarnings warnings={result.warnings} />
-          )}
+          {result.warnings.length > 0 && <SecurityWarnings warnings={result.warnings} />}
 
           <button
             onClick={reset}
@@ -316,24 +315,18 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       {stage === 'preview' && result?.bundle && (
         <>
           {/* Success Banner */}
-          <div className="bg-green-900/20 border border-green-800 rounded-lg p-3">
+          <div className="bg-success-900/20 border border-success-800 rounded-lg p-3">
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-400" />
-              <span className="text-sm text-green-300">
+              <CheckCircle className="w-4 h-4 text-success-400" />
+              <span className="text-sm text-success-300">
                 Bundle validated successfully
-                {fileName && (
-                  <span className="text-green-500 ml-1">
-                    ({fileName})
-                  </span>
-                )}
+                {fileName && <span className="text-success-500 ml-1">({fileName})</span>}
               </span>
             </div>
           </div>
 
           {/* Security Warnings */}
-          {result.warnings.length > 0 && (
-            <SecurityWarnings warnings={result.warnings} />
-          )}
+          {result.warnings.length > 0 && <SecurityWarnings warnings={result.warnings} />}
 
           {/* Program Preview */}
           <div className="bg-gray-800 rounded-lg p-3 space-y-2">
@@ -343,48 +336,32 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Code: </span>
-                <span className="text-gray-200 font-mono">
-                  {result.bundle.program.programCode}
-                </span>
+                <span className="text-gray-200 font-mono">{result.bundle.program.programCode}</span>
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Name: </span>
-                <span className="text-gray-200">
-                  {result.bundle.program.programName}
-                </span>
+                <span className="text-gray-200">{result.bundle.program.programName}</span>
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Type: </span>
-                <span className="text-blue-300">
-                  {result.bundle.program.programType}
-                </span>
+                <span className="text-info-300">{result.bundle.program.programType}</span>
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Mode: </span>
-                <span className="text-blue-300">
-                  {result.bundle.program.executionMode}
-                </span>
+                <span className="text-info-300">{result.bundle.program.executionMode}</span>
               </div>
             </div>
           </div>
 
           {/* Statistics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-            <StatBox
-              label="Variables"
-              value={result.bundle.variables.length}
-            />
+            <StatBox label="Variables" value={result.bundle.variables.length} />
             <StatBox label="Steps" value={result.bundle.steps.length} />
-            <StatBox
-              label="Transitions"
-              value={result.bundle.transitions.length}
-            />
+            <StatBox label="Transitions" value={result.bundle.transitions.length} />
             <StatBox
               label="Code Size"
               value={formatFileSize(
-                new TextEncoder().encode(
-                  result.bundle.program.structuredTextCode,
-                ).length,
+                new TextEncoder().encode(result.bundle.program.structuredTextCode).length,
               )}
             />
           </div>
@@ -397,21 +374,17 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
               </h3>
               <pre className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-gray-950 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">
                 {result.bundle.program.structuredTextCode.slice(0, 500)}
-                {result.bundle.program.structuredTextCode.length > 500 &&
-                  '\n...'}
+                {result.bundle.program.structuredTextCode.length > 500 && '\n...'}
               </pre>
             </div>
           )}
 
           {/* Export Info */}
           <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-4">
-            <span>
-              Exported: {new Date(result.bundle.exportedAt).toLocaleString()}
-            </span>
+            <span>Exported: {new Date(result.bundle.exportedAt).toLocaleString()}</span>
             <span>By: {result.bundle.exportedBy}</span>
             <span>
-              From: {result.bundle.exportedFrom.platform}{' '}
-              {result.bundle.exportedFrom.version}
+              From: {result.bundle.exportedFrom.platform} {result.bundle.exportedFrom.version}
             </span>
           </div>
         </>
@@ -425,16 +398,14 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 // ============================================================================
 
 const SecurityWarnings: React.FC<{ warnings: string[] }> = ({ warnings }) => (
-  <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3 space-y-1.5">
+  <div className="bg-warning-900/20 border border-warning-800 rounded-lg p-3 space-y-1.5">
     <div className="flex items-center gap-2">
-      <Shield className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-      <h3 className="text-sm font-medium text-yellow-300">
-        Security Warnings
-      </h3>
+      <Shield className="w-4 h-4 text-warning-400 flex-shrink-0" />
+      <h3 className="text-sm font-medium text-warning-300">Security Warnings</h3>
     </div>
     <ul className="space-y-1 ml-6">
       {warnings.map((w, i) => (
-        <li key={i} className="text-xs text-yellow-300 flex items-start gap-1">
+        <li key={i} className="text-xs text-warning-300 flex items-start gap-1">
           <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <span>{w}</span>
         </li>
@@ -443,10 +414,7 @@ const SecurityWarnings: React.FC<{ warnings: string[] }> = ({ warnings }) => (
   </div>
 );
 
-const StatBox: React.FC<{ label: string; value: string | number }> = ({
-  label,
-  value,
-}) => (
+const StatBox: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
   <div className="bg-gray-800 rounded p-2 text-center">
     <div className="text-lg font-semibold text-gray-100">{value}</div>
     <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>

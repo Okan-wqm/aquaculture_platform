@@ -39,10 +39,10 @@ const TRIGGER_LABELS: Record<ScriptTrigger, string> = {
 
 /** Badge color classes keyed by trigger type */
 const TRIGGER_BADGE_CLASS: Record<ScriptTrigger, string> = {
-  event: 'bg-blue-100 text-blue-700',
-  tagChange: 'bg-purple-100 text-purple-700',
-  interval: 'bg-amber-100 text-amber-700',
-  load: 'bg-green-100 text-green-700',
+  event: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+  tagChange: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+  interval: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  load: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
 };
 
 export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
@@ -78,9 +78,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
   /** Update a single script by merging partial updates. */
   const updateScript = useCallback(
     (id: string, updates: Partial<ScadaScript>) => {
-      onChange(
-        scripts.map((s) => (s.id === id ? { ...s, ...updates } : s)),
-      );
+      onChange(scripts.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     },
     [scripts, onChange],
   );
@@ -108,7 +106,15 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
           <Code2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           Scripts
         </h4>
-        <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={addScript} data-testid="add-script-btn">Add Script</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Plus className="w-3 h-3" />}
+          onClick={addScript}
+          data-testid="add-script-btn"
+        >
+          Add Script
+        </Button>
       </div>
 
       {/* Empty state */}
@@ -129,7 +135,13 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
             data-testid={`script-card-${script.id}`}
           >
             {/* Collapsed header -- always visible */}
-            <Button variant="ghost" size="sm" onClick={() => toggleExpanded(script.id)} data-testid={`script-toggle-${script.id}`}>{isExpanded ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => toggleExpanded(script.id)}
+              data-testid={`script-toggle-${script.id}`}
+            >
+              {isExpanded ? (
                 <ChevronDown className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
               ) : (
                 <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -146,10 +158,11 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
               </span>
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  script.enabled ? 'bg-green-500' : 'bg-gray-300'
+                  script.enabled ? 'bg-success-500' : 'bg-gray-300'
                 }`}
                 title={script.enabled ? 'Enabled' : 'Disabled'}
-              /></Button>
+              />
+            </Button>
 
             {/* Expanded body -- editor + trigger config */}
             {isExpanded && (

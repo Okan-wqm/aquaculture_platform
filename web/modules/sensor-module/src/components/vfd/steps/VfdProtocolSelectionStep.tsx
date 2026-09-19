@@ -100,9 +100,9 @@ const CONNECTION_TYPE_LABELS: Record<string, { label: string; icon: string }> = 
 };
 
 const SPEED_LABELS: Record<string, { label: string; color: string }> = {
-  low: { label: 'Düşük', color: 'text-yellow-600' },
-  medium: { label: 'Orta', color: 'text-blue-600' },
-  high: { label: 'Yüksek', color: 'text-green-600' },
+  low: { label: 'Düşük', color: 'text-warning-600 dark:text-warning-400' },
+  medium: { label: 'Orta', color: 'text-info-600 dark:text-info-400' },
+  high: { label: 'Yüksek', color: 'text-success-600 dark:text-success-400' },
 };
 
 export function VfdProtocolSelectionStep({
@@ -134,10 +134,10 @@ export function VfdProtocolSelectionStep({
       </div>
 
       {/* Recommendation info */}
-      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+      <div className="p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
         <div className="flex items-start">
-          <Info className="w-5 h-5 text-amber-500 mr-2 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-sm text-amber-800">
+          <Info className="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="text-sm text-warning-800 dark:text-warning-200">
             <p className="font-medium">Öneri</p>
             <p>
               Ethernet bağlantısı mevcutsa <strong>Modbus TCP</strong> veya{' '}
@@ -187,7 +187,7 @@ export function VfdProtocolSelectionStep({
 
       {/* Selected protocol details */}
       {selectedProtocol && (
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="mt-6 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
           <div className="flex items-start">
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center mr-3"
@@ -206,12 +206,12 @@ export function VfdProtocolSelectionStep({
                 {VFD_PROTOCOL_DESCRIPTIONS[selectedProtocol]}
               </p>
               <div className="mt-2 flex items-center gap-3 text-xs">
-                <span className="flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-blue-200">
+                <span className="flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-info-200">
                   {CONNECTION_TYPE_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.connectionType]?.icon}{' '}
                   {CONNECTION_TYPE_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.connectionType]?.label}
                 </span>
                 <span
-                  className={`flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-blue-200 ${SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.color}`}
+                  className={`flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-info-200 ${SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.color}`}
                 >
                   Hız: {SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.label}
                 </span>
@@ -251,7 +251,7 @@ function ProtocolGroup({
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center">
             {title}
             {recommended && (
-              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              <span className="ml-2 text-xs bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 px-2 py-0.5 rounded-full">
                 Önerilen
               </span>
             )}
@@ -271,7 +271,7 @@ function ProtocolGroup({
               onClick={() => onSelect(protocol)}
               className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
                 isSelected
-                  ? 'border-blue-500 bg-blue-50 shadow-md'
+                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md'
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
@@ -294,7 +294,7 @@ function ProtocolGroup({
 
               {isSelected && (
                 <div className="absolute top-2 right-2">
-                  <CircleCheck className="w-5 h-5 text-blue-500" aria-hidden="true" />
+                  <CircleCheck className="w-5 h-5 text-info-500" aria-hidden="true" />
                 </div>
               )}
             </button>

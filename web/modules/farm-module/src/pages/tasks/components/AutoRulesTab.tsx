@@ -115,7 +115,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                   <button
                     onClick={() => onToggleActive(rule.id)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${
-                      rule.isActive ? 'bg-green-500' : 'bg-gray-300'
+                      rule.isActive ? 'bg-success-500' : 'bg-gray-300'
                     }`}
                   >
                     <span

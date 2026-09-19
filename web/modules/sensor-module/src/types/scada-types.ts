@@ -12,6 +12,8 @@ export interface EquipmentNodeData {
   status: string;
   specifications?: Record<string, unknown>;
   icon?: string;
+  /** Free text the process editor attaches to the node; rendered by the canvas. */
+  description?: string;
 }
 
 // Connection types for different edge purposes

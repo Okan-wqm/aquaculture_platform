@@ -433,7 +433,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Results: <span className="text-blue-600">{result.rowCount.toLocaleString()}</span> rows
+            Results:{' '}
+            <span className="text-info-600 dark:text-info-400">
+              {result.rowCount.toLocaleString()}
+            </span>{' '}
+            rows
           </span>
           <Badge variant="info">{formatExecutionTime(result.executionTimeMs)}</Badge>
         </div>
@@ -441,7 +445,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           <Button variant="outline" size="sm" onClick={onCopyToClipboard}>
             {copySuccess ? (
               <>
-                <Check className="w-4 h-4 mr-1 text-green-500" aria-hidden="true" />
+                <Check className="w-4 h-4 mr-1 text-success-500" aria-hidden="true" />
                 Copied!
               </>
             ) : (
@@ -682,7 +686,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
               </label>
               <select
                 id="schema-select"
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-info-500 focus:border-info-500"
                 value={selectedSchema}
                 onChange={(e) => setSelectedSchema(e.target.value)}
               >

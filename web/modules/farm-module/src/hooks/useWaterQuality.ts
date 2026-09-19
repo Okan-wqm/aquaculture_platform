@@ -725,13 +725,13 @@ export function useDeleteWaterQuality() {
 export function getStatusColor(status: WaterQualityStatus): string {
   switch (status) {
     case 'OPTIMAL':
-      return 'text-green-600 bg-green-100';
+      return 'text-success-600 dark:text-success-400 bg-success-100 dark:bg-success-900/40';
     case 'ACCEPTABLE':
-      return 'text-blue-600 bg-blue-100';
+      return 'text-info-600 dark:text-info-400 bg-info-100 dark:bg-info-900/40';
     case 'WARNING':
-      return 'text-yellow-600 bg-yellow-100';
+      return 'text-warning-600 dark:text-warning-400 bg-warning-100 dark:bg-warning-900/40';
     case 'CRITICAL':
-      return 'text-red-600 bg-red-100';
+      return 'text-error-600 dark:text-error-400 bg-error-100 dark:bg-error-900/40';
     default:
       return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
   }

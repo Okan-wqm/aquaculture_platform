@@ -99,9 +99,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
 
   const updateRange = useCallback(
     (index: number, field: keyof ColorRange, value: string | number) => {
-      const updated = ranges.map((r, i) =>
-        i === index ? { ...r, [field]: value } : r,
-      );
+      const updated = ranges.map((r, i) => (i === index ? { ...r, [field]: value } : r));
       // Re-sort by min value whenever min changes to maintain visual order
       if (field === 'min') {
         updated.sort((a, b) => a.min - b.min);
@@ -122,7 +120,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
           className={`flex items-center gap-1 text-xs transition-colors ${
             ranges.length >= maxRanges
               ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
-              : 'text-cyan-600 hover:text-cyan-700'
+              : 'text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200'
           }`}
           data-testid="add-range-btn"
         >
@@ -133,7 +131,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
 
       {/* Validation summary banner */}
       {hasErrors && (
-        <div className="flex items-start gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-700">
+        <div className="flex items-start gap-1.5 px-2 py-1.5 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded text-[10px] text-warning-700 dark:text-warning-300">
           <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
           <span>
             {overlaps.size > 0 && 'Overlapping ranges detected. '}
@@ -143,7 +141,9 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
       )}
 
       {ranges.length === 0 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center">No color ranges defined.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center">
+          No color ranges defined.
+        </p>
       )}
 
       {ranges.map((range, idx) => {
@@ -156,7 +156,9 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
             key={idx}
             data-testid="range-row"
             className={`flex items-center gap-1 p-1.5 rounded transition-colors ${
-              rowError ? 'bg-red-50 border border-red-200' : 'bg-transparent'
+              rowError
+                ? 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'
+                : 'bg-transparent'
             }`}
           >
             {/* Min */}
@@ -165,7 +167,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               value={range.min}
               onChange={(e) => updateRange(idx, 'min', Number(e.target.value))}
               className={`w-14 px-2 py-1 text-xs border rounded ${
-                isInvalid ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'
+                isInvalid ? 'border-error-400' : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="Min"
               aria-label="Range minimum"
@@ -176,7 +178,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               value={range.max}
               onChange={(e) => updateRange(idx, 'max', Number(e.target.value))}
               className={`w-14 px-2 py-1 text-xs border rounded ${
-                isInvalid ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'
+                isInvalid ? 'border-error-400' : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="Max"
               aria-label="Range maximum"
@@ -203,10 +205,25 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
             )}
             {/* Label (optional) */}
             {showLabel && (
-              <Input type="text" value={range.label || ''} onChange={(e) => updateRange(idx, 'label', e.target.value)} placeholder="Label" aria-label="Range label" />
+              <Input
+                type="text"
+                value={range.label || ''}
+                onChange={(e) => updateRange(idx, 'label', e.target.value)}
+                placeholder="Label"
+                aria-label="Range label"
+              />
             )}
             {/* Remove */}
-            <Button variant="ghost" iconOnly type="button" onClick={() => removeRange(idx)} aria-label="Remove range" data-testid="remove-range-btn"><Trash2 className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              type="button"
+              onClick={() => removeRange(idx)}
+              aria-label="Remove range"
+              data-testid="remove-range-btn"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
           </div>
         );
       })}

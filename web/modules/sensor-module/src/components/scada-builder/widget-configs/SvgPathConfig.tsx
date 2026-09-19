@@ -18,7 +18,13 @@ import { TransformConfig } from './TransformConfig';
 import { GradientEditor } from './GradientEditor';
 import { SvgFilterEditor } from './SvgFilterEditor';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import type {
+  StrokeDashPattern,
+  StrokeLineCap,
+  StrokeLineJoin,
+  GradientConfig,
+  SvgFilterConfig,
+} from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
@@ -32,7 +38,7 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Default triangle path used when resetting to defaults */
 const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
@@ -64,7 +70,9 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Path</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        Path
+      </div>
 
       {/* Closed path toggle */}
       <div>
@@ -73,7 +81,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
             type="checkbox"
             checked={closed}
             onChange={(e) => onChange({ closed: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             aria-label="Close path"
           />
           Closed path (connects last point to first)
@@ -94,7 +102,9 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       {/* Fill -- only meaningful when closed */}
       {closed && (
         <div>
-          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Fill</div>
+          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Fill
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill</label>
@@ -107,7 +117,9 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Opacity</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Fill Opacity
+              </label>
               <input
                 type="range"
                 min={0}
@@ -160,7 +172,15 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       />
 
       {/* Reset path */}
-      <Button variant="secondary" size="xs" type="button" onClick={handleResetPath} aria-label="Reset path to default">Reset to Default Triangle</Button>
+      <Button
+        variant="secondary"
+        size="xs"
+        type="button"
+        onClick={handleResetPath}
+        aria-label="Reset path to default"
+      >
+        Reset to Default Triangle
+      </Button>
     </div>
   );
 };

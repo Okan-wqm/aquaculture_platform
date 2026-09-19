@@ -195,11 +195,11 @@ export const RecordTab: React.FC = () => {
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
               entry.overallStatus === 'OPTIMAL'
-                ? 'bg-green-100 text-green-800'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                 : entry.overallStatus === 'WARNING'
-                  ? 'bg-yellow-100 text-yellow-800'
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
                   : entry.overallStatus === 'CRITICAL'
-                    ? 'bg-red-100 text-red-800'
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
@@ -232,7 +232,7 @@ export const RecordTab: React.FC = () => {
               id="record-system-select"
               value={selectedSystemId ?? ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
             >
               <option value="">All Systems</option>
               {systems.map((sys) => (
@@ -255,7 +255,7 @@ export const RecordTab: React.FC = () => {
               id="record-equipment-select"
               value={selectedEquipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
             >
               <option value="">Select equipment...</option>
               {sortedEquipment.map((eq) => (
@@ -289,7 +289,7 @@ export const RecordTab: React.FC = () => {
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) === 0 && (
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
-            <TriangleAlert className="mx-auto h-12 w-12 text-yellow-400" aria-hidden="true" />
+            <TriangleAlert className="mx-auto h-12 w-12 text-warning-400" aria-hidden="true" />
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               No parameters configured for this equipment
             </h3>
@@ -334,8 +334,10 @@ export const RecordTab: React.FC = () => {
               }}
             />
             {createMutation.isSuccess && (
-              <div className="mt-3 rounded-md bg-green-50 p-3">
-                <p className="text-sm text-green-800">Measurement saved successfully.</p>
+              <div className="mt-3 rounded-md bg-success-50 dark:bg-success-900/20 p-3">
+                <p className="text-sm text-success-800 dark:text-success-200">
+                  Measurement saved successfully.
+                </p>
               </div>
             )}
           </div>

@@ -22,7 +22,13 @@ import { GradientEditor } from './GradientEditor';
 import { SvgFilterEditor } from './SvgFilterEditor';
 import { ColorAlphaInput } from './ColorAlphaInput';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import type {
+  StrokeDashPattern,
+  StrokeLineCap,
+  StrokeLineJoin,
+  GradientConfig,
+  SvgFilterConfig,
+} from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
@@ -35,7 +41,7 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
@@ -51,7 +57,9 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Fill</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        Fill
+      </div>
       <ColorAlphaInput
         color={(config.fill as string) || colors.info[500]}
         alpha={(config.fillOpacity as number) ?? 1}

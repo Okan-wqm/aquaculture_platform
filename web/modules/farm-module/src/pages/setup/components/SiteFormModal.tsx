@@ -303,7 +303,9 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
             type="button"
             onClick={() => setActiveTab(tab)}
             className={`px-3 py-1.5 text-sm font-medium rounded-md ${
-              activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
+              activeTab === tab
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)} Info
@@ -323,38 +325,38 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     htmlFor="site-name"
                     className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
-                    Site Name <span className="text-red-500">*</span>
+                    Site Name <span className="text-error-500">*</span>
                   </label>
                   <input
                     id="site-name"
                     type="text"
                     value={formData.name}
                     onChange={(e) => handleInputChange('name', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.name ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.name ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Main Production Site"
                   />
-                  {errors.name && <p className="mt-1 text-sm text-red-500">{errors.name}</p>}
+                  {errors.name && <p className="mt-1 text-sm text-error-500">{errors.name}</p>}
                 </div>
                 <div>
                   <label
                     htmlFor="site-code"
                     className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
-                    Site Code <span className="text-red-500">*</span>
+                    Site Code <span className="text-error-500">*</span>
                   </label>
                   <input
                     id="site-code"
                     type="text"
                     value={formData.code}
                     onChange={(e) => handleInputChange('code', e.target.value.toUpperCase())}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.code ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.code ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., MPS-001"
                   />
-                  {errors.code && <p className="mt-1 text-sm text-red-500">{errors.code}</p>}
+                  {errors.code && <p className="mt-1 text-sm text-error-500">{errors.code}</p>}
                 </div>
                 <div>
                   <label
@@ -375,13 +377,15 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         e.target.value === '' ? '' : Number(e.target.value),
                       )
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.lokalitetsnummer ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.lokalitetsnummer
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 12345"
                   />
                   {errors.lokalitetsnummer ? (
-                    <p className="mt-1 text-sm text-red-500">{errors.lokalitetsnummer}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.lokalitetsnummer}</p>
                   ) : (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Akvakulturregisteret locality number (5 digits) — Norwegian regulatory reports
@@ -396,9 +400,16 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Organisation Number Override
                   </label>
-                  <Input fullWidth id="site-organisation-override" type="text" value={formData.organisationNumberOverride} onChange={(e) =>
-           handleInputChange('organisationNumberOverride', e.target.value)
-          } placeholder="9-digit Norwegian organisation number" />
+                  <Input
+                    fullWidth
+                    id="site-organisation-override"
+                    type="text"
+                    value={formData.organisationNumberOverride}
+                    onChange={(e) =>
+                      handleInputChange('organisationNumberOverride', e.target.value)
+                    }
+                    placeholder="9-digit Norwegian organisation number"
+                  />
                 </div>
               </div>
 
@@ -409,7 +420,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 >
                   Description
                 </label>
-                <Textarea fullWidth id="site-description" value={formData.description} onChange={(e) => handleInputChange('description', e.target.value)} rows={3} placeholder="Brief description of the site..." />
+                <Textarea
+                  fullWidth
+                  id="site-description"
+                  value={formData.description}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  rows={3}
+                  placeholder="Brief description of the site..."
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -428,7 +446,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         handleInputChange('type', e.target.value);
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                   >
                     {siteTypeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -448,7 +466,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     id="site-status"
                     value={formData.status}
                     onChange={(e) => handleInputChange('status', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                   >
                     {statusOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -466,12 +484,19 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Total Area (m²)
                   </label>
-                  <Input fullWidth id="site-total-area" type="number" value={formData.totalArea} onChange={(e) =>
-           handleInputChange(
-            'totalArea',
-            e.target.value ? parseFloat(e.target.value) : '',
-           )
-          } placeholder="e.g., 50000" />
+                  <Input
+                    fullWidth
+                    id="site-total-area"
+                    type="number"
+                    value={formData.totalArea}
+                    onChange={(e) =>
+                      handleInputChange(
+                        'totalArea',
+                        e.target.value ? parseFloat(e.target.value) : '',
+                      )
+                    }
+                    placeholder="e.g., 50000"
+                  />
                 </div>
               </div>
 
@@ -486,7 +511,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   id="site-timezone"
                   value={formData.timezone}
                   onChange={(e) => handleInputChange('timezone', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                 >
                   {timezoneOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -514,7 +539,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Country
                   </label>
-                  <Input fullWidth id="site-country" type="text" value={formData.country} onChange={(e) => handleInputChange('country', e.target.value)} placeholder="e.g., Norway" />
+                  <Input
+                    fullWidth
+                    id="site-country"
+                    type="text"
+                    value={formData.country}
+                    onChange={(e) => handleInputChange('country', e.target.value)}
+                    placeholder="e.g., Norway"
+                  />
                 </div>
                 <div>
                   <label
@@ -523,7 +555,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Region
                   </label>
-                  <Input fullWidth id="site-region" type="text" value={formData.region} onChange={(e) => handleInputChange('region', e.target.value)} placeholder="e.g., Hordaland" />
+                  <Input
+                    fullWidth
+                    id="site-region"
+                    type="text"
+                    value={formData.region}
+                    onChange={(e) => handleInputChange('region', e.target.value)}
+                    placeholder="e.g., Hordaland"
+                  />
                 </div>
               </div>
 
@@ -534,12 +573,19 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 >
                   Street Address
                 </label>
-                <Input fullWidth id="site-street" type="text" value={formData.address.street} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           address: { ...prev.address, street: e.target.value },
-          }))
-         } placeholder="Street address..." />
+                <Input
+                  fullWidth
+                  id="site-street"
+                  type="text"
+                  value={formData.address.street}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, street: e.target.value },
+                    }))
+                  }
+                  placeholder="Street address..."
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -550,12 +596,18 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     City
                   </label>
-                  <Input fullWidth id="site-city" type="text" value={formData.address.city} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            address: { ...prev.address, city: e.target.value },
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    id="site-city"
+                    type="text"
+                    value={formData.address.city}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        address: { ...prev.address, city: e.target.value },
+                      }))
+                    }
+                  />
                 </div>
                 <div>
                   <label
@@ -564,12 +616,18 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     State
                   </label>
-                  <Input fullWidth id="site-state" type="text" value={formData.address.state} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            address: { ...prev.address, state: e.target.value },
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    id="site-state"
+                    type="text"
+                    value={formData.address.state}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        address: { ...prev.address, state: e.target.value },
+                      }))
+                    }
+                  />
                 </div>
                 <div>
                   <label
@@ -578,12 +636,18 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Postal Code
                   </label>
-                  <Input fullWidth id="site-postal-code" type="text" value={formData.address.postalCode} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            address: { ...prev.address, postalCode: e.target.value },
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    id="site-postal-code"
+                    type="text"
+                    value={formData.address.postalCode}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        address: { ...prev.address, postalCode: e.target.value },
+                      }))
+                    }
+                  />
                 </div>
               </div>
 
@@ -609,13 +673,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         },
                       }))
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.latitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.latitude ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 60.3913"
                   />
                   {errors.latitude && (
-                    <p className="mt-1 text-sm text-red-500">{errors.latitude}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.latitude}</p>
                   )}
                 </div>
                 <div>
@@ -639,13 +703,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         },
                       }))
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.longitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.longitude ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 5.3221"
                   />
                   {errors.longitude && (
-                    <p className="mt-1 text-sm text-red-500">{errors.longitude}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.longitude}</p>
                   )}
                 </div>
                 <div>
@@ -669,17 +733,17 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         },
                       }))
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.altitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.altitude ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="Optional"
                   />
                   {errors.altitude && (
-                    <p className="mt-1 text-sm text-red-500">{errors.altitude}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.altitude}</p>
                   )}
                 </div>
               </div>
-              {errors.location && <p className="text-sm text-red-500">{errors.location}</p>}
+              {errors.location && <p className="text-sm text-error-500">{errors.location}</p>}
 
               <div>
                 <label
@@ -700,12 +764,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       e.target.value === '' ? '' : Number(e.target.value),
                     )
                   }
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    errors.monitoringRadiusM ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                    errors.monitoringRadiusM
+                      ? 'border-error-500'
+                      : 'border-gray-300 dark:border-gray-600'
                   }`}
                 />
                 {errors.monitoringRadiusM && (
-                  <p className="mt-1 text-sm text-red-500">{errors.monitoringRadiusM}</p>
+                  <p className="mt-1 text-sm text-error-500">{errors.monitoringRadiusM}</p>
                 )}
               </div>
 
@@ -726,13 +792,15 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       setErrors((previous) => ({ ...previous, monitoringArea: '' }));
                     }
                   }}
-                  className={`w-full px-3 py-2 border rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    errors.monitoringArea ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                  className={`w-full px-3 py-2 border rounded-lg font-mono text-sm focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                    errors.monitoringArea
+                      ? 'border-error-500'
+                      : 'border-gray-300 dark:border-gray-600'
                   }`}
                   placeholder='{"type":"Polygon","coordinates":[[[5.3,60.3],[5.4,60.3],[5.4,60.4],[5.3,60.3]]]}'
                 />
                 {errors.monitoringArea ? (
-                  <p className="mt-1 text-sm text-red-500">{errors.monitoringArea}</p>
+                  <p className="mt-1 text-sm text-error-500">{errors.monitoringArea}</p>
                 ) : (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Optional Polygon or MultiPolygon using [longitude, latitude]. The server
@@ -753,7 +821,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 >
                   Site Manager
                 </label>
-                <Input fullWidth id="site-manager" type="text" value={formData.siteManager} onChange={(e) => handleInputChange('siteManager', e.target.value)} placeholder="Full name of site manager" />
+                <Input
+                  fullWidth
+                  id="site-manager"
+                  type="text"
+                  value={formData.siteManager}
+                  onChange={(e) => handleInputChange('siteManager', e.target.value)}
+                  placeholder="Full name of site manager"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -769,13 +844,15 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     type="email"
                     value={formData.contactEmail}
                     onChange={(e) => handleInputChange('contactEmail', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.contactEmail ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.contactEmail
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="email@example.com"
                   />
                   {errors.contactEmail && (
-                    <p className="mt-1 text-sm text-red-500">{errors.contactEmail}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.contactEmail}</p>
                   )}
                 </div>
                 <div>
@@ -785,7 +862,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   >
                     Contact Phone
                   </label>
-                  <Input fullWidth id="site-contact-phone" type="tel" value={formData.contactPhone} onChange={(e) => handleInputChange('contactPhone', e.target.value)} placeholder="+47 XXX XX XXX" />
+                  <Input
+                    fullWidth
+                    id="site-contact-phone"
+                    type="tel"
+                    value={formData.contactPhone}
+                    onChange={(e) => handleInputChange('contactPhone', e.target.value)}
+                    placeholder="+47 XXX XX XXX"
+                  />
                 </div>
               </div>
 
@@ -811,8 +895,12 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
 
         {/* Footer */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit">{site ? 'Update Site' : 'Create Site'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit">
+            {site ? 'Update Site' : 'Create Site'}
+          </Button>
         </div>
       </form>
     </Modal>

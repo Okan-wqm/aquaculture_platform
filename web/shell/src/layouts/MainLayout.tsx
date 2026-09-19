@@ -590,11 +590,11 @@ const MainLayout: React.FC = () => {
   const logoColorClass = useMemo(() => {
     switch (theme) {
       case 'admin':
-        return 'text-indigo-600';
+        return 'text-primary-600 dark:text-primary-400';
       case 'tenant':
-        return 'text-emerald-600';
+        return 'text-success-600 dark:text-success-400';
       default:
-        return 'text-blue-600';
+        return 'text-info-600 dark:text-info-400';
     }
   }, [theme]);
 

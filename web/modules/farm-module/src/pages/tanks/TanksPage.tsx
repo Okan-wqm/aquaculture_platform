@@ -74,14 +74,14 @@ import {
 // ============================================================================
 
 const statusColors: Record<string, string> = {
-  OPERATIONAL: 'bg-green-100 text-green-800',
-  ACTIVE: 'bg-green-100 text-green-800',
-  PREPARING: 'bg-blue-100 text-blue-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  CLEANING: 'bg-cyan-100 text-cyan-800',
-  HARVESTING: 'bg-purple-100 text-purple-800',
+  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FALLOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  QUARANTINE: 'bg-red-100 text-red-800',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   OUT_OF_SERVICE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   DECOMMISSIONED: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
 };
@@ -586,10 +586,10 @@ export const TanksPage: React.FC = () => {
           <span
             className={`px-2 py-1 rounded-full text-xs font-medium ${
               tank.category === 'pond'
-                ? 'bg-blue-100 text-blue-800'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                 : tank.category === 'cage'
-                  ? 'bg-purple-100 text-purple-800'
-                  : 'bg-cyan-100 text-cyan-800'
+                  ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                  : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
             }`}
           >
             {categoryLabels[tank.category] || tank.category}
@@ -629,7 +629,7 @@ export const TanksPage: React.FC = () => {
             ? details.map((d) => d.batchNumber).join(' + ')
             : tank.batchNumber;
         return batchLabel ? (
-          <span className="text-blue-600 font-medium" title={batchLabel}>
+          <span className="text-info-600 dark:text-info-400 font-medium" title={batchLabel}>
             {batchLabel}
           </span>
         ) : (
@@ -647,9 +647,9 @@ export const TanksPage: React.FC = () => {
           <span
             className={`${
               tank.isOverCapacity
-                ? 'text-red-600 font-bold'
+                ? 'text-error-600 dark:text-error-400 font-bold'
                 : tank.density > (tank.maxDensity || 30) * 0.9
-                  ? 'text-yellow-600'
+                  ? 'text-warning-600 dark:text-warning-400'
                   : 'text-gray-900 dark:text-gray-100'
             }`}
           >
@@ -663,10 +663,10 @@ export const TanksPage: React.FC = () => {
           <span
             className={`${
               tank.survivalRate >= 95
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : tank.survivalRate >= 90
-                  ? 'text-yellow-600'
-                  : 'text-red-600'
+                  ? 'text-warning-600 dark:text-warning-400'
+                  : 'text-error-600 dark:text-error-400'
             }`}
           >
             {formatNumber(tank.survivalRate, 1)}%
@@ -679,10 +679,10 @@ export const TanksPage: React.FC = () => {
           <span
             className={`${
               tank.mortalityRate <= 1
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : tank.mortalityRate <= 5
-                  ? 'text-yellow-600'
-                  : 'text-red-600'
+                  ? 'text-warning-600 dark:text-warning-400'
+                  : 'text-error-600 dark:text-error-400'
             }`}
           >
             {formatNumber(tank.mortalityRate, 2)}%
@@ -695,10 +695,10 @@ export const TanksPage: React.FC = () => {
           <span
             className={`${
               tank.fcr <= 1.2
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : tank.fcr <= 1.5
-                  ? 'text-yellow-600'
-                  : 'text-red-600'
+                  ? 'text-warning-600 dark:text-warning-400'
+                  : 'text-error-600 dark:text-error-400'
             }`}
           >
             {formatNumber(tank.fcr, 2)}
@@ -717,10 +717,10 @@ export const TanksPage: React.FC = () => {
               <div
                 className={`h-2 rounded-full ${
                   tank.capacityUsedPercent > 100
-                    ? 'bg-red-500'
+                    ? 'bg-error-500'
                     : tank.capacityUsedPercent > 80
-                      ? 'bg-yellow-500'
-                      : 'bg-green-500'
+                      ? 'bg-warning-500'
+                      : 'bg-success-500'
                 }`}
                 style={{ width: `${Math.min(tank.capacityUsedPercent, 100)}%` }}
               />
@@ -746,7 +746,7 @@ export const TanksPage: React.FC = () => {
         );
       case 'feedCode':
         return tank.feedCode ? (
-          <span className="text-blue-600">{tank.feedCode}</span>
+          <span className="text-info-600 dark:text-info-400">{tank.feedCode}</span>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">-</span>
         );
@@ -782,10 +782,10 @@ export const TanksPage: React.FC = () => {
             <span
               className={`px-2 py-1 rounded-full text-xs font-medium ${
                 tank.category === 'pond'
-                  ? 'bg-blue-100 text-blue-800'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                   : tank.category === 'cage'
-                    ? 'bg-purple-100 text-purple-800'
-                    : 'bg-cyan-100 text-cyan-800'
+                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                    : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
               }`}
             >
               {categoryLabels[tank.category] || tank.category}
@@ -837,8 +837,8 @@ export const TanksPage: React.FC = () => {
             <span
               className={`px-1.5 py-0.5 rounded text-xs ${
                 cf.sourceType === 'farmed'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-amber-100 text-amber-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
               }`}
             >
               {cf.sourceType === 'farmed' ? 'Farmed' : 'Wild'}
@@ -864,7 +864,7 @@ export const TanksPage: React.FC = () => {
 
         case 'cfTotalMortality':
           return cf.totalMortality ? (
-            <span className="text-sm text-red-600 font-medium">
+            <span className="text-sm text-error-600 dark:text-error-400 font-medium">
               {formatNumber(cf.totalMortality, 0)}
             </span>
           ) : (
@@ -876,10 +876,10 @@ export const TanksPage: React.FC = () => {
             <span
               className={`text-sm ${
                 cf.mortalityRate <= 1
-                  ? 'text-green-600'
+                  ? 'text-success-600 dark:text-success-400'
                   : cf.mortalityRate <= 5
-                    ? 'text-yellow-600'
-                    : 'text-red-600'
+                    ? 'text-warning-600 dark:text-warning-400'
+                    : 'text-error-600 dark:text-error-400'
               }`}
             >
               {formatNumber(cf.mortalityRate, 2)}%
@@ -902,10 +902,10 @@ export const TanksPage: React.FC = () => {
               <span
                 className={`text-sm ${
                   survivalRate >= 95
-                    ? 'text-green-600'
+                    ? 'text-success-600 dark:text-success-400'
                     : survivalRate >= 90
-                      ? 'text-yellow-600'
-                      : 'text-red-600'
+                      ? 'text-warning-600 dark:text-warning-400'
+                      : 'text-error-600 dark:text-error-400'
                 }`}
               >
                 {formatNumber(survivalRate, 1)}%
@@ -950,12 +950,14 @@ export const TanksPage: React.FC = () => {
   if (isBlockingError(error, data != null)) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 className="text-red-800 font-medium">Error loading tanks</h3>
-          <p className="text-red-600 text-sm mt-1">{(error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+          <h3 className="text-error-800 dark:text-error-200 font-medium">Error loading tanks</h3>
+          <p className="text-error-600 dark:text-error-400 text-sm mt-1">
+            {(error as Error).message}
+          </p>
           <button
             onClick={() => refetch()}
-            className="mt-3 px-4 py-2 bg-red-100 text-red-800 rounded-lg hover:bg-red-200"
+            className="mt-3 px-4 py-2 bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 rounded-lg hover:bg-error-200 dark:hover:bg-error-800/60"
           >
             Retry
           </button>
@@ -1018,14 +1020,16 @@ export const TanksPage: React.FC = () => {
       {/* Non-blocking refresh error — shown while keeping the last-loaded data
           visible, so a failed background refetch never blanks the table. */}
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh tanks — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -1043,7 +1047,7 @@ export const TanksPage: React.FC = () => {
               <select
                 value={selectedTankId || ''}
                 onChange={(e) => setSelectedTankId(e.target.value || null)}
-                className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm min-w-[160px] bg-white dark:bg-gray-900 focus:ring-1 focus:ring-blue-500"
+                className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm min-w-[160px] bg-white dark:bg-gray-900 focus:ring-1 focus:ring-info-500"
               >
                 <option value="">Select Tank...</option>
                 {tableData
@@ -1138,7 +1142,7 @@ export const TanksPage: React.FC = () => {
             placeholder="Search tanks..."
             value={filters.search}
             onChange={(e) => handleFilterChange('search', e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           />
         </div>
 
@@ -1215,12 +1219,12 @@ export const TanksPage: React.FC = () => {
           onClick={() => setActiveTab('production')}
           className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'production'
-              ? 'border-blue-500 text-blue-600'
+              ? 'border-info-500 text-info-600 dark:text-info-400'
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           Production Batches
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
             {filteredData.filter((t) => t.batchNumber).length}
           </span>
         </button>
@@ -1228,12 +1232,12 @@ export const TanksPage: React.FC = () => {
           onClick={() => setActiveTab('cleanerFish')}
           className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'cleanerFish'
-              ? 'border-green-500 text-green-600'
+              ? 'border-success-500 text-success-600 dark:text-success-400'
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           Cleaner Fish
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             {filteredData.filter((t) => t.hasCleanerFish).length}
           </span>
         </button>
@@ -1259,9 +1263,9 @@ export const TanksPage: React.FC = () => {
       {activeTab === 'cleanerFish' && (
         <>
           {/* Cleaner Fish Action Bar */}
-          <div className="flex items-center justify-between mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-4 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3">
             <div className="flex items-center gap-4">
-              <span className="text-sm font-medium text-green-800">
+              <span className="text-sm font-medium text-success-800 dark:text-success-200">
                 {activeCfBatches.length} active batch{activeCfBatches.length !== 1 ? 'es' : ''}
                 {' · '}
                 {filteredData.filter((t) => t.hasCleanerFish).length} tanks with cleaner fish

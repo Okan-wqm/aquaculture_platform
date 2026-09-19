@@ -72,16 +72,18 @@ export function ChildSensorsStep({
   return (
     <div className="space-y-6">
       {/* Info header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="text-lg font-medium text-blue-900">Configure Individual Sensors</h3>
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h3 className="text-lg font-medium text-info-900 dark:text-info-100">
+          Configure Individual Sensors
+        </h3>
         {childSensors.length > 0 ? (
-          <p className="text-sm text-blue-700 mt-1">
+          <p className="text-sm text-info-700 dark:text-info-300 mt-1">
             The connection test found {childSensors.length} data value
             {childSensors.length !== 1 ? 's' : ''}. Select which values to register as separate
             sensors and configure each one.
           </p>
         ) : (
-          <p className="text-sm text-blue-700 mt-1">
+          <p className="text-sm text-info-700 dark:text-info-300 mt-1">
             No data values were discovered (the connection test may not have passed for this
             broker). Add the parameters your device publishes manually — each becomes a sensor
             reading channel keyed by its data path.
@@ -93,11 +95,15 @@ export function ChildSensorsStep({
       <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <div className="flex items-center space-x-4">
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">{selectedCount}</div>
+            <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+              {selectedCount}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Selected</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{configuredCount}</div>
+            <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+              {configuredCount}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Configured</div>
           </div>
           <div className="text-center">
@@ -126,7 +132,7 @@ export function ChildSensorsStep({
             key={sensor.dataPath}
             className={`border rounded-lg overflow-hidden transition-colors ${
               sensor.selected
-                ? 'border-blue-300 bg-white dark:bg-gray-900'
+                ? 'border-info-300 bg-white dark:bg-gray-900'
                 : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-75'
             }`}
           >
@@ -138,7 +144,7 @@ export function ChildSensorsStep({
                     type="checkbox"
                     checked={sensor.selected}
                     onChange={() => handleToggleSelect(sensor.dataPath)}
-                    className="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                    className="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                   />
                 </div>
 
@@ -166,12 +172,12 @@ export function ChildSensorsStep({
                       {sensor.selected && (
                         <>
                           {sensor.isConfigured ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                               <Check className="w-3 h-3 mr-1" aria-hidden="true" />
                               Configured
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                               <TriangleAlert className="w-3 h-3 mr-1" aria-hidden="true" />
                               Needs Config
                             </span>
@@ -192,7 +198,7 @@ export function ChildSensorsStep({
                   {/* Configuration summary (if configured) */}
                   {sensor.selected && sensor.isConfigured && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
                         {SENSOR_TYPE_LABELS[sensor.type] || sensor.type}
                       </span>
                       {sensor.unit && (
@@ -201,24 +207,24 @@ export function ChildSensorsStep({
                         </span>
                       )}
                       {sensor.calibrationEnabled && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-orange-50 text-orange-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                           Calibration: x{sensor.calibrationMultiplier} +{sensor.calibrationOffset}
                         </span>
                       )}
                       {sensor.alertThresholds?.warning && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-yellow-50 text-yellow-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                           Warning: {sensor.alertThresholds.warning.low ?? '-'} -{' '}
                           {sensor.alertThresholds.warning.high ?? '-'}
                         </span>
                       )}
                       {sensor.alertThresholds?.critical && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300">
                           Critical: {sensor.alertThresholds.critical.low ?? '-'} -{' '}
                           {sensor.alertThresholds.critical.high ?? '-'}
                         </span>
                       )}
                       {sensor.displaySettings?.showOnDashboard && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
                           Dashboard
                         </span>
                       )}
@@ -233,12 +239,17 @@ export function ChildSensorsStep({
 
       {/* Warning if no sensors selected */}
       {selectedCount === 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
           <div className="flex items-start">
-            <TriangleAlert className="w-5 h-5 text-yellow-600 mt-0.5" aria-hidden="true" />
+            <TriangleAlert
+              className="w-5 h-5 text-warning-600 dark:text-warning-400 mt-0.5"
+              aria-hidden="true"
+            />
             <div className="ml-3">
-              <h4 className="text-sm font-medium text-yellow-800">No sensors selected</h4>
-              <p className="text-sm text-yellow-700 mt-1">
+              <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200">
+                No sensors selected
+              </h4>
+              <p className="text-sm text-warning-700 dark:text-warning-300 mt-1">
                 Please select at least one sensor to register. Each selected value will be created
                 as a separate sensor record.
               </p>
@@ -249,15 +260,18 @@ export function ChildSensorsStep({
 
       {/* Info about unconfigured sensors */}
       {selectedCount > 0 && configuredCount < selectedCount && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
           <div className="flex items-start">
-            <InfoIcon className="w-5 h-5 text-blue-600 mt-0.5" aria-hidden="true" />
+            <InfoIcon
+              className="w-5 h-5 text-info-600 dark:text-info-400 mt-0.5"
+              aria-hidden="true"
+            />
             <div className="ml-3">
-              <h4 className="text-sm font-medium text-blue-800">
+              <h4 className="text-sm font-medium text-info-800 dark:text-info-200">
                 {selectedCount - configuredCount} sensor
                 {selectedCount - configuredCount !== 1 ? 's' : ''} not configured
               </h4>
-              <p className="text-sm text-blue-700 mt-1">
+              <p className="text-sm text-info-700 dark:text-info-300 mt-1">
                 Unconfigured sensors will use default settings. Click "Configure" to set up
                 calibration, alerts, and display options.
               </p>

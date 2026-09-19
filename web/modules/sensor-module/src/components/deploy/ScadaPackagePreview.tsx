@@ -25,17 +25,17 @@ export const ScadaPackagePreview: React.FC<ScadaPackagePreviewProps> = ({ packag
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div className="p-2 bg-purple-50 rounded-lg text-center border border-purple-100">
-        <p className="text-lg font-bold text-purple-700">{screenCount}</p>
-        <p className="text-xs text-purple-600">Screens</p>
+      <div className="p-2 bg-accent-50 dark:bg-accent-900/20 rounded-lg text-center border border-accent-100 dark:border-accent-800">
+        <p className="text-lg font-bold text-accent-700 dark:text-accent-300">{screenCount}</p>
+        <p className="text-xs text-accent-600 dark:text-accent-400">Screens</p>
       </div>
-      <div className="p-2 bg-blue-50 rounded-lg text-center border border-blue-100">
-        <p className="text-lg font-bold text-blue-700">{widgetCount}</p>
-        <p className="text-xs text-blue-600">Widget</p>
+      <div className="p-2 bg-info-50 dark:bg-info-900/20 rounded-lg text-center border border-info-100 dark:border-info-800">
+        <p className="text-lg font-bold text-info-700 dark:text-info-300">{widgetCount}</p>
+        <p className="text-xs text-info-600 dark:text-info-400">Widget</p>
       </div>
-      <div className="p-2 bg-orange-50 rounded-lg text-center border border-orange-100">
-        <p className="text-lg font-bold text-orange-700">{alarmCount}</p>
-        <p className="text-xs text-orange-600">Alarms</p>
+      <div className="p-2 bg-warning-50 dark:bg-warning-900/20 rounded-lg text-center border border-warning-100 dark:border-warning-800">
+        <p className="text-lg font-bold text-warning-700 dark:text-warning-300">{alarmCount}</p>
+        <p className="text-xs text-warning-600 dark:text-warning-400">Alarms</p>
       </div>
       <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg text-center border border-gray-200 dark:border-gray-700">
         <p className="text-lg font-bold text-gray-700 dark:text-gray-300">{jsonSizeStr}</p>

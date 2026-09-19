@@ -104,18 +104,22 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
     switch (transaction.type) {
       case 'payment':
         return {
-          bg: 'bg-green-100',
-          icon: <Check className="w-5 h-5 text-green-600" aria-hidden="true" />,
+          bg: 'bg-success-100 dark:bg-success-900/40',
+          icon: (
+            <Check className="w-5 h-5 text-success-600 dark:text-success-400" aria-hidden="true" />
+          ),
         };
       case 'refund':
         return {
-          bg: 'bg-red-100',
-          icon: <Undo2 className="w-5 h-5 text-red-600" aria-hidden="true" />,
+          bg: 'bg-error-100 dark:bg-error-900/40',
+          icon: <Undo2 className="w-5 h-5 text-error-600 dark:text-error-400" aria-hidden="true" />,
         };
       default:
         return {
-          bg: 'bg-blue-100',
-          icon: <FileText className="w-5 h-5 text-blue-600" aria-hidden="true" />,
+          bg: 'bg-info-100 dark:bg-info-900/40',
+          icon: (
+            <FileText className="w-5 h-5 text-info-600 dark:text-info-400" aria-hidden="true" />
+          ),
         };
     }
   }, [transaction.type]);
@@ -123,11 +127,11 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   const statusConfig = useMemo(() => {
     switch (transaction.status) {
       case 'completed':
-        return 'bg-green-100 text-green-700';
+        return 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300';
       case 'pending':
-        return 'bg-yellow-100 text-yellow-700';
+        return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
       default:
-        return 'bg-red-100 text-red-700';
+        return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300';
     }
   }, [transaction.status]);
 
@@ -148,7 +152,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
       </div>
       <div className="text-right flex-shrink-0 ml-4">
         <p
-          className={`text-sm font-semibold ${transaction.type === 'refund' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}
+          className={`text-sm font-semibold ${transaction.type === 'refund' ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
         >
           {transaction.type === 'refund' ? '-' : '+'}
           {formatCurrency(transaction.amount)}
@@ -183,7 +187,10 @@ const QuickStat: React.FC<QuickStatProps> = ({
         <p className={`text-xl font-bold mt-1 ${valueColor}`}>{value}</p>
       </div>
       {action && (
-        <Link to={action.href} className="text-sm text-blue-600 hover:text-blue-700">
+        <Link
+          to={action.href}
+          className="text-sm text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200"
+        >
           {action.label}
         </Link>
       )}
@@ -234,10 +241,14 @@ const LoadingSkeleton: React.FC = () => (
 // ============================================================================
 
 const Icons = {
-  Dollar: <DollarSign className="w-6 h-6 text-green-600" aria-hidden="true" />,
-  Chart: <ChartColumn className="w-6 h-6 text-blue-600" aria-hidden="true" />,
-  Users: <UsersIcon className="w-6 h-6 text-purple-600" aria-hidden="true" />,
-  TrendDown: <TrendingUp className="w-6 h-6 text-yellow-600" aria-hidden="true" />,
+  Dollar: (
+    <DollarSign className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
+  ),
+  Chart: <ChartColumn className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />,
+  Users: <UsersIcon className="w-6 h-6 text-accent-600 dark:text-accent-400" aria-hidden="true" />,
+  TrendDown: (
+    <TrendingUp className="w-6 h-6 text-warning-600 dark:text-warning-400" aria-hidden="true" />
+  ),
 };
 
 // ============================================================================
@@ -343,12 +354,14 @@ const BillingDashboardPage: React.FC = () => {
 
   if (error && !metrics) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <p className="text-red-600 font-medium">Failed to load billing data</p>
-        <p className="text-red-500 text-sm mt-1">{error}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-6 text-center">
+        <p className="text-error-600 dark:text-error-400 font-medium">
+          Failed to load billing data
+        </p>
+        <p className="text-error-500 text-sm mt-1">{error}</p>
         <button
           onClick={refresh}
-          className="mt-4 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+          className="mt-4 px-4 py-2 bg-error-600 text-white text-sm font-medium rounded-lg hover:bg-error-700 transition-colors"
         >
           Retry
         </button>
@@ -371,7 +384,7 @@ const BillingDashboardPage: React.FC = () => {
             </button>
             <Link
               to="/admin/billing/invoices/new"
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors"
             >
               Create Invoice
             </Link>
@@ -385,7 +398,7 @@ const BillingDashboardPage: React.FC = () => {
           title="Monthly Recurring Revenue"
           value={formatCurrency(metrics.mrr)}
           icon={Icons.Dollar}
-          iconClassName="bg-green-100"
+          iconClassName="bg-success-100 dark:bg-success-900/40"
           change={metrics.growth ?? undefined}
           trend={metrics.growth ?? 'neutral'}
           trendLabel="vs last month"
@@ -394,23 +407,29 @@ const BillingDashboardPage: React.FC = () => {
           title="Annual Recurring Revenue"
           value={formatCurrency(metrics.arr, true)}
           icon={Icons.Chart}
-          iconClassName="bg-blue-100"
+          iconClassName="bg-info-100 dark:bg-info-900/40"
           subtitle="Based on current MRR"
         />
         <MetricCard
           title="Active Subscriptions"
           value={metrics.activeSubscriptions.toLocaleString()}
           icon={Icons.Users}
-          iconClassName="bg-purple-100"
+          iconClassName="bg-accent-100 dark:bg-accent-900/40"
           subtitle={`ARPU: ${formatCurrency(metrics.avgRevenuePerUser ?? 0)}`}
         />
         <MetricCard
           title="Churn Rate"
           value={formatPercentage(metrics.churnRate)}
           icon={Icons.TrendDown}
-          iconClassName="bg-yellow-100"
+          iconClassName="bg-warning-100 dark:bg-warning-900/40"
           subtitle={
-            <span className={metrics.churnRate < 3 ? 'text-green-600' : 'text-red-600'}>
+            <span
+              className={
+                metrics.churnRate < 3
+                  ? 'text-success-600 dark:text-success-400'
+                  : 'text-error-600 dark:text-error-400'
+              }
+            >
               {metrics.churnRate < 3 ? 'Healthy' : 'Needs attention'}
             </span>
           }
@@ -429,7 +448,7 @@ const BillingDashboardPage: React.FC = () => {
               aria-label="Revenue trend range"
               value={trendRange}
               onChange={(e) => setTrendRange(e.target.value as AnalyticsRange)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               <option value="1y">Last 12 months</option>
               <option value="90d">Last 3 months</option>
@@ -460,7 +479,7 @@ const BillingDashboardPage: React.FC = () => {
             </h3>
             <Link
               to="/admin/billing/invoices"
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className="text-sm text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200"
             >
               View all
             </Link>
@@ -482,7 +501,7 @@ const BillingDashboardPage: React.FC = () => {
         <QuickStat
           title="Outstanding Invoices"
           value={`${metrics.outstandingInvoices} (${formatCurrency(metrics.outstandingAmount, true)})`}
-          valueColor="text-orange-600"
+          valueColor="text-warning-600 dark:text-warning-400"
           action={{ label: 'View all', href: '/admin/billing/invoices?status=pending' }}
         />
         <QuickStat
@@ -499,7 +518,7 @@ const BillingDashboardPage: React.FC = () => {
           }
           valueColor={
             metrics.paymentSuccessRate != null
-              ? 'text-green-600'
+              ? 'text-success-600 dark:text-success-400'
               : 'text-gray-400 dark:text-gray-500'
           }
           subtitle={metrics.paymentSuccessRate != null ? 'Last 30 days' : 'No payment attempts yet'}

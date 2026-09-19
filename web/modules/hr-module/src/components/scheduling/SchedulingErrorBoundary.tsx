@@ -90,8 +90,11 @@ export class SchedulingErrorBoundary extends Component<
         >
           <div className="text-center max-w-lg">
             {/* Error Icon */}
-            <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
-              <AlertTriangle className="w-8 h-8 text-red-600" aria-hidden="true" />
+            <div className="mx-auto w-16 h-16 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-6">
+              <AlertTriangle
+                className="w-8 h-8 text-error-600 dark:text-error-400"
+                aria-hidden="true"
+              />
             </div>
 
             {/* Title */}
@@ -101,15 +104,17 @@ export class SchedulingErrorBoundary extends Component<
 
             {/* Description */}
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Haftalik is cizelgesi yuklenirken beklenmeyen bir hata olustu.
-              Lutfen sayfayi yenileyin veya daha sonra tekrar deneyin.
+              Haftalik is cizelgesi yuklenirken beklenmeyen bir hata olustu. Lutfen sayfayi
+              yenileyin veya daha sonra tekrar deneyin.
             </p>
 
             {/* Error details in development */}
             {import.meta.env.DEV && error && (
               <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left overflow-auto max-h-48">
-                <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">Hata Detayi:</p>
-                <p className="text-sm font-mono text-red-600 break-all">
+                <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">
+                  Hata Detayi:
+                </p>
+                <p className="text-sm font-mono text-error-600 dark:text-error-400 break-all">
                   {error.message}
                 </p>
                 {error.stack && (
@@ -126,9 +131,9 @@ export class SchedulingErrorBoundary extends Component<
                 onClick={this.handleRetry}
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
-                  'bg-indigo-600 text-white rounded-lg',
-                  'hover:bg-indigo-700 transition-colors',
-                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
+                  'bg-primary-600 text-white rounded-lg',
+                  'hover:bg-primary-700 transition-colors',
+                  'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
                 )}
               >
                 <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -141,7 +146,7 @@ export class SchedulingErrorBoundary extends Component<
                   'inline-flex items-center gap-2 px-4 py-2',
                   'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg',
                   'hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
+                  'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
                 )}
               >
                 Sayfayi Yenile
@@ -152,7 +157,7 @@ export class SchedulingErrorBoundary extends Component<
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
                   'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors',
-                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
+                  'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 rounded-lg',
                 )}
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -164,7 +169,7 @@ export class SchedulingErrorBoundary extends Component<
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
                   'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors',
-                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
+                  'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 rounded-lg',
                 )}
               >
                 <Home className="h-4 w-4" aria-hidden="true" />

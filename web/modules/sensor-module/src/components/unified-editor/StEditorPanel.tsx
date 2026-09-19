@@ -16,14 +16,7 @@
  * Resizable height (200px - 60vh), collapse/expand with Ctrl+J.
  */
 
-import React, {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   Play,
@@ -40,11 +33,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useStEditor, CompileDiagnostic, CompileStatus } from '../../hooks/useStEditor';
-import {
-  ST_LANGUAGE_ID,
-  stLanguageConfig,
-  stTokensProvider,
-} from './st-language-enhanced';
+import { ST_LANGUAGE_ID, stLanguageConfig, stTokensProvider } from './st-language-enhanced';
 import { createStCompletionProvider, setTags } from './StCompletionProvider';
 import { useEditorModeStore } from '../../store/editorModeStore';
 import { useScadaPackageStore } from '../../store/scada';
@@ -248,7 +237,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   // Ref to keep onSave callback current for Monaco keybinding
   const onSaveRef = useRef(onSave);
-  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   // H32: Store cursor listener disposable for cleanup
   const cursorDisposableRef = useRef<{ dispose(): void } | null>(null);
@@ -420,7 +411,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     [updateSource],
   );
 
-  const panelStyle = useMemo(() => (docked ? { height: panelHeight } : undefined), [docked, panelHeight]);
+  const panelStyle = useMemo(
+    () => (docked ? { height: panelHeight } : undefined),
+    [docked, panelHeight],
+  );
 
   // Standalone collapsed state
   if (docked && !isBottomPanelOpen) {
@@ -444,33 +438,58 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
       {docked && (
         <div
           onMouseDown={handleResizeStart}
-          className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
+          className="h-1 bg-gray-700 hover:bg-info-600 cursor-row-resize flex-shrink-0"
         />
       )}
 
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-gray-700 flex-shrink-0 flex-wrap">
         {/* New */}
-        <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => {
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Plus className="w-3.5 h-3.5" />}
+          onClick={() => {
             setShowNewInput(true);
             setTimeout(() => newInputRef.current?.focus(), 50);
-          }} title="New Program">New</Button>
+          }}
+          title="New Program"
+        >
+          New
+        </Button>
 
         <div className="w-px h-4 bg-gray-600 mx-1" />
 
         {/* Compile */}
-        <Button variant="ghost" size="xs" onClick={() => compile()} disabled={compileStatus === 'compiling'} title="Compile (F5)">{compileStatus === 'compiling' ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => compile()}
+          disabled={compileStatus === 'compiling'}
+          title="Compile (F5)"
+        >
+          {compileStatus === 'compiling' ? (
             <Spinner size="sm" color="inherit" />
           ) : (
             <Play className="w-3.5 h-3.5" />
           )}
-          Compile</Button>
+          Compile
+        </Button>
 
         {/* Validate */}
-        <Button variant="ghost" size="xs" leftIcon={<CheckCircle className="w-3.5 h-3.5" />} onClick={() => {
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
+          onClick={() => {
             if (onValidate) onValidate();
             else validate();
-          }} disabled={compileStatus === 'compiling'} title="Validate (F7)">Validate</Button>
+          }}
+          disabled={compileStatus === 'compiling'}
+          title="Validate (F7)"
+        >
+          Validate
+        </Button>
 
         {!hideDeploy && (
           <>
@@ -478,7 +497,16 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {/* Deploy — opens the parent-owned deploy flow (UI-004: this
                 button used to render with NO onClick, an inert control). */}
-            <Button variant="ghost" size="xs" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={onDeploy} disabled={!onDeploy} title={onDeploy ? 'Deploy (F9)' : 'Deploy is not available here'}>Deploy</Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Upload className="w-3.5 h-3.5" />}
+              onClick={onDeploy}
+              disabled={!onDeploy}
+              title={onDeploy ? 'Deploy (F9)' : 'Deploy is not available here'}
+            >
+              Deploy
+            </Button>
           </>
         )}
 
@@ -487,27 +515,60 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <div className="w-px h-4 bg-gray-600 mx-1" />
 
             {/* Save */}
-            <Button variant="ghost" size="xs" leftIcon={<Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />} onClick={save} disabled={isSaving} title="Save (Ctrl+S)">{isSaving ? 'Saving…' : 'Save'}</Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />}
+              onClick={save}
+              disabled={isSaving}
+              title="Save (Ctrl+S)"
+            >
+              {isSaving ? 'Saving…' : 'Save'}
+            </Button>
           </>
         )}
 
         {/* Format */}
-        <Button variant="ghost" size="xs" leftIcon={<AlignLeft className="w-3.5 h-3.5" />} onClick={formatCode} title="Format (Shift+Alt+F)">Format</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<AlignLeft className="w-3.5 h-3.5" />}
+          onClick={formatCode}
+          title="Format (Shift+Alt+F)"
+        >
+          Format
+        </Button>
 
         <div className="w-px h-4 bg-gray-600 mx-1" />
 
         {/* Export JSON */}
-        <Button variant="ghost" size="xs" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={() => setShowExportDialog(true)} title="Export JSON Bundle">Export</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Download className="w-3.5 h-3.5" />}
+          onClick={() => setShowExportDialog(true)}
+          title="Export JSON Bundle"
+        >
+          Export
+        </Button>
 
         {/* Import JSON */}
-        <Button variant="ghost" size="xs" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={() => setShowImportDialog(true)} title="Import JSON Bundle">Import</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Upload className="w-3.5 h-3.5" />}
+          onClick={() => setShowImportDialog(true)}
+          title="Import JSON Bundle"
+        >
+          Import
+        </Button>
 
         {/* Spacer */}
         <div className="flex-1" />
 
         {/* Save error — the write is async; this is its observable failure */}
         {saveError && (
-          <span className="text-xs text-red-400 max-w-64 truncate" title={saveError}>
+          <span className="text-xs text-error-400 max-w-64 truncate" title={saveError}>
             {saveError}
           </span>
         )}
@@ -516,7 +577,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
           {activeProgram?.name ?? '(no program)'}
-          {isDirty && <span className="text-yellow-400">*</span>}
+          {isDirty && <span className="text-warning-400">*</span>}
         </span>
 
         {/* Compile status badge */}
@@ -524,7 +585,16 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
         {/* Collapse (docked bottom-panel mode only) */}
         {docked && (
-          <Button variant="ghost" size="sm" iconOnly aria-label="Collapse (Ctrl+J)" onClick={toggleBottomPanel} title="Collapse (Ctrl+J)"><ChevronDown className="w-3.5 h-3.5" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Collapse (Ctrl+J)"
+            onClick={toggleBottomPanel}
+            title="Collapse (Ctrl+J)"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </Button>
         )}
       </div>
 
@@ -543,14 +613,22 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
               {/* New program input */}
               {showNewInput && (
                 <div className="px-2 pb-1 flex gap-1">
-                  <Input ref={newInputRef} value={newProgramName} onChange={(e) => setNewProgramName(e.target.value)} onKeyDown={(e) => {
-           if (e.key === 'Enter') handleCreateProgram();
-           if (e.key === 'Escape') {
-            setShowNewInput(false);
-            setNewProgramName('');
-           }
-          }} placeholder="Program name..." />
-                  <Button variant="ghost" size="xs" onClick={handleCreateProgram}>OK</Button>
+                  <Input
+                    ref={newInputRef}
+                    value={newProgramName}
+                    onChange={(e) => setNewProgramName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateProgram();
+                      if (e.key === 'Escape') {
+                        setShowNewInput(false);
+                        setNewProgramName('');
+                      }
+                    }}
+                    placeholder="Program name..."
+                  />
+                  <Button variant="ghost" size="xs" onClick={handleCreateProgram}>
+                    OK
+                  </Button>
                 </div>
               )}
 
@@ -570,10 +648,17 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                   <FileText className="w-3 h-3 flex-shrink-0" />
                   <span className="truncate flex-1">{prog.name}</span>
                   {programs.length > 1 && (
-                    <Button variant="ghost" iconOnly aria-label="Delete" onClick={(e) => {
+                    <Button
+                      variant="ghost"
+                      iconOnly
+                      aria-label="Delete"
+                      onClick={(e) => {
                         e.stopPropagation();
                         deleteProgram(prog.id);
-                      }}><Trash2 className="w-3 h-3" /></Button>
+                      }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
                   )}
                 </div>
               ))}
@@ -620,7 +705,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold flex items-center justify-between">
               <span>Output</span>
               {diagnostics.length > 0 && (
-                <Button variant="ghost" onClick={clearMarkers}>Clear</Button>
+                <Button variant="ghost" onClick={clearMarkers}>
+                  Clear
+                </Button>
               )}
             </div>
 
@@ -631,7 +718,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             )}
 
             {diagnostics.length === 0 && compileStatus === 'success' && (
-              <div className="px-2 py-4 text-xs text-green-400 text-center flex flex-col items-center gap-1">
+              <div className="px-2 py-4 text-xs text-success-400 text-center flex flex-col items-center gap-1">
                 <CheckCircle className="w-4 h-4" />
                 Compilation successful
               </div>
@@ -684,38 +771,32 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
 // Sub-components
 
-function CompileStatusBadge({
-  status,
-  count,
-}: {
-  status: CompileStatus;
-  count: number;
-}) {
+function CompileStatusBadge({ status, count }: { status: CompileStatus; count: number }) {
   if (status === 'idle') return null;
   if (status === 'compiling') {
     return (
-      <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
+      <span className="text-xs text-warning-400 flex items-center gap-1 ml-2">
         <Spinner size="sm" color="inherit" />
       </span>
     );
   }
   if (status === 'success' && count === 0) {
     return (
-      <span className="text-xs text-green-400 flex items-center gap-1 ml-2">
+      <span className="text-xs text-success-400 flex items-center gap-1 ml-2">
         <CheckCircle className="w-3 h-3" />
       </span>
     );
   }
   if (status === 'warning') {
     return (
-      <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
+      <span className="text-xs text-warning-400 flex items-center gap-1 ml-2">
         <AlertTriangle className="w-3 h-3" />
         {count}
       </span>
     );
   }
   return (
-    <span className="text-xs text-red-400 flex items-center gap-1 ml-2">
+    <span className="text-xs text-error-400 flex items-center gap-1 ml-2">
       <XCircle className="w-3 h-3" />
       {count}
     </span>
@@ -737,26 +818,32 @@ function DiagnosticItem({
   const isSeverityError = diag.severity === 'error';
 
   return (
-    <Button variant="secondary" size="xs" onClick={() => {
+    <Button
+      variant="secondary"
+      size="xs"
+      onClick={() => {
         const editor = editorRef.current;
         if (editor) {
           editor.revealLineInCenter?.(diag.line);
           editor.setPosition?.({ lineNumber: diag.line, column: diag.column });
           editor.focus?.();
         }
-      }}>{isSeverityError ? (
-        <XCircle className="w-3 h-3 text-red-400 flex-shrink-0 mt-0.5" />
+      }}
+    >
+      {isSeverityError ? (
+        <XCircle className="w-3 h-3 text-error-400 flex-shrink-0 mt-0.5" />
       ) : (
-        <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0 mt-0.5" />
+        <AlertTriangle className="w-3 h-3 text-warning-400 flex-shrink-0 mt-0.5" />
       )}
       <div className="flex-1 min-w-0">
-        <div className={isSeverityError ? 'text-red-300' : 'text-yellow-300'}>
+        <div className={isSeverityError ? 'text-error-300' : 'text-warning-300'}>
           {diag.message}
         </div>
         <div className="text-gray-500 dark:text-gray-400">
           Line {diag.line}, Col {diag.column}
         </div>
-      </div></Button>
+      </div>
+    </Button>
   );
 }
 

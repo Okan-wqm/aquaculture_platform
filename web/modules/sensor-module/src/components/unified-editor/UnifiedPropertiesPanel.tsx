@@ -146,7 +146,7 @@ const HmiWidgetPanel: React.FC = () => {
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'text-cyan-700 border-b-2 border-cyan-600 bg-cyan-50'
+                  ? 'text-info-700 dark:text-info-300 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -197,9 +197,11 @@ const HmiWidgetPanel: React.FC = () => {
               placeholder="Tag sec..."
             />
             {widgetConfig.tagName && (
-              <div className="p-2 bg-cyan-50 rounded-lg border border-cyan-200">
-                <p className="text-xs text-cyan-700 font-medium">Bagli Tag:</p>
-                <p className="text-sm text-cyan-900 font-mono mt-0.5">{widgetConfig.tagName}</p>
+              <div className="p-2 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
+                <p className="text-xs text-info-700 dark:text-info-300 font-medium">Bagli Tag:</p>
+                <p className="text-sm text-info-900 dark:text-info-100 font-mono mt-0.5">
+                  {widgetConfig.tagName}
+                </p>
               </div>
             )}
           </div>
@@ -209,30 +211,46 @@ const HmiWidgetPanel: React.FC = () => {
         {activeTab === 'alarms' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Kurallari</h4>
-              <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={handleAddAlarm}>Alarm Ekle</Button>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Alarm Kurallari
+              </h4>
+              <Button
+                variant="ghost"
+                size="xs"
+                leftIcon={<Plus className="w-3 h-3" />}
+                onClick={handleAddAlarm}
+              >
+                Alarm Ekle
+              </Button>
             </div>
 
             {alarmRules.length === 0 && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">Henuz alarm kurali yok</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">
+                Henuz alarm kurali yok
+              </p>
             )}
 
             {alarmRules.map((rule) => (
-              <div key={rule.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700">
+              <div
+                key={rule.id}
+                className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700"
+              >
                 <div className="flex items-center justify-between">
                   <select
                     value={rule.severity}
                     onChange={(e) =>
-                      storeUpdateAlarmRule(rule.id, { severity: e.target.value as typeof SEVERITIES[number] })
+                      storeUpdateAlarmRule(rule.id, {
+                        severity: e.target.value as (typeof SEVERITIES)[number],
+                      })
                     }
                     className={`text-xs font-medium rounded px-2 py-1 border-0 ${
                       rule.severity === 'critical'
-                        ? 'bg-red-100 text-red-700'
+                        ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
                         : rule.severity === 'high'
-                        ? 'bg-orange-100 text-orange-700'
-                        : rule.severity === 'warning'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-blue-100 text-blue-700'
+                          ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                          : rule.severity === 'warning'
+                            ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                            : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                     }`}
                   >
                     {SEVERITIES.map((s) => (
@@ -241,14 +259,27 @@ const HmiWidgetPanel: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => removeAlarmRule(rule.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    aria-label="Delete"
+                    onClick={() => removeAlarmRule(rule.id)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-                <Input fullWidth type="text" value={rule.tag} onChange={(e) => storeUpdateAlarmRule(rule.id, { tag: e.target.value })} placeholder="Tag" />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={rule.tag}
+                  onChange={(e) => storeUpdateAlarmRule(rule.id, { tag: e.target.value })}
+                  placeholder="Tag"
+                />
                 <div className="flex gap-1">
                   <select
                     value={rule.condition}
                     onChange={(e) => storeUpdateAlarmRule(rule.id, { condition: e.target.value })}
-                    className="w-16 px-1 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-16 px-1 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   >
                     {CONDITIONS.map((c) => (
                       <option key={c} value={c}>
@@ -256,9 +287,21 @@ const HmiWidgetPanel: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <Input type="number" value={rule.value} onChange={(e) => storeUpdateAlarmRule(rule.id, { value: Number(e.target.value) })} />
+                  <Input
+                    type="number"
+                    value={rule.value}
+                    onChange={(e) =>
+                      storeUpdateAlarmRule(rule.id, { value: Number(e.target.value) })
+                    }
+                  />
                 </div>
-                <Input fullWidth type="text" value={rule.message} onChange={(e) => storeUpdateAlarmRule(rule.id, { message: e.target.value })} placeholder="Alarm mesaji" />
+                <Input
+                  fullWidth
+                  type="text"
+                  value={rule.message}
+                  onChange={(e) => storeUpdateAlarmRule(rule.id, { message: e.target.value })}
+                  placeholder="Alarm mesaji"
+                />
               </div>
             ))}
           </div>
@@ -269,31 +312,58 @@ const HmiWidgetPanel: React.FC = () => {
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Ayarlari</h4>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Saklama Suresi (gun)</label>
-              <Input fullWidth type="number" min={1} value={trendConfig.retentionDays} onChange={(e) =>
-         updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
-        } />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Saklama Suresi (gun)
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                min={1}
+                value={trendConfig.retentionDays}
+                onChange={(e) =>
+                  updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
+                }
+              />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ornekleme Araligi (sn)</label>
-              <Input fullWidth type="number" min={1} value={trendConfig.sampleIntervalSec} onChange={(e) =>
-         updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
-        } />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Ornekleme Araligi (sn)
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                min={1}
+                value={trendConfig.sampleIntervalSec}
+                onChange={(e) =>
+                  updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
+                }
+              />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-gray-500 dark:text-gray-400">Tag'ler</label>
-                <Button variant="ghost" size="xs" onClick={handleAddTrendTag}>+ Tag Ekle</Button>
+                <Button variant="ghost" size="xs" onClick={handleAddTrendTag}>
+                  + Tag Ekle
+                </Button>
               </div>
               <div className="space-y-1">
                 {trendConfig.tags.map((tag, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <Input type="text" value={tag} onChange={(e) => handleUpdateTrendTag(i, e.target.value)} placeholder="sensor.temperature" />
-                    <Button variant="ghost" size="xs" onClick={() => handleRemoveTrendTag(i)}>X</Button>
+                    <Input
+                      type="text"
+                      value={tag}
+                      onChange={(e) => handleUpdateTrendTag(i, e.target.value)}
+                      placeholder="sensor.temperature"
+                    />
+                    <Button variant="ghost" size="xs" onClick={() => handleRemoveTrendTag(i)}>
+                      X
+                    </Button>
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">Henuz tag eklenmedi</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">
+                    Henuz tag eklenmedi
+                  </p>
                 )}
               </div>
             </div>
@@ -316,11 +386,15 @@ const PlcPanel: React.FC = () => (
     </h3>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Variable Listesi</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">PLC degisken tarayici burada gorunecek.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        PLC degisken tarayici burada gorunecek.
+      </p>
     </div>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">I/O Mapping</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Fiziksel I/O eslemesi burada yapilacak.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Fiziksel I/O eslemesi burada yapilacak.
+      </p>
     </div>
   </div>
 );
@@ -333,11 +407,15 @@ const RuntimePanel: React.FC = () => (
     </h3>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Tag Degerleri</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Canli tag degerleri tablosu burada gorunecek.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Canli tag degerleri tablosu burada gorunecek.
+      </p>
     </div>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Aktif Alarmlar</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Aktif alarm listesi burada gorunecek.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Aktif alarm listesi burada gorunecek.
+      </p>
     </div>
   </div>
 );
@@ -349,12 +427,18 @@ const DebugPanel: React.FC = () => (
       Debug
     </h3>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Watch Degiskenleri</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Izlenen degiskenler burada gorunecek.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">
+        Watch Degiskenleri
+      </p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Izlenen degiskenler burada gorunecek.
+      </p>
     </div>
     <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Force Value</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Degisken zorla atama dialogu burada olacak.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Degisken zorla atama dialogu burada olacak.
+      </p>
     </div>
   </div>
 );
@@ -363,11 +447,11 @@ const DebugPanel: React.FC = () => (
 // Empty / info states
 // ---------------------------------------------------------------------------
 
-const EmptyState: React.FC<{ icon: React.FC<{ className?: string }>; title: string; subtitle: string }> = ({
-  icon: Icon,
-  title,
-  subtitle,
-}) => (
+const EmptyState: React.FC<{
+  icon: React.FC<{ className?: string }>;
+  title: string;
+  subtitle: string;
+}> = ({ icon: Icon, title, subtitle }) => (
   <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 p-6">
     <Icon className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
     <p className="text-sm font-medium">{title}</p>
@@ -377,9 +461,13 @@ const EmptyState: React.FC<{ icon: React.FC<{ className?: string }>; title: stri
 
 const HmiPidWarning: React.FC = () => (
   <div className="flex flex-col items-center justify-center h-full text-center p-6">
-    <Info className="w-10 h-10 mb-3 text-amber-400" />
-    <p className="text-sm font-medium text-amber-700">HMI modunda ekipman duzenlenemez</p>
-    <p className="text-xs mt-1 text-amber-600">P&ID moduna gecis yaparak ekipmanlari duzenleyebilirsiniz.</p>
+    <Info className="w-10 h-10 mb-3 text-warning-400" />
+    <p className="text-sm font-medium text-warning-700 dark:text-warning-300">
+      HMI modunda ekipman duzenlenemez
+    </p>
+    <p className="text-xs mt-1 text-warning-600 dark:text-warning-400">
+      P&ID moduna gecis yaparak ekipmanlari duzenleyebilirsiniz.
+    </p>
   </div>
 );
 

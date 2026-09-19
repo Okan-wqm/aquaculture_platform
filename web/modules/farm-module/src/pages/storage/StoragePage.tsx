@@ -163,8 +163,8 @@ const StoragePage: React.FC = () => {
       <div className="px-4 sm:px-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-blue-600" aria-hidden="true" />
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-info-100 dark:bg-info-900/40 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-info-600 dark:text-info-400" aria-hidden="true" />
             </div>
             <div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Total Stock Value</div>
@@ -176,30 +176,39 @@ const StoragePage: React.FC = () => {
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-              <TriangleAlert className="w-5 h-5 text-red-600" aria-hidden="true" />
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-error-100 dark:bg-error-900/40 flex items-center justify-center">
+              <TriangleAlert
+                className="w-5 h-5 text-error-600 dark:text-error-400"
+                aria-hidden="true"
+              />
             </div>
             <div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Low Stock Alerts</div>
-              <div className="text-lg font-bold text-red-600">
+              <div className="text-lg font-bold text-error-600 dark:text-error-400">
                 {overviewLoading ? '...' : (overview?.lowStockAlertCount ?? 0)}
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <ShoppingCart className="w-5 h-5 text-amber-600" aria-hidden="true" />
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-warning-100 dark:bg-warning-900/40 flex items-center justify-center">
+              <ShoppingCart
+                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                aria-hidden="true"
+              />
             </div>
             <div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Total Items</div>
-              <div className="text-lg font-bold text-amber-600">
+              <div className="text-lg font-bold text-warning-600 dark:text-warning-400">
                 {overviewLoading ? '...' : (overview?.totalItems ?? 0)}
               </div>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-              <ArrowUpDown className="w-5 h-5 text-green-600" aria-hidden="true" />
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/40 flex items-center justify-center">
+              <ArrowUpDown
+                className="w-5 h-5 text-success-600 dark:text-success-400"
+                aria-hidden="true"
+              />
             </div>
             <div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Recent Movements</div>
@@ -223,14 +232,14 @@ const StoragePage: React.FC = () => {
                   inline-flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm whitespace-nowrap transition-colors
                   ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >
                 <span
                   className={
-                    activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'
+                    activeTab === tab.id ? 'text-info-500' : 'text-gray-400 dark:text-gray-500'
                   }
                 >
                   {tab.icon}

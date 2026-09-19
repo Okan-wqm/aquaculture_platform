@@ -47,21 +47,21 @@ import { TriangleAlert, X } from 'lucide-react';
 
 const statusColors: Record<WorkOrderStatus, string> = {
   DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  PENDING_APPROVAL: 'bg-yellow-100 text-yellow-800',
-  APPROVED: 'bg-blue-100 text-blue-800',
-  SCHEDULED: 'bg-indigo-100 text-indigo-800',
-  IN_PROGRESS: 'bg-purple-100 text-purple-800',
-  ON_HOLD: 'bg-orange-100 text-orange-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  VERIFIED: 'bg-teal-100 text-teal-800',
-  CANCELLED: 'bg-red-100 text-red-800',
+  PENDING_APPROVAL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  APPROVED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  SCHEDULED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  IN_PROGRESS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  ON_HOLD: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  VERIFIED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  CANCELLED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const priorityColors: Record<WorkOrderPriority, string> = {
   LOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  MEDIUM: 'bg-blue-100 text-blue-800',
-  HIGH: 'bg-orange-100 text-orange-800',
-  CRITICAL: 'bg-red-100 text-red-800',
+  MEDIUM: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HIGH: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  CRITICAL: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const statusLabels: Record<WorkOrderStatus, string> = {
@@ -154,9 +154,9 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'submit',
         label: 'Onaya Gönder',
-        color: 'text-blue-700',
-        bgColor: 'bg-blue-50',
-        hoverColor: 'hover:bg-blue-100',
+        color: 'text-info-700 dark:text-info-300',
+        bgColor: 'bg-info-50 dark:bg-info-900/20',
+        hoverColor: 'hover:bg-info-100 dark:hover:bg-info-900/50',
         needsReason: false,
       });
       break;
@@ -165,17 +165,17 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'approve',
         label: 'Onayla',
-        color: 'text-green-700',
-        bgColor: 'bg-green-50',
-        hoverColor: 'hover:bg-green-100',
+        color: 'text-success-700 dark:text-success-300',
+        bgColor: 'bg-success-50 dark:bg-success-900/20',
+        hoverColor: 'hover:bg-success-100 dark:hover:bg-success-900/50',
         needsReason: false,
       });
       actions.push({
         action: 'cancel',
         label: 'İptal Et',
-        color: 'text-red-700',
-        bgColor: 'bg-red-50',
-        hoverColor: 'hover:bg-red-100',
+        color: 'text-error-700 dark:text-error-300',
+        bgColor: 'bg-error-50 dark:bg-error-900/20',
+        hoverColor: 'hover:bg-error-100 dark:hover:bg-error-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
       });
@@ -186,17 +186,17 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'start',
         label: 'Başlat',
-        color: 'text-purple-700',
-        bgColor: 'bg-purple-50',
-        hoverColor: 'hover:bg-purple-100',
+        color: 'text-accent-700 dark:text-accent-300',
+        bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+        hoverColor: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
         needsReason: false,
       });
       actions.push({
         action: 'cancel',
         label: 'İptal Et',
-        color: 'text-red-700',
-        bgColor: 'bg-red-50',
-        hoverColor: 'hover:bg-red-100',
+        color: 'text-error-700 dark:text-error-300',
+        bgColor: 'bg-error-50 dark:bg-error-900/20',
+        hoverColor: 'hover:bg-error-100 dark:hover:bg-error-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
       });
@@ -206,26 +206,26 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'complete',
         label: 'Tamamla',
-        color: 'text-green-700',
-        bgColor: 'bg-green-50',
-        hoverColor: 'hover:bg-green-100',
+        color: 'text-success-700 dark:text-success-300',
+        bgColor: 'bg-success-50 dark:bg-success-900/20',
+        hoverColor: 'hover:bg-success-100 dark:hover:bg-success-900/50',
         needsReason: false,
       });
       actions.push({
         action: 'hold',
         label: 'Beklet',
-        color: 'text-orange-700',
-        bgColor: 'bg-orange-50',
-        hoverColor: 'hover:bg-orange-100',
+        color: 'text-warning-700 dark:text-warning-300',
+        bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+        hoverColor: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini beklemeye almak istediğinizden emin misiniz?',
       });
       actions.push({
         action: 'cancel',
         label: 'İptal Et',
-        color: 'text-red-700',
-        bgColor: 'bg-red-50',
-        hoverColor: 'hover:bg-red-100',
+        color: 'text-error-700 dark:text-error-300',
+        bgColor: 'bg-error-50 dark:bg-error-900/20',
+        hoverColor: 'hover:bg-error-100 dark:hover:bg-error-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
       });
@@ -235,17 +235,17 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'resume',
         label: 'Devam Et',
-        color: 'text-purple-700',
-        bgColor: 'bg-purple-50',
-        hoverColor: 'hover:bg-purple-100',
+        color: 'text-accent-700 dark:text-accent-300',
+        bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+        hoverColor: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
         needsReason: false,
       });
       actions.push({
         action: 'cancel',
         label: 'İptal Et',
-        color: 'text-red-700',
-        bgColor: 'bg-red-50',
-        hoverColor: 'hover:bg-red-100',
+        color: 'text-error-700 dark:text-error-300',
+        bgColor: 'bg-error-50 dark:bg-error-900/20',
+        hoverColor: 'hover:bg-error-100 dark:hover:bg-error-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
       });
@@ -255,9 +255,9 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'verify',
         label: 'Doğrula',
-        color: 'text-teal-700',
-        bgColor: 'bg-teal-50',
-        hoverColor: 'hover:bg-teal-100',
+        color: 'text-info-700 dark:text-info-300',
+        bgColor: 'bg-info-50 dark:bg-info-900/20',
+        hoverColor: 'hover:bg-info-100 dark:hover:bg-info-900/50',
         needsReason: false,
       });
       break;
@@ -903,7 +903,7 @@ export const WorkOrdersPage: React.FC = () => {
                   </h3>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                     <div
-                      className="bg-blue-600 h-2.5 rounded-full"
+                      className="bg-info-600 h-2.5 rounded-full"
                       style={{ width: `${selectedWorkOrder.checklistProgress}%` }}
                     />
                   </div>
@@ -962,7 +962,7 @@ export const WorkOrdersPage: React.FC = () => {
                     variant="secondary"
                     size="sm"
                     onClick={() => handleDelete(selectedWorkOrder.id)}
-                    className="text-red-600"
+                    className="text-error-600 dark:text-error-400"
                   >
                     Sil
                   </Button>
@@ -1057,12 +1057,14 @@ export const WorkOrdersPage: React.FC = () => {
         <div className="space-y-4">
           {/* Confirmation Message */}
           {confirmAction?.actionDef.confirmMessage && (
-            <div className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg">
+            <div className="flex items-start gap-3 p-3 bg-warning-50 dark:bg-warning-900/20 rounded-lg">
               <TriangleAlert
-                className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5"
+                className="w-5 h-5 text-warning-600 dark:text-warning-400 flex-shrink-0 mt-0.5"
                 aria-hidden="true"
               />
-              <p className="text-sm text-yellow-800">{confirmAction.actionDef.confirmMessage}</p>
+              <p className="text-sm text-warning-800 dark:text-warning-200">
+                {confirmAction.actionDef.confirmMessage}
+              </p>
             </div>
           )}
 
@@ -1123,9 +1125,9 @@ export const WorkOrdersPage: React.FC = () => {
               disabled={isLifecyclePending}
               className={
                 confirmAction?.actionDef.action === 'cancel'
-                  ? 'bg-red-600 hover:bg-red-700'
+                  ? 'bg-error-600 hover:bg-error-700'
                   : confirmAction?.actionDef.action === 'hold'
-                    ? 'bg-orange-600 hover:bg-orange-700'
+                    ? 'bg-warning-600 hover:bg-warning-700'
                     : ''
               }
             >

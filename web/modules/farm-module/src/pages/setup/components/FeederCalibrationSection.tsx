@@ -222,7 +222,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
         <button
           type="button"
           onClick={addRow}
-          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100"
+          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 rounded hover:bg-info-100 dark:hover:bg-info-900/50"
         >
           <Plus className="w-4 h-4 mr-1" aria-hidden="true" />
           Add Row
@@ -241,7 +241,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
         )}
 
         {saveCalibrations.isSuccess && !isDirty && (
-          <span className="text-sm text-green-600">Saved</span>
+          <span className="text-sm text-success-600 dark:text-success-400">Saved</span>
         )}
       </div>
     </div>

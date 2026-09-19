@@ -26,5 +26,11 @@ export type { ChartContainerProps } from './ChartContainer';
 export { ChartLegend } from './ChartLegend';
 export type { ChartLegendProps, LegendItem } from './ChartLegend';
 
-export { ChartTooltip } from './ChartTooltip';
-export type { ChartTooltipProps, TooltipItem } from './ChartTooltip';
+export { ChartTooltip, ChartTooltipContent } from './ChartTooltip';
+export type {
+  ChartTooltipProps,
+  TooltipItem,
+  ChartTooltipContentProps,
+  ChartTooltipPayloadItem,
+  ChartTooltipFormatter,
+} from './ChartTooltip';

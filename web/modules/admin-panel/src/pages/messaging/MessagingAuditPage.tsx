@@ -51,13 +51,13 @@ const ACTION_OPTIONS = [
 ];
 
 const ACTION_COLORS: Record<string, string> = {
-  send: 'bg-blue-100 text-blue-800',
-  edit: 'bg-yellow-100 text-yellow-800',
-  delete: 'bg-red-100 text-red-800',
-  create_channel: 'bg-green-100 text-green-800',
-  join_channel: 'bg-purple-100 text-purple-800',
+  send: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  edit: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  delete: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  create_channel: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  join_channel: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   leave_channel: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  upload_file: 'bg-indigo-100 text-indigo-800',
+  upload_file: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
 };
 
 const INITIAL_FILTERS: AuditFilters = {
@@ -228,8 +228,8 @@ const MessagingAuditPage: React.FC = () => {
 
       {/* Error Banner */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+          <p className="text-sm text-error-700 dark:text-error-300">{error}</p>
         </div>
       )}
 
@@ -246,7 +246,7 @@ const MessagingAuditPage: React.FC = () => {
                 placeholder="Filter by tenant..."
                 value={filters.tenantId}
                 onChange={(e) => handleFilterChange('tenantId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
             <div>
@@ -258,7 +258,7 @@ const MessagingAuditPage: React.FC = () => {
                 placeholder="Filter by user..."
                 value={filters.userId}
                 onChange={(e) => handleFilterChange('userId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
             <div>
@@ -268,7 +268,7 @@ const MessagingAuditPage: React.FC = () => {
               <select
                 value={filters.action}
                 onChange={(e) => handleFilterChange('action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               >
                 {ACTION_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -285,7 +285,7 @@ const MessagingAuditPage: React.FC = () => {
                 type="date"
                 value={filters.startDate}
                 onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
             <div>
@@ -296,14 +296,14 @@ const MessagingAuditPage: React.FC = () => {
                 type="date"
                 value={filters.endDate}
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
           </div>
           <div className="mt-3 flex justify-end">
             <button
               onClick={handleResetFilters}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 font-medium"
             >
               Reset Filters
             </button>

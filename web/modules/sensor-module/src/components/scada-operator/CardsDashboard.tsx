@@ -81,18 +81,39 @@ const CardHeader = memo<CardHeaderProps>(
       onPointerDown={onDragStart}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        <GripVertical size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" />
+        <GripVertical
+          size={12}
+          className="text-gray-500 dark:text-gray-400 shrink-0"
+          aria-hidden="true"
+        />
         <span className="text-xs font-medium text-gray-200 truncate">{title}</span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <Button variant="ghost" size="sm" type="button" onClick={(e) => {
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={(e) => {
             e.stopPropagation();
             onToggleMaximize();
-          }} aria-label={isMaximized ? 'Restore card' : 'Maximize card'}>{isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}</Button>
-        <Button variant="ghost" size="sm" iconOnly type="button" onClick={(e) => {
+          }}
+          aria-label={isMaximized ? 'Restore card' : 'Maximize card'}
+        >
+          {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          type="button"
+          onClick={(e) => {
             e.stopPropagation();
             onClose();
-          }} aria-label="Close card"><X size={12} /></Button>
+          }}
+          aria-label="Close card"
+        >
+          <X size={12} />
+        </Button>
       </div>
     </div>
   ),
@@ -115,16 +136,7 @@ interface DashboardCardProps {
 }
 
 const DashboardCard = memo<DashboardCardProps>(
-  ({
-    card,
-    isMaximized,
-    children,
-    onClose,
-    onToggleMaximize,
-    onDragStart,
-    columns,
-    rowHeight,
-  }) => {
+  ({ card, isMaximized, children, onClose, onToggleMaximize, onDragStart, columns, rowHeight }) => {
     const handleDragStart = useCallback(
       (e: React.PointerEvent) => onDragStart(card.id, e),
       [card.id, onDragStart],
@@ -141,9 +153,7 @@ const DashboardCard = memo<DashboardCardProps>(
           gridColumn: card.colStart
             ? `${card.colStart} / span ${Math.min(card.width, columns)}`
             : `span ${Math.min(card.width, columns)}`,
-          gridRow: card.rowStart
-            ? `${card.rowStart} / span ${card.height}`
-            : `span ${card.height}`,
+          gridRow: card.rowStart ? `${card.rowStart} / span ${card.height}` : `span ${card.height}`,
         };
 
     return (
@@ -161,9 +171,7 @@ const DashboardCard = memo<DashboardCardProps>(
           onToggleMaximize={onToggleMaximize}
           onDragStart={handleDragStart}
         />
-        <div className="flex-1 relative overflow-auto min-h-0">
-          {children}
-        </div>
+        <div className="flex-1 relative overflow-auto min-h-0">{children}</div>
       </div>
     );
   },
@@ -186,7 +194,7 @@ const DropIndicator = memo<DropIndicatorProps>(({ visible, colSpan = 1, rowSpan 
   if (!visible) return null;
   return (
     <div
-      className="border-2 border-dashed border-blue-500/50 rounded-md bg-blue-500/10 pointer-events-none"
+      className="border-2 border-dashed border-info-500/50 rounded-md bg-info-500/10 pointer-events-none"
       style={{
         gridColumn: `span ${colSpan}`,
         gridRow: `span ${rowSpan}`,
@@ -244,12 +252,9 @@ export const CardsDashboard = memo<CardsDashboardProps>(
     );
 
     // Toggle maximize
-    const handleToggleMaximize = useCallback(
-      (cardId: string) => {
-        setMaximizedCardId((prev) => (prev === cardId ? null : cardId));
-      },
-      [],
-    );
+    const handleToggleMaximize = useCallback((cardId: string) => {
+      setMaximizedCardId((prev) => (prev === cardId ? null : cardId));
+    }, []);
 
     // Drag-to-reorder: simple index-swap approach
     const handleDragStart = useCallback(
@@ -335,18 +340,14 @@ export const CardsDashboard = memo<CardsDashboardProps>(
         {cards.map((card, index) => {
           const isDragging = dragCardId !== null;
           const isDraggedCard = dragCardId === card.id;
-          const showIndicatorBefore =
-            isDragging && dropTargetIndex === index && !isDraggedCard;
+          const showIndicatorBefore = isDragging && dropTargetIndex === index && !isDraggedCard;
 
           return (
             <React.Fragment key={card.id}>
               {showIndicatorBefore && (
                 <DropIndicator
                   visible
-                  colSpan={Math.min(
-                    cards.find((c) => c.id === dragCardId)?.width ?? 1,
-                    columns,
-                  )}
+                  colSpan={Math.min(cards.find((c) => c.id === dragCardId)?.width ?? 1, columns)}
                   rowSpan={cards.find((c) => c.id === dragCardId)?.height ?? 1}
                 />
               )}
@@ -372,18 +373,13 @@ export const CardsDashboard = memo<CardsDashboardProps>(
         })}
 
         {/* Drop indicator at the end of the list */}
-        {dragCardId !== null &&
-          dropTargetIndex !== null &&
-          dropTargetIndex >= cards.length && (
-            <DropIndicator
-              visible
-              colSpan={Math.min(
-                cards.find((c) => c.id === dragCardId)?.width ?? 1,
-                columns,
-              )}
-              rowSpan={cards.find((c) => c.id === dragCardId)?.height ?? 1}
-            />
-          )}
+        {dragCardId !== null && dropTargetIndex !== null && dropTargetIndex >= cards.length && (
+          <DropIndicator
+            visible
+            colSpan={Math.min(cards.find((c) => c.id === dragCardId)?.width ?? 1, columns)}
+            rowSpan={cards.find((c) => c.id === dragCardId)?.height ?? 1}
+          />
+        )}
 
         {/* Empty state */}
         {cards.length === 0 && (

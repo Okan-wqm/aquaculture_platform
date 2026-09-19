@@ -156,24 +156,18 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
   }, [proposals, allProcessed]);
 
   // --- Edit (M3: inline edit instead of window.prompt) ---
-  const handleEdit = useCallback(
-    (proposalId: string, _index: number, channel: ProposedChannel) => {
-      setEditingProposalId(proposalId);
-      setEditLabel(channel.displayLabel);
-    },
-    [],
-  );
+  const handleEdit = useCallback((proposalId: string, _index: number, channel: ProposedChannel) => {
+    setEditingProposalId(proposalId);
+    setEditLabel(channel.displayLabel);
+  }, []);
 
-  const handleEditSave = useCallback(
-    async () => {
-      if (!editingProposalId) return;
-      await approveProposal(editingProposalId, { displayLabel: editLabel });
-      setEditingProposalId(null);
-      setEditLabel('');
-      onChannelsCreated?.();
-    },
-    [editingProposalId, editLabel, approveProposal, onChannelsCreated],
-  );
+  const handleEditSave = useCallback(async () => {
+    if (!editingProposalId) return;
+    await approveProposal(editingProposalId, { displayLabel: editLabel });
+    setEditingProposalId(null);
+    setEditLabel('');
+    onChannelsCreated?.();
+  }, [editingProposalId, editLabel, approveProposal, onChannelsCreated]);
 
   const handleEditCancel = useCallback(() => {
     setEditingProposalId(null);
@@ -206,18 +200,18 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
   }, [allChannels, rejectProposal]);
 
   return (
-    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl border border-purple-200 p-6 mb-4">
+    <div className="bg-gradient-to-r from-accent-50 to-info-50 rounded-xl border border-accent-200 dark:border-accent-800 p-6 mb-4">
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="w-5 h-5 text-purple-600" />
+        <Sparkles className="w-5 h-5 text-accent-600 dark:text-accent-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">AI Kanal Tespiti</h3>
       </div>
 
       {/* Success state */}
       {allProcessed && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-          <CheckCheck className="w-5 h-5 text-green-600 flex-shrink-0" />
-          <p className="text-green-800 text-sm font-medium">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4 flex items-center gap-3">
+          <CheckCheck className="w-5 h-5 text-success-600 dark:text-success-400 flex-shrink-0" />
+          <p className="text-success-800 dark:text-success-200 text-sm font-medium">
             Tüm kanallar başarıyla işlendi.
           </p>
         </div>
@@ -225,11 +219,11 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3 mb-4">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3 mb-4">
+          <AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400 flex-shrink-0" />
           <div>
-            <p className="text-red-800 font-medium text-sm">Hata</p>
-            <p className="text-red-600 text-xs">{error.message}</p>
+            <p className="text-error-800 dark:text-error-200 font-medium text-sm">Hata</p>
+            <p className="text-error-600 dark:text-error-400 text-xs">{error.message}</p>
           </div>
         </div>
       )}
@@ -238,18 +232,37 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {loadingPending && (
         <div className="flex items-center gap-3 py-4 justify-center">
           <Spinner size="md" />
-          <p className="text-purple-700 text-sm">Bekleyen teklifler yükleniyor...</p>
+          <p className="text-accent-700 dark:text-accent-300 text-sm">
+            Bekleyen teklifler yükleniyor...
+          </p>
         </div>
       )}
 
       {/* M3: Inline edit form */}
       {editingProposalId && (
-        <div className="bg-white dark:bg-gray-900 border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Kanal etiketini düzenleyin</p>
-          <Input fullWidth type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} autoFocus />
+        <div className="bg-white dark:bg-gray-900 border border-info-200 rounded-lg p-4 mb-4 space-y-3">
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Kanal etiketini düzenleyin
+          </p>
+          <Input
+            fullWidth
+            type="text"
+            value={editLabel}
+            onChange={(e) => setEditLabel(e.target.value)}
+            autoFocus
+          />
           <div className="flex items-center gap-2">
-            <Button variant="primary" size="xs" onClick={handleEditSave} disabled={!editLabel.trim()}>Kaydet</Button>
-            <Button variant="secondary" size="xs" onClick={handleEditCancel}>İptal</Button>
+            <Button
+              variant="primary"
+              size="xs"
+              onClick={handleEditSave}
+              disabled={!editLabel.trim()}
+            >
+              Kaydet
+            </Button>
+            <Button variant="secondary" size="xs" onClick={handleEditCancel}>
+              İptal
+            </Button>
           </div>
         </div>
       )}
@@ -258,23 +271,40 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {!allProcessed && allChannels.length === 0 && !detecting && !loadingPending && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Sensor verilerinizi JSON formatinda yapistirin veya ornek verileri kullanin.
-            AI, veri kanallarini otomatik olarak tespit edecektir.
+            Sensor verilerinizi JSON formatinda yapistirin veya ornek verileri kullanin. AI, veri
+            kanallarini otomatik olarak tespit edecektir.
           </p>
 
-          <Textarea className="font-mono resize-y" fullWidth value={sampleInput} onChange={(e) => {
-       setSampleInput(e.target.value);
-       setParseError(null);
-      }} placeholder='{"temperature": 24.5, "ph": 7.2, "dissolved_oxygen": 6.8}' />
+          <Textarea
+            className="font-mono resize-y"
+            fullWidth
+            value={sampleInput}
+            onChange={(e) => {
+              setSampleInput(e.target.value);
+              setParseError(null);
+            }}
+            placeholder='{"temperature": 24.5, "ph": 7.2, "dissolved_oxygen": 6.8}'
+          />
 
-          {parseError && (
-            <p className="text-red-600 text-xs">{parseError}</p>
-          )}
+          {parseError && <p className="text-error-600 dark:text-error-400 text-xs">{parseError}</p>}
 
           <div className="flex items-center gap-3">
-            <Button variant="primary" leftIcon={<Sparkles className="w-4 h-4" />} onClick={handleDetect} disabled={!sampleInput.trim()}>Otomatik Kanal Tespiti</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Sparkles className="w-4 h-4" />}
+              onClick={handleDetect}
+              disabled={!sampleInput.trim()}
+            >
+              Otomatik Kanal Tespiti
+            </Button>
 
-            <Button variant="secondary" leftIcon={<FileJson className="w-4 h-4" />} onClick={handleUseSampleData}>Son Verileri Kullan</Button>
+            <Button
+              variant="secondary"
+              leftIcon={<FileJson className="w-4 h-4" />}
+              onClick={handleUseSampleData}
+            >
+              Son Verileri Kullan
+            </Button>
           </div>
         </div>
       )}
@@ -283,7 +313,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {detecting && (
         <div className="flex items-center gap-3 py-8 justify-center">
           <Spinner size="md" />
-          <p className="text-purple-700 text-sm font-medium">
+          <p className="text-accent-700 dark:text-accent-300 text-sm font-medium">
             AI sensor verilerini analiz ediyor...
           </p>
         </div>
@@ -298,18 +328,32 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
               {allChannels.length} kanal tespit edildi
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="primary" size="xs" onClick={handleApproveAll} disabled={bulkProcessing}>{bulkProcessing ? (
+              <Button
+                variant="primary"
+                size="xs"
+                onClick={handleApproveAll}
+                disabled={bulkProcessing}
+              >
+                {bulkProcessing ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <CheckCheck className="w-3.5 h-3.5" />
                 )}
-                Tümünü Onayla</Button>
-              <Button variant="danger" size="xs" onClick={handleRejectAll} disabled={bulkProcessing}>{bulkProcessing ? (
+                Tümünü Onayla
+              </Button>
+              <Button
+                variant="danger"
+                size="xs"
+                onClick={handleRejectAll}
+                disabled={bulkProcessing}
+              >
+                {bulkProcessing ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <XCircle className="w-3.5 h-3.5" />
                 )}
-                Tümünü Reddet</Button>
+                Tümünü Reddet
+              </Button>
             </div>
           </div>
 

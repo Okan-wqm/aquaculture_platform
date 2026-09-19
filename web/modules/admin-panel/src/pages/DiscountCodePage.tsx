@@ -5,7 +5,18 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Modal,
+  useConfirm,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -24,7 +35,9 @@ import {
  * Money and percentages leave here as exact decimal strings; a float would
  * make `19.99` arrive as `19.989999999999998`.
  */
-type DiscountDraft = Partial<Omit<CreateDiscountCodeDto, 'percentOff' | 'amountOff' | 'freeMonths' | 'trialExtensionDays'>>;
+type DiscountDraft = Partial<
+  Omit<CreateDiscountCodeDto, 'percentOff' | 'amountOff' | 'freeMonths' | 'trialExtensionDays'>
+>;
 
 const EMPTY_DRAFT: DiscountDraft = {
   code: '',
@@ -151,7 +164,16 @@ const DiscountCodePage: React.FC = () => {
   };
 
   const handleDeactivate = async (id: string) => {
-    if (!(await confirm({ title: 'Deactivate this discount code?', message: 'It stops applying to new checkouts immediately.', confirmText: 'Deactivate', cancelText: 'Cancel', variant: 'warning' }))) return;
+    if (
+      !(await confirm({
+        title: 'Deactivate this discount code?',
+        message: 'It stops applying to new checkouts immediately.',
+        confirmText: 'Deactivate',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
 
     try {
       await billingApi.deactivateDiscountCode(id);
@@ -229,7 +251,7 @@ const DiscountCodePage: React.FC = () => {
       header: 'Discount',
       render: (_value, code) => (
         <>
-          <div className="text-lg font-bold text-green-600">
+          <div className="text-lg font-bold text-success-600 dark:text-success-400">
             {formatDiscountValue(code)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -242,9 +264,7 @@ const DiscountCodePage: React.FC = () => {
       key: 'appliesTo',
       header: 'Applies To',
       render: (_value, code) => (
-        <Badge variant="default">
-          {code.appliesTo.replace(/_/g, ' ')}
-        </Badge>
+        <Badge variant="default">{code.appliesTo.replace(/_/g, ' ')}</Badge>
       ),
     },
     {
@@ -269,7 +289,7 @@ const DiscountCodePage: React.FC = () => {
           {code.maxRedemptions && (
             <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1">
               <div
-                className="h-full bg-blue-600 rounded-full"
+                className="h-full bg-info-600 rounded-full"
                 style={{
                   width: `${Math.min(100, (code.currentRedemptions / code.maxRedemptions) * 100)}%`,
                 }}
@@ -309,11 +329,7 @@ const DiscountCodePage: React.FC = () => {
       align: 'right',
       render: (_value, code) =>
         code.isActive && !isExpired(code) ? (
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => handleDeactivate(code.id)}
-          >
+          <Button variant="danger" size="sm" onClick={() => handleDeactivate(code.id)}>
             Deactivate
           </Button>
         ) : null,
@@ -328,9 +344,7 @@ const DiscountCodePage: React.FC = () => {
         description="Manage promotional codes and discounts"
         actions={
           <div className="mt-4 sm:mt-0">
-            <Button onClick={() => setShowCreateModal(true)}>
-              Create Discount Code
-            </Button>
+            <Button onClick={() => setShowCreateModal(true)}>Create Discount Code</Button>
           </div>
         }
       />
@@ -349,22 +363,28 @@ const DiscountCodePage: React.FC = () => {
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Redemptions</div>
-            <div className="mt-1 text-2xl font-bold text-blue-600">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Total Redemptions
+            </div>
+            <div className="mt-1 text-2xl font-bold text-info-600 dark:text-info-400">
               {stats.totalRedemptions}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Discount Given</div>
-            <div className="mt-1 text-2xl font-bold text-green-600">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Total Discount Given
+            </div>
+            <div className="mt-1 text-2xl font-bold text-success-600 dark:text-success-400">
               ${Number(stats.totalDiscountAmount).toLocaleString()}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Expired Codes</div>
-            <div className="mt-1 text-2xl font-bold text-orange-600">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Expired Codes
+            </div>
+            <div className="mt-1 text-2xl font-bold text-warning-600 dark:text-warning-400">
               {stats.expiredCodes}
             </div>
           </Card>
@@ -377,8 +397,11 @@ const DiscountCodePage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Top Performing Codes</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {stats.topCodes.map((top, idx) => (
-              <div key={top.code} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+              <div
+                key={top.code}
+                className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+              >
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-info-100 dark:bg-info-900/40 flex items-center justify-center text-info-600 dark:text-info-400 font-bold">
                   {idx + 1}
                 </div>
                 <div>
@@ -419,11 +442,11 @@ const DiscountCodePage: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 text-error-700 dark:text-error-300">
           {error}
           <button
             onClick={() => setError(null)}
-            className="ml-4 text-red-500 hover:text-red-700"
+            className="ml-4 text-error-500 hover:text-error-700 dark:hover:text-error-200"
           >
             Dismiss
           </button>

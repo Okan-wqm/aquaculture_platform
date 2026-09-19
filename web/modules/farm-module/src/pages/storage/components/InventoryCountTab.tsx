@@ -22,9 +22,9 @@ import { Plus } from 'lucide-react';
 /** Badge colors per status — consistent with other tabs in the storage module */
 const statusColors: Record<string, string> = {
   PLANNED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  IN_PROGRESS: 'bg-blue-100 text-blue-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  APPROVED: 'bg-purple-100 text-purple-800',
+  IN_PROGRESS: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  APPROVED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
 };
 
 /** All available status values for the filter dropdown */
@@ -70,7 +70,7 @@ export const InventoryCountTab: React.FC = () => {
             e.stopPropagation();
             setSelectedCountId(ic.id);
           }}
-          className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+          className="text-xs px-2 py-1 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 rounded hover:bg-info-100 dark:hover:bg-info-900/50"
         >
           Count
         </button>
@@ -88,7 +88,7 @@ export const InventoryCountTab: React.FC = () => {
           className={`text-xs px-2 py-1 rounded ${
             isOwnCount
               ? 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              : 'bg-green-50 text-green-700 hover:bg-green-100'
+              : 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 hover:bg-success-100 dark:hover:bg-success-900/50'
           }`}
         >
           {isOwnCount ? 'View' : 'Approve'}
@@ -137,7 +137,13 @@ export const InventoryCountTab: React.FC = () => {
       key: 'totalVariance',
       header: 'Total Variance',
       render: (_value, ic) => (
-        <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
+        <span
+          className={
+            ic.totalVariance !== 0
+              ? 'text-error-600 dark:text-error-400 font-medium'
+              : 'text-success-600 dark:text-success-400'
+          }
+        >
           {ic.totalVariance > 0 ? '+' : ''}
           {ic.totalVariance}
         </span>
@@ -180,7 +186,7 @@ export const InventoryCountTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent text-sm"
           >
             <option value="">All Status</option>
             {STATUS_OPTIONS.map((s) => (
@@ -205,8 +211,8 @@ export const InventoryCountTab: React.FC = () => {
 
       {/* Error state with retry */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load inventory counts.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load inventory counts.</p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>

@@ -123,11 +123,11 @@ interface LoadState {
 // ============================================================================
 
 const COLOR_CLASSES: Record<string, string> = {
-  purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  cyan: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  purple: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
+  cyan: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  blue: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  green: 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-300',
+  orange: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-300',
 };
 
 // ============================================================================
@@ -139,19 +139,22 @@ const ACTUATION_POLICY_INFO: Record<string, { label: string; color: string; desc
   {
     blocked: {
       label: 'BLOCKED',
-      color: 'bg-red-100 text-red-800 border-red-300',
+      color:
+        'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
       description:
         'AI cannot execute any PLC actuation commands. All actuation requests are rejected.',
     },
     confirm_required: {
       label: 'CONFIRM REQUIRED',
-      color: 'bg-amber-100 text-amber-800 border-amber-300',
+      color:
+        'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-300 dark:border-warning-700',
       description:
         'AI can propose actuation commands but requires explicit human confirmation before execution.',
     },
     allowed: {
       label: 'ALLOWED',
-      color: 'bg-red-100 text-red-800 border-red-300',
+      color:
+        'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
       description:
         'AI can execute actuation commands autonomously within configured safety limits. CAUTION: This enables autonomous PLC control.',
     },
@@ -263,14 +266,17 @@ function MessagingAiPersonasPage(): React.ReactElement {
       />
 
       {/* LIFE-SAFETY Warning */}
-      <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800">
+      <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-800">
         <div className="flex items-start gap-3">
-          <TriangleAlert className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <TriangleAlert
+            className="w-5 h-5 text-error-600 dark:text-error-400 mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          />
           <div>
-            <h3 className="text-sm font-semibold text-red-900 dark:text-red-200">
+            <h3 className="text-sm font-semibold text-error-900 dark:text-error-200">
               LIFE-SAFETY: Autonomous PLC Actuation
             </h3>
-            <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed mt-1">
+            <p className="text-xs text-error-700 dark:text-error-300 leading-relaxed mt-1">
               Some AI personas (especially SCADA AI / Supervisor) can control physical equipment
               through PLC actuation. The actuation policy and autonomous safety limits shown below
               are loaded from the real backend TenantAgentConfig entity. These are not display-only
@@ -298,7 +304,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
                 placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden bg-white dark:bg-gray-800"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden bg-white dark:bg-gray-800"
               />
             </div>
             <Button
@@ -315,15 +321,20 @@ function MessagingAiPersonasPage(): React.ReactElement {
 
       {/* Error State */}
       {loadState.error && (
-        <Card className="p-4 bg-red-50 border-red-200">
+        <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800">
           <div className="flex items-start gap-3">
-            <CircleAlert className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <CircleAlert
+              className="w-5 h-5 text-error-500 mt-0.5 flex-shrink-0"
+              aria-hidden="true"
+            />
             <div>
-              <p className="text-sm font-medium text-red-800">Failed to load personas</p>
-              <p className="text-xs text-red-700 mt-1">{loadState.error}</p>
+              <p className="text-sm font-medium text-error-800 dark:text-error-200">
+                Failed to load personas
+              </p>
+              <p className="text-xs text-error-700 dark:text-error-300 mt-1">{loadState.error}</p>
               <button
                 onClick={() => void fetchPersonas(tenantId)}
-                className="text-xs text-red-600 hover:text-red-800 mt-2 underline"
+                className="text-xs text-error-600 dark:text-error-400 hover:text-error-800 dark:hover:text-error-200 mt-2 underline"
               >
                 Retry
               </button>
@@ -426,11 +437,11 @@ function MessagingAiPersonasPage(): React.ReactElement {
       </Card>
 
       {/* Architecture Note */}
-      <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-        <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
+      <Card className="p-4 bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800">
+        <h3 className="text-sm font-semibold text-info-900 dark:text-info-200 mb-1">
           Architecture Note
         </h3>
-        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+        <p className="text-xs text-info-700 dark:text-info-300 leading-relaxed">
           Persona definitions are loaded from the messaging-service AiPersonasRegistryService via
           NATS request-reply (pattern: request.messaging.admin.getPersonas). Per-tenant actuation
           policies and safety limits are stored in the TenantAgentConfig entity in the ai-service

@@ -221,10 +221,10 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const getPriorityLabel = (priority: number) => {
-    if (priority >= 15) return { label: 'Critical', color: 'text-red-600' };
-    if (priority >= 10) return { label: 'High', color: 'text-orange-600' };
+    if (priority >= 15) return { label: 'Critical', color: 'text-error-600 dark:text-error-400' };
+    if (priority >= 10) return { label: 'High', color: 'text-warning-600 dark:text-warning-400' };
     if (priority >= 5) return { label: 'Normal', color: 'text-gray-600 dark:text-gray-400' };
-    return { label: 'Low', color: 'text-blue-600' };
+    return { label: 'Low', color: 'text-info-600 dark:text-info-400' };
   };
 
   const formatDuration = (ms: number) => {
@@ -314,7 +314,7 @@ export const JobQueuePage: React.FC = () => {
           <span className="font-medium text-gray-900 dark:text-gray-100">{job.name}</span>
           <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{job.id}</span>
           {job.errorMessage && (
-            <span className="text-xs text-red-600 mt-1 line-clamp-1">
+            <span className="text-xs text-error-600 dark:text-error-400 mt-1 line-clamp-1">
               Error: {job.errorMessage}
             </span>
           )}
@@ -343,7 +343,7 @@ export const JobQueuePage: React.FC = () => {
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
-                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    className="bg-info-600 h-2 rounded-full transition-all"
                     style={{ width: `${job.progress.percentage}%` }}
                   />
                 </div>
@@ -401,7 +401,7 @@ export const JobQueuePage: React.FC = () => {
           {job.status === 'failed' && (
             <button
               onClick={() => handleRetryJob(job)}
-              className="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+              className="px-3 py-1.5 text-sm font-medium bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded-lg hover:bg-info-200 dark:hover:bg-info-800/60 transition-colors"
             >
               Retry
             </button>
@@ -409,7 +409,7 @@ export const JobQueuePage: React.FC = () => {
           {(job.status === 'running' || job.status === 'pending') && (
             <button
               onClick={() => handleCancelJob(job)}
-              className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+              className="px-3 py-1.5 text-sm font-medium bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400 rounded-lg hover:bg-error-100 dark:hover:bg-error-900/50 transition-colors"
             >
               Cancel
             </button>
@@ -449,15 +449,21 @@ export const JobQueuePage: React.FC = () => {
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Jobs</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-yellow-600">{dashboard.runningJobs}</div>
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {dashboard.runningJobs}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Running</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-blue-600">{dashboard.pendingJobs}</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+            {dashboard.pendingJobs}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Pending</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-red-600">{dashboard.failedToday}</div>
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+            {dashboard.failedToday}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Failed Today</div>
         </Card>
       </div>
@@ -471,7 +477,7 @@ export const JobQueuePage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`py-2 border-b-2 font-medium text-sm capitalize transition-colors ${
                 activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-info-500 text-info-600 dark:text-info-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
@@ -565,19 +571,27 @@ export const JobQueuePage: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <div className="text-2xl font-bold text-blue-600">{queue.pendingCount}</div>
+                  <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+                    {queue.pendingCount}
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-yellow-600">{queue.runningCount}</div>
+                  <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                    {queue.runningCount}
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Running</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-green-600">{queue.completedCount}</div>
+                  <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+                    {queue.completedCount}
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Completed</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-red-600">{queue.failedCount}</div>
+                  <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+                    {queue.failedCount}
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
                 </div>
               </div>
@@ -586,14 +600,14 @@ export const JobQueuePage: React.FC = () => {
                 {queue.isPaused ? (
                   <button
                     onClick={() => handleResumeQueue(queue)}
-                    className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
+                    className="flex-1 px-3 py-2 bg-success-600 text-white rounded-lg text-sm hover:bg-success-700 transition-colors"
                   >
                     Resume
                   </button>
                 ) : (
                   <button
                     onClick={() => handlePauseQueue(queue)}
-                    className="flex-1 px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm hover:bg-yellow-700 transition-colors"
+                    className="flex-1 px-3 py-2 bg-warning-600 text-white rounded-lg text-sm hover:bg-warning-700 transition-colors"
                   >
                     Pause
                   </button>

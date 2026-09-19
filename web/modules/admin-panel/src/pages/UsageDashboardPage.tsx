@@ -47,18 +47,50 @@ const METER_DISPLAY_NAMES: Record<MeterType, string> = {
 };
 
 const METER_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
-  [MeterType.API_CALLS]: { bg: 'bg-blue-100', text: 'text-blue-700', bar: 'bg-blue-500' },
-  [MeterType.SENSOR_READINGS]: { bg: 'bg-green-100', text: 'text-green-700', bar: 'bg-green-500' },
-  [MeterType.ALERTS_SENT]: { bg: 'bg-orange-100', text: 'text-orange-700', bar: 'bg-orange-500' },
-  [MeterType.DATA_STORAGE]: { bg: 'bg-purple-100', text: 'text-purple-700', bar: 'bg-purple-500' },
-  [MeterType.USERS_ACTIVE]: { bg: 'bg-indigo-100', text: 'text-indigo-700', bar: 'bg-indigo-500' },
-  [MeterType.PONDS_ACTIVE]: { bg: 'bg-cyan-100', text: 'text-cyan-700', bar: 'bg-cyan-500' },
-  [MeterType.REPORTS_GENERATED]: { bg: 'bg-pink-100', text: 'text-pink-700', bar: 'bg-pink-500' },
-  [MeterType.FARMS_ACTIVE]: { bg: 'bg-teal-100', text: 'text-teal-700', bar: 'bg-teal-500' },
+  [MeterType.API_CALLS]: {
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    text: 'text-info-700 dark:text-info-300',
+    bar: 'bg-info-500',
+  },
+  [MeterType.SENSOR_READINGS]: {
+    bg: 'bg-success-100 dark:bg-success-900/40',
+    text: 'text-success-700 dark:text-success-300',
+    bar: 'bg-success-500',
+  },
+  [MeterType.ALERTS_SENT]: {
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    text: 'text-warning-700 dark:text-warning-300',
+    bar: 'bg-warning-500',
+  },
+  [MeterType.DATA_STORAGE]: {
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-700 dark:text-accent-300',
+    bar: 'bg-accent-500',
+  },
+  [MeterType.USERS_ACTIVE]: {
+    bg: 'bg-primary-100 dark:bg-primary-900/40',
+    text: 'text-primary-700 dark:text-primary-300',
+    bar: 'bg-primary-500',
+  },
+  [MeterType.PONDS_ACTIVE]: {
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    text: 'text-info-700 dark:text-info-300',
+    bar: 'bg-info-500',
+  },
+  [MeterType.REPORTS_GENERATED]: {
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-700 dark:text-accent-300',
+    bar: 'bg-accent-500',
+  },
+  [MeterType.FARMS_ACTIVE]: {
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    text: 'text-info-700 dark:text-info-300',
+    bar: 'bg-info-500',
+  },
   [MeterType.SENSORS_ACTIVE]: {
-    bg: 'bg-yellow-100',
-    text: 'text-yellow-700',
-    bar: 'bg-yellow-500',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    text: 'text-warning-700 dark:text-warning-300',
+    bar: 'bg-warning-500',
   },
 };
 
@@ -208,7 +240,7 @@ const TenantUsageRow: React.FC<TenantUsageRowProps> = ({ tenant, rank }) => {
         <div className="flex items-center justify-between mb-1">
           <Link
             to={`/admin/tenants/${tenant.tenantId}`}
-            className="text-sm font-medium text-blue-600 hover:text-blue-700 truncate"
+            className="text-sm font-medium text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 truncate"
           >
             {tenant.tenantName || tenant.tenantId.slice(0, 8)}
           </Link>
@@ -254,7 +286,7 @@ const TopTenantItem: React.FC<TopTenantItemProps> = ({ tenant, rank, maxUsage })
         <div className="flex items-center justify-between mb-1">
           <Link
             to={`/admin/tenants/${tenant.tenantId}`}
-            className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate hover:text-blue-600"
+            className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate hover:text-info-600"
           >
             {tenant.tenantName || tenant.tenantId.slice(0, 8)}
           </Link>
@@ -401,10 +433,14 @@ const LoadingSkeleton: React.FC = () => (
 // ============================================================================
 
 const Icons = {
-  Activity: <Zap className="w-6 h-6 text-blue-600" aria-hidden="true" />,
-  Users: <UsersIcon className="w-6 h-6 text-purple-600" aria-hidden="true" />,
-  Chart: <ChartColumn className="w-6 h-6 text-green-600" aria-hidden="true" />,
-  Database: <DatabaseIcon className="w-6 h-6 text-orange-600" aria-hidden="true" />,
+  Activity: <Zap className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />,
+  Users: <UsersIcon className="w-6 h-6 text-accent-600 dark:text-accent-400" aria-hidden="true" />,
+  Chart: (
+    <ChartColumn className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
+  ),
+  Database: (
+    <DatabaseIcon className="w-6 h-6 text-warning-600 dark:text-warning-400" aria-hidden="true" />
+  ),
 };
 
 // ============================================================================
@@ -509,12 +545,12 @@ const UsageDashboardPage: React.FC = () => {
 
   if (summaryError && !summary) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <p className="text-red-600 font-medium">Failed to load usage data</p>
-        <p className="text-red-500 text-sm mt-1">{summaryError}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-6 text-center">
+        <p className="text-error-600 dark:text-error-400 font-medium">Failed to load usage data</p>
+        <p className="text-error-500 text-sm mt-1">{summaryError}</p>
         <button
           onClick={refreshSummary}
-          className="mt-4 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+          className="mt-4 px-4 py-2 bg-error-600 text-white text-sm font-medium rounded-lg hover:bg-error-700 transition-colors"
         >
           Retry
         </button>
@@ -538,7 +574,7 @@ const UsageDashboardPage: React.FC = () => {
             </Link>
             <button
               onClick={refreshSummary}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors"
             >
               Refresh Data
             </button>
@@ -553,21 +589,21 @@ const UsageDashboardPage: React.FC = () => {
           value={summary?.totalTenants ?? 0}
           subtitle="Tenants with usage data"
           icon={Icons.Users}
-          iconBg="bg-purple-100"
+          iconBg="bg-accent-100 dark:bg-accent-900/40"
         />
         <SummaryCard
           title="Total Events"
           value={formatNumber(summary?.totalEvents ?? 0, true)}
           subtitle="This billing period"
           icon={Icons.Activity}
-          iconBg="bg-blue-100"
+          iconBg="bg-info-100 dark:bg-info-900/40"
         />
         <SummaryCard
           title="Meter Types"
           value={summary?.meterBreakdown.length ?? 0}
           subtitle="Active meter categories"
           icon={Icons.Chart}
-          iconBg="bg-green-100"
+          iconBg="bg-success-100 dark:bg-success-900/40"
         />
         <SummaryCard
           title="Period Coverage"
@@ -578,7 +614,7 @@ const UsageDashboardPage: React.FC = () => {
           }
           subtitle="Current billing window"
           icon={Icons.Database}
-          iconBg="bg-orange-100"
+          iconBg="bg-warning-100 dark:bg-warning-900/40"
         />
       </div>
 
@@ -623,7 +659,7 @@ const UsageDashboardPage: React.FC = () => {
               <select
                 value={selectedTrendMeter}
                 onChange={(e) => setSelectedTrendMeter(e.target.value as MeterType)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
               >
                 {availableTrendMeters.map((mt) => (
                   <option key={mt} value={mt}>
@@ -634,7 +670,7 @@ const UsageDashboardPage: React.FC = () => {
               <select
                 value={trendPeriod}
                 onChange={(e) => setTrendPeriod(e.target.value as AggregationPeriod)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
               >
                 {PERIOD_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -663,7 +699,7 @@ const UsageDashboardPage: React.FC = () => {
             <select
               value={topTenantsMeter}
               onChange={(e) => setTopTenantsMeter(e.target.value as MeterType)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               {TOP_TENANTS_METER_OPTIONS.map((mt) => (
                 <option key={mt} value={mt}>
@@ -759,8 +795,10 @@ const UsageDashboardPage: React.FC = () => {
               className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
             >
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
-                  <span className="text-xs font-bold text-blue-700">{item.icon}</span>
+                <div className="w-8 h-8 bg-info-100 dark:bg-info-900/40 rounded flex items-center justify-center">
+                  <span className="text-xs font-bold text-info-700 dark:text-info-300">
+                    {item.icon}
+                  </span>
                 </div>
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {item.meter}

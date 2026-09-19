@@ -26,19 +26,20 @@ import { Plus } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  SUBMITTED: 'bg-yellow-100 text-yellow-800',
-  APPROVED: 'bg-teal-100 text-teal-800',
-  ORDERED: 'bg-indigo-100 text-indigo-800',
-  PARTIALLY_RECEIVED: 'bg-orange-100 text-orange-800',
-  RECEIVED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
+  SUBMITTED: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  APPROVED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ORDERED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  PARTIALLY_RECEIVED:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  RECEIVED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CANCELLED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const categoryColors: Record<string, string> = {
-  FEED: 'bg-amber-50 text-amber-700',
-  CHEMICAL: 'bg-blue-50 text-blue-700',
-  CONSUMABLE: 'bg-green-50 text-green-700',
-  HEALTHCARE: 'bg-purple-50 text-purple-700',
+  FEED: 'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300',
+  CHEMICAL: 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300',
+  CONSUMABLE: 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300',
+  HEALTHCARE: 'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300',
 };
 
 const STATUSES: PurchaseOrderStatus[] = [
@@ -230,7 +231,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           {po.status === 'DRAFT' && (
             <button
               onClick={() => handleSubmit(po)}
-              className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100"
+              className="text-xs px-2 py-1 bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 rounded hover:bg-warning-100 dark:hover:bg-warning-900/50"
             >
               Submit for Approval
             </button>
@@ -238,7 +239,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           {po.status === 'SUBMITTED' && (
             <button
               onClick={() => handleApprove(po)}
-              className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100"
+              className="text-xs px-2 py-1 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 rounded hover:bg-info-100 dark:hover:bg-info-900/50"
             >
               Approve
             </button>
@@ -246,7 +247,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           {po.status === 'APPROVED' && (
             <button
               onClick={() => handleMarkOrdered(po)}
-              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100"
+              className="text-xs px-2 py-1 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 rounded hover:bg-primary-100 dark:hover:bg-primary-900/50"
             >
               Mark Ordered
             </button>
@@ -254,7 +255,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           {(po.status === 'ORDERED' || po.status === 'PARTIALLY_RECEIVED') && (
             <button
               onClick={() => setReceiveTarget(po)}
-              className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100"
+              className="text-xs px-2 py-1 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 rounded hover:bg-success-100 dark:hover:bg-success-900/50"
             >
               Receive
             </button>
@@ -262,7 +263,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           {po.status !== 'RECEIVED' && po.status !== 'CANCELLED' && (
             <button
               onClick={() => handleCancel(po)}
-              className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100"
+              className="text-xs px-2 py-1 bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 rounded hover:bg-error-100 dark:hover:bg-error-900/50"
             >
               Cancel
             </button>
@@ -279,7 +280,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent text-sm"
           >
             <option value="">All Status</option>
             {STATUSES.map((s) => (
@@ -291,7 +292,7 @@ export const PurchaseOrdersTab: React.FC = () => {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent text-sm"
           >
             <option value="">All Categories</option>
             {CATEGORIES.map((c) => (
@@ -314,8 +315,8 @@ export const PurchaseOrdersTab: React.FC = () => {
       )}
 
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load purchase orders.</p>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load purchase orders.</p>
           <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
           </Button>

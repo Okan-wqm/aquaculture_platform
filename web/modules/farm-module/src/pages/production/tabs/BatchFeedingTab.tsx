@@ -14,7 +14,9 @@ import {
   ConfirmModal,
   formatErrorForToast,
   useCanMutate,
-  useToast, Button } from '@aquaculture/shared-ui';
+  useToast,
+  Button,
+} from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import {
@@ -43,9 +45,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
   const canEdit = canUpdate || canAssign;
   const canDelete = useCanMutate('deleteBatchFeedAssignment');
 
-  const { data: assignment, isLoading, error } = useBatchFeedAssignment(
-    batch.id,
-  );
+  const { data: assignment, isLoading, error } = useBatchFeedAssignment(batch.id);
 
   const { toast } = useToast();
   const deleteMutation = useDeleteBatchFeedAssignment();
@@ -77,9 +77,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       render: (_value, entry) => (
         <>
           <div className="font-medium">{entry.feedName}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            {entry.feedCode}
-          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{entry.feedCode}</div>
         </>
       ),
     },
@@ -97,27 +95,39 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       key: 'ncelik',
       header: 'Öncelik',
       render: (_value, entry) => entry.priority ?? '—',
-    }
+    },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Yem Atamaları
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Yem Atamaları</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Bu partinin ağırlık aralıklarına göre yem atamaları —
-            yemleme planı bu eşlemeyi okur.
+            Bu partinin ağırlık aralıklarına göre yem atamaları — yemleme planı bu eşlemeyi okur.
           </p>
         </div>
         <div className="flex items-center space-x-2">
           {assignment && canDelete && (
-            <Button variant="danger" size="sm" type="button" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMutation.isPending}>Atamayı Sil</Button>
+            <Button
+              variant="danger"
+              size="sm"
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteMutation.isPending}
+            >
+              Atamayı Sil
+            </Button>
           )}
           {((assignment && canEdit) || (!assignment && canAssign)) && (
-            <Button variant="primary" size="sm" type="button" onClick={() => setShowAssignModal(true)}>{assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+            >
+              {assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}
+            </Button>
           )}
         </div>
       </div>
@@ -129,9 +139,8 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-          Atamalar yüklenemedi:{' '}
-          {error instanceof Error ? error.message : 'Bilinmeyen hata'}
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
+          Atamalar yüklenemedi: {error instanceof Error ? error.message : 'Bilinmeyen hata'}
         </div>
       )}
 
@@ -141,7 +150,15 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
             Bu parti için henüz yem ataması yapılmamış.
           </p>
           {canAssign && (
-            <Button variant="primary" size="sm" className="mt-2" type="button" onClick={() => setShowAssignModal(true)}>İlk atamayı oluştur</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="mt-2"
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+            >
+              İlk atamayı oluştur
+            </Button>
           )}
         </div>
       )}
@@ -181,14 +198,11 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
         title="Yem ataması silinsin mi?"
         message={
           <span>
-            <strong className="font-semibold">{batch.batchNumber}</strong>{' '}
-            partisinin tüm yem ataması (
-            <span className="font-semibold">
-              {assignment?.feedAssignments.length ?? 0} satır
-            </span>
-            ) silinecek. Bu işlem yemleme programının bu partiyi
-            tanımayan duruma dönmesine yol açar — silmeden önce
-            yerine yeni bir atama planlamanız önerilir.
+            <strong className="font-semibold">{batch.batchNumber}</strong> partisinin tüm yem
+            ataması (
+            <span className="font-semibold">{assignment?.feedAssignments.length ?? 0} satır</span>)
+            silinecek. Bu işlem yemleme programının bu partiyi tanımayan duruma dönmesine yol açar —
+            silmeden önce yerine yeni bir atama planlamanız önerilir.
           </span>
         }
         confirmText="Sil"

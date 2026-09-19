@@ -32,7 +32,7 @@ const ORIGIN_GRID: Array<{ label: string; x: number; y: number }> = [
 ];
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onChange }) => {
   const [open, setOpen] = useState(false);
@@ -127,7 +127,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 onClick={() => setAspectLock(!aspectLock)}
                 className={`text-xs px-1.5 py-0.5 rounded ${
                   aspectLock
-                    ? 'bg-cyan-100 text-cyan-700'
+                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                     : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
                 }`}
                 title={aspectLock ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
@@ -221,8 +221,8 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                     onClick={() => handleChange({ originX: point.x, originY: point.y })}
                     className={`w-5 h-5 rounded-full border-2 transition-colors ${
                       isActive
-                        ? 'bg-cyan-500 border-cyan-600'
-                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-cyan-400'
+                        ? 'bg-info-500 border-info-600'
+                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-info-400'
                     }`}
                     data-testid={`origin-${point.label.replace(/\s+/g, '-').toLowerCase()}`}
                   />

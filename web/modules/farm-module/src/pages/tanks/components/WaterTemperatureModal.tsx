@@ -108,10 +108,23 @@ export const WaterTemperatureModal: React.FC<WaterTemperatureModalProps> = ({
 
         {/* Temperature input */}
         <div>
-          <label htmlFor="water-temperature" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Water Temperature (°C) <span className="text-red-500">*</span>
+          <label
+            htmlFor="water-temperature"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Water Temperature (°C) <span className="text-error-500">*</span>
           </label>
-          <Input fullWidth type="number" id="water-temperature" step="0.1" min={MIN_TEMPERATURE_C} max={MAX_TEMPERATURE_C} value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="e.g. 12.5" />
+          <Input
+            fullWidth
+            type="number"
+            id="water-temperature"
+            step="0.1"
+            min={MIN_TEMPERATURE_C}
+            max={MAX_TEMPERATURE_C}
+            value={temperature}
+            onChange={(e) => setTemperature(e.target.value)}
+            placeholder="e.g. 12.5"
+          />
         </div>
 
         {/* Actions */}

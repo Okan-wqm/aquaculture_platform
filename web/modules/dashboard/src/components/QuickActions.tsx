@@ -37,7 +37,7 @@ const quickActions: QuickAction[] = [
     label: 'Yeni Çiftlik',
     description: 'Çiftlik ekle',
     path: '/sites/new',
-    color: 'bg-blue-500',
+    color: 'bg-info-500',
     icon: <PlusIcon />,
   },
   {
@@ -48,7 +48,7 @@ const quickActions: QuickAction[] = [
     // `/sites/sensors/new` target never had a route and fell through
     // to the farm catch-all (map page).
     path: '/sensor/devices',
-    color: 'bg-green-500',
+    color: 'bg-success-500',
     icon: <SensorIcon />,
   },
   {
@@ -56,7 +56,7 @@ const quickActions: QuickAction[] = [
     label: 'Görev Oluştur',
     description: 'Yeni görev',
     path: '/tasks/new',
-    color: 'bg-purple-500',
+    color: 'bg-accent-500',
     icon: <TaskIcon />,
   },
   {
@@ -64,7 +64,7 @@ const quickActions: QuickAction[] = [
     label: 'Rapor Oluştur',
     description: 'Yeni rapor',
     path: '/reports/new',
-    color: 'bg-orange-500',
+    color: 'bg-warning-500',
     icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {
@@ -74,7 +74,7 @@ const quickActions: QuickAction[] = [
     // The sensor module is mounted at /sensor and the new-process editor route is
     // `process/new` (singular) — `/processes/new` resolves to no route (blank).
     path: '/sensor/process/new',
-    color: 'bg-teal-500',
+    color: 'bg-info-500',
     icon: <CirclePlay className="w-5 h-5" aria-hidden="true" />,
   },
   {
@@ -82,7 +82,7 @@ const quickActions: QuickAction[] = [
     label: 'Kullanıcılar',
     description: 'Kullanıcı yönet',
     path: '/admin/users',
-    color: 'bg-pink-500',
+    color: 'bg-accent-500',
     // DASH-SEC-004: Admin route only visible to admin roles
     minRole: 'TENANT_ADMIN',
     icon: <Users className="w-5 h-5" aria-hidden="true" />,

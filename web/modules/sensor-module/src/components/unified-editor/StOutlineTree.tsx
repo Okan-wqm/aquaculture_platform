@@ -47,23 +47,19 @@ interface StOutlineTreeProps {
 }
 
 const KIND_CONFIG: Record<OutlineNode['kind'], { icon: LucideIcon; color: string }> = {
-  program: { icon: Code2, color: 'text-cyan-400' },
-  functionBlock: { icon: FunctionSquare, color: 'text-purple-400' },
-  function: { icon: FunctionSquare, color: 'text-blue-400' },
-  method: { icon: FunctionSquare, color: 'text-blue-300' },
-  property: { icon: Variable, color: 'text-green-300' },
-  varBlock: { icon: Braces, color: 'text-yellow-400' },
-  variable: { icon: Variable, color: 'text-green-400' },
-  type: { icon: Box, color: 'text-orange-400' },
-  struct: { icon: Layers, color: 'text-orange-300' },
-  enum: { icon: List, color: 'text-pink-400' },
+  program: { icon: Code2, color: 'text-info-400' },
+  functionBlock: { icon: FunctionSquare, color: 'text-accent-400' },
+  function: { icon: FunctionSquare, color: 'text-info-400' },
+  method: { icon: FunctionSquare, color: 'text-info-300' },
+  property: { icon: Variable, color: 'text-success-300' },
+  varBlock: { icon: Braces, color: 'text-warning-400' },
+  variable: { icon: Variable, color: 'text-success-400' },
+  type: { icon: Box, color: 'text-warning-400' },
+  struct: { icon: Layers, color: 'text-warning-300' },
+  enum: { icon: List, color: 'text-accent-400' },
 };
 
-const StOutlineTree: React.FC<StOutlineTreeProps> = ({
-  outline,
-  onNavigate,
-  activeLineNumber,
-}) => {
+const StOutlineTree: React.FC<StOutlineTreeProps> = ({ outline, onNavigate, activeLineNumber }) => {
   if (outline.length === 0) {
     return (
       <div className="px-2 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
@@ -103,7 +99,10 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
-  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-500 dark:text-gray-400' };
+  const config = KIND_CONFIG[node.kind] ?? {
+    icon: Hash,
+    color: 'text-gray-500 dark:text-gray-400',
+  };
   const Icon = config.icon;
 
   const isActive =
@@ -115,13 +114,10 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
     onNavigate(node.line);
   }, [onNavigate, node.line]);
 
-  const handleToggle = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setExpanded((prev) => !prev);
-    },
-    [],
-  );
+  const handleToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded((prev) => !prev);
+  }, []);
 
   return (
     <>
@@ -134,11 +130,13 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       >
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <Button variant="ghost" className="w-4 h-4 justify-center flex-shrink-0" onClick={handleToggle}>{expanded ? (
-              <ChevronDown className="w-3 h-3" />
-            ) : (
-              <ChevronRight className="w-3 h-3" />
-            )}</Button>
+          <Button
+            variant="ghost"
+            className="w-4 h-4 justify-center flex-shrink-0"
+            onClick={handleToggle}
+          >
+            {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          </Button>
         ) : (
           <span className="w-4 h-4 flex-shrink-0" />
         )}

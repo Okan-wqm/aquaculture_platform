@@ -187,11 +187,11 @@ const EmailTemplatesPage: React.FC = () => {
 
       {/* Success message */}
       {successMessage && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
-          <span className="text-green-700">{successMessage}</span>
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-success-700 dark:text-success-300">{successMessage}</span>
           <button
             onClick={() => setSuccessMessage(null)}
-            className="text-green-400 hover:text-green-600 ml-4"
+            className="text-success-400 hover:text-success-600 dark:hover:text-success-300 ml-4"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -217,7 +217,7 @@ const EmailTemplatesPage: React.FC = () => {
               onClick={() => setActiveCategory(cat)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeCategory === cat
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-info-600 text-white'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -272,7 +272,7 @@ const EmailTemplatesPage: React.FC = () => {
             <div className="flex items-center justify-between pt-4 border-t">
               <div className="flex items-center">
                 <span
-                  className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-green-500' : 'bg-gray-400'}`}
+                  className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-success-500' : 'bg-gray-400'}`}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">
                   {template.isActive ? 'Active' : 'Inactive'}
@@ -331,10 +331,10 @@ const EmailTemplatesPage: React.FC = () => {
                 {selectedTemplate.variables.map((v) => (
                   <span
                     key={v.name}
-                    className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
+                    className="inline-flex items-center px-2 py-1 rounded text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
                   >
                     {`{{${v.name}}}`}
-                    {v.required && <span className="ml-1 text-red-500">*</span>}
+                    {v.required && <span className="ml-1 text-error-500">*</span>}
                   </span>
                 ))}
               </div>
@@ -544,14 +544,14 @@ const EmailTemplatesPage: React.FC = () => {
                             prev ? { ...prev, variables: newVars } : null,
                           );
                         }}
-                        className="h-4 w-4 text-blue-600 rounded"
+                        className="h-4 w-4 text-info-600 dark:text-info-400 rounded"
                       />
                       <span className="ml-1 text-xs">Required</span>
                     </label>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-500"
+                      className="text-error-500"
                       onClick={() => {
                         const newVars =
                           selectedTemplate?.variables.filter((_, i) => i !== index) || [];

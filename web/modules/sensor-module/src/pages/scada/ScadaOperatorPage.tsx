@@ -59,11 +59,11 @@ const ScadaOperatorPage: React.FC = () => {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-900">
         <div className="flex flex-col items-center gap-3 text-gray-300 max-w-md text-center">
-          <AlertCircle className="w-8 h-8 text-red-400" />
+          <AlertCircle className="w-8 h-8 text-error-400" />
           <p className="text-sm">{error || 'SCADA package not found'}</p>
           <Link
             to="/sensor/scada-packages"
-            className="flex items-center gap-1.5 text-sm text-cyan-400 hover:text-cyan-300"
+            className="flex items-center gap-1.5 text-sm text-info-400 hover:text-info-300"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to SCADA Packages

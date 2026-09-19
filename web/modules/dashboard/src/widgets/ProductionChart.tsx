@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, chartChrome, colors, Button } from '@aquaculture/shared-ui';
+import { Card, chartChrome, colors, Button, ChartTooltipContent } from '@aquaculture/shared-ui';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { TrendUpIcon } from '../components/icons';
@@ -36,11 +36,6 @@ const MONTH_LABELS = [
 ];
 
 // PERF-M1: tooltip style hoisted to module scope
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: `1px solid ${chartChrome.border}`,
-  borderRadius: '8px',
-};
 
 export const ProductionChart: React.FC<ProductionChartProps> = ({
   farmId,
@@ -85,8 +80,8 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-6 text-gray-500 dark:text-gray-400">
-          <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-red-400" />
-          <p className="text-sm font-medium text-red-500">Uretim verileri yuklenemedi</p>
+          <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-error-400" />
+          <p className="text-sm font-medium text-error-500">Uretim verileri yuklenemedi</p>
           <Button
             variant="ghost"
             size="xs"
@@ -133,7 +128,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
           <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke={chartChrome.axis} />
           <YAxis hide />
           <Tooltip
-            contentStyle={tooltipStyle}
+            content={<ChartTooltipContent />}
             formatter={(value: number) => [`${value} Ton`, 'Uretim']}
           />
           <Bar dataKey="uretim" fill={colors.primary[500]} radius={[2, 2, 0, 0]} maxBarSize={24} />

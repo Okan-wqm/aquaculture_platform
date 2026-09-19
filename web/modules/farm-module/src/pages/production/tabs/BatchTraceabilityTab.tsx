@@ -45,15 +45,15 @@ interface BatchTraceabilityTabProps {
 
 /** Chip colours per GraphQL enum KEY of BatchHistoryEventType. */
 const EVENT_CHIP_COLOURS: Record<string, string> = {
-  CREATED: 'bg-blue-100 text-blue-800',
-  STATUS_CHANGED: 'bg-indigo-100 text-indigo-800',
-  ALLOCATED: 'bg-cyan-100 text-cyan-800',
-  TRANSFERRED: 'bg-purple-100 text-purple-800',
-  MORTALITY: 'bg-red-100 text-red-800',
-  CULL: 'bg-orange-100 text-orange-800',
-  FEEDING: 'bg-amber-100 text-amber-800',
-  GROWTH_SAMPLE: 'bg-teal-100 text-teal-800',
-  HARVEST: 'bg-green-100 text-green-800',
+  CREATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  STATUS_CHANGED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ALLOCATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  TRANSFERRED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  MORTALITY: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  CULL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  FEEDING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  GROWTH_SAMPLE: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVEST: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   CLOSED: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
   UPDATED: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
 };
@@ -72,17 +72,19 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
   if (isLoading) {
     return (
-      <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading traceability report…</div>
+      <div className="animate-pulse text-gray-500 dark:text-gray-400">
+        Loading traceability report…
+      </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <h2 className="text-lg font-semibold text-red-800">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <h2 className="text-lg font-semibold text-error-800 dark:text-error-200">
           Traceability report could not be loaded
         </h2>
-        <p className="mt-1 text-sm text-red-700">{error.message}</p>
+        <p className="mt-1 text-sm text-error-700 dark:text-error-300">{error.message}</p>
       </div>
     );
   }
@@ -119,8 +121,9 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
     {
       key: 'totalCost',
       header: 'Total Cost',
-      render: (_value, feed) => formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2),
-    }
+      render: (_value, feed) =>
+        formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2),
+    },
   ];
 
   type ResidencyRow = (typeof residencies)[number];
@@ -133,12 +136,14 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
           <div className="font-medium text-gray-900 dark:text-gray-100">
             {residency.tankName ?? '—'}
             {residency.isCurrent && (
-              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                 current
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{residency.tankCode ?? '—'}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {residency.tankCode ?? '—'}
+          </div>
         </>
       ),
     },
@@ -171,7 +176,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
       key: 'feedKg',
       header: 'Feed (kg)',
       render: (_value, residency) => formatDecimal(residency.feedTotalKg),
-    }
+    },
   ];
 
   return (
@@ -192,15 +197,17 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
         <KpiCard
           label="Current Count / Avg Weight"
           value={`${formatQuantity(summary.currentQuantity)} / ${
-            summary.currentAvgWeightG !== null
-              ? `${summary.currentAvgWeightG.toFixed(1)} g`
-              : '—'
+            summary.currentAvgWeightG !== null ? `${summary.currentAvgWeightG.toFixed(1)} g` : '—'
           }`}
         />
         <KpiCard label="Total Feed" value={`${summary.totalFeedKg.toFixed(1)} kg`} />
         <KpiCard
           label="Total Feed Cost"
-          value={summary.totalFeedCostDecimal !== null ? parseMoney(summary.totalFeedCostDecimal).toFixed(2) : '—'}
+          value={
+            summary.totalFeedCostDecimal !== null
+              ? parseMoney(summary.totalFeedCostDecimal).toFixed(2)
+              : '—'
+          }
         />
         <KpiCard
           label="FCR (actual)"
@@ -210,10 +217,12 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
       {/* Residency table — where the fish lived */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Where the fish lived</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Where the fish lived
+        </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Every tank this batch stayed in, with water temperature and feed
-          consumption aggregated per stay.
+          Every tank this batch stayed in, with water temperature and feed consumption aggregated
+          per stay.
         </p>
         <DataTable<ResidencyRow>
           data={residencies}
@@ -247,7 +256,9 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Events timeline</h3>
         {sortedEvents.length === 0 ? (
           <div className="mt-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
-            <p className="text-sm text-gray-500 dark:text-gray-400">No events recorded for this batch.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No events recorded for this batch.
+            </p>
           </div>
         ) : (
           <ol className="mt-3 space-y-2">
@@ -259,7 +270,8 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${
-                      EVENT_CHIP_COLOURS[event.eventType] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                      EVENT_CHIP_COLOURS[event.eventType] ??
+                      'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
                     {formatEventTypeLabel(event.eventType)}
@@ -268,7 +280,9 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
                     {formatTraceabilityDateTime(event.timestamp)}
                   </span>
                   {event.tankCode && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400">· {event.tankCode}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      · {event.tankCode}
+                    </span>
                   )}
                 </div>
                 <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{event.description}</p>
@@ -300,18 +314,30 @@ const SummaryHeader: React.FC<{ traceability: BatchTraceability }> = ({ traceabi
           Traceability — {summary.batchNumber}
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Status: <span className="font-medium text-gray-700 dark:text-gray-300">{summary.status}</span>
+          Status:{' '}
+          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.status}</span>
           {' · '}Species:{' '}
-          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.speciesName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            {summary.speciesName ?? '—'}
+          </span>
           {' · '}Protocol:{' '}
-          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.protocolName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            {summary.protocolName ?? '—'}
+          </span>
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Stocked {formatTraceabilityDate(summary.stockedAt)}
           {summary.harvestedAt && ` · Harvested ${formatTraceabilityDate(summary.harvestedAt)}`}
         </p>
       </div>
-      <Button variant="primary" size="sm" type="button" onClick={() => printBatchTraceabilityReport(traceability)}>Print report</Button>
+      <Button
+        variant="primary"
+        size="sm"
+        type="button"
+        onClick={() => printBatchTraceabilityReport(traceability)}
+      >
+        Print report
+      </Button>
     </div>
   );
 };
@@ -322,6 +348,5 @@ const KpiCard: React.FC<{ label: string; value: string }> = ({ label, value }) =
     <div className="mt-1 text-base font-medium text-gray-900 dark:text-gray-100">{value}</div>
   </div>
 );
-
 
 export default BatchTraceabilityTab;

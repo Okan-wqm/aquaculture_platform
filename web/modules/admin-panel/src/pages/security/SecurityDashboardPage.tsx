@@ -344,13 +344,13 @@ function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator 
 const getSeverityColor = (severity: EventSeverity): string => {
   switch (severity) {
     case 'critical':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'high':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'medium':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'low':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800';
     default:
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
@@ -359,13 +359,13 @@ const getSeverityColor = (severity: EventSeverity): string => {
 const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
-      return <XCircle className="w-4 h-4 text-red-600" />;
+      return <XCircle className="w-4 h-4 text-error-600 dark:text-error-400" />;
     case 'high':
-      return <AlertCircle className="w-4 h-4 text-orange-600" />;
+      return <AlertCircle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'medium':
-      return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
+      return <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'low':
-      return <CheckCircle2 className="w-4 h-4 text-blue-600" />;
+      return <CheckCircle2 className="w-4 h-4 text-info-600 dark:text-info-400" />;
     default:
       return <Activity className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
@@ -375,15 +375,15 @@ const getStatusColor = (status: EventStatus | IncidentStatus): string => {
   switch (status) {
     case 'resolved':
     case 'closed':
-      return 'bg-green-100 text-green-800';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
     case 'new':
     case 'open':
-      return 'bg-blue-100 text-blue-800';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200';
     case 'investigating':
     case 'in_progress':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     case 'contained':
-      return 'bg-purple-100 text-purple-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'dismissed':
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
     default:
@@ -695,7 +695,7 @@ export const SecurityDashboardPage: React.FC = () => {
   if (loading && !dashboard) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-info-600 dark:text-info-400" />
       </div>
     );
   }
@@ -737,10 +737,10 @@ export const SecurityDashboardPage: React.FC = () => {
             <div
               className={`h-2 rounded-full ${
                 (threat.confidence ?? 0) >= 80
-                  ? 'bg-green-500'
+                  ? 'bg-success-500'
                   : (threat.confidence ?? 0) >= 50
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
+                    ? 'bg-warning-500'
+                    : 'bg-error-500'
               }`}
               style={{ width: `${threat.confidence ?? 0}%` }}
             />
@@ -780,7 +780,7 @@ export const SecurityDashboardPage: React.FC = () => {
           <span
             className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
               (threat.isActive ?? false)
-                ? 'bg-red-100 text-red-800'
+                ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
@@ -809,7 +809,7 @@ export const SecurityDashboardPage: React.FC = () => {
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border ${
                 autoRefresh
-                  ? 'bg-green-50 text-green-700 border-green-200'
+                  ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800'
                   : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700'
               }`}
             >
@@ -819,7 +819,7 @@ export const SecurityDashboardPage: React.FC = () => {
             <button
               onClick={() => void loadData()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -846,10 +846,10 @@ export const SecurityDashboardPage: React.FC = () => {
                   <span
                     className={`font-medium ${
                       metric.status === 'healthy'
-                        ? 'text-green-600'
+                        ? 'text-success-600 dark:text-success-400'
                         : metric.status === 'warning'
-                          ? 'text-yellow-600'
-                          : 'text-red-600'
+                          ? 'text-warning-600 dark:text-warning-400'
+                          : 'text-error-600 dark:text-error-400'
                     }`}
                   >
                     {metric.value}
@@ -864,8 +864,8 @@ export const SecurityDashboardPage: React.FC = () => {
           <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Activity className="w-5 h-5 text-blue-600" />
+                <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                  <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Events (24h)</p>
@@ -877,12 +877,12 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <AlertCircle className="w-5 h-5 text-red-600" />
+                <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Critical (24h)</p>
-                  <p className="text-2xl font-bold text-red-600">
+                  <p className="text-2xl font-bold text-error-600 dark:text-error-400">
                     {dashboard?.stats?.criticalEvents24h ?? 0}
                   </p>
                 </div>
@@ -890,8 +890,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <Target className="w-5 h-5 text-orange-600" />
+                <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                  <Target className="w-5 h-5 text-warning-600 dark:text-warning-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Open Incidents</p>
@@ -903,12 +903,12 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Shield className="w-5 h-5 text-green-600" />
+                <div className="p-2 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                  <Shield className="w-5 h-5 text-success-600 dark:text-success-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Blocked (24h)</p>
-                  <p className="text-2xl font-bold text-green-600">
+                  <p className="text-2xl font-bold text-success-600 dark:text-success-400">
                     {dashboard?.stats?.blockedAttacks24h ?? 0}
                   </p>
                 </div>
@@ -916,8 +916,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Zap className="w-5 h-5 text-purple-600" />
+                <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                  <Zap className="w-5 h-5 text-accent-600 dark:text-accent-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Active Threats</p>
@@ -929,8 +929,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-100 rounded-lg">
-                  <Globe className="w-5 h-5 text-indigo-600" />
+                <div className="p-2 bg-primary-100 dark:bg-primary-900/40 rounded-lg">
+                  <Globe className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Unique IPs</p>
@@ -942,8 +942,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-cyan-100 rounded-lg">
-                  <Users className="w-5 h-5 text-cyan-600" />
+                <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                  <Users className="w-5 h-5 text-info-600 dark:text-info-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Affected Tenants</p>
@@ -955,8 +955,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-teal-100 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                  <CheckCircle2 className="w-5 h-5 text-info-600 dark:text-info-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Resolved</p>

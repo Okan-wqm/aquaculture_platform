@@ -225,7 +225,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
           onClick={() => onChange({ facilityType: 'land_based' })}
           className={`p-4 border-2 rounded-lg text-center ${
             formData.facilityType === 'land_based'
-              ? 'border-blue-500 bg-blue-50'
+              ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
               : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
@@ -239,7 +239,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
           onClick={() => onChange({ facilityType: 'freshwater' })}
           className={`p-4 border-2 rounded-lg text-center ${
             formData.facilityType === 'freshwater'
-              ? 'border-cyan-500 bg-cyan-50'
+              ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
               : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
@@ -358,7 +358,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
             <button
               type="button"
               onClick={loadFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1"
             >
               <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
@@ -371,10 +371,12 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
       </div>
 
       {/* Total Summary */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-blue-800">Total Fish Count</span>
-          <span className="text-2xl font-bold text-blue-700">
+          <span className="text-sm font-medium text-info-800 dark:text-info-200">
+            Total Fish Count
+          </span>
+          <span className="text-2xl font-bold text-info-700 dark:text-info-300">
             {formatNumber(formData.fishCounts.total)}
           </span>
         </div>
@@ -655,23 +657,35 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
       {/* Overall Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-600 font-medium">Overall Mortality</div>
-          <div className="text-xl font-bold text-red-700">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+          <div className="text-xs text-error-600 dark:text-error-400 font-medium">
+            Overall Mortality
+          </div>
+          <div className="text-xl font-bold text-error-700 dark:text-error-300">
             {formData.mortalityRates.overall.toFixed(2)}%
           </div>
         </div>
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-          <div className="text-xs text-orange-600 font-medium">Euthanized (avlivet)</div>
-          <div className="text-xl font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
+          <div className="text-xs text-warning-600 dark:text-warning-400 font-medium">
+            Euthanized (avlivet)
+          </div>
+          <div className="text-xl font-bold text-warning-700 dark:text-warning-300">
+            {formatNumber(totalEuthanized)}
+          </div>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-600 font-medium">Natural Deaths (selvdod)</div>
-          <div className="text-xl font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+          <div className="text-xs text-error-600 dark:text-error-400 font-medium">
+            Natural Deaths (selvdod)
+          </div>
+          <div className="text-xl font-bold text-error-700 dark:text-error-300">
+            {formatNumber(totalNaturalDeaths)}
+          </div>
         </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="text-xs text-blue-600 font-medium">External Transfers</div>
-          <div className="text-xl font-bold text-blue-700">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
+          <div className="text-xs text-info-600 dark:text-info-400 font-medium">
+            External Transfers
+          </div>
+          <div className="text-xl font-bold text-info-700 dark:text-info-300">
             {formatNumber(totalExternalTransfers)}
           </div>
         </div>
@@ -707,7 +721,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                   <div className="text-right">
                     <span className="text-xs text-gray-500 dark:text-gray-400">Rate: </span>
                     <span
-                      className={`font-medium text-sm ${mort.rate > 1 ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'}`}
+                      className={`font-medium text-sm ${mort.rate > 1 ? 'text-error-600 dark:text-error-400' : 'text-gray-700 dark:text-gray-300'}`}
                     >
                       {mort.rate.toFixed(2)}%
                     </span>
@@ -808,16 +822,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
         <span
           className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
             formData.facilityType === 'land_based'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-cyan-100 text-cyan-700'
+              ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+              : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
           }`}
         >
           {formData.facilityType === 'land_based' ? 'Land Based Facility' : 'Freshwater Facility'}
@@ -827,19 +841,19 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatNumber(formData.fishCounts.total)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formData.averageWeights.overall.toFixed(1)}g
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Avg Weight</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
             {formData.mortalityRates.overall.toFixed(2)}%
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Mortality Rate</div>
@@ -852,16 +866,20 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           Mortality Breakdown (Mattilsynet)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="text-center p-2 bg-orange-50 rounded">
-            <div className="text-lg font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+          <div className="text-center p-2 bg-warning-50 dark:bg-warning-900/20 rounded">
+            <div className="text-lg font-bold text-warning-700 dark:text-warning-300">
+              {formatNumber(totalEuthanized)}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Euthanized (avlivet)</div>
           </div>
-          <div className="text-center p-2 bg-red-50 rounded">
-            <div className="text-lg font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+          <div className="text-center p-2 bg-error-50 dark:bg-error-900/20 rounded">
+            <div className="text-lg font-bold text-error-700 dark:text-error-300">
+              {formatNumber(totalNaturalDeaths)}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Natural Deaths (selvdod)</div>
           </div>
-          <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">
+          <div className="text-center p-2 bg-info-50 dark:bg-info-900/20 rounded">
+            <div className="text-lg font-bold text-info-700 dark:text-info-300">
               {formatNumber(totalExternalTransfers)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">External Transfers</div>
@@ -916,7 +934,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     {unit.unitName || `Unit ${i + 1}`}
                   </div>
                   <div className="col-span-1">
-                    <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                    <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
                       {ext.speciesCode || 'SAL'}
                     </span>
                   </div>
@@ -926,18 +944,18 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <div className="col-span-1 text-right text-gray-500 dark:text-gray-400">
                     {unit.avgWeightG.toFixed(1)}
                   </div>
-                  <div className="col-span-1 text-right text-orange-600">
+                  <div className="col-span-1 text-right text-warning-600 dark:text-warning-400">
                     {mort?.euthanized || 0}
                   </div>
-                  <div className="col-span-1 text-right text-red-600">
+                  <div className="col-span-1 text-right text-error-600 dark:text-error-400">
                     {mort?.naturalDeaths || 0}
                   </div>
-                  <div className="col-span-1 text-right text-blue-600">
+                  <div className="col-span-1 text-right text-info-600 dark:text-info-400">
                     {mort?.externalTransfers || 0}
                   </div>
                   <div className="col-span-2 text-right">
                     <span
-                      className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'}`}
+                      className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-error-600 dark:text-error-400' : 'text-gray-700 dark:text-gray-300'}`}
                     >
                       {(mort?.rate || 0).toFixed(2)}%
                     </span>

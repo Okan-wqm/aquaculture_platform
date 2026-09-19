@@ -43,7 +43,7 @@ export function VfdBasicInfoStep({
             htmlFor="name"
             className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
-            Cihaz Adı <span className="text-red-500">*</span>
+            Cihaz Adı <span className="text-error-500">*</span>
           </label>
           <Input
             fullWidth
@@ -73,7 +73,7 @@ export function VfdBasicInfoStep({
             name="modelSeries"
             value={selectedModelSeries || ''}
             onChange={(e) => onModelSeriesChange(e.target.value || undefined)}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           >
             <option value="">Seçiniz...</option>
             {brand.modelSeries.map((model) => (
@@ -165,7 +165,7 @@ export function VfdBasicInfoStep({
               name="farmId"
               value={values.farmId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               <option value="">Seçiniz...</option>
               {/* Farm options would be loaded dynamically */}
@@ -185,7 +185,7 @@ export function VfdBasicInfoStep({
               name="tankId"
               value={values.tankId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               <option value="">Seçiniz...</option>
               {/* Tank options would be loaded dynamically */}
@@ -205,7 +205,7 @@ export function VfdBasicInfoStep({
               name="pumpId"
               value={values.pumpId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             >
               <option value="">Seçiniz...</option>
               {/* Pump options would be loaded dynamically */}
@@ -252,7 +252,7 @@ export function VfdBasicInfoStep({
               }}
               className={`px-3 py-1 text-sm rounded-full border transition-colors ${
                 values.tags?.includes(tag)
-                  ? 'bg-blue-100 border-blue-300 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >

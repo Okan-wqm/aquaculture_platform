@@ -65,22 +65,22 @@ const systemStatuses = [
 ];
 
 const statusColors: Record<string, string> = {
-  OPERATIONAL: 'bg-green-100 text-green-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  OFFLINE: 'bg-red-100 text-red-800',
-  CONSTRUCTION: 'bg-blue-100 text-blue-800',
+  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OFFLINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  CONSTRUCTION: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
 };
 
 const typeColors: Record<string, string> = {
-  RAS: 'bg-purple-100 text-purple-800',
-  FLOW_THROUGH: 'bg-cyan-100 text-cyan-800',
-  POND: 'bg-emerald-100 text-emerald-800',
-  CAGE: 'bg-orange-100 text-orange-800',
-  RACEWAY: 'bg-indigo-100 text-indigo-800',
-  HATCHERY: 'bg-pink-100 text-pink-800',
-  NURSERY: 'bg-lime-100 text-lime-800',
-  BIOFLOC: 'bg-teal-100 text-teal-800',
-  AQUAPONICS: 'bg-sky-100 text-sky-800',
+  RAS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  FLOW_THROUGH: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  POND: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CAGE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  RACEWAY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  NURSERY: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  BIOFLOC: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  AQUAPONICS: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -320,7 +320,7 @@ export const SystemsTab: React.FC = () => {
   // list and surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, (systemsData?.items?.length ?? 0) > 0)) {
     return (
-      <div className="text-center py-12 text-red-600">
+      <div className="text-center py-12 text-error-600 dark:text-error-400">
         Error loading systems: {error instanceof Error ? error.message : 'Unknown error'}
       </div>
     );
@@ -330,16 +330,16 @@ export const SystemsTab: React.FC = () => {
     <div>
       {/* Non-blocking refresh error — keeps the last-loaded systems visible. */}
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh systems — showing the last loaded data.{' '}
-            <span className="text-amber-700">
+            <span className="text-warning-700 dark:text-warning-300">
               {error instanceof Error ? error.message : 'Unknown error'}
             </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -355,7 +355,7 @@ export const SystemsTab: React.FC = () => {
               placeholder="Search systems..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -365,7 +365,7 @@ export const SystemsTab: React.FC = () => {
           <select
             value={filterSiteId}
             onChange={(e) => setFilterSiteId(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="">All Sites</option>
             {sites.map((site) => (
@@ -379,7 +379,7 @@ export const SystemsTab: React.FC = () => {
               type="checkbox"
               checked={showOrphanedOnly}
               onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Orphaned only
           </label>
@@ -400,9 +400,9 @@ export const SystemsTab: React.FC = () => {
 
       {/* Orphaned Systems Warning */}
       {orphanedCount > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <TriangleAlert className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" aria-hidden="true" />
-          <span className="text-sm text-red-700">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center">
+          <TriangleAlert className="w-5 h-5 text-error-500 mr-2 flex-shrink-0" aria-hidden="true" />
+          <span className="text-sm text-error-700 dark:text-error-300">
             {orphanedCount} system(s) are not associated with any department
           </span>
         </div>
@@ -416,7 +416,7 @@ export const SystemsTab: React.FC = () => {
               key={system.id}
               className={`rounded-lg shadow-sm border hover:shadow-md transition-shadow ${
                 !system.departmentId
-                  ? 'border-red-300 bg-red-50'
+                  ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20'
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
               }`}
             >
@@ -482,8 +482,8 @@ export const SystemsTab: React.FC = () => {
                       {system.department.name}
                     </div>
                   ) : (
-                    <div className="flex items-center text-sm text-red-600">
-                      <TriangleAlert className="w-4 h-4 mr-2 text-red-400" aria-hidden="true" />
+                    <div className="flex items-center text-sm text-error-600 dark:text-error-400">
+                      <TriangleAlert className="w-4 h-4 mr-2 text-error-400" aria-hidden="true" />
                       Not associated with any department
                     </div>
                   )}
@@ -618,7 +618,7 @@ export const SystemsTab: React.FC = () => {
               <select
                 value={formData.type}
                 onChange={(e) => handleFormChange('type', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
               >
                 {systemTypes.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -634,7 +634,7 @@ export const SystemsTab: React.FC = () => {
               <select
                 value={formData.status}
                 onChange={(e) => handleFormChange('status', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
               >
                 {systemStatuses.map((status) => (
                   <option key={status.value} value={status.value}>
@@ -653,7 +653,7 @@ export const SystemsTab: React.FC = () => {
               <select
                 value={formData.siteId}
                 onChange={(e) => handleFormChange('siteId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                 disabled={!!editingSystem}
               >
                 <option value="">Select a site</option>
@@ -674,7 +674,7 @@ export const SystemsTab: React.FC = () => {
               <select
                 value={formData.departmentId}
                 onChange={(e) => handleFormChange('departmentId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                 disabled={!formData.siteId}
               >
                 <option value="">
@@ -691,7 +691,7 @@ export const SystemsTab: React.FC = () => {
                 ))}
               </select>
               {deptError && (
-                <p className="text-xs text-red-500 mt-1">Departmanlar yüklenirken hata oluştu</p>
+                <p className="text-xs text-error-500 mt-1">Departmanlar yüklenirken hata oluştu</p>
               )}
             </div>
             <div>
@@ -701,7 +701,7 @@ export const SystemsTab: React.FC = () => {
               <select
                 value={formData.parentSystemId}
                 onChange={(e) => handleFormChange('parentSystemId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                 disabled={!formData.siteId}
               >
                 <option value="">No parent (root system)</option>

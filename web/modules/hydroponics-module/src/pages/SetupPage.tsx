@@ -35,8 +35,8 @@ const SetupPage: React.FC = () => {
       <TabPanel tabsId="hydro-setup" value="sites" selected={activeTab}>
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8">
           <div className="text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-50 mb-4">
-              <Building2 className="w-8 h-8 text-green-500" aria-hidden="true" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-success-50 dark:bg-success-900/20 mb-4">
+              <Building2 className="w-8 h-8 text-success-500" aria-hidden="true" />
             </div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
               No Sites Yet

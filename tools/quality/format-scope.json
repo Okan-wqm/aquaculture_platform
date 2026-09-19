@@ -60708,6 +60708,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/ChartTooltipContent.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Charts/AreaChart.tsx",
       "prettier_managed": true
     },

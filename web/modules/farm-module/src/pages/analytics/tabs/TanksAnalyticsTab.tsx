@@ -14,6 +14,7 @@ import {
   tenantScopedStorageKey,
   chartChrome,
   colors,
+  ChartTooltipContent,
 } from '@aquaculture/shared-ui';
 import {
   BarChart,
@@ -41,12 +42,6 @@ import { Plus } from 'lucide-react';
 // ============================================================================
 // Constants
 // ============================================================================
-
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: `1px solid ${chartChrome.border}`,
-  borderRadius: '8px',
-};
 
 // ============================================================================
 // Status color mapping for pie chart
@@ -276,7 +271,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
                   <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
                   <XAxis type="number" stroke={chartChrome.axis} />
                   <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="biomass"
                     name="Biomass (kg)"
@@ -319,7 +314,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip content={<ChartTooltipContent />} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (

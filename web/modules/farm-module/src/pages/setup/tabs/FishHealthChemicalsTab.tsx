@@ -65,22 +65,31 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const categoryColors: Record<string, string> = {
-  [ChemicalType.ANTIPARASITIC]: 'bg-orange-100 text-orange-800',
-  [ChemicalType.ANTIBIOTIC]: 'bg-red-100 text-red-800',
-  [ChemicalType.ANTIFUNGAL]: 'bg-purple-100 text-purple-800',
-  [ChemicalType.VACCINE]: 'bg-blue-100 text-blue-800',
-  [ChemicalType.ANESTHETIC]: 'bg-pink-100 text-pink-800',
-  [ChemicalType.DISINFECTANT]: 'bg-green-100 text-green-800',
-  [ChemicalType.PROBIOTIC]: 'bg-indigo-100 text-indigo-800',
-  [ChemicalType.VITAMIN]: 'bg-yellow-100 text-yellow-800',
-  [ChemicalType.WOUND_CARE]: 'bg-rose-100 text-rose-800',
+  [ChemicalType.ANTIPARASITIC]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [ChemicalType.ANTIBIOTIC]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  [ChemicalType.ANTIFUNGAL]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.VACCINE]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  [ChemicalType.ANESTHETIC]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.DISINFECTANT]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  [ChemicalType.PROBIOTIC]:
+    'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  [ChemicalType.VITAMIN]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [ChemicalType.WOUND_CARE]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   [ChemicalType.OTHER]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
-  [ChemicalStatus.AVAILABLE]: 'bg-green-100 text-green-800',
-  [ChemicalStatus.LOW_STOCK]: 'bg-yellow-100 text-yellow-800',
-  [ChemicalStatus.OUT_OF_STOCK]: 'bg-red-100 text-red-800',
+  [ChemicalStatus.AVAILABLE]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  [ChemicalStatus.LOW_STOCK]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [ChemicalStatus.OUT_OF_STOCK]:
+    'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   [ChemicalStatus.EXPIRED]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [ChemicalStatus.DISCONTINUED]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
@@ -396,7 +405,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.usageProtocol?.prescriptionRequired ? 'bg-red-50 text-red-700' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.usageProtocol?.prescriptionRequired ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
           >
             {item.usageProtocol?.prescriptionRequired ? 'Yes' : 'No'}
           </span>
@@ -444,7 +453,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               placeholder="Search therapeutic substances..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
             <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
@@ -454,7 +463,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {THERAPEUTIC_CATEGORIES.map((c) => (
@@ -489,7 +498,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
         )}
 
         {error && !isLoading && (
-          <div className="text-center py-12 text-sm text-red-600">
+          <div className="text-center py-12 text-sm text-error-600 dark:text-error-400">
             Failed to load therapeutic substances. Please retry.
           </div>
         )}
@@ -557,7 +566,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       required
                       value={formData.type}
                       onChange={(e) => updateField('type', e.target.value as ChemicalType)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select</option>
                       {THERAPEUTIC_CATEGORIES.map((c) => (
@@ -575,7 +584,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   <select
                     value={formData.unit}
                     onChange={(e) => updateField('unit', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     {UNIT_OPTIONS.map((u) => (
                       <option key={u.value} value={u.value}>
@@ -602,7 +611,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         required
                         value={formData.siteId}
                         onChange={(e) => updateField('siteId', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                       >
                         <option value="">Select site</option>
                         {sites.map((s) => (
@@ -621,7 +630,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   <select
                     value={formData.supplierId}
                     onChange={(e) => updateField('supplierId', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select supplier</option>
                     {suppliers.map((s) => (
@@ -670,7 +679,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   <select
                     value={formData.formulation}
                     onChange={(e) => updateField('formulation', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     <option value="">Select</option>
                     {FORMULATION_OPTIONS.map((f) => (
@@ -708,7 +717,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         type="checkbox"
                         checked={formData.prescriptionRequired}
                         onChange={(e) => updateField('prescriptionRequired', e.target.checked)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                        className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                       />
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Prescription Required
@@ -745,7 +754,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     <select
                       value={formData.storageRequirements}
                       onChange={(e) => updateField('storageRequirements', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select</option>
                       {STORAGE_OPTIONS.map((s) => (
@@ -763,7 +772,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       <select
                         value={formData.status}
                         onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                       >
                         {Object.entries(statusLabels).map(([v, l]) => (
                           <option key={v} value={v}>

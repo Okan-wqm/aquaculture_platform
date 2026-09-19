@@ -62,10 +62,10 @@ export function VfdConnectionTestStep({
             isTestingConnection
               ? 'bg-gray-400 cursor-not-allowed'
               : testResult?.success
-                ? 'bg-green-600 hover:bg-green-700'
+                ? 'bg-success-600 hover:bg-success-700'
                 : testResult?.success === false
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-blue-600 hover:bg-blue-700'
+                  ? 'bg-error-600 hover:bg-error-700'
+                  : 'bg-info-600 hover:bg-info-700'
           }`}
         >
           {isTestingConnection ? (
@@ -96,19 +96,26 @@ export function VfdConnectionTestStep({
       {testResult && (
         <div
           className={`p-6 rounded-lg border ${
-            testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            testResult.success
+              ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+              : 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
           }`}
         >
           {testResult.success ? (
             <div className="space-y-4">
               {/* Success Header */}
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
-                  <CircleCheck className="w-6 h-6 text-green-600" aria-hidden="true" />
+                <div className="w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mr-4">
+                  <CircleCheck
+                    className="w-6 h-6 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <h4 className="text-lg font-semibold text-green-800">Bağlantı Başarılı!</h4>
-                  <p className="text-sm text-green-600">
+                  <h4 className="text-lg font-semibold text-success-800 dark:text-success-200">
+                    Bağlantı Başarılı!
+                  </h4>
+                  <p className="text-sm text-success-600 dark:text-success-400">
                     VFD cihazı ile iletişim kuruldu.
                     {testResult.latencyMs && ` Gecikme: ${testResult.latencyMs}ms`}
                   </p>
@@ -117,7 +124,7 @@ export function VfdConnectionTestStep({
 
               {/* Device Info */}
               {testResult.deviceInfo && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-green-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
                   <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Cihaz Bilgileri
                   </h5>
@@ -146,7 +153,7 @@ export function VfdConnectionTestStep({
 
               {/* Sample Data */}
               {testResult.sampleData && Object.keys(testResult.sampleData).length > 0 && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-green-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
                   <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Anlık Parametreler
                   </h5>
@@ -165,7 +172,7 @@ export function VfdConnectionTestStep({
 
               {/* Status Bits */}
               {testResult.statusBits && Object.keys(testResult.statusBits).length > 0 && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-green-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
                   <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Durum Bilgileri
                   </h5>
@@ -179,7 +186,7 @@ export function VfdConnectionTestStep({
 
               {/* Diagnostics */}
               {testResult.diagnostics && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-green-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
                   <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     İletişim İstatistikleri
                   </h5>
@@ -199,7 +206,7 @@ export function VfdConnectionTestStep({
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Hatalar:</span>{' '}
                       <span
-                        className={`font-medium ${testResult.diagnostics.communicationErrors > 0 ? 'text-red-600' : 'text-green-600'}`}
+                        className={`font-medium ${testResult.diagnostics.communicationErrors > 0 ? 'text-error-600 dark:text-error-400' : 'text-success-600 dark:text-success-400'}`}
                       >
                         {testResult.diagnostics.communicationErrors}
                       </span>
@@ -212,12 +219,17 @@ export function VfdConnectionTestStep({
             <div className="space-y-4">
               {/* Error Header */}
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
-                  <CircleX className="w-6 h-6 text-red-600" aria-hidden="true" />
+                <div className="w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mr-4">
+                  <CircleX
+                    className="w-6 h-6 text-error-600 dark:text-error-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <h4 className="text-lg font-semibold text-red-800">Bağlantı Başarısız</h4>
-                  <p className="text-sm text-red-600">
+                  <h4 className="text-lg font-semibold text-error-800 dark:text-error-200">
+                    Bağlantı Başarısız
+                  </h4>
+                  <p className="text-sm text-error-600 dark:text-error-400">
                     {testResult.error || 'VFD cihazı ile bağlantı kurulamadı.'}
                   </p>
                 </div>
@@ -225,10 +237,10 @@ export function VfdConnectionTestStep({
 
               {/* Error Code */}
               {testResult.errorCode && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-red-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-error-200">
                   <p className="text-sm">
                     <span className="text-gray-500 dark:text-gray-400">Hata Kodu:</span>{' '}
-                    <span className="font-mono font-medium text-red-600">
+                    <span className="font-mono font-medium text-error-600 dark:text-error-400">
                       {testResult.errorCode}
                     </span>
                   </p>
@@ -236,7 +248,7 @@ export function VfdConnectionTestStep({
               )}
 
               {/* Troubleshooting Tips */}
-              <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-red-200">
+              <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-error-200">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Kontrol Edilecekler:
                 </h5>
@@ -335,10 +347,10 @@ function StatusBit({ name, active }: { name: string; active: boolean }) {
       className={`px-2 py-1 text-xs rounded-full ${
         active
           ? name === 'fault'
-            ? 'bg-red-100 text-red-700'
+            ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
             : name === 'warning'
-              ? 'bg-yellow-100 text-yellow-700'
-              : 'bg-green-100 text-green-700'
+              ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+              : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
           : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
       }`}
     >

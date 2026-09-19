@@ -397,19 +397,19 @@ const TenantManagementPage: React.FC = () => {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats ? stats.activeTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
-          <p className="text-2xl font-bold text-yellow-600">
+          <p className="text-2xl font-bold text-warning-600 dark:text-warning-400">
             {stats ? stats.pendingTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Suspended</p>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="text-2xl font-bold text-error-600 dark:text-error-400">
             {stats ? stats.suspendedTenants.toLocaleString() : '—'}
           </p>
         </Card>
@@ -650,7 +650,7 @@ const TenantManagementPage: React.FC = () => {
           </Alert>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Reason <span className="text-red-500">*</span>
+              Reason <span className="text-error-500">*</span>
             </label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[80px]"

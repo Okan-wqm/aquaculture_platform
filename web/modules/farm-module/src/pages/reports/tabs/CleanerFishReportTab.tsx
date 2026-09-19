@@ -436,7 +436,7 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
             <button
               type="button"
               onClick={handleLoadFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
             >
               <Download className="w-4 h-4" aria-hidden="true" />
               Load from Tanks
@@ -446,7 +446,7 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
             <select
               onChange={(e) => addSpecies(e.target.value as CleanerFishSpecies)}
               value=""
-              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50 appearance-none cursor-pointer pr-8"
+              className="px-3 py-1.5 text-sm text-info-600 dark:text-info-400 border border-info-300 dark:border-info-700 rounded-md hover:bg-info-50 dark:hover:bg-info-900/30 appearance-none cursor-pointer pr-8"
             >
               <option value="">+ Add Species</option>
               {availableSpecies.map((s) => (
@@ -460,10 +460,12 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
       </div>
 
       {/* Total Summary */}
-      <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-teal-800">Total Cleaner Fish</span>
-          <span className="text-2xl font-bold text-teal-700">
+          <span className="text-sm font-medium text-info-800 dark:text-info-200">
+            Total Cleaner Fish
+          </span>
+          <span className="text-2xl font-bold text-info-700 dark:text-info-300">
             {formatNumber(formData.totalCount)}
           </span>
         </div>
@@ -606,15 +608,17 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
       </div>
 
       {/* Overall Summary */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-medium text-red-800">Overall Mortality</span>
-            <div className="text-xs text-red-600 mt-1">
+            <span className="text-sm font-medium text-error-800 dark:text-error-200">
+              Overall Mortality
+            </span>
+            <div className="text-xs text-error-600 dark:text-error-400 mt-1">
               {formatNumber(formData.mortality.totalCount)} removals / deaths
             </div>
           </div>
-          <span className="text-2xl font-bold text-red-700">
+          <span className="text-2xl font-bold text-error-700 dark:text-error-300">
             {formData.mortality.overallRate.toFixed(1)}%
           </span>
         </div>
@@ -651,7 +655,7 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
                     </span>
                   </div>
                   <div className="text-right">
-                    <span className="text-sm font-medium text-red-600">
+                    <span className="text-sm font-medium text-error-600 dark:text-error-400">
                       {formatNumber(speciesTotal)} total
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
@@ -800,8 +804,8 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
       </div>
 
       {/* Feed Consumption */}
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-amber-800 uppercase mb-3">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-warning-800 dark:text-warning-200 uppercase mb-3">
           Feed Consumption (for period)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1083,9 +1087,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
       </div>
@@ -1093,21 +1097,27 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
-          <div className="text-xl font-bold text-teal-600">{formatNumber(formData.totalCount)}</div>
+          <div className="text-xl font-bold text-info-600 dark:text-info-400">
+            {formatNumber(formData.totalCount)}
+          </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Inventory</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
-          <div className="text-xl font-bold text-red-600">
+          <div className="text-xl font-bold text-error-600 dark:text-error-400">
             {formData.mortality.overallRate.toFixed(1)}%
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Mortality Rate</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
-          <div className="text-xl font-bold text-blue-600">{formatNumber(totalDeployed)}</div>
+          <div className="text-xl font-bold text-info-600 dark:text-info-400">
+            {formatNumber(totalDeployed)}
+          </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Deployed</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
-          <div className="text-xl font-bold text-purple-600">{formData.perCageData.length}</div>
+          <div className="text-xl font-bold text-accent-600 dark:text-accent-400">
+            {formData.perCageData.length}
+          </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Cages</div>
         </div>
       </div>
@@ -1134,8 +1144,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span
                     className={`px-1.5 py-0.5 text-xs rounded ${
                       fish.source === 'farmed'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-amber-100 text-amber-700'
+                        ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                        : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
                     }`}
                   >
                     {fish.source === 'farmed' ? 'Farmed' : 'Wild'}
@@ -1172,7 +1182,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
                       ({getSpeciesMattilsynetCode(fish.species)})
                     </span>
-                    <span className="text-xs text-red-600">
+                    <span className="text-xs text-error-600 dark:text-error-400">
                       - {formatNumber(speciesTotal)} removals
                     </span>
                   </div>

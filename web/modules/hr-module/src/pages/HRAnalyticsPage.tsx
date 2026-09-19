@@ -58,7 +58,10 @@ const HRAnalyticsPage: React.FC = () => {
       ['Attendance rate (%)', stats?.attendanceRate ?? ''],
       ['Pending leave requests', stats?.pendingLeaveRequests ?? ''],
       ['Departments', stats?.totalDepartments ?? ''],
-      ...(departments ?? []).map((dept) => [`Headcount — ${dept.name}`, headcountByDepartment.get(dept.id) ?? '']),
+      ...(departments ?? []).map((dept) => [
+        `Headcount — ${dept.name}`,
+        headcountByDepartment.get(dept.id) ?? '',
+      ]),
     ];
     downloadCsv(`hr-analytics-${new Date().toISOString().slice(0, 10)}`, ['Metric', 'Value'], rows);
   };
@@ -70,7 +73,12 @@ const HRAnalyticsPage: React.FC = () => {
         title="HR Analytics"
         description="Human resources metrics and insights"
         actions={
-          <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportReport} disabled={isLoading}>
+          <Button
+            variant="secondary"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={handleExportReport}
+            disabled={isLoading}
+          >
             Export Report
           </Button>
         }
@@ -98,8 +106,8 @@ const HRAnalyticsPage: React.FC = () => {
                     {stats?.activeEmployees ?? '-'} active
                   </p>
                 </div>
-                <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-900/30">
-                  <Users className="h-6 w-6 text-indigo-600" />
+                <div className="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/30">
+                  <Users className="h-6 w-6 text-primary-600 dark:text-primary-400" />
                 </div>
               </div>
             </div>
@@ -112,8 +120,8 @@ const HRAnalyticsPage: React.FC = () => {
                     {stats?.totalDepartments ?? departments?.length ?? '-'}
                   </p>
                 </div>
-                <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/30">
-                  <BarChart3 className="h-6 w-6 text-emerald-600" />
+                <div className="rounded-lg bg-success-50 p-3 dark:bg-success-900/30">
+                  <BarChart3 className="h-6 w-6 text-success-600 dark:text-success-400" />
                 </div>
               </div>
             </div>
@@ -125,10 +133,12 @@ const HRAnalyticsPage: React.FC = () => {
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                     {stats?.offshoreEmployees ?? '-'}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Currently deployed</p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    Currently deployed
+                  </p>
                 </div>
-                <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-                  <TrendingUp className="h-6 w-6 text-blue-600" />
+                <div className="rounded-lg bg-info-50 p-3 dark:bg-info-900/30">
+                  <TrendingUp className="h-6 w-6 text-info-600 dark:text-info-400" />
                 </div>
               </div>
             </div>
@@ -141,8 +151,8 @@ const HRAnalyticsPage: React.FC = () => {
                     {stats?.onLeaveEmployees ?? '-'}
                   </p>
                 </div>
-                <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">
-                  <Calendar className="h-6 w-6 text-amber-600" />
+                <div className="rounded-lg bg-warning-50 p-3 dark:bg-warning-900/30">
+                  <Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />
                 </div>
               </div>
             </div>
@@ -210,7 +220,9 @@ const HRAnalyticsPage: React.FC = () => {
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
         >
           <Clock className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Certification Status</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Certification Status
+          </p>
         </Link>
       </div>
     </div>

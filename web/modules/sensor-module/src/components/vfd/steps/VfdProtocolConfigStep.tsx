@@ -78,7 +78,9 @@ export function VfdProtocolConfigStep({
           Protokol Yapılandırması
         </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          <span className="font-medium text-blue-600">{VFD_PROTOCOL_NAMES[protocol]}</span>{' '}
+          <span className="font-medium text-info-600 dark:text-info-400">
+            {VFD_PROTOCOL_NAMES[protocol]}
+          </span>{' '}
           protokolü için bağlantı parametrelerini yapılandırın.
         </p>
       </div>
@@ -87,10 +89,10 @@ export function VfdProtocolConfigStep({
       {renderProtocolFields()}
 
       {/* Help text */}
-      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div className="p-4 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
         <div className="flex items-start">
-          <Info className="w-5 h-5 text-blue-500 mr-2 mt-0.5" aria-hidden="true" />
-          <div className="text-sm text-blue-700">
+          <Info className="w-5 h-5 text-info-500 mr-2 mt-0.5" aria-hidden="true" />
+          <div className="text-sm text-info-700 dark:text-info-300">
             <p className="font-medium">İpucu</p>
             <p className="mt-1">
               Bu ayarlar VFD cihazınızın iletişim parametreleriyle eşleşmelidir. Emin değilseniz,
@@ -120,7 +122,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Seri Port <span className="text-red-500">*</span>
+              Seri Port <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -132,7 +134,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Slave ID <span className="text-red-500">*</span>
+              Slave ID <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -159,7 +161,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
             <select
               value={values.baudRate || 9600}
               onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={4800}>4800</option>
               <option value={9600}>9600</option>
@@ -176,7 +178,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
             <select
               value={values.dataBits || 8}
               onChange={(e) => onChange('dataBits', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={7}>7</option>
               <option value={8}>8</option>
@@ -204,7 +206,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
             <select
               value={values.stopBits || 1}
               onChange={(e) => onChange('stopBits', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={1}>1</option>
               <option value={2}>2</option>
@@ -267,7 +269,7 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              IP Adresi <span className="text-red-500">*</span>
+              IP Adresi <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -294,7 +296,7 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Unit ID <span className="text-red-500">*</span>
+              Unit ID <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -311,7 +313,7 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
               id="keepAlive"
               checked={values.keepAlive !== false}
               onChange={(e) => onChange('keepAlive', e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+              className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
             />
             <label htmlFor="keepAlive" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
               Bağlantıyı Canlı Tut
@@ -374,7 +376,7 @@ function ProfinetFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Device Name <span className="text-red-500">*</span>
+              Device Name <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -386,7 +388,7 @@ function ProfinetFields({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              IP Adresi <span className="text-red-500">*</span>
+              IP Adresi <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -443,7 +445,7 @@ function EthernetIpFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              IP Adresi <span className="text-red-500">*</span>
+              IP Adresi <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -515,7 +517,7 @@ function CanopenFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Node ID <span className="text-red-500">*</span>
+              Node ID <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -533,7 +535,7 @@ function CanopenFields({
             <select
               value={(values.baudRate as number) || 250000}
               onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={10000}>10 kbit/s</option>
               <option value={20000}>20 kbit/s</option>
@@ -547,7 +549,7 @@ function CanopenFields({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              CAN Interface <span className="text-red-500">*</span>
+              CAN Interface <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -593,7 +595,7 @@ function BacnetIpFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              IP Adresi <span className="text-red-500">*</span>
+              IP Adresi <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -616,7 +618,7 @@ function BacnetIpFields({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Device Instance <span className="text-red-500">*</span>
+              Device Instance <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -661,7 +663,7 @@ function ProfibusDpFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Station Address <span className="text-red-500">*</span>
+              Station Address <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -679,7 +681,7 @@ function ProfibusDpFields({
             <select
               value={(values.baudRate as number) || 1500000}
               onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={9600}>9.6 kbit/s</option>
               <option value={19200}>19.2 kbit/s</option>
@@ -728,7 +730,7 @@ function BacnetMstpFields({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Seri Port <span className="text-red-500">*</span>
+              Seri Port <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -745,7 +747,7 @@ function BacnetMstpFields({
             <select
               value={(values.baudRate as number) || 38400}
               onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
             >
               <option value={9600}>9600</option>
               <option value={19200}>19200</option>
@@ -757,7 +759,7 @@ function BacnetMstpFields({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              MAC Address <span className="text-red-500">*</span>
+              MAC Address <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -770,7 +772,7 @@ function BacnetMstpFields({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Device Instance <span className="text-red-500">*</span>
+              Device Instance <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth

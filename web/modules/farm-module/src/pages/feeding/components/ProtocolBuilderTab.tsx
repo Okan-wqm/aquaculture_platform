@@ -10,7 +10,19 @@
  * devam eder — bu sekme YALNIZ v2 modelini düzenler.
  */
 import React, { useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useCanMutate,
+  useI18n,
+  type MessageKey,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useFeedingProtocolsV2,
   useCreateFeedingProtocolV2,
@@ -35,8 +47,8 @@ import { useSpeciesList } from '../../../hooks/useSpecies';
 // Anahtarlar tel değerleridir: GraphQL enum'ları AD serileştirir (kasa kuralı
 // useProtocolFeeding.ts başında).
 const STATUS_BADGE: Record<FeedingProtocolV2Status, string> = {
-  DRAFT: 'bg-yellow-100 text-yellow-800',
-  ACTIVE: 'bg-green-100 text-green-800',
+  DRAFT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   ARCHIVED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
@@ -109,18 +121,47 @@ export const MealScheduleEditor: React.FC<MealScheduleEditorProps> = ({ schedule
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
-        <label className="text-sm text-gray-600 dark:text-gray-400">{t('feedingV2.mealSchedule.mealsPerDay')}</label>
-        <Input type="number" min={1} max={24} value={schedule.mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value))} />
-        <Button variant="ghost" type="button" onClick={() => onChange(distributeMeals(schedule.mealsPerDay))}>{t('feedingV2.mealSchedule.distribute')}</Button>
-        <span className={`text-sm ${sumOk ? 'text-gray-500 dark:text-gray-400' : 'text-red-600 font-medium'}`}>
+        <label className="text-sm text-gray-600 dark:text-gray-400">
+          {t('feedingV2.mealSchedule.mealsPerDay')}
+        </label>
+        <Input
+          type="number"
+          min={1}
+          max={24}
+          value={schedule.mealsPerDay}
+          onChange={(e) => setMealsPerDay(Number(e.target.value))}
+        />
+        <Button
+          variant="ghost"
+          type="button"
+          onClick={() => onChange(distributeMeals(schedule.mealsPerDay))}
+        >
+          {t('feedingV2.mealSchedule.distribute')}
+        </Button>
+        <span
+          className={`text-sm ${sumOk ? 'text-gray-500 dark:text-gray-400' : 'text-error-600 dark:text-error-400 font-medium'}`}
+        >
           {t('feedingV2.mealSchedule.sum', { sum: Math.round(sum * 100) / 100 })}
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {schedule.entries.map((entry, i) => (
           <div key={i} className="flex items-center gap-1">
-            <Input type="time" value={entry.time} onChange={(e) => setEntry(i, 'time', e.target.value)} aria-label={t('feedingV2.mealSchedule.time')} />
-            <Input type="number" min={0.01} max={100} step={0.01} value={entry.percentOfDaily} onChange={(e) => setEntry(i, 'percentOfDaily', e.target.value)} aria-label={t('feedingV2.mealSchedule.percent')} />
+            <Input
+              type="time"
+              value={entry.time}
+              onChange={(e) => setEntry(i, 'time', e.target.value)}
+              aria-label={t('feedingV2.mealSchedule.time')}
+            />
+            <Input
+              type="number"
+              min={0.01}
+              max={100}
+              step={0.01}
+              value={entry.percentOfDaily}
+              onChange={(e) => setEntry(i, 'percentOfDaily', e.target.value)}
+              aria-label={t('feedingV2.mealSchedule.percent')}
+            />
             <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
           </div>
         ))}
@@ -152,7 +193,10 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
   };
 
   const setTemp = (ti: number, value: number) => {
-    onChange({ ...matrix, temperatures: matrix.temperatures.map((v, i) => (i === ti ? value : v)) });
+    onChange({
+      ...matrix,
+      temperatures: matrix.temperatures.map((v, i) => (i === ti ? value : v)),
+    });
   };
 
   const setWeight = (wi: number, value: number) => {
@@ -172,7 +216,8 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
   const addWeight = () => {
     if (matrix.weights.length >= 30) return;
     const last = matrix.weights[matrix.weights.length - 1] ?? 100;
-    const lastRow = matrix.fcrValues[matrix.fcrValues.length - 1] ?? matrix.temperatures.map(() => 1.2);
+    const lastRow =
+      matrix.fcrValues[matrix.fcrValues.length - 1] ?? matrix.temperatures.map(() => 1.2);
     onChange({
       ...matrix,
       weights: [...matrix.weights, last * 2],
@@ -207,13 +252,26 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
             {matrix.temperatures.map((temp, ti) => (
               <th key={ti} className="p-1">
                 <div className="flex items-center gap-1">
-                  <Input type="number" value={temp} onChange={(e) => setTemp(ti, Number(e.target.value))} />
-                  <Button variant="ghost" type="button" onClick={() => removeTemp(ti)} aria-label={t('feedingV2.band.remove')}>×</Button>
+                  <Input
+                    type="number"
+                    value={temp}
+                    onChange={(e) => setTemp(ti, Number(e.target.value))}
+                  />
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => removeTemp(ti)}
+                    aria-label={t('feedingV2.band.remove')}
+                  >
+                    ×
+                  </Button>
                 </div>
               </th>
             ))}
             <th className="p-1">
-              <Button variant="ghost" size="xs" type="button" onClick={addTemp}>+ {t('feedingV2.fcrMatrix.addTemp')}</Button>
+              <Button variant="ghost" size="xs" type="button" onClick={addTemp}>
+                + {t('feedingV2.fcrMatrix.addTemp')}
+              </Button>
             </th>
           </tr>
         </thead>
@@ -222,13 +280,31 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
             <tr key={wi}>
               <td className="p-1">
                 <div className="flex items-center gap-1">
-                  <Input type="number" value={weight} onChange={(e) => setWeight(wi, Number(e.target.value))} />
-                  <Button variant="ghost" type="button" onClick={() => removeWeight(wi)} aria-label={t('feedingV2.band.remove')}>×</Button>
+                  <Input
+                    type="number"
+                    value={weight}
+                    onChange={(e) => setWeight(wi, Number(e.target.value))}
+                  />
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => removeWeight(wi)}
+                    aria-label={t('feedingV2.band.remove')}
+                  >
+                    ×
+                  </Button>
                 </div>
               </td>
               {matrix.temperatures.map((_, ti) => (
                 <td key={ti} className="p-1">
-                  <Input type="number" min={0.5} max={5} step={0.01} value={matrix.fcrValues[wi]?.[ti] ?? 1.2} onChange={(e) => setCell(wi, ti, Number(e.target.value))} />
+                  <Input
+                    type="number"
+                    min={0.5}
+                    max={5}
+                    step={0.01}
+                    value={matrix.fcrValues[wi]?.[ti] ?? 1.2}
+                    onChange={(e) => setCell(wi, ti, Number(e.target.value))}
+                  />
                 </td>
               ))}
               <td />
@@ -236,7 +312,9 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
           ))}
           <tr>
             <td className="p-1">
-              <Button variant="ghost" size="xs" type="button" onClick={addWeight}>+ {t('feedingV2.fcrMatrix.addWeight')}</Button>
+              <Button variant="ghost" size="xs" type="button" onClick={addWeight}>
+                + {t('feedingV2.fcrMatrix.addWeight')}
+              </Button>
             </td>
           </tr>
         </tbody>
@@ -396,14 +474,26 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
       key: 'minWeightG',
       header: t('feedingV2.band.minWeight'),
       render: (_value, { band, index }) => (
-        <Input type="number" min={0} max={100000} value={band.minWeightG} onChange={(e) => setBand(index, { minWeightG: Number(e.target.value) })} />
+        <Input
+          type="number"
+          min={0}
+          max={100000}
+          value={band.minWeightG}
+          onChange={(e) => setBand(index, { minWeightG: Number(e.target.value) })}
+        />
       ),
     },
     {
       key: 'maxWeightG',
       header: t('feedingV2.band.maxWeight'),
       render: (_value, { band, index }) => (
-        <Input type="number" min={0} max={100000} value={band.maxWeightG} onChange={(e) => setBand(index, { maxWeightG: Number(e.target.value) })} />
+        <Input
+          type="number"
+          min={0}
+          max={100000}
+          value={band.maxWeightG}
+          onChange={(e) => setBand(index, { maxWeightG: Number(e.target.value) })}
+        />
       ),
     },
     {
@@ -429,23 +519,43 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
       key: 'feedingRatePercent',
       header: t('feedingV2.band.rate'),
       render: (_value, { band, index }) => (
-        <Input type="number" min={0} max={15} step={0.01} value={band.feedingRatePercent} onChange={(e) => setBand(index, { feedingRatePercent: Number(e.target.value) })} />
+        <Input
+          type="number"
+          min={0}
+          max={15}
+          step={0.01}
+          value={band.feedingRatePercent}
+          onChange={(e) => setBand(index, { feedingRatePercent: Number(e.target.value) })}
+        />
       ),
     },
     {
       key: 'expectedFcr',
       header: t('feedingV2.band.fcr'),
       render: (_value, { band, index }) => (
-        <Input type="number" min={0.5} max={5} step={0.01} value={band.expectedFcr} onChange={(e) => setBand(index, { expectedFcr: Number(e.target.value) })} />
+        <Input
+          type="number"
+          min={0.5}
+          max={5}
+          step={0.01}
+          value={band.expectedFcr}
+          onChange={(e) => setBand(index, { expectedFcr: Number(e.target.value) })}
+        />
       ),
     },
     {
       key: 'mealSchedule',
       header: t('feedingV2.band.meals'),
       render: (_value, { band, index }) => (
-        <Button variant="ghost" type="button" onClick={() => setBandScheduleOpen(bandScheduleOpen === index ? null : index)}>{band.mealSchedule
+        <Button
+          variant="ghost"
+          type="button"
+          onClick={() => setBandScheduleOpen(bandScheduleOpen === index ? null : index)}
+        >
+          {band.mealSchedule
             ? t('feedingV2.band.mealsCustom', { count: band.mealSchedule.mealsPerDay })
-            : t('feedingV2.band.mealsDefault')}</Button>
+            : t('feedingV2.band.mealsDefault')}
+        </Button>
       ),
     },
     {
@@ -453,16 +563,28 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
       header: '',
       render: (_value, { index }) =>
         form.bands.length > 1 ? (
-          <Button variant="ghost" type="button" onClick={() => removeBand(index)} aria-label={t('feedingV2.band.remove')}>×</Button>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => removeBand(index)}
+            aria-label={t('feedingV2.band.remove')}
+          >
+            ×
+          </Button>
         ) : null,
     },
   ];
 
   return (
-    <Modal isOpen onClose={onClose} title={protocol ? t('feedingV2.editProtocol') : t('feedingV2.newProtocol')} size="xl">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={protocol ? t('feedingV2.editProtocol') : t('feedingV2.newProtocol')}
+      size="xl"
+    >
       <form onSubmit={handleSubmit} className="space-y-6 max-h-[75vh] overflow-y-auto p-1">
         {error && (
-          <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 whitespace-pre-wrap">
+          <div className="rounded-md bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 p-3 text-sm text-error-700 dark:text-error-300 whitespace-pre-wrap">
             {error}
           </div>
         )}
@@ -470,11 +592,21 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
         {/* Kimlik */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('feedingV2.name')}</label>
-            <Input fullWidth required maxLength={200} value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('feedingV2.name')}
+            </label>
+            <Input
+              fullWidth
+              required
+              maxLength={200}
+              value={form.name}
+              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('feedingV2.species')}</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('feedingV2.species')}
+            </label>
             <select
               value={form.speciesId}
               onChange={(e) => setForm((prev) => ({ ...prev, speciesId: e.target.value }))}
@@ -492,7 +624,13 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('feedingV2.description')}
             </label>
-            <Textarea fullWidth rows={2} maxLength={2000} value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
+            <Textarea
+              fullWidth
+              rows={2}
+              maxLength={2000}
+              value={form.description}
+              onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+            />
           </div>
           <div className="flex items-center gap-6">
             <div>
@@ -518,7 +656,7 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                 type="checkbox"
                 checked={form.isDefault}
                 onChange={(e) => setForm((prev) => ({ ...prev, isDefault: e.target.checked }))}
-                className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                className="rounded border-gray-300 dark:border-gray-600 text-info-600"
               />
               {t('feedingV2.isDefault')}
             </label>
@@ -537,18 +675,28 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             expandable
             expandToggle={false}
             expandedRowIds={bandScheduleOpen === null ? [] : [String(bandScheduleOpen)]}
-            onExpandedChange={(ids) => setBandScheduleOpen(ids.length > 0 ? Number(ids[ids.length - 1]) : null)}
+            onExpandedChange={(ids) =>
+              setBandScheduleOpen(ids.length > 0 ? Number(ids[ids.length - 1]) : null)
+            }
             renderExpandedRow={(row) => (
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('feedingV2.band.customSchedule')}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    {t('feedingV2.band.customSchedule')}
+                  </p>
                   <MealScheduleEditor
                     schedule={row.band.mealSchedule ?? form.defaultMealSchedule}
                     onChange={(schedule) => setBand(row.index, { mealSchedule: schedule })}
                   />
                 </div>
                 {row.band.mealSchedule && (
-                  <Button variant="ghost" type="button" onClick={() => setBand(row.index, { mealSchedule: undefined })}>{t('feedingV2.band.mealsDefault')}</Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => setBand(row.index, { mealSchedule: undefined })}
+                  >
+                    {t('feedingV2.band.mealsDefault')}
+                  </Button>
                 )}
               </div>
             )}
@@ -559,7 +707,15 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             compact
             className="border-0 rounded-none shadow-none"
           />
-          <Button variant="ghost" className="mt-2" type="button" onClick={addBand} disabled={form.bands.length >= 50}>+ {t('feedingV2.band.add')}</Button>
+          <Button
+            variant="ghost"
+            className="mt-2"
+            type="button"
+            onClick={addBand}
+            disabled={form.bands.length >= 50}
+          >
+            + {t('feedingV2.band.add')}
+          </Button>
         </div>
 
         {/* Varsayılan öğün planı */}
@@ -580,22 +736,54 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
           </h4>
           {form.temperatureAdjustments.map((adj, i) => (
             <div key={i} className="flex items-center gap-2 mb-2">
-              <Input type="number" min={-10} max={50} value={adj.minC} onChange={(e) => setAdjustment(i, { minC: Number(e.target.value) })} aria-label={t('feedingV2.tempAdjustments.minC')} />
+              <Input
+                type="number"
+                min={-10}
+                max={50}
+                value={adj.minC}
+                onChange={(e) => setAdjustment(i, { minC: Number(e.target.value) })}
+                aria-label={t('feedingV2.tempAdjustments.minC')}
+              />
               <span className="text-gray-400 dark:text-gray-500">–</span>
-              <Input type="number" min={-10} max={50} value={adj.maxC} onChange={(e) => setAdjustment(i, { maxC: Number(e.target.value) })} aria-label={t('feedingV2.tempAdjustments.maxC')} />
+              <Input
+                type="number"
+                min={-10}
+                max={50}
+                value={adj.maxC}
+                onChange={(e) => setAdjustment(i, { maxC: Number(e.target.value) })}
+                aria-label={t('feedingV2.tempAdjustments.maxC')}
+              />
               <span className="text-xs text-gray-500 dark:text-gray-400">°C ×</span>
-              <Input type="number" min={0.1} max={2} step={0.01} value={adj.rateMultiplier} onChange={(e) => setAdjustment(i, { rateMultiplier: Number(e.target.value) })} aria-label={t('feedingV2.tempAdjustments.multiplier')} />
-              <Button variant="ghost" type="button" onClick={() =>
+              <Input
+                type="number"
+                min={0.1}
+                max={2}
+                step={0.01}
+                value={adj.rateMultiplier}
+                onChange={(e) => setAdjustment(i, { rateMultiplier: Number(e.target.value) })}
+                aria-label={t('feedingV2.tempAdjustments.multiplier')}
+              />
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={() =>
                   setForm((prev) => ({
                     ...prev,
                     temperatureAdjustments: prev.temperatureAdjustments.filter(
                       (_, idx) => idx !== i,
                     ),
                   }))
-                } aria-label={t('feedingV2.band.remove')}>×</Button>
+                }
+                aria-label={t('feedingV2.band.remove')}
+              >
+                ×
+              </Button>
             </div>
           ))}
-          <Button variant="ghost" type="button" onClick={() =>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() =>
               setForm((prev) => ({
                 ...prev,
                 temperatureAdjustments: [
@@ -603,7 +791,11 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                   { minC: 10, maxC: 15, rateMultiplier: 0.8 },
                 ],
               }))
-            } disabled={form.temperatureAdjustments.length >= 20}>+ {t('feedingV2.tempAdjustments.add')}</Button>
+            }
+            disabled={form.temperatureAdjustments.length >= 20}
+          >
+            + {t('feedingV2.tempAdjustments.add')}
+          </Button>
         </div>
 
         {/* Ayarlar */}
@@ -622,7 +814,7 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                     settings: { ...prev.settings, autoTransition: e.target.checked },
                   }))
                 }
-                className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                className="rounded border-gray-300 dark:border-gray-600 text-info-600"
               />
               {t('feedingV2.settings.autoTransition')}
             </label>
@@ -630,12 +822,18 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.settings.transitionBufferG')}
               </label>
-              <Input type="number" min={0} max={1000} value={form.settings.transitionBufferG} onChange={(e) =>
-         setForm((prev) => ({
-          ...prev,
-          settings: { ...prev.settings, transitionBufferG: Number(e.target.value) },
-         }))
-        } />
+              <Input
+                type="number"
+                min={0}
+                max={1000}
+                value={form.settings.transitionBufferG}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, transitionBufferG: Number(e.target.value) },
+                  }))
+                }
+              />
             </div>
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
@@ -662,15 +860,21 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.settings.underfeedThreshold')}
               </label>
-              <Input type="number" min={1} max={100} value={form.settings.underfeedAlertThresholdPercent} onChange={(e) =>
-         setForm((prev) => ({
-          ...prev,
-          settings: {
-           ...prev.settings,
-           underfeedAlertThresholdPercent: Number(e.target.value),
-          },
-         }))
-        } />
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                value={form.settings.underfeedAlertThresholdPercent}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    settings: {
+                      ...prev.settings,
+                      underfeedAlertThresholdPercent: Number(e.target.value),
+                    },
+                  }))
+                }
+              />
             </div>
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
@@ -686,7 +890,9 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                       fcrSource: e.target.value as ProtocolSettings['fcrSource'],
                     },
                     fcrMatrix:
-                      e.target.value === 'matrix' ? (prev.fcrMatrix ?? ensureMatrix()) : prev.fcrMatrix,
+                      e.target.value === 'matrix'
+                        ? (prev.fcrMatrix ?? ensureMatrix())
+                        : prev.fcrMatrix,
                   }))
                 }
                 className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
@@ -697,17 +903,26 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400">{t('feedingV2.settings.minDO')}</label>
-              <Input type="number" min={0} max={20} step={0.1} value={form.settings.minDissolvedOxygen ?? ''} onChange={(e) =>
-         setForm((prev) => ({
-          ...prev,
-          settings: {
-           ...prev.settings,
-           minDissolvedOxygen:
-            e.target.value === '' ? undefined : Number(e.target.value),
-          },
-         }))
-        } />
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
+                {t('feedingV2.settings.minDO')}
+              </label>
+              <Input
+                type="number"
+                min={0}
+                max={20}
+                step={0.1}
+                value={form.settings.minDissolvedOxygen ?? ''}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    settings: {
+                      ...prev.settings,
+                      minDissolvedOxygen:
+                        e.target.value === '' ? undefined : Number(e.target.value),
+                    },
+                  }))
+                }
+              />
             </div>
           </div>
         </div>
@@ -718,7 +933,9 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.fcrMatrix.title')}
             </h4>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('feedingV2.fcrMatrix.required')}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              {t('feedingV2.fcrMatrix.required')}
+            </p>
             <FcrMatrixEditor
               matrix={form.fcrMatrix ?? ensureMatrix()}
               onChange={(matrix) => setForm((prev) => ({ ...prev, fcrMatrix: matrix }))}
@@ -728,8 +945,12 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
 
         {/* Aksiyonlar */}
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <Button variant="secondary" type="button" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" type="submit" disabled={saving}>
+            {saving ? t('common.loading') : t('common.save')}
+          </Button>
         </div>
       </form>
     </Modal>
@@ -755,7 +976,13 @@ export const ProtocolBuilderTab: React.FC = () => {
 
   const confirm = useConfirm();
   const handleArchive = async (protocol: FeedingProtocolV2) => {
-    if (!(await confirm({ title: t('feedingV2.archiveConfirm', { name: protocol.name }), variant: 'warning' }))) return;
+    if (
+      !(await confirm({
+        title: t('feedingV2.archiveConfirm', { name: protocol.name }),
+        variant: 'warning',
+      }))
+    )
+      return;
     await archiveMutation.mutateAsync(protocol.id);
   };
 
@@ -768,7 +995,7 @@ export const ProtocolBuilderTab: React.FC = () => {
         <>
           <div className="font-medium text-gray-900 dark:text-gray-100">{protocol.name}</div>
           {protocol.migrationNote && (
-            <div className="text-xs text-amber-600 mt-0.5">
+            <div className="text-xs text-warning-600 dark:text-warning-400 mt-0.5">
               {t('feedingV2.migrationNote')}: {protocol.migrationNote}
             </div>
           )}
@@ -791,7 +1018,7 @@ export const ProtocolBuilderTab: React.FC = () => {
             {t(STATUS_KEY[protocol.status])}
           </span>
           {protocol.isDefault && (
-            <span className="ml-2 inline-flex rounded-full bg-blue-100 text-blue-800 px-2 py-0.5 text-xs">
+            <span className="ml-2 inline-flex rounded-full bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 px-2 py-0.5 text-xs">
               {t('feedingV2.isDefault')}
             </span>
           )}
@@ -814,25 +1041,35 @@ export const ProtocolBuilderTab: React.FC = () => {
       render: (_value, protocol) => (
         <>
           {canUpdate && protocol.status !== 'ARCHIVED' && (
-            <Button variant="ghost" className="mr-3" onClick={() => setModalProtocol(protocol)}>{t('common.edit')}</Button>
+            <Button variant="ghost" className="mr-3" onClick={() => setModalProtocol(protocol)}>
+              {t('common.edit')}
+            </Button>
           )}
           {canArchive && protocol.status !== 'ARCHIVED' && (
-            <Button variant="ghost" onClick={() => void handleArchive(protocol)}>{t('feedingV2.archive')}</Button>
+            <Button variant="ghost" onClick={() => void handleArchive(protocol)}>
+              {t('feedingV2.archive')}
+            </Button>
           )}
         </>
       ),
-    }
+    },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('feedingV2.builderTab.title')}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.builderTab.subtitle')}</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            {t('feedingV2.builderTab.title')}
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t('feedingV2.builderTab.subtitle')}
+          </p>
         </div>
         {canCreate && (
-          <Button variant="primary" onClick={() => setModalProtocol('new')}>+ {t('feedingV2.newProtocol')}</Button>
+          <Button variant="primary" onClick={() => setModalProtocol('new')}>
+            + {t('feedingV2.newProtocol')}
+          </Button>
         )}
       </div>
 
@@ -842,7 +1079,7 @@ export const ProtocolBuilderTab: React.FC = () => {
         </div>
       )}
       {isError && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+        <div className="rounded-md bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 p-4 text-sm text-error-700 dark:text-error-300">
           {t('feedingV2.loadError')}
         </div>
       )}

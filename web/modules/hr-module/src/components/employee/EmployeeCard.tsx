@@ -39,16 +39,13 @@ export function EmployeeCard({
       <div
         className={cn(
           'flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800',
-          onClick && 'cursor-pointer hover:border-indigo-300 hover:shadow-sm',
-          className
+          onClick &&
+            'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-sm',
+          className,
         )}
         onClick={onClick}
       >
-        <EmployeeAvatar
-          firstName={employee.firstName}
-          lastName={employee.lastName}
-          size="md"
-        />
+        <EmployeeAvatar firstName={employee.firstName} lastName={employee.lastName} size="md" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-gray-900 dark:text-white">
             {employee.firstName} {employee.lastName}
@@ -57,11 +54,7 @@ export function EmployeeCard({
             {employee.position || employee.employeeNumber}
           </p>
         </div>
-        <StatusBadge
-          label={statusConfig.label}
-          variant={statusConfig.variant}
-          size="sm"
-        />
+        <StatusBadge label={statusConfig.label} variant={statusConfig.variant} size="sm" />
       </div>
     );
   }
@@ -70,17 +63,14 @@ export function EmployeeCard({
     <div
       className={cn(
         'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
-        onClick && 'cursor-pointer hover:border-indigo-300 hover:shadow-md transition-shadow',
-        className
+        onClick &&
+          'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-md transition-shadow',
+        className,
       )}
       onClick={onClick}
     >
       <div className="flex items-start gap-4">
-        <EmployeeAvatar
-          firstName={employee.firstName}
-          lastName={employee.lastName}
-          size="lg"
-        />
+        <EmployeeAvatar firstName={employee.firstName} lastName={employee.lastName} size="lg" />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between">
@@ -88,16 +78,10 @@ export function EmployeeCard({
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {employee.firstName} {employee.lastName}
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {employee.employeeNumber}
-              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{employee.employeeNumber}</p>
             </div>
             <div className="flex flex-col gap-1 items-end">
-              <StatusBadge
-                label={statusConfig.label}
-                variant={statusConfig.variant}
-                size="sm"
-              />
+              <StatusBadge label={statusConfig.label} variant={statusConfig.variant} size="sm" />
               {personnelConfig && (
                 <StatusBadge
                   label={personnelConfig.label}
@@ -119,10 +103,7 @@ export function EmployeeCard({
             {employee.department && (
               <div className="flex items-center gap-2 text-sm">
                 <Building2 className="h-4 w-4 flex-shrink-0 text-gray-600 dark:text-gray-300" />
-                <DepartmentBadge
-                  name={employee.department}
-                  size="sm"
-                />
+                <DepartmentBadge name={employee.department} size="sm" />
               </div>
             )}
 
@@ -131,7 +112,7 @@ export function EmployeeCard({
                 <Mail className="h-4 w-4 flex-shrink-0" />
                 <a
                   href={`mailto:${employee.email}`}
-                  className="truncate hover:text-indigo-600"
+                  className="truncate hover:text-primary-600 dark:hover:text-primary-300"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {employee.email}
@@ -144,7 +125,7 @@ export function EmployeeCard({
                 <Phone className="h-4 w-4 flex-shrink-0" />
                 <a
                   href={`tel:${employee.contactInfo.phone}`}
-                  className="hover:text-indigo-600"
+                  className="hover:text-primary-600 dark:hover:text-primary-300"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {employee.contactInfo.phone}
@@ -155,8 +136,8 @@ export function EmployeeCard({
 
           {employee.seaWorthy && (
             <div className="mt-3">
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-info-100 px-2 py-0.5 text-xs font-medium text-info-800 dark:bg-info-900/30 dark:text-info-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-info-500" />
                 Sea Worthy Certified
               </span>
             </div>

@@ -114,83 +114,125 @@ interface LayerRowProps {
   onHighlight: (widgetId: string | null) => void;
 }
 
-const LayerRow: React.FC<LayerRowProps> = React.memo(({
-  widget,
-  screenId,
-  isSelected,
-  onSelect,
-  onHighlight,
-}) => {
-  const IconComponent = getWidgetIcon(widget.widgetType);
-  const isVisible = widget.visible !== false;
-  const isLocked = widget.locked === true;
+const LayerRow: React.FC<LayerRowProps> = React.memo(
+  ({ widget, screenId, isSelected, onSelect, onHighlight }) => {
+    const IconComponent = getWidgetIcon(widget.widgetType);
+    const isVisible = widget.visible !== false;
+    const isLocked = widget.locked === true;
 
-  // Derive display name: prefer explicit name, then config label, then widget type
-  const displayName = widget.name
-    || (widget.config?.label as string)
-    || widget.widgetType;
+    // Derive display name: prefer explicit name, then config label, then widget type
+    const displayName = widget.name || (widget.config?.label as string) || widget.widgetType;
 
-  const handleVisibilityToggle = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    useScadaPackageStore.getState().toggleWidgetVisibility(screenId, widget.id);
-  }, [screenId, widget.id]);
+    const handleVisibilityToggle = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        useScadaPackageStore.getState().toggleWidgetVisibility(screenId, widget.id);
+      },
+      [screenId, widget.id],
+    );
 
-  const handleLockToggle = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    useScadaPackageStore.getState().toggleWidgetLock(screenId, widget.id);
-  }, [screenId, widget.id]);
+    const handleLockToggle = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        useScadaPackageStore.getState().toggleWidgetLock(screenId, widget.id);
+      },
+      [screenId, widget.id],
+    );
 
-  const handleMoveUp = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    useScadaPackageStore.getState().bringForward(screenId, widget.id);
-  }, [screenId, widget.id]);
+    const handleMoveUp = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        useScadaPackageStore.getState().bringForward(screenId, widget.id);
+      },
+      [screenId, widget.id],
+    );
 
-  const handleMoveDown = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    useScadaPackageStore.getState().sendBackward(screenId, widget.id);
-  }, [screenId, widget.id]);
+    const handleMoveDown = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        useScadaPackageStore.getState().sendBackward(screenId, widget.id);
+      },
+      [screenId, widget.id],
+    );
 
-  return (
-    <div
-      data-testid={`layer-row-${widget.id}`}
-      className={`
+    return (
+      <div
+        data-testid={`layer-row-${widget.id}`}
+        className={`
         flex items-center gap-1 px-2 py-1.5 text-xs cursor-pointer select-none
         transition-colors group border-b border-gray-50
-        ${isSelected ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
+        ${isSelected ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
         ${!isVisible ? 'opacity-50' : ''}
       `}
-      onClick={() => onSelect(widget.id)}
-      onMouseEnter={() => onHighlight(widget.id)}
-      onMouseLeave={() => onHighlight(null)}
-    >
-      {/* Visibility toggle */}
-      <Button variant="ghost" className="flex-shrink-0" onClick={handleVisibilityToggle} aria-label={isVisible ? 'Hide widget' : 'Show widget'} title={isVisible ? 'Hide widget' : 'Show widget'} data-testid={`layer-visibility-${widget.id}`}>{isVisible ? (
-          <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-        ) : (
-          <EyeOff className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        )}</Button>
+        onClick={() => onSelect(widget.id)}
+        onMouseEnter={() => onHighlight(widget.id)}
+        onMouseLeave={() => onHighlight(null)}
+      >
+        {/* Visibility toggle */}
+        <Button
+          variant="ghost"
+          className="flex-shrink-0"
+          onClick={handleVisibilityToggle}
+          aria-label={isVisible ? 'Hide widget' : 'Show widget'}
+          title={isVisible ? 'Hide widget' : 'Show widget'}
+          data-testid={`layer-visibility-${widget.id}`}
+        >
+          {isVisible ? (
+            <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+          ) : (
+            <EyeOff className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+          )}
+        </Button>
 
-      {/* Lock toggle */}
-      <Button variant="ghost" className="flex-shrink-0" onClick={handleLockToggle} aria-label={isLocked ? 'Unlock widget' : 'Lock widget'} title={isLocked ? 'Unlock widget' : 'Lock widget'} data-testid={`layer-lock-${widget.id}`}>{isLocked ? (
-          <Lock className="w-3.5 h-3.5 text-amber-500" />
-        ) : (
-          <Unlock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100" />
-        )}</Button>
+        {/* Lock toggle */}
+        <Button
+          variant="ghost"
+          className="flex-shrink-0"
+          onClick={handleLockToggle}
+          aria-label={isLocked ? 'Unlock widget' : 'Lock widget'}
+          title={isLocked ? 'Unlock widget' : 'Lock widget'}
+          data-testid={`layer-lock-${widget.id}`}
+        >
+          {isLocked ? (
+            <Lock className="w-3.5 h-3.5 text-warning-500" />
+          ) : (
+            <Unlock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100" />
+          )}
+        </Button>
 
-      {/* Widget type icon */}
-      <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+        {/* Widget type icon */}
+        <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
-      {/* Widget name (truncated) */}
-      <span className="flex-1 min-w-0 truncate max-w-[120px]">
-        {displayName}
-      </span>
+        {/* Widget name (truncated) */}
+        <span className="flex-1 min-w-0 truncate max-w-[120px]">{displayName}</span>
 
-      {/* Move up / Move down buttons (visible on hover) */}
-      <Button variant="ghost" iconOnly className="flex-shrink-0" onClick={handleMoveUp} aria-label="Move up (bring forward)" title="Move up (bring forward)" data-testid={`layer-up-${widget.id}`}><ChevronUp className="w-3 h-3 text-gray-500 dark:text-gray-400" /></Button>
-      <Button variant="ghost" iconOnly className="flex-shrink-0" onClick={handleMoveDown} aria-label="Move down (send backward)" title="Move down (send backward)" data-testid={`layer-down-${widget.id}`}><ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" /></Button>
-    </div>
-  );
-});
+        {/* Move up / Move down buttons (visible on hover) */}
+        <Button
+          variant="ghost"
+          iconOnly
+          className="flex-shrink-0"
+          onClick={handleMoveUp}
+          aria-label="Move up (bring forward)"
+          title="Move up (bring forward)"
+          data-testid={`layer-up-${widget.id}`}
+        >
+          <ChevronUp className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+        </Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          className="flex-shrink-0"
+          onClick={handleMoveDown}
+          aria-label="Move down (send backward)"
+          title="Move down (send backward)"
+          data-testid={`layer-down-${widget.id}`}
+        >
+          <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+        </Button>
+      </div>
+    );
+  },
+);
 
 LayerRow.displayName = 'LayerRow';
 
@@ -310,15 +352,15 @@ export const LayersPanel: React.FC = () => {
     }
   }, []);
 
-  const selectedSet = useMemo(
-    () => new Set(selectedWidgetIds),
-    [selectedWidgetIds],
-  );
+  const selectedSet = useMemo(() => new Set(selectedWidgetIds), [selectedWidgetIds]);
 
   const hasSelection = selectedWidgetId !== null;
 
   return (
-    <div className="flex flex-col border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" data-testid="layers-panel">
+    <div
+      className="flex flex-col border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+      data-testid="layers-panel"
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
@@ -386,20 +428,27 @@ export const LayersPanel: React.FC = () => {
                       style={{ backgroundColor: group.color }}
                     />
                     <span className="truncate">Group</span>
-                    <span className="text-gray-500 dark:text-gray-400 font-normal">({group.members.length})</span>
+                    <span className="text-gray-500 dark:text-gray-400 font-normal">
+                      ({group.members.length})
+                    </span>
                   </button>
                   {/* Group members (indented) */}
-                  {!isCollapsed && group.members.map((w) => (
-                    <div key={w.id} className="pl-4" style={{ borderLeft: `3px solid ${group.color}` }}>
-                      <LayerRow
-                        widget={w}
-                        screenId={activeScreenId}
-                        isSelected={selectedSet.has(w.id) || selectedWidgetId === w.id}
-                        onSelect={handleSelectWidget}
-                        onHighlight={handleHighlightWidget}
-                      />
-                    </div>
-                  ))}
+                  {!isCollapsed &&
+                    group.members.map((w) => (
+                      <div
+                        key={w.id}
+                        className="pl-4"
+                        style={{ borderLeft: `3px solid ${group.color}` }}
+                      >
+                        <LayerRow
+                          widget={w}
+                          screenId={activeScreenId}
+                          isSelected={selectedSet.has(w.id) || selectedWidgetId === w.id}
+                          onSelect={handleSelectWidget}
+                          onHighlight={handleHighlightWidget}
+                        />
+                      </div>
+                    ))}
                 </div>
               );
             })}

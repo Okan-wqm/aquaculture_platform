@@ -123,20 +123,20 @@ function getNotificationIndicator(data: NotificationData | null): {
   color: string;
   icon: string;
 } {
-  if (!data?.type) return { color: 'bg-blue-500', icon: 'info' };
+  if (!data?.type) return { color: 'bg-info-500', icon: 'info' };
 
   const type = data.type.toLowerCase();
   if (type.includes('alert') || type.includes('sensor'))
-    return { color: 'bg-red-500', icon: 'alert' };
-  if (type.includes('task')) return { color: 'bg-amber-500', icon: 'task' };
+    return { color: 'bg-error-500', icon: 'alert' };
+  if (type.includes('task')) return { color: 'bg-warning-500', icon: 'task' };
   if (type.includes('leave') || type.includes('attendance') || type.includes('hr'))
-    return { color: 'bg-purple-500', icon: 'hr' };
+    return { color: 'bg-accent-500', icon: 'hr' };
   if (type.includes('harvest') || type.includes('feeding') || type.includes('farm'))
-    return { color: 'bg-emerald-500', icon: 'farm' };
-  if (type.includes('billing')) return { color: 'bg-orange-500', icon: 'billing' };
+    return { color: 'bg-success-500', icon: 'farm' };
+  if (type.includes('billing')) return { color: 'bg-warning-500', icon: 'billing' };
   if (type.includes('system')) return { color: 'bg-gray-500', icon: 'system' };
 
-  return { color: 'bg-blue-500', icon: 'info' };
+  return { color: 'bg-info-500', icon: 'info' };
 }
 
 /** Single notification item */
@@ -182,7 +182,7 @@ const NotificationItem: React.FC<{
       {/* Unread indicator */}
       {!notification.isRead && (
         <div className="flex-shrink-0 mt-2">
-          <div className="w-2 h-2 rounded-full bg-blue-500" />
+          <div className="w-2 h-2 rounded-full bg-info-500" />
         </div>
       )}
     </button>
@@ -316,7 +316,7 @@ export const NotificationPanel: React.FC = () => {
         >
           <Bell className="w-6 h-6" aria-hidden="true" />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error-500 rounded-full">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
@@ -333,7 +333,7 @@ export const NotificationPanel: React.FC = () => {
                 Notifications
               </h3>
               {unreadCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
                   {unreadCount} new
                 </span>
               )}
@@ -342,7 +342,7 @@ export const NotificationPanel: React.FC = () => {
               <button
                 type="button"
                 onClick={handleMarkAllRead}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                className="text-xs font-medium text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 transition-colors"
               >
                 Mark all as read
               </button>
@@ -370,7 +370,7 @@ export const NotificationPanel: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleLoadMore}
-                    className="w-full py-2 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    className="w-full py-2 text-xs font-medium text-info-600 hover:text-info-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     Load more ({notifications.length - visibleCount} remaining)
                   </button>

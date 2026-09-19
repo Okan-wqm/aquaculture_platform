@@ -91,7 +91,7 @@ export const ProcessBackgroundLayer: React.FC<ProcessBackgroundLayerProps> = ({
         y: e.clientY - position.y,
       };
     },
-    [isEditMode, position]
+    [isEditMode, position],
   );
 
   const handleMouseMove = useCallback(
@@ -102,7 +102,7 @@ export const ProcessBackgroundLayer: React.FC<ProcessBackgroundLayerProps> = ({
         y: e.clientY - dragStartRef.current.y,
       });
     },
-    [isDragging, onPositionChange]
+    [isDragging, onPositionChange],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -127,7 +127,7 @@ export const ProcessBackgroundLayer: React.FC<ProcessBackgroundLayerProps> = ({
       const newScale = Math.max(0.3, Math.min(3, scale + delta));
       onScaleChange(newScale);
     },
-    [isEditMode, scale, onScaleChange]
+    [isEditMode, scale, onScaleChange],
   );
 
   // Loading state
@@ -173,7 +173,7 @@ export const ProcessBackgroundLayer: React.FC<ProcessBackgroundLayerProps> = ({
 
       {/* Edit mode indicator */}
       {isEditMode && (
-        <div className="absolute top-2 left-2 px-2 py-1 bg-cyan-500 text-white text-xs rounded shadow">
+        <div className="absolute top-2 left-2 px-2 py-1 bg-info-500 text-white text-xs rounded shadow">
           Drag to move | Scroll to zoom
         </div>
       )}

@@ -6,7 +6,11 @@
 import React, { useState } from 'react';
 import { Button } from '@aquaculture/shared-ui';
 import { X, Settings, Bell, History, Gauge, BarChart3 } from 'lucide-react';
-import { useScadaViewerStore, useEquipmentReadings, SensorReading } from '../../store/scadaViewerStore';
+import {
+  useScadaViewerStore,
+  useEquipmentReadings,
+  SensorReading,
+} from '../../store/scadaViewerStore';
 import { getEquipmentIcon } from '../equipment-icons';
 import { GaugeWidget } from './widgets/GaugeWidget';
 import { NumericWidget } from './widgets/NumericWidget';
@@ -37,7 +41,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
 
   // Get selected equipment data
   const selectedNode = selectedProcess?.nodes.find(
-    (node) => node.data.equipmentId === selectedEquipmentId
+    (node) => node.data.equipmentId === selectedEquipmentId,
   );
   const equipmentData = selectedNode?.data;
 
@@ -90,11 +94,17 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
               <Icon size={24} className="text-gray-700 dark:text-gray-300" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">{equipmentData.equipmentName}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{equipmentData.equipmentCode}</p>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                {equipmentData.equipmentName}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {equipmentData.equipmentCode}
+              </p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={handleClose}><X size={20} className="text-gray-500 dark:text-gray-400" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={handleClose}>
+            <X size={20} className="text-gray-500 dark:text-gray-400" />
+          </Button>
         </div>
 
         {/* Status */}
@@ -104,10 +114,10 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
               px-2 py-1 rounded-full text-xs font-medium
               ${
                 equipmentData.status === 'operational' || equipmentData.status === 'active'
-                  ? 'bg-green-100 text-green-700'
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                   : equipmentData.status === 'maintenance'
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                    ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
               }
             `}
           >
@@ -133,7 +143,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             onClick={() => setViewMode(mode)}
             className={`
               p-1.5 rounded transition-colors
-              ${viewMode === mode ? 'bg-blue-100 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
+              ${viewMode === mode ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
             `}
             title={label}
           >
@@ -150,15 +160,21 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             <div className="text-xs text-gray-500 dark:text-gray-400">Sensör</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-green-600">{stats.normal}</div>
+            <div className="text-lg font-bold text-success-600 dark:text-success-400">
+              {stats.normal}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Normal</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-yellow-600">{stats.warning}</div>
+            <div className="text-lg font-bold text-warning-600 dark:text-warning-400">
+              {stats.warning}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Uyarı</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-red-600">{stats.critical}</div>
+            <div className="text-lg font-bold text-error-600 dark:text-error-400">
+              {stats.critical}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Kritik</div>
           </div>
         </div>
@@ -174,10 +190,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
         ) : (
           <div className="space-y-4">
             {readings.map((reading) => (
-              <div
-                key={reading.sensorId}
-                className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3"
-              >
+              <div key={reading.sensorId} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 capitalize">
                   {reading.sensorName}
                 </div>
@@ -194,9 +207,30 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       {/* Footer actions */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<History size={16} />}>Geçmiş</Button>
-          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<Bell size={16} />}>Alarmlar</Button>
-          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<Settings size={16} />}>Ayarlar</Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="flex-1 justify-center"
+            leftIcon={<History size={16} />}
+          >
+            Geçmiş
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="flex-1 justify-center"
+            leftIcon={<Bell size={16} />}
+          >
+            Alarmlar
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="flex-1 justify-center"
+            leftIcon={<Settings size={16} />}
+          >
+            Ayarlar
+          </Button>
         </div>
       </div>
     </div>

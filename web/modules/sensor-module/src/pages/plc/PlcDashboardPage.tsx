@@ -47,18 +47,44 @@ import { Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 // Status Helpers
 // ============================================================================
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.FC<{ className?: string }> }> = {
-  ONLINE: { label: 'Online', color: 'text-green-600 bg-green-50 border-green-200', icon: Wifi },
-  OFFLINE: { label: 'Offline', color: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700', icon: WifiOff },
-  CONNECTING: { label: 'Bağlanıyor', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', icon: Loader2 },
-  ERROR: { label: 'Hata', color: 'text-red-600 bg-red-50 border-red-200', icon: XCircle },
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; color: string; icon: React.FC<{ className?: string }> }
+> = {
+  ONLINE: {
+    label: 'Online',
+    color:
+      'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800',
+    icon: Wifi,
+  },
+  OFFLINE: {
+    label: 'Offline',
+    color:
+      'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700',
+    icon: WifiOff,
+  },
+  CONNECTING: {
+    label: 'Bağlanıyor',
+    color:
+      'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+    icon: Loader2,
+  },
+  ERROR: {
+    label: 'Hata',
+    color:
+      'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
+    icon: XCircle,
+  },
 };
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('tr-TR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -68,10 +94,30 @@ function formatDate(dateStr?: string): string {
 
 const StatusSummaryCards: React.FC<{ counts: PlcConnectionCountByStatus }> = ({ counts }) => {
   const cards = [
-    { label: 'Online', value: counts.online, icon: Wifi, color: 'text-green-600 bg-green-50' },
-    { label: 'Offline', value: counts.offline, icon: WifiOff, color: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800' },
-    { label: 'Bağlanıyor', value: counts.connecting, icon: Loader2, color: 'text-yellow-600 bg-yellow-50' },
-    { label: 'Hata', value: counts.error, icon: XCircle, color: 'text-red-600 bg-red-50' },
+    {
+      label: 'Online',
+      value: counts.online,
+      icon: Wifi,
+      color: 'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20',
+    },
+    {
+      label: 'Offline',
+      value: counts.offline,
+      icon: WifiOff,
+      color: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800',
+    },
+    {
+      label: 'Bağlanıyor',
+      value: counts.connecting,
+      icon: Loader2,
+      color: 'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20',
+    },
+    {
+      label: 'Hata',
+      value: counts.error,
+      icon: XCircle,
+      color: 'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20',
+    },
   ];
 
   return (
@@ -94,13 +140,19 @@ const StatusSummaryCards: React.FC<{ counts: PlcConnectionCountByStatus }> = ({ 
 
 const AlarmStatsBanner: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
   const hasCritical = stats.emergencyCount > 0 || stats.criticalCount > 0;
-  const bgClass = hasCritical ? 'bg-red-50 border-red-200' : stats.totalActive > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
+  const bgClass = hasCritical
+    ? 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
+    : stats.totalActive > 0
+      ? 'bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800'
+      : 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800';
 
   return (
     <div className={`rounded-lg border p-4 ${bgClass}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Bell className={`h-5 w-5 ${hasCritical ? 'text-red-600' : stats.totalActive > 0 ? 'text-yellow-600' : 'text-green-600'}`} />
+          <Bell
+            className={`h-5 w-5 ${hasCritical ? 'text-error-600 dark:text-error-400' : stats.totalActive > 0 ? 'text-warning-600 dark:text-warning-400' : 'text-success-600 dark:text-success-400'}`}
+          />
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-gray-100">Alarm Durumu</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -110,15 +162,24 @@ const AlarmStatsBanner: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
         </div>
         <div className="flex gap-4 text-sm">
           {stats.emergencyCount > 0 && (
-            <span className="font-bold text-red-700">{stats.emergencyCount} Acil</span>
+            <span className="font-bold text-error-700 dark:text-error-300">
+              {stats.emergencyCount} Acil
+            </span>
           )}
           {stats.criticalCount > 0 && (
-            <span className="font-bold text-red-600">{stats.criticalCount} Kritik</span>
+            <span className="font-bold text-error-600 dark:text-error-400">
+              {stats.criticalCount} Kritik
+            </span>
           )}
           {stats.warningCount > 0 && (
-            <span className="font-medium text-yellow-700">{stats.warningCount} Uyari</span>
+            <span className="font-medium text-warning-700 dark:text-warning-300">
+              {stats.warningCount} Uyari
+            </span>
           )}
-          <Link to="/sensor/plc/alarms" className="flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-800">
+          <Link
+            to="/sensor/plc/alarms"
+            className="flex items-center gap-1 font-medium text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-200"
+          >
             Tümü <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -144,9 +205,13 @@ const ConnectionCard: React.FC<{
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Server className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{connection.name}</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+            {connection.name}
+          </h3>
         </div>
-        <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}>
+        <span
+          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}
+        >
           <StatusIcon className="h-3 w-3" />
           {statusCfg.label}
         </span>
@@ -157,34 +222,34 @@ const ConnectionCard: React.FC<{
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           {telem.oxygen != null && (
             <div className="flex items-center gap-1.5">
-              <Droplets className="h-4 w-4 text-blue-500" />
+              <Droplets className="h-4 w-4 text-info-500" />
               <span className="text-gray-600 dark:text-gray-400">O2:</span>
               <span className="font-medium">{telem.oxygen.toFixed(1)} mg/L</span>
             </div>
           )}
           {telem.temperature != null && (
             <div className="flex items-center gap-1.5">
-              <Thermometer className="h-4 w-4 text-orange-500" />
+              <Thermometer className="h-4 w-4 text-warning-500" />
               <span className="text-gray-600 dark:text-gray-400">Sicaklik:</span>
               <span className="font-medium">{telem.temperature.toFixed(1)} C</span>
             </div>
           )}
           {telem.ph != null && (
             <div className="flex items-center gap-1.5">
-              <Activity className="h-4 w-4 text-purple-500" />
+              <Activity className="h-4 w-4 text-accent-500" />
               <span className="text-gray-600 dark:text-gray-400">pH:</span>
               <span className="font-medium">{telem.ph.toFixed(2)}</span>
             </div>
           )}
           {telem.blowerSpeed != null && (
             <div className="flex items-center gap-1.5">
-              <Wind className="h-4 w-4 text-cyan-500" />
+              <Wind className="h-4 w-4 text-info-500" />
               <span className="text-gray-600 dark:text-gray-400">Blower:</span>
               <span className="font-medium">{telem.blowerSpeed}%</span>
             </div>
           )}
           {telem.feedingInProgress && (
-            <div className="sm:col-span-2 flex items-center gap-1.5 text-green-600">
+            <div className="sm:col-span-2 flex items-center gap-1.5 text-success-600 dark:text-success-400">
               <Zap className="h-4 w-4" />
               <span className="font-medium">Besleme devam ediyor</span>
             </div>
@@ -198,7 +263,7 @@ const ConnectionCard: React.FC<{
       <div className="mt-3 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
         <span>{connection.endpointUrl}</span>
         {connection.activeAlarmCount != null && connection.activeAlarmCount > 0 && (
-          <span className="flex items-center gap-1 text-red-500 font-medium">
+          <span className="flex items-center gap-1 text-error-500 font-medium">
             <AlertTriangle className="h-3 w-3" />
             {connection.activeAlarmCount} alarm
           </span>
@@ -213,14 +278,20 @@ const ConnectionCard: React.FC<{
 // ============================================================================
 
 const PlcDashboardPage: React.FC = () => {
-  const { data: connections, isLoading: connectionsLoading, refetch: refetchConnections } = usePlcConnections();
+  const {
+    data: connections,
+    isLoading: connectionsLoading,
+    refetch: refetchConnections,
+  } = usePlcConnections();
   const { data: statusCounts, isLoading: countsLoading } = usePlcConnectionCountByStatus();
   const { data: alarmStats, isLoading: alarmsLoading } = usePlcAlarmStats();
   const { data: telemetrySummaries } = useAllConnectionsTelemetrySummary();
 
   const telemetryMap = useMemo(() => {
     const map: Record<string, TelemetrySummary> = {};
-    telemetrySummaries?.forEach((t) => { map[t.plcConnectionId] = t; });
+    telemetrySummaries?.forEach((t) => {
+      map[t.plcConnectionId] = t;
+    });
     return map;
   }, [telemetrySummaries]);
 
@@ -234,7 +305,14 @@ const PlcDashboardPage: React.FC = () => {
         description="PLC bağlantıları, telemetri ve alarm durumuna genel bakış"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => refetchConnections()}>Yenile</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => refetchConnections()}
+            >
+              Yenile
+            </Button>
           </div>
         }
         className="mb-6"
@@ -258,12 +336,14 @@ const PlcDashboardPage: React.FC = () => {
               to="/sensor/plc/connections"
               className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
             >
-              <div className="rounded-lg bg-indigo-50 p-2">
-                <Server className="h-5 w-5 text-indigo-600" />
+              <div className="rounded-lg bg-primary-50 dark:bg-primary-900/20 p-2">
+                <Server className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100">Bağlantılar</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{connections?.length || 0} PLC bağlantısı</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {connections?.length || 0} PLC bağlantısı
+                </p>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-gray-400 dark:text-gray-500" />
             </Link>
@@ -271,12 +351,16 @@ const PlcDashboardPage: React.FC = () => {
               to="/sensor/plc/feeding"
               className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
             >
-              <div className="rounded-lg bg-green-50 p-2">
-                <BarChart3 className="h-5 w-5 text-green-600" />
+              <div className="rounded-lg bg-success-50 dark:bg-success-900/20 p-2">
+                <BarChart3 className="h-5 w-5 text-success-600 dark:text-success-400" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Besleme Parametreleri</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Parametre yönetimi ve PLC aktarımı</p>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                  Besleme Parametreleri
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Parametre yönetimi ve PLC aktarımı
+                </p>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-gray-400 dark:text-gray-500" />
             </Link>
@@ -284,8 +368,8 @@ const PlcDashboardPage: React.FC = () => {
               to="/sensor/plc/alarms"
               className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
             >
-              <div className="rounded-lg bg-red-50 p-2">
-                <Bell className="h-5 w-5 text-red-600" />
+              <div className="rounded-lg bg-error-50 dark:bg-error-900/20 p-2">
+                <Bell className="h-5 w-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100">Alarmlar</h3>
@@ -299,7 +383,9 @@ const PlcDashboardPage: React.FC = () => {
 
           {/* Connections Grid */}
           <div>
-            <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">PLC Bağlantıları</h2>
+            <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
+              PLC Bağlantıları
+            </h2>
             {connections && connections.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {connections.map((conn) => (
@@ -313,13 +399,15 @@ const PlcDashboardPage: React.FC = () => {
             ) : (
               <div className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-12 text-center">
                 <Server className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">PLC bağlantısı yok</h3>
+                <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  PLC bağlantısı yok
+                </h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   İlk PLC bağlantınızı oluşturmak için Bağlantılar sayfasına gidin.
                 </p>
                 <Link
                   to="/sensor/plc/connections"
-                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
                 >
                   Bağlantı Oluştur
                 </Link>

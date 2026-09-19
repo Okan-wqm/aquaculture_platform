@@ -90,8 +90,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div className="min-h-[400px] flex items-center justify-center p-8">
           <div className="text-center max-w-md">
-            <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-              <TriangleAlert className="w-8 h-8 text-red-600" aria-hidden="true" />
+            <div className="mx-auto w-16 h-16 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-4">
+              <TriangleAlert
+                className="w-8 h-8 text-error-600 dark:text-error-400"
+                aria-hidden="true"
+              />
             </div>
 
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
@@ -104,7 +107,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
             {import.meta.env.DEV && error && (
               <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left">
-                <p className="text-sm font-mono text-red-600 break-all">{error.message}</p>
+                <p className="text-sm font-mono text-error-600 dark:text-error-400 break-all">
+                  {error.message}
+                </p>
               </div>
             )}
 

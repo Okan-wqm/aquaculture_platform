@@ -151,7 +151,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
         name: '',
         speciesId: '',
         supplierId: '',
-            strain: '',
+        strain: '',
         inputType: 'FRY',
         initialQuantity: '',
         avgWeightG: '',
@@ -343,7 +343,9 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
         {isLoadingBatchNumber ? (
           <span className="text-gray-400 dark:text-gray-500">Loading...</span>
         ) : (
-          <span className="font-mono font-medium text-blue-600">{batchNumber}</span>
+          <span className="font-mono font-medium text-info-600 dark:text-info-400">
+            {batchNumber}
+          </span>
         )}
       </p>
 
@@ -376,7 +378,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               onClick={() => setActiveTab(tab)}
               className={`px-3 py-1.5 text-sm font-medium rounded-md relative ${
                 activeTab === tab
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
@@ -385,7 +387,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               {tab === 'tanks' && 'Tank Allocation'}
               {tab === 'notes' && 'Notes'}
               {hasError && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-error-500 rounded-full" />
               )}
             </button>
           );
@@ -401,25 +403,33 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Name (optional) */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch Name</label>
-                  <Input fullWidth type="text" value={formData.name} onChange={(e) => handleInputChange('name', e.target.value)} placeholder="Optional display name" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Batch Name
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    placeholder="Optional display name"
+                  />
                 </div>
 
                 {/* Input Date */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Input Date <span className="text-red-500">*</span>
+                    Input Date <span className="text-error-500">*</span>
                   </label>
                   <input
                     type="date"
                     value={formData.stockedAt}
                     onChange={(e) => handleInputChange('stockedAt', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.stockedAt ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.stockedAt ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                   />
                   {errors.stockedAt && (
-                    <p className="mt-1 text-sm text-red-500">{errors.stockedAt}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.stockedAt}</p>
                   )}
                 </div>
               </div>
@@ -428,13 +438,15 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 {/* Supplier */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Supplier / Hatchery <span className="text-red-500">*</span>
+                    Supplier / Hatchery <span className="text-error-500">*</span>
                   </label>
                   <select
                     value={formData.supplierId}
                     onChange={(e) => handleInputChange('supplierId', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.supplierId ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.supplierId
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                   >
                     <option value="">Select a supplier...</option>
@@ -445,20 +457,20 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                     ))}
                   </select>
                   {errors.supplierId && (
-                    <p className="mt-1 text-sm text-red-500">{errors.supplierId}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.supplierId}</p>
                   )}
                 </div>
 
                 {/* Species */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Species <span className="text-red-500">*</span>
+                    Species <span className="text-error-500">*</span>
                   </label>
                   <select
                     value={formData.speciesId}
                     onChange={(e) => handleInputChange('speciesId', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.speciesId ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.speciesId ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                   >
                     <option value="">Select a species...</option>
@@ -469,7 +481,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                     ))}
                   </select>
                   {errors.speciesId && (
-                    <p className="mt-1 text-sm text-red-500">{errors.speciesId}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.speciesId}</p>
                   )}
                 </div>
               </div>
@@ -478,12 +490,12 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 {/* Input Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Unit Type <span className="text-red-500">*</span>
+                    Unit Type <span className="text-error-500">*</span>
                   </label>
                   <select
                     value={formData.inputType}
                     onChange={(e) => handleInputChange('inputType', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                   >
                     {inputTypeOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -496,7 +508,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 {/* Total Quantity */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Total Quantity <span className="text-red-500">*</span>
+                    Total Quantity <span className="text-error-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -508,20 +520,22 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                         e.target.value ? parseInt(e.target.value) : '',
                       )
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.initialQuantity ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.initialQuantity
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 50000"
                   />
                   {errors.initialQuantity && (
-                    <p className="mt-1 text-sm text-red-500">{errors.initialQuantity}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.initialQuantity}</p>
                   )}
                 </div>
 
                 {/* Average Weight */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Average Weight (g) <span className="text-red-500">*</span>
+                    Average Weight (g) <span className="text-error-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -534,26 +548,30 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                         e.target.value ? parseFloat(e.target.value) : '',
                       )
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.avgWeightG ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.avgWeightG
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 2.5"
                   />
                   {errors.avgWeightG && (
-                    <p className="mt-1 text-sm text-red-500">{errors.avgWeightG}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.avgWeightG}</p>
                   )}
                 </div>
               </div>
 
               {/* Biomass (calculated) */}
-              <div className="bg-blue-50 p-3 rounded-lg">
+              <div className="bg-info-50 dark:bg-info-900/20 p-3 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-blue-700">Total Biomass</span>
-                  <span className="text-lg font-bold text-blue-900">
+                  <span className="text-sm font-medium text-info-700 dark:text-info-300">
+                    Total Biomass
+                  </span>
+                  <span className="text-lg font-bold text-info-900 dark:text-info-100">
                     {totalBiomassKg.toFixed(2)} kg
                   </span>
                 </div>
-                <p className="text-xs text-blue-600 mt-1">
+                <p className="text-xs text-info-600 dark:text-info-400 mt-1">
                   Calculated: {Number(formData.initialQuantity || 0).toLocaleString()} units x{' '}
                   {Number(formData.avgWeightG || 0)} g / 1000
                 </p>
@@ -563,13 +581,15 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 {/* Arrival Method */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Arrival Method <span className="text-red-500">*</span>
+                    Arrival Method <span className="text-error-500">*</span>
                   </label>
                   <select
                     value={formData.arrivalMethod}
                     onChange={(e) => handleInputChange('arrivalMethod', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.arrivalMethod ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.arrivalMethod
+                        ? 'border-error-500'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                   >
                     <option value="">Select method...</option>
@@ -580,14 +600,14 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                     ))}
                   </select>
                   {errors.arrivalMethod && (
-                    <p className="mt-1 text-sm text-red-500">{errors.arrivalMethod}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.arrivalMethod}</p>
                   )}
                 </div>
 
                 {/* Target FCR */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Target FCR <span className="text-red-500">*</span>
+                    Target FCR <span className="text-error-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -601,13 +621,13 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                         e.target.value ? parseFloat(e.target.value) : '',
                       )
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.targetFCR ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                      errors.targetFCR ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 1.2"
                   />
                   {errors.targetFCR && (
-                    <p className="mt-1 text-sm text-red-500">{errors.targetFCR}</p>
+                    <p className="mt-1 text-sm text-error-500">{errors.targetFCR}</p>
                   )}
                 </div>
               </div>
@@ -615,8 +635,16 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Strain */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Strain</label>
-                  <Input fullWidth type="text" value={formData.strain} onChange={(e) => handleInputChange('strain', e.target.value)} placeholder="e.g., AquaGen" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Strain
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.strain}
+                    onChange={(e) => handleInputChange('strain', e.target.value)}
+                    placeholder="e.g., AquaGen"
+                  />
                 </div>
 
                 {/* Supplier Batch Number */}
@@ -624,7 +652,13 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Supplier Batch #
                   </label>
-                  <Input fullWidth type="text" value={formData.supplierBatchNumber} onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)} placeholder="e.g., HTC-2024-001" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.supplierBatchNumber}
+                    onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
+                    placeholder="e.g., HTC-2024-001"
+                  />
                 </div>
 
                 {/* Expected Harvest Date */}
@@ -632,7 +666,12 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Expected Harvest
                   </label>
-                  <Input fullWidth type="date" value={formData.expectedHarvestDate} onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)} />
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={formData.expectedHarvestDate}
+                    onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -643,13 +682,29 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                     Purchase Cost
                   </label>
                   <div className="flex">
-                    <Select options={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'TRY', label: 'TRY' }, { value: 'NOK', label: 'NOK' }]} value={formData.currency} onChange={(e) => handleInputChange('currency', e.target.value)} />
-                    <Input type="number" step="0.01" min="0" value={formData.purchaseCost} onChange={(e) =>
-            handleInputChange(
-             'purchaseCost',
-             e.target.value ? parseFloat(e.target.value) : '',
-            )
-           } placeholder="0.00" />
+                    <Select
+                      options={[
+                        { value: 'USD', label: 'USD' },
+                        { value: 'EUR', label: 'EUR' },
+                        { value: 'TRY', label: 'TRY' },
+                        { value: 'NOK', label: 'NOK' },
+                      ]}
+                      value={formData.currency}
+                      onChange={(e) => handleInputChange('currency', e.target.value)}
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.purchaseCost}
+                      onChange={(e) =>
+                        handleInputChange(
+                          'purchaseCost',
+                          e.target.value ? parseFloat(e.target.value) : '',
+                        )
+                      }
+                      placeholder="0.00"
+                    />
                   </div>
                 </div>
               </div>
@@ -660,8 +715,8 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {activeTab === 'documents' && (
             <div className="space-y-6">
               {errors.documents && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{errors.documents}</p>
+                <div className="p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+                  <p className="text-sm text-error-600 dark:text-error-400">{errors.documents}</p>
                 </div>
               )}
 
@@ -693,8 +748,10 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {activeTab === 'tanks' && (
             <div>
               {errors.tankAllocations && (
-                <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{errors.tankAllocations}</p>
+                <div className="p-3 mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+                  <p className="text-sm text-error-600 dark:text-error-400">
+                    {errors.tankAllocations}
+                  </p>
                 </div>
               )}
 
@@ -713,8 +770,17 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {/* Notes Tab */}
           {activeTab === 'notes' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes</label>
-              <Textarea fullWidth value={formData.notes} onChange={(e) => handleInputChange('notes', e.target.value)} rows={8} maxLength={5000} placeholder="Additional notes about this batch..." />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Notes
+              </label>
+              <Textarea
+                fullWidth
+                value={formData.notes}
+                onChange={(e) => handleInputChange('notes', e.target.value)}
+                rows={8}
+                maxLength={5000}
+                placeholder="Additional notes about this batch..."
+              />
             </div>
           )}
         </div>
@@ -722,8 +788,8 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
         {/* Footer */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           {errors.submit && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">{errors.submit}</p>
+            <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+              <p className="text-sm text-error-600 dark:text-error-400">{errors.submit}</p>
             </div>
           )}
 
@@ -733,8 +799,8 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 <span
                   className={
                     allocatedQuantity === Number(formData.initialQuantity)
-                      ? 'text-green-600'
-                      : 'text-amber-600'
+                      ? 'text-success-600 dark:text-success-400'
+                      : 'text-warning-600 dark:text-warning-400'
                   }
                 >
                   {allocatedQuantity.toLocaleString()} /{' '}
@@ -743,11 +809,17 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               )}
             </div>
             <div className="flex space-x-3">
-              <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-              <Button variant="primary" type="submit" disabled={isSubmitting || isLoadingBatchNumber}>{isSubmitting && (
-                  <Spinner size="sm" color="white" className="-ml-1 mr-2" />
-                )}
-                {isSubmitting ? 'Creating...' : 'Create Batch'}</Button>
+              <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={isSubmitting || isLoadingBatchNumber}
+              >
+                {isSubmitting && <Spinner size="sm" color="white" className="-ml-1 mr-2" />}
+                {isSubmitting ? 'Creating...' : 'Create Batch'}
+              </Button>
             </div>
           </div>
         </div>

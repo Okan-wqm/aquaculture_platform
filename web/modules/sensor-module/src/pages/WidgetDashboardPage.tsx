@@ -83,9 +83,11 @@ const WidgetDashboardPage: React.FC = () => {
             </Link>
             <div className="h-8 w-px bg-gray-200 dark:bg-gray-700" />
             <div className="flex items-center gap-2">
-              <LayoutGrid size={24} className="text-cyan-600" />
+              <LayoutGrid size={24} className="text-info-600 dark:text-info-400" />
               <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Widget Dashboard</h1>
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  Widget Dashboard
+                </h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Sürükle-bırak özelleştirilebilir sensör gösterge paneli
                 </p>
@@ -115,10 +117,7 @@ const WidgetDashboardPage: React.FC = () => {
 
       {/* Main Content - GridStack Dashboard */}
       <div className="flex-1 overflow-hidden">
-        <GridStackDashboard
-          initialLayout={initialLayout}
-          onLayoutChange={handleLayoutChange}
-        />
+        <GridStackDashboard initialLayout={initialLayout} onLayoutChange={handleLayoutChange} />
       </div>
     </div>
   );

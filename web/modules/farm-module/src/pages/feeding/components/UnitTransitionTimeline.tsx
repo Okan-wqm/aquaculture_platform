@@ -12,7 +12,14 @@ import { useI18n, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import type { ProtocolFeedForecastView } from '../../../hooks/useProtocolFeeding';
 
-const SEGMENT_COLORS = [colors.info[600], colors.success[600], colors.warning[600], colors.error[600], colors.primary[800], colors.primary[600]];
+const SEGMENT_COLORS = [
+  colors.info[600],
+  colors.success[600],
+  colors.warning[600],
+  colors.error[600],
+  colors.primary[800],
+  colors.primary[600],
+];
 
 interface Props {
   forecast: ProtocolFeedForecastView;
@@ -89,7 +96,7 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
                     >
                       {widthPercent > 8 ? code : ''}
                       {hasGap && (
-                        <span className="ml-1 px-1 rounded bg-red-600">
+                        <span className="ml-1 px-1 rounded bg-error-600">
                           {t('feedingV2.forecast.gapBadge')}
                         </span>
                       )}

@@ -293,7 +293,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               onClick={() => setEditMode('rates')}
               className={`px-4 py-2 text-sm font-medium ${
                 editMode === 'rates'
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-info-600 text-white'
                   : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -304,7 +304,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               onClick={() => setEditMode('fcr')}
               className={`px-4 py-2 text-sm font-medium ${
                 editMode === 'fcr'
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-info-600 text-white'
                   : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -460,9 +460,9 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           <div className="flex items-center gap-2">
             <span>FCR:</span>
             <div className="flex">
-              <div className="w-4 h-4 bg-green-500" title="<0.9" />
-              <div className="w-4 h-4 bg-yellow-500" title="0.9-1.2" />
-              <div className="w-4 h-4 bg-red-500" title=">1.2" />
+              <div className="w-4 h-4 bg-success-500" title="<0.9" />
+              <div className="w-4 h-4 bg-warning-500" title="0.9-1.2" />
+              <div className="w-4 h-4 bg-error-500" title=">1.2" />
             </div>
             <span>Good → Poor</span>
           </div>
@@ -470,13 +470,15 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       </div>
 
       {/* Interpolation Calculator */}
-      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-        <h5 className="text-sm font-medium text-blue-800 mb-3">
+      <div className="mt-4 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg">
+        <h5 className="text-sm font-medium text-info-800 dark:text-info-200 mb-3">
           Interpolation Calculator (Test your matrix)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Temperature (°C)</label>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Temperature (°C)
+            </label>
             <Input
               fullWidth
               type="number"
@@ -487,7 +489,9 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
             />
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Fish Weight (g)</label>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Fish Weight (g)
+            </label>
             <Input
               fullWidth
               type="number"
@@ -498,12 +502,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
             />
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Feeding Rate</label>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Feeding Rate
+            </label>
             <div
               className={`py-2 px-3 border rounded-md text-sm font-medium ${
                 !isTestPointCovered
-                  ? 'bg-red-50 border-red-300 text-red-700'
-                  : 'bg-white dark:bg-gray-900 border-blue-300'
+                  ? 'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
+                  : 'bg-white dark:bg-gray-900 border-info-300'
               }`}
             >
               {!isTestPointCovered
@@ -514,12 +520,12 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">FCR</label>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">FCR</label>
             <div
               className={`py-2 px-3 border rounded-md text-sm font-medium ${
                 !isTestPointCovered
-                  ? 'bg-red-50 border-red-300 text-red-700'
-                  : 'bg-white dark:bg-gray-900 border-blue-300'
+                  ? 'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
+                  : 'bg-white dark:bg-gray-900 border-info-300'
               }`}
             >
               {!isTestPointCovered
@@ -531,7 +537,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           </div>
         </div>
         {!isTestPointCovered && testTemp !== '' && testWeight !== '' && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-red-700">
+          <div className="mt-2 flex items-center gap-2 text-xs text-error-700 dark:text-error-300">
             <TriangleAlert className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             <span>
               Bu sicaklik/agirlik kombinasyonu hicbir yemin kapsama alaninda degil. Ilgili yemin

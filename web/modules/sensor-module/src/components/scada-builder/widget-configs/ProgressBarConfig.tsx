@@ -36,7 +36,8 @@ const LABEL_POSITION_OPTIONS: { value: LabelPosition; label: string }[] = [
   { value: 'below', label: 'Below' },
 ];
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS =
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const min = (config.min ?? 0) as number;
@@ -60,9 +61,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   };
 
   const updateZone = (index: number, field: keyof ColorZone, value: string | number) => {
-    const updated = zones.map((z, i) =>
-      i === index ? { ...z, [field]: value } : z,
-    );
+    const updated = zones.map((z, i) => (i === index ? { ...z, [field]: value } : z));
     onChange({ zones: updated });
   };
 
@@ -127,7 +126,9 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Bar dimensions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bar Height (px)</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            Bar Height (px)
+          </label>
           <input
             type="number"
             min={8}
@@ -138,7 +139,9 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Radius</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            Border Radius
+          </label>
           <input
             type="number"
             min={0}
@@ -152,14 +155,18 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Label position & toggles */}
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label Position</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Label Position
+        </label>
         <select
           value={labelPosition}
           onChange={(e) => onChange({ labelPosition: e.target.value })}
           className={INPUT_CLS}
         >
           {LABEL_POSITION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
       </div>
@@ -170,7 +177,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
             type="checkbox"
             checked={showLabel}
             onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
           Show Label
         </label>
@@ -179,7 +186,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
             type="checkbox"
             checked={showPercentage}
             onChange={(e) => onChange({ showPercentage: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
           Show Percentage
         </label>
@@ -187,10 +194,14 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
+          Colors
+        </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Background</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Background
+            </label>
             <input
               type="color"
               value={backgroundColor}
@@ -199,7 +210,9 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Color</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Fill Color
+            </label>
             <input
               type="color"
               value={fillColor}
@@ -213,8 +226,12 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Color Zones */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Color Zones</label>
-          <Button variant="ghost" size="xs" onClick={addZone}>+ Add Zone</Button>
+          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+            Color Zones
+          </label>
+          <Button variant="ghost" size="xs" onClick={addZone}>
+            + Add Zone
+          </Button>
         </div>
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
           Zones define color ranges by percentage. First matching zone wins.
@@ -222,15 +239,27 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
         <div className="space-y-2">
           {zones.map((zone, i) => (
             <div key={i} className="flex items-center gap-1">
-              <Input type="number" value={zone.min} onChange={(e) => updateZone(i, 'min', Number(e.target.value))} placeholder="Min %" />
-              <Input type="number" value={zone.max} onChange={(e) => updateZone(i, 'max', Number(e.target.value))} placeholder="Max %" />
+              <Input
+                type="number"
+                value={zone.min}
+                onChange={(e) => updateZone(i, 'min', Number(e.target.value))}
+                placeholder="Min %"
+              />
+              <Input
+                type="number"
+                value={zone.max}
+                onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
+                placeholder="Max %"
+              />
               <input
                 type="color"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
-              <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>X</Button>
+              <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>
+                X
+              </Button>
             </div>
           ))}
         </div>

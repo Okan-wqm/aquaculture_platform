@@ -334,35 +334,35 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
         />
       </div>
     </div>
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <h4 className="text-sm font-medium text-blue-800">Report Contents</h4>
-      <p className="text-sm text-blue-600 mt-1">
+    <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+      <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Contents</h4>
+      <p className="text-sm text-info-600 dark:text-info-400 mt-1">
         This report includes biomass, stocking records, mortality, harvests, transfers, and feed
         consumption for the reporting period.
       </p>
-      <ul className="mt-3 space-y-1 text-sm text-blue-700">
+      <ul className="mt-3 space-y-1 text-sm text-info-700 dark:text-info-300">
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Current biomass by species
         </li>
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Stocking records (fish arrivals)
         </li>
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Mortality by cause
         </li>
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Slaughter/harvest records
         </li>
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Feed consumption
         </li>
         <li className="flex items-center">
-          <Check className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Transfers in/out
         </li>
       </ul>
@@ -461,7 +461,7 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
             <button
               type="button"
               onClick={handleLoadFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
             >
               <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
@@ -477,9 +477,12 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
 
       {/* Auto-populated notice */}
       {formData.biomassLoadedFromSystem && formData.currentBiomass.bySpecies.length > 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <Check className="w-4 h-4 text-green-600 flex-shrink-0" aria-hidden="true" />
-          <span className="text-sm text-green-700">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3 flex items-center gap-2">
+          <Check
+            className="w-4 h-4 text-success-600 dark:text-success-400 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-sm text-success-700 dark:text-success-300">
             Assembled from batch and tank records.
             {biomassFromRecords
               ? ' Corrections go to the batch/tank records, not the report.'
@@ -489,10 +492,12 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
       )}
 
       {/* Total Summary */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-green-800">Total Biomass</span>
-          <span className="text-2xl font-bold text-green-700">
+          <span className="text-sm font-medium text-success-800 dark:text-success-200">
+            Total Biomass
+          </span>
+          <span className="text-2xl font-bold text-success-700 dark:text-success-300">
             {formatWeight(formData.currentBiomass.totalKg)}
           </span>
         </div>
@@ -655,10 +660,12 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
       </div>
 
       {/* Summary */}
-      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+      <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-indigo-800">Total Stocked</span>
-          <span className="text-2xl font-bold text-indigo-700">
+          <span className="text-sm font-medium text-primary-800 dark:text-primary-200">
+            Total Stocked
+          </span>
+          <span className="text-2xl font-bold text-primary-700 dark:text-primary-300">
             {formatNumber(formData.stockings.reduce((sum, s) => sum + s.quantity, 0))} fish
           </span>
         </div>
@@ -864,7 +871,7 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
           <button
             type="button"
             onClick={handleLoadMortalityFromSystem}
-            className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+            className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
           >
             <Download className="w-4 h-4" aria-hidden="true" />
             Load from System
@@ -873,10 +880,12 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
       </div>
 
       {/* Total Summary */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-red-800">Total Mortality</span>
-          <span className="text-2xl font-bold text-red-700">
+          <span className="text-sm font-medium text-error-800 dark:text-error-200">
+            Total Mortality
+          </span>
+          <span className="text-2xl font-bold text-error-700 dark:text-error-300">
             {formatNumber(formData.mortality.totalCount)}
           </span>
         </div>
@@ -1006,7 +1015,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
             <button
               type="button"
               onClick={handleLoadFeedFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
             >
               <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
@@ -1022,9 +1031,12 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
 
       {/* Auto-populated notice */}
       {formData.feedLoadedFromSystem && formData.feedConsumption.byFeedType.length > 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <Check className="w-4 h-4 text-green-600 flex-shrink-0" aria-hidden="true" />
-          <span className="text-sm text-green-700">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3 flex items-center gap-2">
+          <Check
+            className="w-4 h-4 text-success-600 dark:text-success-400 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-sm text-success-700 dark:text-success-300">
             Summed from feeding records for the reporting period.
             {feedFromRecords
               ? ' Corrections go to the feeding records, not the report.'
@@ -1034,10 +1046,12 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       )}
 
       {/* Total Summary */}
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-orange-800">Total Feed Consumption</span>
-          <span className="text-2xl font-bold text-orange-700">
+          <span className="text-sm font-medium text-warning-800 dark:text-warning-200">
+            Total Feed Consumption
+          </span>
+          <span className="text-2xl font-bold text-warning-700 dark:text-warning-300">
             {formatWeight(formData.feedConsumption.totalKg)}
           </span>
         </div>
@@ -1197,16 +1211,22 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-blue-800">Incoming</span>
-            <span className="text-xl font-bold text-blue-700">{incomingCount}</span>
+            <span className="text-sm font-medium text-info-800 dark:text-info-200">Incoming</span>
+            <span className="text-xl font-bold text-info-700 dark:text-info-300">
+              {incomingCount}
+            </span>
           </div>
         </div>
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-purple-800">Outgoing</span>
-            <span className="text-xl font-bold text-purple-700">{outgoingCount}</span>
+            <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
+              Outgoing
+            </span>
+            <span className="text-xl font-bold text-accent-700 dark:text-accent-300">
+              {outgoingCount}
+            </span>
           </div>
         </div>
       </div>
@@ -1237,8 +1257,8 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                   <span
                     className={`px-2 py-0.5 text-xs rounded-full ${
                       transfer.direction === 'incoming'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-purple-100 text-purple-700'
+                        ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                        : 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
                     }`}
                   >
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
@@ -1393,9 +1413,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
       </div>
@@ -1403,25 +1423,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatWeight(formData.currentBiomass.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Biomass</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
             {formatNumber(formData.mortality.totalCount)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Mortality</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-orange-600">
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
             {formatWeight(formData.feedConsumption.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Feed Used</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{fcrDisplay}</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">{fcrDisplay}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Estimated FCR</div>
         </div>
       </div>
@@ -1462,7 +1482,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.stockings.map((s, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-primary-50 dark:bg-primary-900/20 rounded p-2"
               >
                 <div>
                   <span className="text-gray-700 dark:text-gray-300">
@@ -1473,7 +1493,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   )}
                 </div>
                 <div className="text-right">
-                  <span className="font-medium text-indigo-700">
+                  <span className="font-medium text-primary-700 dark:text-primary-300">
                     {formatNumber(s.quantity)} fish
                   </span>
                   {s.avgWeightG > 0 && (
@@ -1498,10 +1518,12 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.mortality.byCause.map((c, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-red-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-error-50 dark:bg-error-900/20 rounded p-2"
               >
                 <span className="text-gray-700 dark:text-gray-300">{c.cause}</span>
-                <span className="font-medium text-red-700">{formatNumber(c.count)}</span>
+                <span className="font-medium text-error-700 dark:text-error-300">
+                  {formatNumber(c.count)}
+                </span>
               </div>
             ))}
           </div>
@@ -1518,7 +1540,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.feedConsumption.byFeedType.map((f, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-orange-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-warning-50 dark:bg-warning-900/20 rounded p-2"
               >
                 <div>
                   <span className="text-gray-700 dark:text-gray-300">
@@ -1530,7 +1552,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     </span>
                   )}
                 </div>
-                <span className="font-medium text-orange-700">{formatWeight(f.quantityKg)}</span>
+                <span className="font-medium text-warning-700 dark:text-warning-300">
+                  {formatWeight(f.quantityKg)}
+                </span>
               </div>
             ))}
           </div>
@@ -1545,12 +1569,12 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           </h5>
           {incomingTransfers.length > 0 && (
             <div className="mb-3">
-              <p className="text-xs font-medium text-blue-600 mb-1">Incoming</p>
+              <p className="text-xs font-medium text-info-600 dark:text-info-400 mb-1">Incoming</p>
               <div className="space-y-1">
                 {incomingTransfers.map((t, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between text-sm bg-blue-50 rounded p-2"
+                    className="flex items-center justify-between text-sm bg-info-50 dark:bg-info-900/20 rounded p-2"
                   >
                     <div>
                       <span className="text-gray-700 dark:text-gray-300">
@@ -1563,7 +1587,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-blue-700">
+                      <span className="font-medium text-info-700 dark:text-info-300">
                         {formatNumber(t.quantity)} fish
                       </span>
                       <span className="text-gray-500 dark:text-gray-400 ml-2">
@@ -1577,12 +1601,14 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           )}
           {outgoingTransfers.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-purple-600 mb-1">Outgoing</p>
+              <p className="text-xs font-medium text-accent-600 dark:text-accent-400 mb-1">
+                Outgoing
+              </p>
               <div className="space-y-1">
                 {outgoingTransfers.map((t, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between text-sm bg-purple-50 rounded p-2"
+                    className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
                   >
                     <div>
                       <span className="text-gray-700 dark:text-gray-300">
@@ -1595,7 +1621,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-purple-700">
+                      <span className="font-medium text-accent-700 dark:text-accent-300">
                         {formatNumber(t.quantity)} fish
                       </span>
                       <span className="text-gray-500 dark:text-gray-400 ml-2">
@@ -1611,8 +1637,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       )}
 
       {/* FCR Note */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-        <p className="text-xs text-yellow-700">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
+        <p className="text-xs text-warning-700 dark:text-warning-300">
           <span className="font-medium">Note on Estimated FCR:</span> The displayed FCR is a
           simplified ratio (total feed / current biomass). Accurate FCR requires: total feed
           consumed / (current biomass - initial biomass + harvested biomass + mortality biomass).
@@ -1641,14 +1667,26 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 function biomassStatusChip(status: BiomassReportStatusValue): { label: string; className: string } {
   switch (status) {
     case 'CONFIRMED_SUBMITTED':
-      return { label: 'Submitted (Altinn)', className: 'bg-green-100 text-green-800' };
+      return {
+        label: 'Submitted (Altinn)',
+        className: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+      };
     case 'SUBMITTED':
-      return { label: 'Submitted (legacy)', className: 'bg-green-100 text-green-800' };
+      return {
+        label: 'Submitted (legacy)',
+        className: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+      };
     case 'READY':
-      return { label: 'Ready for Altinn', className: 'bg-blue-100 text-blue-800' };
+      return {
+        label: 'Ready for Altinn',
+        className: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+      };
     case 'DRAFT':
     default:
-      return { label: 'Draft', className: 'bg-amber-100 text-amber-800' };
+      return {
+        label: 'Draft',
+        className: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+      };
   }
 }
 
@@ -1988,12 +2026,16 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Reports</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-amber-200 p-4">
-          <div className="text-2xl font-bold text-amber-600">{stats.inProgress}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-warning-200 p-4">
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {stats.inProgress}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-green-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-success-200 p-4">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+            {stats.submitted}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Submitted</div>
         </div>
       </div>
@@ -2010,8 +2052,10 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           Loading report history…
         </p>
       ) : reportsError ? (
-        <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-sm text-red-700">Failed to load report history. Please retry.</p>
+        <div className="text-center py-8 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Failed to load report history. Please retry.
+          </p>
         </div>
       ) : biomassReports.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">

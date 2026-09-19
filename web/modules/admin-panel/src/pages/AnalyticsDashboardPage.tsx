@@ -166,17 +166,17 @@ const KpiCard: React.FC<KpiCardProps> = ({
   color = 'blue',
 }) => {
   const colorClasses: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
-    orange: 'bg-orange-50 text-orange-600',
-    red: 'bg-red-50 text-red-600',
-    indigo: 'bg-indigo-50 text-indigo-600',
+    blue: 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400',
+    green: 'bg-success-50 dark:bg-success-900/20 text-success-600 dark:text-success-400',
+    purple: 'bg-accent-50 dark:bg-accent-900/20 text-accent-600 dark:text-accent-400',
+    orange: 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400',
+    red: 'bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400',
+    indigo: 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400',
   };
 
   const getTrendColor = (): string => {
-    if (trend === 'up') return 'text-green-600';
-    if (trend === 'down') return 'text-red-600';
+    if (trend === 'up') return 'text-success-600 dark:text-success-400';
+    if (trend === 'down') return 'text-error-600 dark:text-error-400';
     return 'text-gray-500 dark:text-gray-400';
   };
 
@@ -265,11 +265,11 @@ const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
       {data.map((item, index) => {
         const height = (item.value / maxValue) * maxHeight;
         const colors = [
-          'bg-blue-500',
-          'bg-green-500',
-          'bg-purple-500',
-          'bg-orange-500',
-          'bg-pink-500',
+          'bg-info-500',
+          'bg-success-500',
+          'bg-accent-500',
+          'bg-warning-500',
+          'bg-accent-500',
         ];
         return (
           <div key={index} className="flex flex-col items-center flex-1">
@@ -548,7 +548,7 @@ const AnalyticsDashboardPage: React.FC = () => {
 
       {data.unavailable && data.unavailable.length > 0 && (
         <div
-          className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800"
+          className="rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 px-4 py-3 text-sm text-warning-800 dark:text-warning-200"
           role="status"
         >
           The server could not compute these sections, so their cards read {UNKNOWN}:{' '}
@@ -647,7 +647,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <span className="text-gray-500 dark:text-gray-400">
               Bu ay: {formatNumber(tenants?.newThisMonth)}
             </span>
-            <span className="text-green-600 font-medium">
+            <span className="text-success-600 dark:text-success-400 font-medium">
               {formatPercent(tenants?.growthRate, 1)}
             </span>
           </div>
@@ -669,7 +669,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <span className="text-gray-500 dark:text-gray-400">
               MRR: {formatCurrency(financial?.mrr)}
             </span>
-            <span className="text-green-600 font-medium">
+            <span className="text-success-600 dark:text-success-400 font-medium">
               {formatPercent(financial?.revenueGrowthRate, 1)}
             </span>
           </div>
@@ -720,7 +720,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <div className="flex-1 ml-8 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
+                  <span className="w-3 h-3 rounded-full bg-accent-500 mr-2" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Enterprise</span>
                 </div>
                 <span className="font-medium">
@@ -729,7 +729,7 @@ const AnalyticsDashboardPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
+                  <span className="w-3 h-3 rounded-full bg-success-500 mr-2" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Professional</span>
                 </div>
                 <span className="font-medium">
@@ -738,7 +738,7 @@ const AnalyticsDashboardPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
+                  <span className="w-3 h-3 rounded-full bg-info-500 mr-2" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Starter</span>
                 </div>
                 <span className="font-medium">
@@ -747,7 +747,7 @@ const AnalyticsDashboardPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
+                  <span className="w-3 h-3 rounded-full bg-warning-500 mr-2" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Trial</span>
                 </div>
                 <span className="font-medium">
@@ -825,7 +825,7 @@ const AnalyticsDashboardPage: React.FC = () => {
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full"
+                      className="bg-info-600 h-2 rounded-full"
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
@@ -855,7 +855,7 @@ const AnalyticsDashboardPage: React.FC = () => {
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
-                    className="bg-green-600 h-2 rounded-full"
+                    className="bg-success-600 h-2 rounded-full"
                     style={{ width: `${feature.usage}%` }}
                   />
                 </div>

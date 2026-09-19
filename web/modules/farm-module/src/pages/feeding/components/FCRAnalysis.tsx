@@ -101,11 +101,13 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
   ): { label: string; color: string } => {
     if (actual === 0) return { label: 'No Data', color: 'text-gray-500 dark:text-gray-400' };
     const variance = ((actual - target) / target) * 100;
-    if (variance <= -10) return { label: 'Excellent', color: 'text-green-600' };
-    if (variance <= 0) return { label: 'Good', color: 'text-green-500' };
-    if (variance <= 10) return { label: 'Fair', color: 'text-yellow-600' };
-    if (variance <= 20) return { label: 'Below Target', color: 'text-orange-600' };
-    return { label: 'Poor', color: 'text-red-600' };
+    if (variance <= -10)
+      return { label: 'Excellent', color: 'text-success-600 dark:text-success-400' };
+    if (variance <= 0) return { label: 'Good', color: 'text-success-500' };
+    if (variance <= 10) return { label: 'Fair', color: 'text-warning-600 dark:text-warning-400' };
+    if (variance <= 20)
+      return { label: 'Below Target', color: 'text-warning-600 dark:text-warning-400' };
+    return { label: 'Poor', color: 'text-error-600 dark:text-error-400' };
   };
 
   if (batches.length === 0) {
@@ -174,10 +176,10 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
           <span
             className={`${
               batch.variance <= 0
-                ? 'text-green-600'
+                ? 'text-success-600 dark:text-success-400'
                 : batch.variance > 10
-                  ? 'text-red-600'
-                  : 'text-orange-600'
+                  ? 'text-error-600 dark:text-error-400'
+                  : 'text-warning-600 dark:text-warning-400'
             }`}
           >
             {batch.variance > 0 ? '+' : ''}
@@ -241,7 +243,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
             onClick={() => setSelectedMetric('fcr')}
             className={`px-3 py-1 text-sm rounded-md ${
               selectedMetric === 'fcr'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -251,7 +253,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
             onClick={() => setSelectedMetric('sgr')}
             className={`px-3 py-1 text-sm rounded-md ${
               selectedMetric === 'sgr'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -334,29 +336,31 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* FCR Optimization Tips */}
-      <div className="bg-blue-50 rounded-lg shadow p-4">
-        <h3 className="text-lg font-medium text-blue-900 mb-2">FCR Optimization Tips</h3>
-        <ul className="space-y-2 text-sm text-blue-800">
+      <div className="bg-info-50 dark:bg-info-900/20 rounded-lg shadow p-4">
+        <h3 className="text-lg font-medium text-info-900 dark:text-info-100 mb-2">
+          FCR Optimization Tips
+        </h3>
+        <ul className="space-y-2 text-sm text-info-800 dark:text-info-200">
           <li className="flex items-start">
-            <CircleCheck className="w-5 h-5 mr-2 text-blue-500 flex-shrink-0" aria-hidden="true" />
+            <CircleCheck className="w-5 h-5 mr-2 text-info-500 flex-shrink-0" aria-hidden="true" />
             <span>
               Monitor water quality - optimal temperature and oxygen levels improve feed efficiency
             </span>
           </li>
           <li className="flex items-start">
-            <CircleCheck className="w-5 h-5 mr-2 text-blue-500 flex-shrink-0" aria-hidden="true" />
+            <CircleCheck className="w-5 h-5 mr-2 text-info-500 flex-shrink-0" aria-hidden="true" />
             <span>
               Match feed size to fish size - use the appropriate pellet size for the growth stage
             </span>
           </li>
           <li className="flex items-start">
-            <CircleCheck className="w-5 h-5 mr-2 text-blue-500 flex-shrink-0" aria-hidden="true" />
+            <CircleCheck className="w-5 h-5 mr-2 text-info-500 flex-shrink-0" aria-hidden="true" />
             <span>
               Feed multiple times per day - smaller, more frequent meals improve conversion
             </span>
           </li>
           <li className="flex items-start">
-            <CircleCheck className="w-5 h-5 mr-2 text-blue-500 flex-shrink-0" aria-hidden="true" />
+            <CircleCheck className="w-5 h-5 mr-2 text-info-500 flex-shrink-0" aria-hidden="true" />
             <span>Reduce stress factors - maintain stable conditions and minimize handling</span>
           </li>
         </ul>

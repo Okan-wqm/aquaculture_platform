@@ -83,7 +83,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
       bodyClassName="p-6"
     >
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+        <div className="mb-4 rounded-lg border border-error-200 bg-error-50 p-3 text-sm text-error-700 dark:border-error-800 dark:bg-error-900/20 dark:text-error-400">
           {error}
         </div>
       )}
@@ -91,23 +91,44 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Name <span className="text-red-500">*</span>
+            Name <span className="text-error-500">*</span>
           </label>
-          <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Operations" required />
+          <Input
+            fullWidth
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Operations"
+            required
+          />
         </div>
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Code <span className="text-red-500">*</span>
+            Code <span className="text-error-500">*</span>
           </label>
-          <Input fullWidth type="text" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. OPS" maxLength={20} required />
+          <Input
+            fullWidth
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="e.g. OPS"
+            maxLength={20}
+            required
+          />
         </div>
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
-          <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Brief description of the department" />
+          <Textarea
+            fullWidth
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Brief description of the department"
+          />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -115,19 +136,35 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Budget Code
             </label>
-            <Input fullWidth type="text" value={budgetCode} onChange={(e) => setBudgetCode(e.target.value)} placeholder="e.g. BC-001" />
+            <Input
+              fullWidth
+              type="text"
+              value={budgetCode}
+              onChange={(e) => setBudgetCode(e.target.value)}
+              placeholder="e.g. BC-001"
+            />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Cost Center
             </label>
-            <Input fullWidth type="text" value={costCenter} onChange={(e) => setCostCenter(e.target.value)} placeholder="e.g. CC-001" />
+            <Input
+              fullWidth
+              type="text"
+              value={costCenter}
+              onChange={(e) => setCostCenter(e.target.value)}
+              placeholder="e.g. CC-001"
+            />
           </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={isPending}>{isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={isPending}>
+            {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          </Button>
         </div>
       </form>
     </Modal>
@@ -169,13 +206,15 @@ const DepartmentsPage: React.FC = () => {
         title="Departments"
         description={<>{departments?.length ?? '-'} departments</>}
         actions={
-          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={handleCreate}>New Department</Button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={handleCreate}>
+            New Department
+          </Button>
         }
       />
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+        <div className="rounded-lg border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:border-error-800 dark:bg-error-900/20 dark:text-error-400">
           Failed to load departments: {error instanceof Error ? error.message : 'Unknown error'}
         </div>
       )}
@@ -206,14 +245,8 @@ const DepartmentsPage: React.FC = () => {
                 <div className="p-6">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="rounded-lg p-3"
-                        style={{ backgroundColor: `${color}20` }}
-                      >
-                        <Building2
-                          className="h-6 w-6"
-                          style={{ color }}
-                        />
+                      <div className="rounded-lg p-3" style={{ backgroundColor: `${color}20` }}>
+                        <Building2 className="h-6 w-6" style={{ color }} />
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-900 dark:text-white">
@@ -224,7 +257,16 @@ const DepartmentsPage: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" iconOnly aria-label="Edit department" onClick={() => handleEdit(department)} title="Edit department"><Pencil className="h-4 w-4" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label="Edit department"
+                      onClick={() => handleEdit(department)}
+                      title="Edit department"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                   </div>
 
                   {department.description && (
@@ -235,25 +277,19 @@ const DepartmentsPage: React.FC = () => {
 
                   {(department.budgetCode || department.costCenter) && (
                     <div className="mt-3 flex gap-3 text-xs text-gray-500 dark:text-gray-400">
-                      {department.budgetCode && (
-                        <span>Budget: {department.budgetCode}</span>
-                      )}
-                      {department.costCenter && (
-                        <span>CC: {department.costCenter}</span>
-                      )}
+                      {department.budgetCode && <span>Budget: {department.budgetCode}</span>}
+                      {department.costCenter && <span>CC: {department.costCenter}</span>}
                     </div>
                   )}
 
                   <div className="mt-4 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                       <Users className="h-4 w-4" />
-                      <span className="text-sm">
-                        {department.isActive ? 'Active' : 'Inactive'}
-                      </span>
+                      <span className="text-sm">{department.isActive ? 'Active' : 'Inactive'}</span>
                     </div>
                     <Link
                       to={`/hr/employees?departmentId=${department.id}`}
-                      className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                      className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
                     >
                       View Employees
                       <ChevronRight className="h-4 w-4" />
@@ -271,7 +307,9 @@ const DepartmentsPage: React.FC = () => {
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-center dark:border-gray-600 dark:bg-gray-800/50">
           <Building2 className="mb-3 h-10 w-10 text-gray-400 dark:text-gray-500" />
           <p className="text-gray-500 dark:text-gray-400">No departments found</p>
-          <Button variant="ghost" className="mt-3" onClick={handleCreate}>Create your first department</Button>
+          <Button variant="ghost" className="mt-3" onClick={handleCreate}>
+            Create your first department
+          </Button>
         </div>
       )}
 
@@ -284,7 +322,7 @@ const DepartmentsPage: React.FC = () => {
           <p className="text-gray-500 dark:text-gray-400">
             <Link
               to="/hr/organization"
-              className="text-indigo-600 hover:underline dark:text-indigo-400"
+              className="text-primary-600 hover:underline dark:text-primary-400"
             >
               View full organization chart
             </Link>
@@ -294,10 +332,7 @@ const DepartmentsPage: React.FC = () => {
 
       {/* CRUD Modal */}
       {showModal && (
-        <DepartmentFormModal
-          department={editingDepartment}
-          onClose={handleCloseModal}
-        />
+        <DepartmentFormModal department={editingDepartment} onClose={handleCloseModal} />
       )}
     </div>
   );

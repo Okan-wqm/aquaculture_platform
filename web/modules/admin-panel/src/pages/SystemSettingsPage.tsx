@@ -33,6 +33,7 @@ import type {
   SecurityConfig,
 } from '../services/api/platform-configuration';
 import { settingsApi } from '../services/adminApi';
+import { ProviderCredentialsTab } from '../components/settings/ProviderCredentialsTab';
 
 // ============================================================================
 // Types
@@ -44,7 +45,7 @@ interface SystemInfo {
   database?: Record<string, unknown>;
 }
 
-type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'system';
+type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'providers' | 'system';
 
 // ============================================================================
 // Constants
@@ -56,6 +57,10 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: 'security', label: 'Security', icon: 'shield' },
   { id: 'billing', label: 'Billing', icon: 'credit-card' },
   { id: 'ratelimit', label: 'Rate Limit', icon: 'clock' },
+  // Company marine data provider credential (ADMIN-HIGH-135). Its own
+  // config-service surface, not a `service=platform` key — see
+  // components/settings/ProviderCredentialsTab.tsx.
+  { id: 'providers', label: 'Providers', icon: 'globe' },
   { id: 'system', label: 'System Info', icon: 'server' },
 ];
 
@@ -101,6 +106,11 @@ const TabIcon: React.FC<{ name: string; className?: string }> = ({ name, classNa
     clock: (
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+    globe: (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
     server: (
@@ -716,6 +726,8 @@ const SystemSettingsPage: React.FC = () => {
             saving={saving}
           />
         )}
+
+        {activeTab === 'providers' && <ProviderCredentialsTab />}
 
         {activeTab === 'system' && (
           <SystemInfoTab

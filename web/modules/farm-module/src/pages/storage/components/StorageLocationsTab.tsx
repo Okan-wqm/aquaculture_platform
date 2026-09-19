@@ -112,7 +112,14 @@ export const StorageLocationsTab: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this location?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this location?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteLocationMutation.mutateAsync(id);
       } catch (err) {

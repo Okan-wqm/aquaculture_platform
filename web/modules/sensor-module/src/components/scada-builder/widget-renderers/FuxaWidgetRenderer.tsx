@@ -194,8 +194,8 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
     // Dispose previous bridge if any (defensive)
     bridgeRef.current?.dispose();
 
-    // Create new bridge (tagBus is null for now -- will be connected
-    // when ScadaRuntimeContext provides it via a future hook)
+    // Create new bridge. tagBus is null until ScadaRuntimeContext provides
+    // one through its hook; the bridge is constructed without a bus here.
     const bridge = new FuxaMessageBridge(iframe, null);
     bridgeRef.current = bridge;
 

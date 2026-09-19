@@ -214,7 +214,11 @@ export const SystemsTab: React.FC = () => {
       setDeleteDialogOpen(false);
       setSystemToDelete(null);
     } catch (err) {
-      toast({ title: 'Failed to delete system', description: err instanceof Error ? err.message : undefined, variant: 'error' });
+      toast({
+        title: 'Failed to delete system',
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'error',
+      });
     }
   };
 
@@ -267,7 +271,11 @@ export const SystemsTab: React.FC = () => {
       }
       setIsModalOpen(false);
     } catch (err) {
-      toast({ title: 'Failed to save system', description: err instanceof Error ? err.message : undefined, variant: 'error' });
+      toast({
+        title: 'Failed to save system',
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'error',
+      });
     }
   };
 

@@ -6,6 +6,8 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { mergeAwareBaseSource } from './format-merge-base.mjs';
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.NX_DAEMON = 'false';
 process.env.NX_INTERACTIVE = 'false';
@@ -456,6 +458,11 @@ function runPrettierFiles(mode, files) {
  * one gate drifting apart is precisely the defect this function exists to stop
  * (ORPHAN-HIGH-500).
  */
+function gitBlob(spec) {
+  const blob = run('git', ['show', spec]);
+  return blob.status === 0 ? (blob.stdout ?? '') : null;
+}
+
 function classifyFormatDrift(files, readCurrent, readBase) {
   const bin = prettierBin();
   const regressions = [];
@@ -622,6 +629,10 @@ function runPrettierWriteChanged() {
  * file drifted as staged, when it was clean at HEAD?" — which is CI's own rule
  * with base=HEAD, and it fires on the commit that introduces the drift instead
  * of on the push that turns CI red.
+ *
+ * A merge commit is judged against both parents — see
+ * ./format-merge-base.mjs for why HEAD alone misattributes the other
+ * branch's existing debt to the merge.
  */
 function runPrettierCheckStaged() {
   checkManifest(FORMAT_SCOPE, buildFormatScope);
@@ -640,6 +651,8 @@ function runPrettierCheckStaged() {
   // A repository without HEAD (first commit) has no comparison point, so every
   // drift is a regression — fail closed rather than silently passing.
   const hasHead = run('git', ['rev-parse', '--verify', 'HEAD']).status === 0;
+  const hasMergeHead = run('git', ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).status === 0;
+  const bin = prettierBin();
 
   const { regressions, legacyDebt } = classifyFormatDrift(
     files,
@@ -647,11 +660,13 @@ function runPrettierCheckStaged() {
       const blob = run('git', ['show', `:${path}`]);
       return blob.status === 0 ? (blob.stdout ?? '') : null;
     },
-    (path) => {
-      if (!hasHead) return null;
-      const blob = run('git', ['show', `HEAD:${path}`]);
-      return blob.status === 0 ? (blob.stdout ?? '') : null;
-    },
+    (path) =>
+      mergeAwareBaseSource(path, {
+        hasHead,
+        hasMergeHead,
+        isClean: (source) => isPrettierCleanSource(bin, path, source),
+        readBlob: gitBlob,
+      }),
   );
 
   reportFormatDrift('format check-staged', files.length, regressions, legacyDebt, {

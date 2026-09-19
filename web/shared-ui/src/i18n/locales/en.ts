@@ -98,7 +98,8 @@ export const en = {
   'resetPassword.confirmPassword': 'Confirm Password',
   'resetPassword.submit': 'Reset Password',
   'resetPassword.success.title': 'Password Reset',
-  'resetPassword.success.message': 'Your password has been reset successfully. Redirecting to login...',
+  'resetPassword.success.message':
+    'Your password has been reset successfully. Redirecting to login...',
 
   // ── Accept Invitation ──
   'invitation.title': 'Accept Invitation',
@@ -225,8 +226,7 @@ export const en = {
   'feedingV2.assignments.fcrOverride.protocolDefault': 'Protocol default: {value}',
   'feedingV2.assignments.fcrOverride.overridden': 'Overridden',
   'feedingV2.assignments.fcrOverride.reset': 'Reset to default',
-  'feedingV2.assignments.speciesMismatch':
-    'Species mismatch — provide a reason to assign anyway',
+  'feedingV2.assignments.speciesMismatch': 'Species mismatch — provide a reason to assign anyway',
   'feedingV2.assignments.speciesMismatchReason': 'Mismatch reason',
   'feedingV2.assignments.empty': 'No assignments yet.',
   'feedingV2.assignments.manualTransition': 'Manual feed transition',
@@ -240,11 +240,21 @@ export const en = {
   'feedingV2.forecast.timelineTitle': 'Unit feed transitions (next {days} days)',
   'feedingV2.forecast.computedAt': 'As of {at}',
   'feedingV2.forecast.mortalityApplied': 'Mortality projection: species survival rate',
-  'feedingV2.forecast.poolScopeSite': 'Informational site view — coverage is decided on the tenant pool',
+  'feedingV2.forecast.poolScopeSite':
+    'Informational site view — coverage is decided on the tenant pool',
   'feedingV2.forecast.stale': 'Stale: computed more than 26 hours ago',
   'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
   'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
   'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',
+
+  // ── Environment monitoring (farm-module) ──
+  'environment.monitoring.checkingAvailability': 'Checking environmental monitoring availability…',
+  'environment.monitoring.availabilityUnknown':
+    'Environmental monitoring availability could not be determined.',
+  'environment.monitoring.disabledTitle':
+    'Environmental monitoring is not enabled for this deployment',
+  'environment.monitoring.disabledDescription':
+    'The platform operator has not switched on the environmental monitoring rollout yet. Your sea-cage sites and their locations are unaffected; weather, Copernicus Marine model values and Sentinel-2 scenes will appear here once it is enabled.',
   'feedingV2.forecast.noTransition': 'No feed transition within horizon',
   'feedingV2.forecast.transitionLabel': '{code} in {days}d',
   'feedingV2.forecast.stockoutBadge': '{code} runs out in {days}d',
@@ -252,7 +262,8 @@ export const en = {
   'feedingV2.forecast.gapBadge': 'GAP',
   'feedingV2.forecast.siteLabel': 'Site',
   'feedingV2.forecast.horizonLabel': 'Horizon (days)',
-  'feedingV2.forecast.notComputed': 'Forecast snapshot not computed yet — it is produced by the 07:00 sweep and refreshed on stock/transition events.',
+  'feedingV2.forecast.notComputed':
+    'Forecast snapshot not computed yet — it is produced by the 07:00 sweep and refreshed on stock/transition events.',
   'feedingV2.tab.mealBoard': 'Meal Board',
   'feedingV2.mealBoard.title': 'Meal Board',
   'feedingV2.mealBoard.subtitle':

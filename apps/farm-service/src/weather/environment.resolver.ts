@@ -11,6 +11,7 @@ import {
 } from './dto/environment.input';
 import {
   EnvironmentLayerResponse,
+  EnvironmentMonitoringStatusResponse,
   EnvironmentSceneCursorConnection,
   SiteEnvironmentValuesResponse,
 } from './dto/environment.response';
@@ -25,6 +26,18 @@ export class EnvironmentResolver {
     private readonly environmentReadService: EnvironmentReadService,
     private readonly monitoringGate: EnvironmentMonitoringGate,
   ) {}
+
+  /**
+   * The rollout gate as a value. Deliberately the one environment read that
+   * does not call `assertEnabled`: it exists so a client can learn the gate
+   * is closed without provoking the 503 every other read answers with.
+   * Carries no tenant data and needs no site scope.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => EnvironmentMonitoringStatusResponse, { complexity: 1 })
+  environmentMonitoringStatus(): EnvironmentMonitoringStatusResponse {
+    return { enabled: this.monitoringGate.isEnabled() };
+  }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SiteEnvironmentValuesResponse, { complexity: 200 })

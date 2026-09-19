@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  DataTable,
+  PageHeader,
+  type DataTableColumn,
+  useCanMutate,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -12,6 +19,7 @@ import {
   useEnvironmentForecast,
   useEnvironmentHistory,
   useEnvironmentLayerCatalog,
+  useEnvironmentMonitoringStatus,
   useEnvironmentSceneImage,
   useEnvironmentScenes,
   useEnvironmentWindowAnchor,
@@ -28,7 +36,8 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
   READY: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   PARTIAL_FAILURE: 'bg-red-50 text-red-900 border-red-300',
   PARTIAL_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-300',
-  NO_DATA: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
+  NO_DATA:
+    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
   OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
   STALE: 'bg-orange-50 text-orange-900 border-orange-200',
@@ -39,7 +48,8 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
 const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
   VALID: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   PROVISIONAL: 'bg-blue-50 text-blue-800 border-blue-200',
-  NO_DATA: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
+  NO_DATA:
+    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
   OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
   STALE: 'bg-orange-50 text-orange-900 border-orange-200',
@@ -237,6 +247,23 @@ function ErrorState({ message }: { message: string }): React.ReactElement {
   );
 }
 
+/**
+ * The rollout gate is closed for this deployment (ORPHAN-MEDIUM-827). Not an
+ * error and not an empty tenant: nothing the tenant does changes it, so the
+ * panel says exactly that instead of three "could not be loaded" alerts.
+ */
+function MonitoringDisabledState(): React.ReactElement {
+  const { t } = useI18n();
+  return (
+    <div role="status">
+      <EmptyState
+        title={t('environment.monitoring.disabledTitle')}
+        description={t('environment.monitoring.disabledDescription')}
+      />
+    </div>
+  );
+}
+
 function EmptyState({
   title,
   description,
@@ -247,7 +274,9 @@ function EmptyState({
   return (
     <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-6 py-10 text-center">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-400">{description}</p>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-400">
+        {description}
+      </p>
     </div>
   );
 }
@@ -266,7 +295,9 @@ function CurrentValueCard({
           <p className="truncate text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
           <p className="mt-2 text-2xl font-bold text-gray-950">
             {formatValue(value.value)}{' '}
-            <span className="text-base font-medium text-gray-600 dark:text-gray-400">{value.unit}</span>
+            <span className="text-base font-medium text-gray-600 dark:text-gray-400">
+              {value.unit}
+            </span>
           </p>
         </div>
         <QualityPill status={value.qualityStatus} />
@@ -325,16 +356,12 @@ function ValueTable({
     {
       key: 'sourceAndProvenance',
       header: 'Source and provenance',
-      render: (_value, value) => (
-        <ValueProvenance value={value} />
-      ),
+      render: (_value, value) => <ValueProvenance value={value} />,
     },
     {
       key: 'quality',
       header: 'Quality',
-      render: (_value, value) => (
-        <QualityPill status={value.qualityStatus} />
-      ),
+      render: (_value, value) => <QualityPill status={value.qualityStatus} />,
     },
     {
       key: 'depth',
@@ -346,7 +373,7 @@ function ValueTable({
             : `${formatValue(value.depthM)} m`}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -354,7 +381,9 @@ function ValueTable({
       <DataTable<ValueRow>
         data={values}
         columns={valueRowColumns}
-        keyExtractor={(value) => `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`}
+        keyExtractor={(value) =>
+          `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`
+        }
         emptyMessage="No records found"
         searchable={false}
         sortable={false}
@@ -381,12 +410,16 @@ function LayerAvailabilityPanel({ layers }: { layers: EnvironmentLayer[] }): Rea
               </div>
               <StatusPill status={layer.availability} />
             </div>
-            <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">{layer.scientificLabel}</p>
+            <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              {layer.scientificLabel}
+            </p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {layer.resolutionLabel}
               {layer.unit ? ` · Unit: ${layer.unit}` : ''}
             </p>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{availabilityMessage(layer.availability)}</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {availabilityMessage(layer.availability)}
+            </p>
             <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
               Coverage: {layer.coverage.successful}/{layer.coverage.expected} provider scopes
               completed
@@ -483,6 +516,7 @@ function isRenderableLayerAvailability(status: EnvironmentAvailabilityStatus): b
 
 const EnvironmentPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const canCreateSite = useCanMutate('createSite');
   const { siteId: routeSiteId } = useParams<{ siteId: string }>();
   const [activeView, setActiveView] = useState<EnvironmentView>('current');
@@ -492,6 +526,11 @@ const EnvironmentPage: React.FC = () => {
   const [selectedLayerId, setSelectedLayerId] = useState('');
   const [selectedSceneId, setSelectedSceneId] = useState('');
   const timeAnchor = useEnvironmentWindowAnchor();
+
+  // Read the rollout gate first: while it is closed every site read below is
+  // refused, so none of them is issued until the gate reports open.
+  const monitoringStatusQuery = useEnvironmentMonitoringStatus();
+  const monitoringEnabled = monitoringStatusQuery.data?.enabled === true;
 
   const sitesQuery = useSiteList({ isActive: true });
   const hasSiteListData = sitesQuery.data !== undefined;
@@ -520,7 +559,7 @@ const EnvironmentPage: React.FC = () => {
     }
   }, [eligibleSites, hasSiteListData, navigate, selectedSite]);
 
-  const canQuerySite = selectedSite !== null;
+  const canQuerySite = selectedSite !== null && monitoringEnabled;
   const currentQuery = useEnvironmentCurrent(selectedSite?.id ?? '', canQuerySite);
   const catalogQuery = useEnvironmentLayerCatalog(selectedSite?.id ?? '', canQuerySite);
   const layers = catalogQuery.data ?? [];
@@ -651,6 +690,34 @@ const EnvironmentPage: React.FC = () => {
     sceneId: selectedScene?.sceneId ?? '',
     enabled: canQuerySite && activeView === 'satellite' && sceneCanRender,
   });
+
+  if (monitoringStatusQuery.isPending) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <LoadingState label={t('environment.monitoring.checkingAvailability')} />
+      </div>
+    );
+  }
+
+  // A refetch failure with a last-known gate answer keeps that answer, the
+  // same last-known-good rule the site list and layer catalog follow below.
+  if (monitoringStatusQuery.isError && monitoringStatusQuery.data === undefined) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <ErrorState message={t('environment.monitoring.availabilityUnknown')} />
+      </div>
+    );
+  }
+
+  if (!monitoringEnabled) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <div className="mx-auto max-w-3xl">
+          <MonitoringDisabledState />
+        </div>
+      </div>
+    );
+  }
 
   if (sitesQuery.isPending) {
     return (

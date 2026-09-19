@@ -110,10 +110,7 @@ export function BottomSheet({
           accessible dismissal; the sheet is modal, so nothing behind it is
           reachable anyway. */}
       <div
-        className={clsx(
-          'absolute inset-0 bg-black/40 animate-fade-in',
-          isFull && 'hidden',
-        )}
+        className={clsx('absolute inset-0 bg-black/40 animate-fade-in', isFull && 'hidden')}
         onClick={isBusy ? undefined : onClose}
         aria-hidden="true"
       />

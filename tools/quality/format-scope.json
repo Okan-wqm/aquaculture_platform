@@ -60456,6 +60456,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/a11y/SkipToContent.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/a11y/VisuallyHidden.tsx",
       "prettier_managed": true
     },
@@ -60631,6 +60637,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Drawer/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/index.ts",
       "prettier_managed": true
     },
     {
@@ -60877,6 +60901,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Table/Table.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/__tests__/Tabs.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
       "prettier_managed": true
     },
     {

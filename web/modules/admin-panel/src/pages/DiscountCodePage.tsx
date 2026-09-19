@@ -5,7 +5,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Modal, useConfirm } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Modal,
+  useConfirm,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -224,6 +233,103 @@ const DiscountCodePage: React.FC = () => {
     );
   }
 
+  const discountColumns: DataTableColumn<DiscountCode>[] = [
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, code) => (
+        <>
+          <div className="font-mono font-medium text-gray-900">{code.code}</div>
+          <div className="text-sm text-gray-500">{code.name}</div>
+        </>
+      ),
+    },
+    {
+      key: 'discountType',
+      header: 'Discount',
+      render: (_value, code) => (
+        <>
+          <div className="text-lg font-bold text-green-600">{formatDiscountValue(code)}</div>
+          <div className="text-xs text-gray-500">{getDiscountTypeLabel(code.discountType)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'appliesTo',
+      header: 'Applies To',
+      render: (_value, code) => (
+        <Badge variant="default">{code.appliesTo.replace(/_/g, ' ')}</Badge>
+      ),
+    },
+    {
+      key: 'duration',
+      header: 'Duration',
+      render: (_value, code) => (
+        <Badge variant="info">
+          {code.duration}
+          {code.durationInMonths && ` (${code.durationInMonths} months)`}
+        </Badge>
+      ),
+    },
+    {
+      key: 'currentRedemptions',
+      header: 'Usage',
+      render: (_value, code) => (
+        <>
+          <div className="text-sm">
+            {code.currentRedemptions}
+            {code.maxRedemptions ? ` / ${code.maxRedemptions}` : ' / -'}
+          </div>
+          {code.maxRedemptions && (
+            <div className="w-24 h-1.5 bg-gray-200 rounded-full mt-1">
+              <div
+                className="h-full bg-blue-600 rounded-full"
+                style={{
+                  width: `${Math.min(100, (code.currentRedemptions / code.maxRedemptions) * 100)}%`,
+                }}
+              />
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'validFrom',
+      header: 'Validity',
+      render: (_value, code) => (
+        <>
+          <div>{formatDate(code.validFrom)} -</div>
+          <div>{formatDate(code.validUntil)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Status',
+      render: (_value, code) =>
+        !code.isActive ? (
+          <Badge variant="default">Inactive</Badge>
+        ) : isExpired(code) ? (
+          <Badge variant="warning">Expired</Badge>
+        ) : isMaxedOut(code) ? (
+          <Badge variant="warning">Maxed Out</Badge>
+        ) : (
+          <Badge variant="success">Active</Badge>
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, code) =>
+        code.isActive && !isExpired(code) ? (
+          <Button variant="danger" size="sm" onClick={() => handleDeactivate(code.id)}>
+            Deactivate
+          </Button>
+        ) : null,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -322,105 +428,17 @@ const DiscountCodePage: React.FC = () => {
       )}
 
       {/* Discount Codes Table */}
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Code
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Discount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Applies To
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Usage
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Validity
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {discountCodes.map((code) => (
-                <tr key={code.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-mono font-medium text-gray-900">{code.code}</div>
-                    <div className="text-sm text-gray-500">{code.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-lg font-bold text-green-600">
-                      {formatDiscountValue(code)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {getDiscountTypeLabel(code.discountType)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge variant="default">{code.appliesTo.replace(/_/g, ' ')}</Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge variant="info">
-                      {code.duration}
-                      {code.durationInMonths && ` (${code.durationInMonths} months)`}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm">
-                      {code.currentRedemptions}
-                      {code.maxRedemptions ? ` / ${code.maxRedemptions}` : ' / -'}
-                    </div>
-                    {code.maxRedemptions && (
-                      <div className="w-24 h-1.5 bg-gray-200 rounded-full mt-1">
-                        <div
-                          className="h-full bg-blue-600 rounded-full"
-                          style={{
-                            width: `${Math.min(100, (code.currentRedemptions / code.maxRedemptions) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div>{formatDate(code.validFrom)} -</div>
-                    <div>{formatDate(code.validUntil)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {!code.isActive ? (
-                      <Badge variant="default">Inactive</Badge>
-                    ) : isExpired(code) ? (
-                      <Badge variant="warning">Expired</Badge>
-                    ) : isMaxedOut(code) ? (
-                      <Badge variant="warning">Maxed Out</Badge>
-                    ) : (
-                      <Badge variant="success">Active</Badge>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {code.isActive && !isExpired(code) && (
-                      <Button variant="danger" size="sm" onClick={() => handleDeactivate(code.id)}>
-                        Deactivate
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable<DiscountCode>
+        data={discountCodes}
+        columns={discountColumns}
+        keyExtractor={(code) => code.id}
+        loading={loading}
+        loadingMessage="Loading discount codes..."
+        emptyMessage="No discount codes found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Create Modal */}
       {showCreateModal && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { NumberInput, Checkbox } from '@aquaculture/shared-ui';
+import { NumberInput, Checkbox, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSolution } from '../../../context/SolutionContext';
 import type { DrainageComposition } from '../../../types/modes.types';
 
@@ -33,6 +33,38 @@ const DrainageCompositionTab: React.FC = () => {
   const updateParam = (id: string, value: number) => {
     update({ parameters: { ...drainage.parameters, [id]: value } });
   };
+
+  type ParamRow = (typeof DRAINAGE_PARAMS)[number];
+  const paramRowColumns: DataTableColumn<ParamRow>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, param) => param.label,
+    },
+    {
+      key: 'symbol',
+      header: 'Symbol',
+      render: (_value, param) => param.symbol,
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (_value, param) => (
+        <NumberInput
+          value={drainage.parameters[param.id] ?? 0}
+          onChange={(e) => updateParam(param.id, parseFloat(e.target.value) || 0)}
+          size="sm"
+          step={0.01}
+          min={0}
+        />
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, param) => param.unit,
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -71,36 +103,15 @@ const DrainageCompositionTab: React.FC = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                  <th className="px-4 py-2">Parameter</th>
-                  <th className="px-4 py-2">Symbol</th>
-                  <th className="px-4 py-2">Value</th>
-                  <th className="px-4 py-2">Unit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {DRAINAGE_PARAMS.map((param) => (
-                  <tr key={param.id} className="border-b border-gray-100 last:border-b-0">
-                    <td className="px-4 py-2 text-gray-700">{param.label}</td>
-                    <td className="px-4 py-2 text-gray-500 text-xs">{param.symbol}</td>
-                    <td className="px-4 py-2 w-32">
-                      <NumberInput
-                        value={drainage.parameters[param.id] ?? 0}
-                        onChange={(e) => updateParam(param.id, parseFloat(e.target.value) || 0)}
-                        size="sm"
-                        step={0.01}
-                        min={0}
-                      />
-                    </td>
-                    <td className="px-4 py-2 text-gray-500 text-xs">{param.unit}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ParamRow>
+            data={DRAINAGE_PARAMS}
+            columns={paramRowColumns}
+            keyExtractor={(param) => param.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
     </div>

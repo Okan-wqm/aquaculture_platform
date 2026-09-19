@@ -41,6 +41,8 @@ import {
   createTenantInvalidationKey,
   useConfirm,
   usePrompt,
+  DataTable,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
@@ -252,75 +254,6 @@ const ProgramCard: React.FC<{
   );
 };
 
-const ProgramRow: React.FC<{
-  program: AutomationProgram;
-  onClone: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onApprove: () => void;
-  onReject: () => void;
-}> = ({ program, onClone, onArchive, onDelete, onApprove, onReject }) => {
-  const navigate = useNavigate();
-
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-indigo-600" />
-          <Link
-            to={`/sensor/automation/${program.id}`}
-            className="font-medium text-gray-900 hover:text-indigo-600"
-          >
-            {program.programName}
-          </Link>
-        </div>
-        <div className="text-xs text-gray-500 font-mono mt-0.5">{program.programCode}</div>
-      </td>
-      <td className="px-4 py-3">
-        <StatusBadge status={program.status} />
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">{getProgramTypeText(program.programType)}</td>
-      <td className="px-4 py-3 text-sm text-gray-500">v{program.version}</td>
-      <td className="px-4 py-3 text-sm text-gray-500">{program.stepCount ?? 0}</td>
-      <td className="px-4 py-3 text-sm text-gray-500">{formatDate(program.updatedAt)}</td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1">
-          {program.status === ProgramStatus.PENDING_REVIEW && (
-            <>
-              <button
-                onClick={onApprove}
-                className="p-1.5 rounded hover:bg-green-100"
-                title="Approve"
-              >
-                <ThumbsUp className="h-4 w-4 text-green-600" />
-              </button>
-              <button onClick={onReject} className="p-1.5 rounded hover:bg-red-100" title="Reject">
-                <ThumbsDown className="h-4 w-4 text-red-500" />
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => navigate(`/sensor/automation/${program.id}`)}
-            className="p-1.5 rounded hover:bg-gray-100"
-            title="Edit"
-          >
-            <Edit className="h-4 w-4 text-gray-500" />
-          </button>
-          <button onClick={onClone} className="p-1.5 rounded hover:bg-gray-100" title="Clone">
-            <Copy className="h-4 w-4 text-gray-500" />
-          </button>
-          <button onClick={onArchive} className="p-1.5 rounded hover:bg-gray-100" title="Archive">
-            <Archive className="h-4 w-4 text-gray-500" />
-          </button>
-          <button onClick={onDelete} className="p-1.5 rounded hover:bg-red-100" title="Delete">
-            <Trash2 className="h-4 w-4 text-red-500" />
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-};
-
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -502,6 +435,106 @@ const AutomationProgramsPage: React.FC = () => {
     }
   };
 
+  const automationProgramColumns: DataTableColumn<AutomationProgram>[] = [
+    {
+      key: 'programName',
+      header: 'Program',
+      render: (_value, program) => (
+        <>
+          <div className="flex items-center gap-2">
+            <Workflow className="h-4 w-4 text-indigo-600" />
+            <Link
+              to={`/sensor/automation/${program.id}`}
+              className="font-medium text-gray-900 hover:text-indigo-600"
+            >
+              {program.programName}
+            </Link>
+          </div>
+          <div className="text-xs text-gray-500 font-mono mt-0.5">{program.programCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, program) => <StatusBadge status={program.status} />,
+    },
+    {
+      key: 'programType',
+      header: 'Type',
+      render: (_value, program) => getProgramTypeText(program.programType),
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (_value, program) => `v${program.version}`,
+    },
+    {
+      key: 'stepCount',
+      header: 'Steps',
+      render: (_value, program) => program.stepCount ?? 0,
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      render: (_value, program) => formatDate(program.updatedAt),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (_value, program) => (
+        <div className="flex items-center gap-1">
+          {program.status === ProgramStatus.PENDING_REVIEW && (
+            <>
+              <button
+                onClick={() => void handleApprove(program)}
+                className="p-1.5 rounded hover:bg-green-100"
+                title="Approve"
+              >
+                <ThumbsUp className="h-4 w-4 text-green-600" />
+              </button>
+              <button
+                onClick={() => void handleReject(program)}
+                className="p-1.5 rounded hover:bg-red-100"
+                title="Reject"
+              >
+                <ThumbsDown className="h-4 w-4 text-red-500" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => navigate(`/sensor/automation/${program.id}`)}
+            className="p-1.5 rounded hover:bg-gray-100"
+            title="Edit"
+          >
+            <Edit className="h-4 w-4 text-gray-500" />
+          </button>
+          <button
+            onClick={() => handleClone(program)}
+            className="p-1.5 rounded hover:bg-gray-100"
+            title="Clone"
+          >
+            <Copy className="h-4 w-4 text-gray-500" />
+          </button>
+          <button
+            onClick={() => handleArchive(program)}
+            className="p-1.5 rounded hover:bg-gray-100"
+            title="Archive"
+          >
+            <Archive className="h-4 w-4 text-gray-500" />
+          </button>
+          <button
+            onClick={() => void handleDelete(program)}
+            className="p-1.5 rounded hover:bg-red-100"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4 text-red-500" />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -665,48 +698,15 @@ const AutomationProgramsPage: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Program
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Type
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Version
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Steps
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Updated
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredPrograms.map((program) => (
-                <ProgramRow
-                  key={program.id}
-                  program={program}
-                  onClone={() => handleClone(program)}
-                  onArchive={() => handleArchive(program)}
-                  onDelete={() => void handleDelete(program)}
-                  onApprove={() => void handleApprove(program)}
-                  onReject={() => void handleReject(program)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<AutomationProgram>
+          data={filteredPrograms}
+          columns={automationProgramColumns}
+          keyExtractor={(program) => program.id}
+          emptyMessage="No programs found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Pagination Controls */}

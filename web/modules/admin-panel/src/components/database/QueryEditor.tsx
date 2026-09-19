@@ -10,7 +10,14 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Card, Button, Alert, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Alert,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { getAccessToken } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -407,6 +414,27 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   onCopyToClipboard,
   copySuccess,
 }) => {
+  const resultColumns: DataTableColumn<Record<string, unknown>>[] = result.columns.map(
+    (column) => ({
+      key: column,
+      header: column,
+      render: (value) => (
+        <span className="block max-w-xs truncate" title={formatValue(value)}>
+          {value === null ? (
+            <span className="text-gray-500 italic">NULL</span>
+          ) : typeof value === 'object' ? (
+            <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+              {formatValue(value).substring(0, 50)}
+              {formatValue(value).length > 50 ? '...' : ''}
+            </code>
+          ) : (
+            formatValue(value)
+          )}
+        </span>
+      ),
+    }),
+  );
+
   return (
     <Card className="mt-4 overflow-hidden">
       {/* Results Header */}
@@ -465,52 +493,17 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       </div>
 
       {/* Results Table */}
-      <div className="overflow-x-auto max-h-96">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50 sticky top-0">
-            <tr>
-              {result.columns.map((column) => (
-                <th
-                  key={column}
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
-                >
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {result.rows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-gray-50">
-                {result.columns.map((column) => (
-                  <td
-                    key={column}
-                    className="px-4 py-2 text-sm text-gray-900 max-w-xs truncate"
-                    title={formatValue(row[column])}
-                  >
-                    {row[column] === null ? (
-                      <span className="text-gray-500 italic">NULL</span>
-                    ) : typeof row[column] === 'object' ? (
-                      <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                        {formatValue(row[column]).substring(0, 50)}
-                        {formatValue(row[column]).length > 50 ? '...' : ''}
-                      </code>
-                    ) : (
-                      formatValue(row[column])
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {result.rows.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-gray-500">
-            Query returned no results
-          </div>
-        )}
-      </div>
+      <DataTable<Record<string, unknown>>
+        data={result.rows}
+        columns={resultColumns}
+        keyExtractor={(_row, index) => String(index)}
+        emptyMessage="Query returned no results"
+        searchable={false}
+        sortable={false}
+        maxHeight="24rem"
+        compact
+        className="border-0 rounded-none shadow-none"
+      />
     </Card>
   );
 };

@@ -10,6 +10,8 @@ import {
   DEFAULT_CURRENCY,
   useClickOutside,
   colors,
+  DataTable,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import {
@@ -195,6 +197,40 @@ export const OverviewTab: React.FC = () => {
       </div>
     );
   }
+
+  type ItemRow = NonNullable<typeof drillDownItems>[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'item',
+      header: 'Item',
+      render: (_value, item) => item.itemName || '-',
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, item) => item.locationName || '-',
+    },
+    {
+      key: 'lot',
+      header: 'Lot',
+      render: (_value, item) => item.lotNumber || '-',
+    },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      render: (_value, item) => (
+        <>
+          {item.quantity} {item.unit}
+        </>
+      ),
+    },
+    {
+      key: 'expiry',
+      header: 'Expiry',
+      render: (_value, item) =>
+        item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-',
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -412,55 +448,15 @@ export const OverviewTab: React.FC = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Item
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Location
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Lot
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Quantity
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Expiry
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {(drillDownItems || []).map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">
-                        {item.itemName || '-'}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-500">
-                        {item.locationName || '-'}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-500 font-mono">
-                        {item.lotNumber || '-'}
-                      </td>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">
-                        {item.quantity} {item.unit}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-500">
-                        {item.expiryDate
-                          ? new Date(item.expiryDate).toLocaleDateString('nb-NO')
-                          : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {(drillDownItems || []).length === 0 && (
-                <div className="text-center py-8 text-sm text-gray-500">
-                  No items in this category.
-                </div>
-              )}
+              <DataTable<ItemRow>
+                data={drillDownItems ?? []}
+                columns={itemRowColumns}
+                keyExtractor={(item) => item.id}
+                emptyMessage="No items in this category."
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             </div>
           )}
         </div>

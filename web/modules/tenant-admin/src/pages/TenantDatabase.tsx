@@ -29,6 +29,7 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -416,6 +417,80 @@ const TenantDatabase: React.FC = () => {
     ? Math.round((databaseInfo.activeConnections / databaseInfo.maxConnections) * 100)
     : 0;
 
+  type TenantTableRow = NonNullable<(typeof groupedTables)[string]>[number];
+  const tableColumnsFor = (
+    config: (typeof MODULE_CONFIG)[string],
+  ): DataTableColumn<TenantTableRow>[] => [
+    {
+      key: 'tableName',
+      header: 'Table Name',
+      render: (_value, table) => (
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
+            <Table className={`w-4 h-4 ${config.color}`} />
+          </div>
+          <span className="text-sm font-medium text-gray-900">
+            {table.name}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'rows',
+      header: 'Rows',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600">
+          {formatNumber(table.rowCount)}
+        </span>
+      ),
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600">{table.size}</span>
+      ),
+    },
+    {
+      key: 'indexes',
+      header: 'Indexes',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600">{table.indexCount}</span>
+      ),
+    },
+    {
+      key: 'lastModified',
+      header: 'Last Modified',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-500">
+          {formatDate(table.lastModified)}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, table) => (
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={() => handleViewData(table.name)}
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+          >
+            View Data
+          </button>
+          <button
+            onClick={() => handleViewSchema(table.name)}
+            className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
+          >
+            View Schema
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -605,84 +680,16 @@ const TenantDatabase: React.FC = () => {
 
                 {/* Module Tables */}
                 {expandedModules[module] && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-100">
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Table Name
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Rows
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Size
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Indexes
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Last Modified
-                          </th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {moduleTables.map((table) => (
-                          <tr
-                            key={table.name}
-                            className="hover:bg-gray-50 transition-colors"
-                          >
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
-                                  <Table className={`w-4 h-4 ${config.color}`} />
-                                </div>
-                                <span className="text-sm font-medium text-gray-900">
-                                  {table.name}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">
-                                {formatNumber(table.rowCount)}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">{table.size}</span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">{table.indexCount}</span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-500">
-                                {formatDate(table.lastModified)}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <div className="flex items-center justify-end gap-3">
-                                <button
-                                  onClick={() => handleViewData(table.name)}
-                                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-                                >
-                                  View Data
-                                </button>
-                                <button
-                                  onClick={() => handleViewSchema(table.name)}
-                                  className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
-                                >
-                                  View Schema
-                                  <ChevronRight className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<TenantTableRow>
+                    data={moduleTables}
+                    columns={tableColumnsFor(config)}
+                    keyExtractor={(table) => table.name}
+                    emptyMessage="No tables"
+                    searchable={false}
+                    sortable={false}
+                    stickyHeader={false}
+                    className="shadow-none rounded-none"
+                  />
                 )}
               </div>
             );

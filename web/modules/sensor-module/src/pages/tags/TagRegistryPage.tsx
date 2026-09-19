@@ -19,7 +19,13 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ConfirmModal, Modal, useTenantQuery } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  useTenantQuery,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -400,6 +406,100 @@ const TagRegistryPage: React.FC = () => {
     );
   };
 
+  const unifiedTagColumns: DataTableColumn<UnifiedTag>[] = [
+    {
+      key: 'fqn',
+      header: 'FQN',
+      render: (_value, tag) => tag.fqn,
+    },
+    {
+      key: 'ad',
+      header: 'Ad',
+      render: (_value, tag) => tag.displayName || tag.localName,
+    },
+    {
+      key: 'iO',
+      header: 'I/O',
+      render: (_value, tag) => tag.ioType,
+    },
+    {
+      key: 'veriTipi',
+      header: 'Veri Tipi',
+      render: (_value, tag) => tag.dataType,
+    },
+    {
+      key: 'yN',
+      header: 'Yön',
+      render: (_value, tag) => tag.direction,
+    },
+    {
+      key: 'birim',
+      header: 'Birim',
+      render: (_value, tag) => tag.engUnit ?? '—',
+    },
+    {
+      key: 'aralK',
+      header: 'Aralık',
+      render: (_value, tag) => (
+        <>
+          {tag.engMin != null || tag.engMax != null
+            ? `${tag.engMin ?? '−∞'} … ${tag.engMax ?? '+∞'}`
+            : '—'}
+        </>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, tag) => statusBadge(tag.status),
+    },
+    {
+      key: 'canl',
+      header: 'Canlı',
+      render: (_value, tag) => linkedBadge(tag),
+    },
+    {
+      key: 'lem',
+      header: 'İşlem',
+      align: 'right',
+      render: (_value, tag) => (
+        <>
+          {tag.status !== 'retired' && (
+            <button
+              onClick={() => setEditingTag(tag)}
+              className="p-1 text-gray-400 hover:text-cyan-600"
+              title="Düzenle"
+              aria-label={`${tag.fqn} tag'ini düzenle`}
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
+          {/* Lifecycle: hard delete exists only while DRAFT; anything
+              past DRAFT can only be retired (server-enforced). */}
+          {tag.status === 'draft' ? (
+            <button
+              onClick={() => setConfirmDeleteTag(tag)}
+              className="p-1 text-gray-400 hover:text-red-600"
+              title="Sil"
+              aria-label={`${tag.fqn} tag'ini sil`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          ) : tag.status !== 'retired' ? (
+            <button
+              onClick={() => setConfirmRetireTag(tag)}
+              className="p-1 text-gray-400 hover:text-amber-600"
+              title="Emekli et"
+              aria-label={`${tag.fqn} tag'ini emekli et`}
+            >
+              <Archive className="w-4 h-4" />
+            </button>
+          ) : null}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="p-4 flex flex-col gap-4 h-full overflow-y-auto">
       {/* Header */}
@@ -484,103 +584,26 @@ const TagRegistryPage: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="border border-gray-200 rounded-lg overflow-x-auto bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left text-xs text-gray-500 border-b border-gray-200">
-              <th className="px-3 py-2 font-medium">FQN</th>
-              <th className="px-3 py-2 font-medium">Ad</th>
-              <th className="px-3 py-2 font-medium">I/O</th>
-              <th className="px-3 py-2 font-medium">Veri Tipi</th>
-              <th className="px-3 py-2 font-medium">Yön</th>
-              <th className="px-3 py-2 font-medium">Birim</th>
-              <th className="px-3 py-2 font-medium">Aralık</th>
-              <th className="px-3 py-2 font-medium">Durum</th>
-              <th className="px-3 py-2 font-medium">Canlı</th>
-              <th className="px-3 py-2 font-medium text-right">İşlem</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-gray-400">
-                  <Loader2 className="w-5 h-5 animate-spin inline-block" />
-                </td>
-              </tr>
-            )}
-            {!loading && error && (
-              <tr>
-                <td colSpan={10} className="px-3 py-6 text-center text-sm text-red-600">
-                  {error}
-                </td>
-              </tr>
-            )}
-            {!loading && !error && tags.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
-                  Kayıtlı tag yok. Bir cihaz seçip <span className="font-medium">Tag Keşfet</span>{' '}
-                  ile başlayın.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              !error &&
-              tags.map((tag) => (
-                <tr
-                  key={tag.id}
-                  className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
-                >
-                  <td className="px-3 py-2 font-mono text-xs text-gray-900">{tag.fqn}</td>
-                  <td className="px-3 py-2 text-gray-700">{tag.displayName || tag.localName}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500">{tag.ioType}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500">{tag.dataType}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500">{tag.direction}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500">{tag.engUnit ?? '—'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500">
-                    {tag.engMin != null || tag.engMax != null
-                      ? `${tag.engMin ?? '−∞'} … ${tag.engMax ?? '+∞'}`
-                      : '—'}
-                  </td>
-                  <td className="px-3 py-2">{statusBadge(tag.status)}</td>
-                  <td className="px-3 py-2">{linkedBadge(tag)}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {tag.status !== 'retired' && (
-                      <button
-                        onClick={() => setEditingTag(tag)}
-                        className="p-1 text-gray-400 hover:text-cyan-600"
-                        title="Düzenle"
-                        aria-label={`${tag.fqn} tag'ini düzenle`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                    )}
-                    {/* Lifecycle: hard delete exists only while DRAFT; anything
-                      past DRAFT can only be retired (server-enforced). */}
-                    {tag.status === 'draft' ? (
-                      <button
-                        onClick={() => setConfirmDeleteTag(tag)}
-                        className="p-1 text-gray-400 hover:text-red-600"
-                        title="Sil"
-                        aria-label={`${tag.fqn} tag'ini sil`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    ) : tag.status !== 'retired' ? (
-                      <button
-                        onClick={() => setConfirmRetireTag(tag)}
-                        className="p-1 text-gray-400 hover:text-amber-600"
-                        title="Emekli et"
-                        aria-label={`${tag.fqn} tag'ini emekli et`}
-                      >
-                        <Archive className="w-4 h-4" />
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
+      {!loading && error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+      <DataTable<UnifiedTag>
+        data={tags}
+        columns={unifiedTagColumns}
+        keyExtractor={(tag) => tag.id}
+        loading={loading}
+        emptyMessage={
+          <>
+            Kayıtlı tag yok. Bir cihaz seçip <span className="font-medium">Tag Keşfet</span> ile
+            başlayın.
+          </>
+        }
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Pagination */}
       <div className="flex items-center justify-between text-xs text-gray-500">

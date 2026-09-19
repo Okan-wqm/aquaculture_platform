@@ -43,8 +43,12 @@
  * table (under RLS the count would silently read 0 — the exact lie that hid
  * the 2026-07-02 farm stall).
  */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { MessagingMetricsService } from './messaging-metrics.service';
@@ -61,6 +65,7 @@ export class OutboxPendingCollectorService implements OnModuleInit {
   constructor(
     private readonly dataSource: DataSource,
     private readonly metrics: MessagingMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /** Seed the gauge at startup instead of waiting up to 30s for the first tick. */
@@ -77,8 +82,16 @@ export class OutboxPendingCollectorService implements OnModuleInit {
    * The query is cheap: the partial index `idx_outbox_poll`
    * (`"createdAt" WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`)
    * exists precisely for this predicate shape.
+   *
+   * `each-replica` (ADMIN-HIGH-013): the gauge lives in this process's
+   * registry and each replica serves its own scrape, so every replica must
+   * tick — the governed schedule keeps the heartbeat and skips the lease.
    */
-  @Cron(CronExpression.EVERY_30_SECONDS, { name: 'messaging-outbox-pending-collector' })
+  @ScheduledJob({
+    name: 'messaging-outbox.pending-collector',
+    every: 30_000,
+    scope: 'each-replica',
+  })
   async collectPendingCount(): Promise<void> {
     try {
       const pending = await this.countPendingRows();

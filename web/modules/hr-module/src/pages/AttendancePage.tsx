@@ -8,15 +8,15 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Calendar, Users, CheckCircle, Filter, Download, Search } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useAttendanceRecords,
   useDailyAttendanceOverview,
   useCurrentEmployeeId,
 } from '../hooks';
 import { TimeClockWidget } from '../components/attendance/TimeClockWidget';
-import { DataTable, StatusBadge } from '../components/common';
-import type { Column } from '../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge } from '../components/common';
 import type { AttendanceRecord, AttendanceFilterInput, PaginationInput } from '../types';
 import { ATTENDANCE_STATUS_CONFIG } from '../types';
 
@@ -49,12 +49,11 @@ export function AttendancePage() {
     setPagination({ ...pagination, page });
   };
 
-  const columns: Column<AttendanceRecord>[] = [
+  const columns: DataTableColumn<AttendanceRecord>[] = [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="font-medium text-gray-900 dark:text-white">
           {row.employeeId}
         </span>
@@ -63,8 +62,7 @@ export function AttendancePage() {
     {
       key: 'date',
       header: 'Date',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-700 dark:text-gray-300">
           {new Date(row.date).toLocaleDateString()}
         </span>
@@ -73,7 +71,7 @@ export function AttendancePage() {
     {
       key: 'clockIn',
       header: 'Clock In',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-700 dark:text-gray-300">
           {row.clockIn ? new Date(row.clockIn).toLocaleTimeString() : '-'}
         </span>
@@ -82,7 +80,7 @@ export function AttendancePage() {
     {
       key: 'clockOut',
       header: 'Clock Out',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-700 dark:text-gray-300">
           {row.clockOut ? new Date(row.clockOut).toLocaleTimeString() : '-'}
         </span>
@@ -91,7 +89,7 @@ export function AttendancePage() {
     {
       key: 'workedTime',
       header: 'Worked',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-700 dark:text-gray-300">
           {row.workedMinutes > 0
             ? `${Math.floor(row.workedMinutes / 60)}h ${row.workedMinutes % 60}m`
@@ -102,8 +100,7 @@ export function AttendancePage() {
     {
       key: 'status',
       header: 'Status',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = ATTENDANCE_STATUS_CONFIG[row.status];
         return config ? (
           <StatusBadge label={config.label} variant={config.variant} size="sm" />
@@ -333,16 +330,21 @@ export function AttendancePage() {
           )}
 
           <div className="overflow-x-auto -mx-6 px-6">
-            <DataTable
-              data={records?.items || []}
+            <DataTable<AttendanceRecord>
+              data={records?.items ?? []}
               columns={columns}
               keyExtractor={(row) => row.id}
-              isLoading={loadingRecords}
+              loading={loadingRecords}
               emptyMessage="No attendance records found"
-              total={records?.total}
-              page={pagination.page || 1}
-              pageSize={pagination.limit || 20}
+              pagination={
+                records
+                  ? derivePaginationMetadataV1(records.total, pagination.page || 1, pagination.limit || 20)
+                  : undefined
+              }
               onPageChange={handlePageChange}
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
             />
           </div>
         </>

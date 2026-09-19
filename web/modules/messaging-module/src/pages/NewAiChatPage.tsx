@@ -44,13 +44,12 @@ const NewAiChatPage: React.FC = () => {
   };
 
   return (
-    <div className="sd-page" style={{ maxWidth: 560 }}>
+    <div className="sd-page max-w-[560px]">
       <div className="sd-pagehead">
         <button
           onClick={() => navigate('/messaging')}
-          className="sd-back"
+          className="sd-back mb-2 inline-flex items-center gap-1.5"
           aria-label={t('messaging.backToChannels')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 8 }}
         >
           <ArrowLeft size={16} /> {t('messaging.backToChannels')}
         </button>
@@ -61,8 +60,8 @@ const NewAiChatPage: React.FC = () => {
 
       {!canUseAi && (
         <div className="sd-banner sd-banner--error" role="alert">
-          <AlertCircle size={17} style={{ color: '#b04a28' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+          <AlertCircle size={17} className="text-sd-danger" />
+          <span className="text-[13.5px] font-semibold text-sd-danger-ink">
             {t('messaging.ai.noAccess')}
           </span>
         </div>
@@ -70,47 +69,27 @@ const NewAiChatPage: React.FC = () => {
 
       {canUseAi && (
         <>
-          <div className="sd-card" style={{ padding: 16, marginBottom: 12 }}>
+          <div className="sd-card mb-3 p-4">
             <AiConsentSwitch />
           </div>
 
           {isLoading && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                color: '#5c7783',
-                fontSize: 13.5,
-              }}
-            >
+            <div className="flex items-center gap-2 text-[13.5px] text-sd-ink-muted">
               <RefreshCw size={15} className="animate-spin" /> {t('messaging.ai.loadingPersonas')}
             </div>
           )}
           {isError && (
             <div className="sd-banner sd-banner--error" role="alert">
-              <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+              <AlertCircle size={17} className="text-sd-danger" />
+              <span className="text-[13.5px] font-semibold text-sd-danger-ink">
                 {t('messaging.ai.errorPersonas')}
               </span>
             </div>
           )}
 
           {(personas?.length ?? 0) > 0 && (
-            <fieldset
-              className="sd-card sd-card--flush"
-              style={{ border: 0, padding: 0, margin: 0 }}
-            >
-              <legend
-                style={{
-                  padding: '12px 16px',
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  letterSpacing: '0.09em',
-                  textTransform: 'uppercase',
-                  color: '#0b4f60',
-                }}
-              >
+            <fieldset className="sd-card sd-card--flush m-0 border-0 p-0">
+              <legend className="px-4 py-3 text-[11.5px] font-bold uppercase tracking-[0.09em] text-sd-teal-deep">
                 {t('messaging.ai.personasLabel')}
               </legend>
               {personas?.map((persona) => {
@@ -119,13 +98,7 @@ const NewAiChatPage: React.FC = () => {
                 return (
                   <label
                     key={value}
-                    className={`sd-chan-row${active ? ' sd-chan-row--active' : ''}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      cursor: 'pointer',
-                    }}
+                    className={`sd-chan-row flex cursor-pointer items-start gap-3${active ? ' sd-chan-row--active' : ''}`}
                   >
                     <input
                       type="radio"
@@ -134,19 +107,15 @@ const NewAiChatPage: React.FC = () => {
                       checked={active}
                       onChange={() => setSelected(value)}
                       aria-label={persona.name}
-                      style={{ marginTop: 4 }}
+                      className="mt-1"
                     />
                     <span className="sd-chan-icon sd-chan-icon--ai">
                       <Sparkles size={19} />
                     </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="min-w-0 flex-1">
                       <span className="sd-chan-title">{persona.name}</span>
-                      <span className="sd-chan-preview" style={{ display: 'block', marginTop: 2 }}>
-                        {persona.description}
-                      </span>
-                      <span
-                        style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#5c7783' }}
-                      >
+                      <span className="sd-chan-preview mt-0.5 block">{persona.description}</span>
+                      <span className="mt-1 block text-xs text-sd-ink-muted">
                         {persona.capabilities.join(' · ')}
                       </span>
                     </span>
@@ -157,20 +126,19 @@ const NewAiChatPage: React.FC = () => {
           )}
 
           {createChannel.isError && (
-            <div className="sd-banner sd-banner--error" role="alert" style={{ marginTop: 12 }}>
-              <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+            <div className="sd-banner sd-banner--error mt-3" role="alert">
+              <AlertCircle size={17} className="text-sd-danger" />
+              <span className="text-[13.5px] font-semibold text-sd-danger-ink">
                 {t('messaging.ai.errorCreate')}
               </span>
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <div className="mt-4 flex justify-end">
             <button
               onClick={handleCreate}
               disabled={!canCreate}
-              className="sd-send"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}
+              className="sd-send inline-flex items-center gap-2 px-3.5 py-2"
             >
               {createChannel.isPending ? (
                 <RefreshCw size={15} className="animate-spin" />

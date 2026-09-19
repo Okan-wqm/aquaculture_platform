@@ -7,7 +7,16 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Modal, useConfirm } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Modal,
+  useConfirm,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/adminApi';
 import type { PaginatedResult } from '../services/types/common';
 import { expectedTotalPages } from '@platform/pagination-contracts';
@@ -274,6 +283,183 @@ const CustomPlansListPage: React.FC = () => {
     );
   }
 
+  const planColumns: DataTableColumn<CustomPlan>[] = [
+    {
+      key: 'name',
+      header: 'Plan',
+      render: (_value, plan) => (
+        <>
+          <div className="font-medium text-gray-900">{plan.name}</div>
+          {plan.description && (
+            <div className="text-sm text-gray-500 truncate max-w-xs">{plan.description}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tenantId',
+      header: 'Tenant',
+      render: (_value, plan) => (
+        <div
+          className="text-sm font-mono text-gray-600 truncate max-w-[180px]"
+          title={plan.tenantId}
+        >
+          {plan.tenantId}
+        </div>
+      ),
+    },
+    {
+      key: 'tier',
+      header: 'Tier',
+      render: (_value, plan) => <Badge variant="info">{TIER_LABELS[plan.tier] || plan.tier}</Badge>,
+    },
+    {
+      key: 'monthlyTotal',
+      header: 'Monthly Total',
+      render: (_value, plan) => (
+        <>
+          <div className="text-sm font-semibold text-gray-900">
+            {formatCurrencyAmount(plan.monthlyTotal, plan.currency)}
+          </div>
+          {Number(plan.discountPercent) > 0 && (
+            <div className="text-xs text-green-600">-{plan.discountPercent}% discount</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'modules',
+      header: 'Modules',
+      render: (_value, plan) => (
+        <div className="text-sm text-gray-600">
+          {plan.modules?.length || 0} module{(plan.modules?.length || 0) !== 1 ? 's' : ''}
+        </div>
+      ),
+    },
+    {
+      key: 'validFrom',
+      header: 'Validity',
+      render: (_value, plan) => (
+        <>
+          <div>{formatDate(plan.validFrom)}</div>
+          {plan.validTo && <div className="text-gray-400">to {formatDate(plan.validTo)}</div>}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, plan) => {
+        const statusCfg = STATUS_CONFIG[plan.status];
+        return (
+          <>
+            <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+            {plan.rejectionReason && plan.status === CustomPlanStatus.REJECTED && (
+              <div
+                className="text-xs text-red-500 mt-1 truncate max-w-[140px]"
+                title={plan.rejectionReason}
+              >
+                {plan.rejectionReason}
+              </div>
+            )}
+            {plan.approvedBy && plan.status === CustomPlanStatus.APPROVED && (
+              <div className="text-xs text-gray-400 mt-1">by {plan.approvedBy}</div>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, plan) => {
+        const isLoading = actionLoading === plan.id;
+        return (
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            {/* Draft -> Submit */}
+            {plan.status === CustomPlanStatus.DRAFT && (
+              <>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={isLoading}
+                  onClick={() => handleSubmitForApproval(plan.id)}
+                >
+                  {isLoading ? '...' : 'Submit'}
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={isLoading}
+                  onClick={() => handleDelete(plan.id, plan.name)}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+
+            {/* Pending Approval -> Approve / Reject */}
+            {plan.status === CustomPlanStatus.PENDING_APPROVAL && (
+              <>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={isLoading}
+                  onClick={() => handleApprove(plan.id)}
+                >
+                  {isLoading ? '...' : 'Approve'}
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={isLoading}
+                  onClick={() => setRejectModal({ planId: plan.id, planName: plan.name })}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+
+            {/* Approved -> Activate */}
+            {plan.status === CustomPlanStatus.APPROVED && (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={isLoading}
+                onClick={() => handleActivate(plan.id)}
+              >
+                {isLoading ? '...' : 'Activate'}
+              </Button>
+            )}
+
+            {/* Clone (available on any status) */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading}
+              onClick={() => setCloneModal({ planId: plan.id, planName: plan.name })}
+            >
+              Clone
+            </Button>
+
+            {/* Rejected -> can Delete */}
+            {plan.status === CustomPlanStatus.REJECTED && (
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={isLoading}
+                onClick={() => handleDelete(plan.id, plan.name)}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -368,239 +554,19 @@ const CustomPlansListPage: React.FC = () => {
       </Card>
 
       {/* Plans Table */}
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Plan
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tenant
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tier
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Monthly Total
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Modules
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Validity
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {plans.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                    {loading ? 'Loading...' : 'No custom plans found.'}
-                  </td>
-                </tr>
-              ) : (
-                plans.map((plan) => {
-                  const statusCfg = STATUS_CONFIG[plan.status];
-                  const isLoading = actionLoading === plan.id;
-
-                  return (
-                    <tr key={plan.id} className="hover:bg-gray-50">
-                      {/* Plan Name */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{plan.name}</div>
-                        {plan.description && (
-                          <div className="text-sm text-gray-500 truncate max-w-xs">
-                            {plan.description}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Tenant */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div
-                          className="text-sm font-mono text-gray-600 truncate max-w-[180px]"
-                          title={plan.tenantId}
-                        >
-                          {plan.tenantId}
-                        </div>
-                      </td>
-
-                      {/* Tier */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="info">{TIER_LABELS[plan.tier] || plan.tier}</Badge>
-                      </td>
-
-                      {/* Monthly Total */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-semibold text-gray-900">
-                          {formatCurrencyAmount(plan.monthlyTotal, plan.currency)}
-                        </div>
-                        {Number(plan.discountPercent) > 0 && (
-                          <div className="text-xs text-green-600">
-                            -{plan.discountPercent}% discount
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Modules */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600">
-                          {plan.modules?.length || 0} module
-                          {(plan.modules?.length || 0) !== 1 ? 's' : ''}
-                        </div>
-                      </td>
-
-                      {/* Validity */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div>{formatDate(plan.validFrom)}</div>
-                        {plan.validTo && (
-                          <div className="text-gray-400">to {formatDate(plan.validTo)}</div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
-                        {plan.rejectionReason && plan.status === CustomPlanStatus.REJECTED && (
-                          <div
-                            className="text-xs text-red-500 mt-1 truncate max-w-[140px]"
-                            title={plan.rejectionReason}
-                          >
-                            {plan.rejectionReason}
-                          </div>
-                        )}
-                        {plan.approvedBy && plan.status === CustomPlanStatus.APPROVED && (
-                          <div className="text-xs text-gray-400 mt-1">by {plan.approvedBy}</div>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2 flex-wrap">
-                          {/* Draft -> Submit */}
-                          {plan.status === CustomPlanStatus.DRAFT && (
-                            <>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleSubmitForApproval(plan.id)}
-                              >
-                                {isLoading ? '...' : 'Submit'}
-                              </Button>
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleDelete(plan.id, plan.name)}
-                              >
-                                Delete
-                              </Button>
-                            </>
-                          )}
-
-                          {/* Pending Approval -> Approve / Reject */}
-                          {plan.status === CustomPlanStatus.PENDING_APPROVAL && (
-                            <>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleApprove(plan.id)}
-                              >
-                                {isLoading ? '...' : 'Approve'}
-                              </Button>
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() =>
-                                  setRejectModal({ planId: plan.id, planName: plan.name })
-                                }
-                              >
-                                Reject
-                              </Button>
-                            </>
-                          )}
-
-                          {/* Approved -> Activate */}
-                          {plan.status === CustomPlanStatus.APPROVED && (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={isLoading}
-                              onClick={() => handleActivate(plan.id)}
-                            >
-                              {isLoading ? '...' : 'Activate'}
-                            </Button>
-                          )}
-
-                          {/* Clone (available on any status) */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={isLoading}
-                            onClick={() => setCloneModal({ planId: plan.id, planName: plan.name })}
-                          >
-                            Clone
-                          </Button>
-
-                          {/* Rejected -> can Delete */}
-                          {plan.status === CustomPlanStatus.REJECTED && (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              disabled={isLoading}
-                              onClick={() => handleDelete(plan.id, plan.name)}
-                            >
-                              Delete
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200">
-            <div className="text-sm text-gray-500">
-              Showing {(page - 1) * limit + 1}-{Math.min(page * limit, total)} of {total} plans
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
-      </Card>
+      <DataTable<CustomPlan>
+        data={plans}
+        columns={planColumns}
+        keyExtractor={(plan) => plan.id}
+        loading={loading}
+        loadingMessage="Loading..."
+        emptyMessage="No custom plans found."
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        pagination={{ page, limit, total, totalPages }}
+        onPageChange={setPage}
+      />
 
       {/* Reject Modal */}
       {rejectModal && (

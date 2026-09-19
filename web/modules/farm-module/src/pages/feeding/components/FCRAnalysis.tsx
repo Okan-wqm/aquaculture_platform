@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -114,6 +114,87 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
     );
   }
+
+  type BatchRow = (typeof batchFCRData)[number];
+  const batchRowColumns: DataTableColumn<BatchRow>[] = [
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, batch) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{batch.name}</div>
+          <div className="text-sm text-gray-500">{batch.displayName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'fishCount',
+      header: 'Fish Count',
+      align: 'right',
+      render: (_value, batch) => batch.fishCount.toLocaleString(),
+    },
+    {
+      key: 'biomassKg',
+      header: 'Biomass (kg)',
+      align: 'right',
+      render: (_value, batch) => batch.currentBiomass.toFixed(0),
+    },
+    {
+      key: 'feedUsedKg',
+      header: 'Feed Used (kg)',
+      align: 'right',
+      render: (_value, batch) => batch.feedConsumed.toFixed(0),
+    },
+    {
+      key: 'weightGainKg',
+      header: 'Weight Gain (kg)',
+      align: 'right',
+      render: (_value, batch) => batch.weightGain.toFixed(0),
+    },
+    {
+      key: 'actualFcr',
+      header: 'Actual FCR',
+      align: 'right',
+      render: (_value, batch) => (batch.actualFCR > 0 ? batch.actualFCR.toFixed(2) : '-'),
+    },
+    {
+      key: 'targetFcr',
+      header: 'Target FCR',
+      align: 'right',
+      render: (_value, batch) => batch.targetFCR.toFixed(2),
+    },
+    {
+      key: 'variance',
+      header: 'Variance',
+      align: 'right',
+      render: (_value, batch) => (
+        <>
+          {/* BUG-005: variance===0 (on-target) should be green, not gray */}
+          <span
+            className={`${
+              batch.variance <= 0
+                ? 'text-green-600'
+                : batch.variance > 10
+                  ? 'text-red-600'
+                  : 'text-orange-600'
+            }`}
+          >
+            {batch.variance > 0 ? '+' : ''}
+            {batch.variance.toFixed(1)}%
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      render: (_value, batch) => {
+        const rating = getPerformanceRating(batch.actualFCR, batch.targetFCR);
+        return <span className={`text-sm font-medium ${rating.color}`}>{rating.label}</span>;
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -233,90 +314,15 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
         <div className="px-4 py-3 border-b border-gray-200">
           <h3 className="text-lg font-medium text-gray-900">Batch FCR Details</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Batch
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Fish Count
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Biomass (kg)
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Feed Used (kg)
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Weight Gain (kg)
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actual FCR
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Target FCR
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Variance
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {batchFCRData.map((batch) => {
-                const rating = getPerformanceRating(batch.actualFCR, batch.targetFCR);
-                return (
-                  <tr key={batch.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{batch.name}</div>
-                      <div className="text-sm text-gray-500">{batch.displayName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {batch.fishCount.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {batch.currentBiomass.toFixed(0)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {batch.feedConsumed.toFixed(0)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {batch.weightGain.toFixed(0)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                      {batch.actualFCR > 0 ? batch.actualFCR.toFixed(2) : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                      {batch.targetFCR.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                      {/* BUG-005: variance===0 (on-target) should be green, not gray */}
-                      <span
-                        className={`${
-                          batch.variance <= 0
-                            ? 'text-green-600'
-                            : batch.variance > 10
-                              ? 'text-red-600'
-                              : 'text-orange-600'
-                        }`}
-                      >
-                        {batch.variance > 0 ? '+' : ''}
-                        {batch.variance.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className={`text-sm font-medium ${rating.color}`}>{rating.label}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<BatchRow>
+          data={batchFCRData}
+          columns={batchRowColumns}
+          keyExtractor={(batch) => batch.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* FCR Optimization Tips */}

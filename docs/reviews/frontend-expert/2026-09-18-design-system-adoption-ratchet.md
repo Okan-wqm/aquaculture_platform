@@ -171,6 +171,113 @@ shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
 sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
+#### FE-HIGH-069 — Hand-rolled `<table>` re-implements DataTable
+
+152 `<table>` elements across the web tree (farm 59, sensor 37, admin-panel 28,
+hydroponics 10, tenant-admin 9, hr 8 — plus hr's private `DataTable` copy with
+a narrower API behind seven pages — shell 1). shared-ui's `DataTable` owns
+header semantics, sorting, selection, pagination, empty and loading states and
+export; the super-admin panel used it on zero pages.
+
+**Root cause:** the panel's pages predate `DataTable`; nothing detected a new
+raw table, and `DataTable` rendered an empty toolbar strip when a page kept its
+own filters above it, which made it look wrong to adopt.
+
+**Fix (this cycle):** the ratchet gains a per-package `rawTable` ceiling (same
+shape as raw hex). `DataTable` renders its toolbar only when it has content
+and accepts readonly row arrays. Batch 11: 25 of the super-admin panel's 28
+tables render through `DataTable` (28 → 3) — invoices, payments, custom plans
+(its pagination replaces a private one), discount codes, subscriptions,
+feature toggles, the activity log (its private expand-row state becomes
+`expandable`/`renderExpandedRow`), report previews, job queues, audit trail
+and retention policies, compliance requests, threat intelligence, service
+health, messaging tenants/retention/audit/compliance, database schemas,
+migrations, storage and slow queries, and AI personas (whose `Scope` header
+had no cell behind it). The three that remain are the database explorer and
+query-editor result grids (dynamic, sortable-by-server columns with key and
+sensitivity markers in their headers — they need `DataTable` header slots)
+and a static actuation-policy reference. Batch 12: the tenant-admin panel
+follows (9 → 1) — the user list (its select-all header cell and per-row
+checkboxes become `DataTable` selection, so the page's own toggle helpers go),
+the audit log, invoices and payments, the database table list per module,
+mobile feature flags and mobile users, and the table-schema dialog's columns
+and indexes. `DataTable`'s `emptyMessage` now takes a node, so the user list's
+heading-plus-hint empty state renders inside the table instead of as a second
+empty state underneath it; a `DataTable` spec pins the toolbar-only-when-
+needed and empty-body behaviours the pages used to hand-roll around. The one
+that remains is the table-data dialog (server-described columns; needs the
+same header slots as the explorer grids). Batch 13: hr-module's private
+`DataTable` copy (a narrower API: `accessor` columns, a `Set` selection, an
+`onSort` that its seven pages never wired, so the sort icons only flipped)
+is deleted and employees, certifications, payroll, crew assignments,
+rotations, leaves and attendance render through the shared one; the
+rotations page pages its flat arrays client-side, so its pagination bar now
+moves the rows and not only the label. The finance tabs follow: salaries,
+the personnel table and HR expenses through `DataTable` (which gains a
+`summaryRow` totals slot so the salary and headcount totals stay in the
+table), the labour-cost ledger as a definition list (label/value lines, no
+header — never a grid). `DataTable`'s rows-per-page select renders only
+when a page can act on it; before, every paginated page showed an inert
+one. hr 8 → 3: the weekly schedule and team overview are calendar grids and
+the print schedule is a print document. Batch 14: sensor-module (37 → 15)
+— the PLC connection and feeding-parameter lists, process and SCADA package
+lists, automation programs (its row component folds into columns), edge
+devices (its select-all header cell and row checkboxes become `DataTable`
+selection), the edge device I/O channel table, LoRa devices, the channel
+manager, the tag registry (its loading/error/empty rows become `loading`,
+an error banner and a node `emptyMessage`), readings, VFD change sets
+(list, detail, create dialog) and the VFD audit log, the automation
+editor's I/O bindings and deployment history, the CSV export preview, the
+dashboard table widget, the PID faceplate's connection points and recipe
+values; the faceplate's property ledger is a definition list. The 15 that
+stay are the SCADA runtime grids (`RuntimeTable` ×3, `DataTableRenderer`,
+the heatmap), the dark operator alarm and simulation panels, the
+calibration and threshold pages (their row components hold per-row edit
+state, which has to move up to the page first), the automation editor's
+variable table (same), the translations matrix and CSV import mapping
+(language / column-keyed dynamic columns), tag watch, variable sync and the
+grouped auto-detect results. Batch 15: farm-module (59 → 33) — cleaner-fish
+batches, environment values, FCR analysis, the feeding summary's feed-type
+breakdown (its currency threads into the columns), growth-forecast feed
+requirements, harvest plans, a batch's feed assignments, batch input,
+growth measurements, the cleaner-fish and sea-lice report cage rows, feeder
+calibration, sub-equipment, chemicals, consumables, departments, equipment,
+a feed's feeding curve, fish-health chemicals, slaughter facilities,
+workers, purchase-order lines, delivery receipts, on-demand steps and
+recent water-chemistry entries. Rows that had no identity of their own
+(form arrays keyed by position) needed `DataTable`'s `keyExtractor` to see
+the row index, which it now does. Batch 16: hydroponics (10 → 2) and the rest
+of farm-module's fixed-column lists (33 → 23, three of them HTML strings in
+report exports) — the dynamic tank table,
+nutrient profiles, the current-formula, drainage-composition and
+previous-drainage parameter grids, the result tab's macro and micro
+nutrient grids (one column set reads the calculation for both), user-option
+targets; feeding assignments and protocols, health events, maintenance
+schedules, spare parts, work orders, feeding records, inventory-count
+lines, parameter configs and the finance overview's category tables (a
+column factory takes the currency). What stays raw now has a structural
+reason: dynamic column sets (the water-chemistry history and translation
+matrices, the feeding-record and CSV column pickers), rows that span
+several `<tr>` (protocol bands), matrix editors (feeding matrix, meal
+board), row components with their own state (calibration, thresholds,
+water analysis, alarm and simulation panels), the storage and task tabs'
+row components, and the SCADA runtime grids. Batch 17: `DataTable`
+gains a `headerRender` slot (the header cell's node; `header` stays the
+name the export, visibility menu and sort control use), and the
+server-described grids follow — the database explorer (key and sensitivity
+markers in the header, masked cells, server-side sort through `onSort`),
+the query-editor results and the tenant table-data dialog (index keys); the
+consent-history and equipment-mapping row components fold into columns,
+as do the inventory-count, purchase-order, stock-movement, completed-task
+and recurring-task lists. admin-panel 3 → 1 (the static actuation-policy
+reference), tenant-admin 1 → 0, shell 1 → 0, farm 23 → 17. Batch 18: the
+rows that owned their own edit state — calibration channels and alert
+thresholds — keep one draft per group instead (one row edits at a time, the
+draft lives beside the list), so their row components fold into columns;
+the task list's checkboxes become `DataTable` selection, the generic stock
+tab's column config becomes columns, the storage drill-down follows.
+sensor 15 → 13, farm 17 → 14. **Owner:** okan · **Expiry:** 2027-06-30.
+
 ## Enforcement
 
 `tests/invariants/web-design-system-ratchet.spec.ts` (layer-1 shard) +
@@ -182,6 +289,8 @@ sensor-module's ceiling until the symbol layer draws with SVG attributes.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
+- Raw `<table>` → `DataTable`: 33 remain after batch 18 (admin-panel 1,
+  hr 3, hydroponics 2, sensor 13, farm 14).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

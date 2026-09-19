@@ -9,7 +9,14 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConfirmModal, Modal, useConfirm, colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  useConfirm,
+  colors as themeColors,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -1281,6 +1288,143 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
     );
   }
 
+  const deviceIoConfigColumns: DataTableColumn<DeviceIoConfig>[] = [
+    {
+      key: 'tag',
+      header: 'Tag',
+      render: (_value, io) => io.tagName,
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, io) => getIoTypeText(io.ioType),
+    },
+    {
+      key: 'modulKanal',
+      header: 'Modul/Kanal',
+      render: (_value, io) => (
+        <>
+          {io.moduleAddress}:{io.channel}
+        </>
+      ),
+    },
+    {
+      key: 'canliDeger',
+      header: 'Canli Deger',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        const isDigital = io.ioType === IoType.DI || io.ioType === IoType.DO;
+        return (
+          <>
+            {live ? (
+              <span className="flex items-center gap-1">
+                <QualityDot quality={live.quality} />
+                {isDigital ? (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      live.value === true || live.value === 1
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {live.value === true || live.value === 1 ? 'ON' : 'OFF'}
+                  </span>
+                ) : (
+                  <span className="font-mono text-gray-900">
+                    {typeof live.value === 'number' ? live.value.toFixed(2) : String(live.value)}
+                    {io.engUnit ? ` ${io.engUnit}` : ''}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="text-gray-500">--</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'alarm',
+      header: 'Alarm',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        const alarm = getAlarmStatus(live?.value as number | boolean | undefined, io);
+        return (
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}
+          >
+            {alarm.status}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, io) => (
+        <>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+              io.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+            }`}
+          >
+            {io.isActive ? 'Aktif' : 'Pasif'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'islem',
+      header: 'Islem',
+      align: 'right',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {/* DO toggle */}
+            {io.ioType === IoType.DO && (
+              <button
+                onClick={() => {
+                  const currentVal = live?.value === true || live?.value === 1;
+                  setDoMutation.mutate({
+                    deviceId,
+                    ioConfigId: io.id,
+                    value: !currentVal,
+                  });
+                }}
+                disabled={setDoMutation.isPending}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  live?.value === true || live?.value === 1
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                } disabled:opacity-50`}
+                title={`${io.tagName} ${live?.value === true || live?.value === 1 ? 'OFF' : 'ON'} yap`}
+              >
+                {live?.value === true || live?.value === 1 ? 'ON' : 'OFF'}
+              </button>
+            )}
+            <button
+              onClick={() => openEdit(io)}
+              className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Düzenle"
+              aria-label={`${io.tagName} kanalini duzenle`}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDeleteTarget(io)}
+              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Sil"
+              aria-label={`${io.tagName} kanalini sil`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       {/* Header with action buttons */}
@@ -1391,139 +1535,16 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
       </div>
 
       {/* I/O channel table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Tag
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Tip
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Modul/Kanal
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Canli Deger
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Alarm
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Durum
-              </th>
-              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                Islem
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {configs.map((io) => {
-              const live = liveValues?.[io.tagName] as IoTagValue | undefined;
-              const isDigital = io.ioType === IoType.DI || io.ioType === IoType.DO;
-              const alarm = getAlarmStatus(live?.value as number | boolean | undefined, io);
-
-              return (
-                <tr key={io.id} className="hover:bg-gray-50 group">
-                  <td className="px-3 py-2 font-medium text-gray-900">{io.tagName}</td>
-                  <td className="px-3 py-2 text-gray-600">{getIoTypeText(io.ioType)}</td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {io.moduleAddress}:{io.channel}
-                  </td>
-                  {/* Canli Deger */}
-                  <td className="px-3 py-2">
-                    {live ? (
-                      <span className="flex items-center gap-1">
-                        <QualityDot quality={live.quality} />
-                        {isDigital ? (
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                              live.value === true || live.value === 1
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {live.value === true || live.value === 1 ? 'ON' : 'OFF'}
-                          </span>
-                        ) : (
-                          <span className="font-mono text-gray-900">
-                            {typeof live.value === 'number'
-                              ? live.value.toFixed(2)
-                              : String(live.value)}
-                            {io.engUnit ? ` ${io.engUnit}` : ''}
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-gray-500">--</span>
-                    )}
-                  </td>
-                  {/* Alarm */}
-                  <td className="px-3 py-2">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}
-                    >
-                      {alarm.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        io.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {io.isActive ? 'Aktif' : 'Pasif'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {/* DO toggle */}
-                      {io.ioType === IoType.DO && (
-                        <button
-                          onClick={() => {
-                            const currentVal = live?.value === true || live?.value === 1;
-                            setDoMutation.mutate({
-                              deviceId,
-                              ioConfigId: io.id,
-                              value: !currentVal,
-                            });
-                          }}
-                          disabled={setDoMutation.isPending}
-                          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                            live?.value === true || live?.value === 1
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          } disabled:opacity-50`}
-                          title={`${io.tagName} ${live?.value === true || live?.value === 1 ? 'OFF' : 'ON'} yap`}
-                        >
-                          {live?.value === true || live?.value === 1 ? 'ON' : 'OFF'}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => openEdit(io)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Düzenle"
-                        aria-label={`${io.tagName} kanalini duzenle`}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(io)}
-                        className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Sil"
-                        aria-label={`${io.tagName} kanalini sil`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<DeviceIoConfig>
+        data={configs}
+        columns={deviceIoConfigColumns}
+        keyExtractor={(io) => io.id}
+        emptyMessage="I/O kanalı yok"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        rowClassName={() => 'group'}
+      />
 
       {/* Form & delete modals */}
       <IoConfigFormModal

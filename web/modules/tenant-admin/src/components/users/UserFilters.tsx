@@ -14,14 +14,6 @@ export interface UserFiltersProps {
 
 /**
  * Filter bar for user list: search input, role dropdown, status dropdown.
- * SUDERRA restyle — sd-toolbar/sd-search/sd-select primitives from the shell
- * stylesheet; behavior (props, values, option keys) unchanged.
- *
- * MOCK-ADJACENT: the role dropdown lists only the three SYSTEM roles
- * (TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) because the users query
- * filters by that enum — tenant CUSTOM roles are not filterable server-side
- * yet. Wire the dropdown to useTenantRoles() when the backend accepts a
- * custom roleId filter.
  */
 export const UserFilters: React.FC<UserFiltersProps> = ({
   onSearchChange,
@@ -30,25 +22,22 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
   currentFilters,
 }) => {
   return (
-    <div className="sd-card" style={{ padding: '13px 15px' }}>
-      <div className="sd-toolbar">
-        <div className="sd-search">
-          <Search size={15} aria-hidden="true" />
+    <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <div className="flex flex-col md:flex-row md:items-center gap-4">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
-            className="sd-input"
-            placeholder="Search users by name or email…"
+            placeholder="Search users by name or email..."
             value={currentFilters.search}
             onChange={(e) => onSearchChange(e.target.value)}
-            aria-label="Search users"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
           />
         </div>
         <select
-          className="sd-select"
-          style={{ flex: '0 1 170px' }}
           value={currentFilters.role}
           onChange={(e) => onRoleChange(e.target.value)}
-          aria-label="Filter by role"
+          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
         >
           <option value="all">All Roles</option>
           <option value="TENANT_ADMIN">Tenant Admin</option>
@@ -56,11 +45,9 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
           <option value="MODULE_USER">Module User</option>
         </select>
         <select
-          className="sd-select"
-          style={{ flex: '0 1 160px' }}
           value={currentFilters.status}
           onChange={(e) => onStatusChange(e.target.value)}
-          aria-label="Filter by status"
+          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
         >
           <option value="all">All Status</option>
           <option value="active">Active</option>

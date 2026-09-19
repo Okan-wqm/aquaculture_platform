@@ -36,6 +36,7 @@ import {
   CreateWorkOrderInput,
 } from '../../hooks/useMaintenance';
 import { isBlockingError } from '../../utils/list-view-state';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -588,6 +589,71 @@ export const WorkOrdersPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'kodBaLK',
+      header: 'Kod / Başlık',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{item.workOrderCode}</div>
+          <div className="text-sm text-gray-500">{item.title}</div>
+        </>
+      ),
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, item) => typeLabels[item.type],
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
+      ),
+    },
+    {
+      key: 'ncelik',
+      header: 'Öncelik',
+      render: (_value, item) => (
+        <Badge className={priorityColors[item.priority]}>{priorityLabels[item.priority]}</Badge>
+      ),
+    },
+    {
+      key: 'bitiTarihi',
+      header: 'Bitiş Tarihi',
+      render: (_value, item) => formatDate(item.dueDate),
+    },
+    {
+      key: 'lemler',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenEdit(item);
+            }}
+            className="text-indigo-600 hover:text-indigo-900 mr-4"
+          >
+            Düzenle
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(item.id);
+            }}
+            className="text-red-600 hover:text-red-900"
+          >
+            Sil
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
@@ -653,94 +719,15 @@ export const WorkOrdersPage: React.FC = () => {
               <Spinner size="lg" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Kod / Başlık
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tip
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Durum
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Öncelik
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Bitiş Tarihi
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      İşlemler
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        Henüz iş emri bulunmuyor
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredItems.map((item) => (
-                      <tr
-                        key={item.id}
-                        className={`hover:bg-gray-50 cursor-pointer ${
-                          selectedWorkOrder?.id === item.id ? 'bg-blue-50' : ''
-                        }`}
-                        onClick={() => setSelectedWorkOrder(item)}
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {item.workOrderCode}
-                          </div>
-                          <div className="text-sm text-gray-500">{item.title}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {typeLabels[item.type]}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <Badge className={statusColors[item.status]}>
-                            {statusLabels[item.status]}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <Badge className={priorityColors[item.priority]}>
-                            {priorityLabels[item.priority]}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDate(item.dueDate)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenEdit(item);
-                            }}
-                            className="text-indigo-600 hover:text-indigo-900 mr-4"
-                          >
-                            Düzenle
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(item.id);
-                            }}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Sil
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ItemRow>
+              data={filteredItems}
+              columns={itemRowColumns}
+              keyExtractor={(item) => item.id}
+              emptyMessage="Henüz iş emri bulunmuyor"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           )}
 
           {/* Pagination */}

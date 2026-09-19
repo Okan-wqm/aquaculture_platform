@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -60,23 +60,6 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
           ),
         ].map((s) => JSON.parse(s));
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filtered.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filtered.map((t) => t.id)));
-    }
-  };
-
   const confirm = useConfirm();
   const handleBulkComplete = async () => {
     if (
@@ -110,6 +93,118 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
     }
     setSelectedIds(new Set());
   };
+
+  type TaskRow = (typeof filtered)[number];
+  const taskRowColumns: DataTableColumn<TaskRow>[] = [
+    {
+      key: 'gRev',
+      header: 'Görev',
+      render: (_value, task) => (
+        <>
+          <button
+            onClick={() => setSelectedTask(task)}
+            className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
+          >
+            {task.title}
+          </button>
+          {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
+        </>
+      ),
+    },
+    {
+      key: 'kategori',
+      header: 'Kategori',
+      render: (_value, task) => {
+        const cat = CATEGORY_CONFIG[task.category];
+        return (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
+          >
+            {cat.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'ncelik',
+      header: 'Öncelik',
+      render: (_value, task) => {
+        const pri = PRIORITY_CONFIG[task.priority];
+        return (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
+          >
+            {pri.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'atanan',
+      header: 'Atanan',
+      render: (_value, task) => task.assignedToName,
+    },
+    {
+      key: 'biti',
+      header: 'Bitiş',
+      render: (_value, task) => (
+        <>
+          {task.dueDate}
+          {task.dueTime && <span className="text-gray-400 ml-1">{task.dueTime}</span>}
+        </>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, task) => {
+        const sts = STATUS_CONFIG[task.status];
+        return (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sts.bg} ${sts.color}`}
+          >
+            {sts.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'lem',
+      header: 'İşlem',
+      render: (_value, task) => (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onToggleComplete(task.id)}
+            className="text-green-600 hover:text-green-800 text-sm"
+            title="Tamamla"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={() => onDeleteTask(task.id)}
+            className="text-red-600 hover:text-red-800 text-sm"
+            title="Sil"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -222,148 +317,18 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === filtered.length && filtered.length > 0}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                  />
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Görev
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Kategori
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Öncelik
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Atanan
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Bitiş
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Durum
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  İşlem
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                    Görev bulunamadı.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((task) => {
-                  const cat = CATEGORY_CONFIG[task.category];
-                  const pri = PRIORITY_CONFIG[task.priority];
-                  const sts = STATUS_CONFIG[task.status];
-
-                  return (
-                    <tr key={task.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(task.id)}
-                          onChange={() => toggleSelect(task.id)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setSelectedTask(task)}
-                          className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
-                        >
-                          {task.title}
-                        </button>
-                        {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
-                        >
-                          {cat.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
-                        >
-                          {pri.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{task.assignedToName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {task.dueDate}
-                        {task.dueTime && <span className="text-gray-400 ml-1">{task.dueTime}</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sts.bg} ${sts.color}`}
-                        >
-                          {sts.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => onToggleComplete(task.id)}
-                            className="text-green-600 hover:text-green-800 text-sm"
-                            title="Tamamla"
-                          >
-                            <svg
-                              className="w-5 h-5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => onDeleteTask(task.id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                            title="Sil"
-                          >
-                            <svg
-                              className="w-5 h-5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<TaskRow>
+          data={filtered}
+          columns={taskRowColumns}
+          keyExtractor={(task) => task.id}
+          emptyMessage="Görev bulunamadı."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          selectable
+          selectedRows={Array.from(selectedIds)}
+          onSelectionChange={(ids) => setSelectedIds(new Set(ids))}
+        />
       </div>
 
       {/* Modals */}

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ConfirmModal, Modal } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   Plus,
   Trash2,
@@ -595,6 +595,89 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
     );
   }
 
+  const loRaDeviceColumns: DataTableColumn<LoRaDevice>[] = [
+    {
+      key: 'deveui',
+      header: 'DevEUI',
+      render: (_value, dev) => (
+        <code className="text-xs font-mono text-gray-900">{dev.devEui}</code>
+      ),
+    },
+    {
+      key: 'isim',
+      header: 'Isim',
+      render: (_value, dev) => (
+        <div>
+          <span className="font-medium text-gray-900">{dev.name}</span>
+          <span className="block text-xs text-gray-500">
+            {dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, dev) => (
+        <>
+          {dev.isJoined ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              Joined
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+              Bekliyor
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'rssi',
+      header: 'RSSI',
+      render: (_value, dev) => <RssiIndicator rssi={dev.lastRssi} />,
+    },
+    {
+      key: 'snr',
+      header: 'SNR',
+      render: (_value, dev) => <>{dev.lastSnr != null ? `${dev.lastSnr.toFixed(1)} dB` : '--'}</>,
+    },
+    {
+      key: 'sonGorulme',
+      header: 'Son Gorulme',
+      render: (_value, dev) => formatRelativeTime(dev.lastSeenAt),
+    },
+    {
+      key: 'islem',
+      header: 'Islem',
+      align: 'right',
+      render: (_value, dev) => (
+        <div className="flex items-center justify-end gap-1">
+          {/* Downlink gonder */}
+          {dev.isJoined && (
+            <button
+              onClick={() => setDownlinkTarget(dev)}
+              className="p-1.5 hover:bg-cyan-50 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
+              title="Downlink gonder"
+              aria-label={`${dev.name} cihazina downlink gonder`}
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {/* Sil */}
+          <button
+            onClick={() => setDeleteTarget(dev)}
+            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
+            title="Sil"
+            aria-label={`${dev.name} cihazini sil`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       {/* Header */}
@@ -613,103 +696,17 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
       </div>
 
       {/* Cihaz tablosu */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                DevEUI
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Isim
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Durum
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                RSSI
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                SNR
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Son Gorulme
-              </th>
-              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                Islem
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {devices.map((dev) => (
-              <tr key={dev.id} className="hover:bg-gray-50 group">
-                {/* DevEUI — monospace */}
-                <td className="px-3 py-2">
-                  <code className="text-xs font-mono text-gray-900">{dev.devEui}</code>
-                </td>
-                {/* Isim */}
-                <td className="px-3 py-2">
-                  <div>
-                    <span className="font-medium text-gray-900">{dev.name}</span>
-                    <span className="block text-xs text-gray-500">
-                      {dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}
-                    </span>
-                  </div>
-                </td>
-                {/* Durum */}
-                <td className="px-3 py-2">
-                  {dev.isJoined ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Joined
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      Bekliyor
-                    </span>
-                  )}
-                </td>
-                {/* RSSI */}
-                <td className="px-3 py-2">
-                  <RssiIndicator rssi={dev.lastRssi} />
-                </td>
-                {/* SNR */}
-                <td className="px-3 py-2 text-gray-600 font-mono text-xs">
-                  {dev.lastSnr != null ? `${dev.lastSnr.toFixed(1)} dB` : '--'}
-                </td>
-                {/* Son Gorulme */}
-                <td className="px-3 py-2 text-gray-500 text-xs">
-                  {formatRelativeTime(dev.lastSeenAt)}
-                </td>
-                {/* Islem */}
-                <td className="px-3 py-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    {/* Downlink gonder */}
-                    {dev.isJoined && (
-                      <button
-                        onClick={() => setDownlinkTarget(dev)}
-                        className="p-1.5 hover:bg-cyan-50 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                        title="Downlink gonder"
-                        aria-label={`${dev.name} cihazina downlink gonder`}
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {/* Sil */}
-                    <button
-                      onClick={() => setDeleteTarget(dev)}
-                      className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                      title="Sil"
-                      aria-label={`${dev.name} cihazini sil`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<LoRaDevice>
+        data={devices}
+        columns={loRaDeviceColumns}
+        keyExtractor={(dev) => dev.id}
+        loading={isLoading}
+        emptyMessage="Henüz LoRa cihazı yok"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        rowClassName={() => 'group'}
+      />
 
       {/* Diyaloglar */}
       <AddDeviceDialog

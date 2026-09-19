@@ -5,7 +5,7 @@
  * adding/removing mappings with frequency and alert configuration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
   useCreateParamEquipmentMapping,
@@ -46,66 +46,6 @@ const INITIAL_ADD_FORM: AddFormState = {
 // ============================================================================
 // SUB-COMPONENTS
 // ============================================================================
-
-const MappingRow: React.FC<{
-  mapping: ParamEquipmentMapping;
-  onToggleActive: (mapping: ParamEquipmentMapping) => void;
-  onToggleAlert: (mapping: ParamEquipmentMapping) => void;
-  onRemove: (id: string) => void;
-  isUpdating: boolean;
-  isDeleting: boolean;
-}> = ({ mapping, onToggleActive, onToggleAlert, onRemove, isUpdating, isDeleting }) => (
-  <tr className="hover:bg-gray-50">
-    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-      {mapping.equipment?.name ?? '-'}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
-      {mapping.equipment?.code ?? '-'}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-      {getFrequencyLabel(mapping.monitoringFrequency)}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-center">
-      <button
-        onClick={() => onToggleAlert(mapping)}
-        disabled={isUpdating}
-        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-          mapping.alertEnabled
-            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-        }`}
-      >
-        {mapping.alertEnabled ? 'On' : 'Off'}
-      </button>
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-center">
-      <button
-        onClick={() => onToggleActive(mapping)}
-        disabled={isUpdating}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
-          mapping.isActive ? 'bg-blue-600' : 'bg-gray-200'
-        }`}
-        role="switch"
-        aria-checked={mapping.isActive}
-      >
-        <span
-          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            mapping.isActive ? 'translate-x-4' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-      <button
-        onClick={() => onRemove(mapping.id)}
-        disabled={isDeleting}
-        className="text-red-600 hover:text-red-900 disabled:opacity-50"
-      >
-        {isDeleting ? 'Removing...' : 'Remove'}
-      </button>
-    </td>
-  </tr>
-);
 
 // ============================================================================
 // MAIN COMPONENT
@@ -209,6 +149,90 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
   };
 
   // Render
+  const mappingColumns: DataTableColumn<ParamEquipmentMapping>[] = [
+    {
+      key: 'name',
+      header: 'Equipment Name',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap font-medium text-gray-900">
+          {mapping.equipment?.name ?? '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap font-mono text-gray-500">
+          {mapping.equipment?.code ?? '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'monitoringFrequency',
+      header: 'Frequency',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap text-gray-500">
+          {getFrequencyLabel(mapping.monitoringFrequency)}
+        </span>
+      ),
+    },
+    {
+      key: 'alertEnabled',
+      header: 'Alert',
+      align: 'center',
+      render: (_value, mapping) => (
+        <button
+          onClick={() => void handleToggleAlert(mapping)}
+          disabled={updateMutation.isPending}
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+            mapping.alertEnabled
+              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          }`}
+        >
+          {mapping.alertEnabled ? 'On' : 'Off'}
+        </button>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Active',
+      align: 'center',
+      render: (_value, mapping) => (
+        <button
+          onClick={() => void handleToggleActive(mapping)}
+          disabled={updateMutation.isPending}
+          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+            mapping.isActive ? 'bg-blue-600' : 'bg-gray-200'
+          }`}
+          role="switch"
+          aria-checked={mapping.isActive}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              mapping.isActive ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, mapping) => (
+        <button
+          onClick={() => void handleRemove(mapping.id)}
+          disabled={deletingId === mapping.id}
+          className="text-red-600 hover:text-red-900 disabled:opacity-50"
+        >
+          {deletingId === mapping.id ? 'Removing...' : 'Remove'}
+        </button>
+      ),
+    },
+  ];
+
   return (
     <Modal isOpen onClose={onClose} title="Equipment Monitoring Points" size="xl">
       <p className="-mt-2 mb-4 text-sm text-gray-500">
@@ -243,52 +267,15 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
         {/* Mappings Table */}
         {!mappingsLoading && (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Equipment Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Frequency
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    Alert
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    Active
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {(!mappings || mappings.length === 0) && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      No equipment mapped to this parameter yet.
-                    </td>
-                  </tr>
-                )}
-                {mappings?.map((mapping) => (
-                  <MappingRow
-                    key={mapping.id}
-                    mapping={mapping}
-                    onToggleActive={handleToggleActive}
-                    onToggleAlert={handleToggleAlert}
-                    onRemove={handleRemove}
-                    isUpdating={updateMutation.isPending}
-                    isDeleting={deletingId === mapping.id}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ParamEquipmentMapping>
+            data={mappings ?? []}
+            columns={mappingColumns}
+            keyExtractor={(mapping) => mapping.id}
+            emptyMessage="No equipment mapped to this parameter yet."
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Add Equipment Form */}

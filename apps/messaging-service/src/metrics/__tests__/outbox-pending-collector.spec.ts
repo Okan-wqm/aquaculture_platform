@@ -7,47 +7,48 @@
  * MessagingMetricsService — not mock call counts — so the test fails if the
  * gauge is renamed, dropped from the registry, or never set.
  */
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { DataSource } from 'typeorm';
 
 import { MessagingMetricsService } from '../messaging-metrics.service';
 import { OutboxPendingCollectorService } from '../outbox-pending-collector.service';
 
 /** Records executed SQL; answers the pending COUNT from a script. */
-function createDataSource(opts: {
-  pending?: number;
-  failWith?: Error;
-  setConfigCalls: string[];
-}): { dataSource: DataSource; transaction: jest.Mock } {
+function createDataSource(opts: { pending?: number; failWith?: Error; setConfigCalls: string[] }): {
+  dataSource: DataSource;
+  transaction: jest.Mock;
+} {
   // Repo-legal mock pattern (see farm-service environment-cron.service.spec):
   // a prototype-based DataSource with jest.fn members — no double casts, and
   // jest.fn() (unimplemented) stays any-callable so the overloaded
   // DataSource.transaction signature accepts it.
   const transaction = jest.fn();
-  transaction.mockImplementation(
-    async (work: (manager: unknown) => Promise<unknown>) =>
-      work({
-        query: jest.fn(async (sql: string) => {
-          if (sql.includes('set_config')) {
-            opts.setConfigCalls.push(sql);
-            return [];
-          }
-          if (sql.includes('count(*)')) {
-            if (opts.failWith) throw opts.failWith;
-            return [{ pending: opts.pending ?? 0 }];
-          }
+  transaction.mockImplementation(async (work: (manager: unknown) => Promise<unknown>) =>
+    work({
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('set_config')) {
+          opts.setConfigCalls.push(sql);
           return [];
-        }),
+        }
+        if (sql.includes('count(*)')) {
+          if (opts.failWith) throw opts.failWith;
+          return [{ pending: opts.pending ?? 0 }];
+        }
+        return [];
       }),
+    }),
   );
   const dataSource: DataSource = Object.create(DataSource.prototype);
   dataSource.transaction = transaction;
   return { dataSource, transaction };
 }
 
+const scheduledJobs = createScheduledJobTestExecutor();
+
 function buildService(dataSource: DataSource) {
   const metrics = new MessagingMetricsService();
   metrics.onModuleInit();
-  const collector = new OutboxPendingCollectorService(dataSource, metrics);
+  const collector = new OutboxPendingCollectorService(dataSource, metrics, scheduledJobs.executor);
   return { collector, metrics };
 }
 
@@ -106,17 +107,16 @@ describe('OutboxPendingCollectorService (MSGFIX-FAZ0)', () => {
   it('treats a null/absent count row as zero instead of NaN', async () => {
     const { dataSource, transaction } = createDataSource({ pending: 0, setConfigCalls });
     // Override the count answer to a null pending value.
-    transaction.mockImplementation(
-      async (work: (manager: unknown) => Promise<unknown>) =>
-        work({
-          query: jest.fn(async (sql: string) => {
-            if (sql.includes('set_config')) {
-              setConfigCalls.push(sql);
-              return [];
-            }
-            return [{ pending: null }];
-          }),
+    transaction.mockImplementation(async (work: (manager: unknown) => Promise<unknown>) =>
+      work({
+        query: jest.fn(async (sql: string) => {
+          if (sql.includes('set_config')) {
+            setConfigCalls.push(sql);
+            return [];
+          }
+          return [{ pending: null }];
         }),
+      }),
     );
     const { collector, metrics } = buildService(dataSource);
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate } from '@aquaculture/shared-ui';
+import { Card, useCanMutate, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -306,45 +306,58 @@ function ValueTable({
     );
   }
 
+  type ValueRow = (typeof values)[number];
+  const valueRowColumns: DataTableColumn<ValueRow>[] = [
+    {
+      key: 'validTimeUtc',
+      header: 'Valid time (UTC)',
+      render: (_value, value) => formatDateTime(value.validAt),
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (_value, value) => (
+        <>
+          {formatValue(value.value)} {value.unit}
+        </>
+      ),
+    },
+    {
+      key: 'sourceAndProvenance',
+      header: 'Source and provenance',
+      render: (_value, value) => <ValueProvenance value={value} />,
+    },
+    {
+      key: 'quality',
+      header: 'Quality',
+      render: (_value, value) => <QualityPill status={value.qualityStatus} />,
+    },
+    {
+      key: 'depth',
+      header: 'Depth',
+      render: (_value, value) => (
+        <>
+          {value.depthM === null || value.depthM === undefined
+            ? 'Surface / not applicable'
+            : `${formatValue(value.depthM)} m`}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
-            <tr>
-              <th className="px-4 py-3">Valid time (UTC)</th>
-              <th className="px-4 py-3">Value</th>
-              <th className="px-4 py-3">Source and provenance</th>
-              <th className="px-4 py-3">Quality</th>
-              <th className="px-4 py-3">Depth</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {values.map((value) => (
-              <tr
-                key={`${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`}
-                className="text-gray-700"
-              >
-                <td className="whitespace-nowrap px-4 py-3">{formatDateTime(value.validAt)}</td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold text-gray-950">
-                  {formatValue(value.value)} {value.unit}
-                </td>
-                <td className="px-4 py-3">
-                  <ValueProvenance value={value} />
-                </td>
-                <td className="px-4 py-3">
-                  <QualityPill status={value.qualityStatus} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  {value.depthM === null || value.depthM === undefined
-                    ? 'Surface / not applicable'
-                    : `${formatValue(value.depthM)} m`}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<ValueRow>
+        data={values}
+        columns={valueRowColumns}
+        keyExtractor={(value) =>
+          `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`
+        }
+        emptyMessage="No records found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
     </div>
   );
 }

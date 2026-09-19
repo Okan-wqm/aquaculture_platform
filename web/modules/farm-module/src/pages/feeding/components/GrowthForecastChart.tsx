@@ -20,7 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -98,6 +98,42 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
       </div>
     );
   }
+
+  type FeedRow = NonNullable<NonNullable<typeof simulationData>['feedRequirements']>[number];
+  const feedRowColumns: DataTableColumn<FeedRow>[] = [
+    {
+      key: 'feedType',
+      header: 'Feed Type',
+      render: (_value, feed) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{feed.feedName}</div>
+          <div className="text-sm text-gray-500">{feed.feedCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'totalRequired',
+      header: 'Total Required',
+      align: 'right',
+      render: (_value, feed) => <>{feed.totalKg.toFixed(0)} kg</>,
+    },
+    {
+      key: 'daysUsed',
+      header: 'Days Used',
+      align: 'right',
+      render: (_value, feed) => <>{feed.daysUsed} days</>,
+    },
+    {
+      key: 'period',
+      header: 'Period',
+      align: 'right',
+      render: (_value, feed) => (
+        <>
+          Day {feed.startDay} - Day {feed.endDay}
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -322,45 +358,15 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
               <div className="px-4 py-3 border-b border-gray-200">
                 <h3 className="text-lg font-medium text-gray-900">Feed Requirements by Type</h3>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Feed Type
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Required
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Days Used
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Period
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {simulationData.feedRequirements.map((feed) => (
-                      <tr key={feed.feedCode} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{feed.feedName}</div>
-                          <div className="text-sm text-gray-500">{feed.feedCode}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          {feed.totalKg.toFixed(0)} kg
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {feed.daysUsed} days
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          Day {feed.startDay} - Day {feed.endDay}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<FeedRow>
+                data={simulationData.feedRequirements}
+                columns={feedRowColumns}
+                keyExtractor={(feed) => feed.feedCode}
+                emptyMessage="No records found"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             </div>
           )}
         </>

@@ -10,7 +10,13 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { ConfirmModal, Modal, useClickOutside } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  useClickOutside,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -930,6 +936,158 @@ const PlcConnectionsPage: React.FC = () => {
     [mutations.deactivate],
   );
 
+  const plcConnectionColumns: DataTableColumn<PlcConnection>[] = [
+    {
+      key: 'baLant',
+      header: 'Bağlantı',
+      render: (_value, conn) => (
+        <div className="flex items-center gap-2">
+          <Server className="h-4 w-4 text-gray-400" />
+          <div>
+            <div className="font-medium text-gray-900">{conn.name}</div>
+            {conn.description && (
+              <div className="text-xs text-gray-500 truncate max-w-[200px]">{conn.description}</div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'endpoint',
+      header: 'Endpoint',
+      render: (_value, conn) => (
+        <code className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+          {conn.endpointUrl}
+        </code>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, conn) => {
+        const statusCfg = STATUS_CONFIG[conn.status] || STATUS_CONFIG.OFFLINE;
+        return (
+          <>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.bgColor}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dotColor}`} />
+              {statusCfg.label}
+            </span>
+            {conn.lastError && conn.status === 'ERROR' && (
+              <p
+                className="text-xs text-red-500 mt-1 max-w-[200px] truncate"
+                title={conn.lastError}
+              >
+                {conn.lastError}
+              </p>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'guvenlik',
+      header: 'Guvenlik',
+      render: (_value, conn) => (
+        <>
+          <div>{SECURITY_MODE_LABELS[conn.securityMode] || conn.securityMode}</div>
+          {conn.securityPolicy && conn.securityPolicy !== 'None' && (
+            <div className="text-gray-500">
+              {SECURITY_POLICY_LABELS[conn.securityPolicy] || conn.securityPolicy}
+            </div>
+          )}
+          <div className="text-gray-400">{AUTH_MODE_LABELS[conn.authMode] || conn.authMode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'sonBaLant',
+      header: 'Son Bağlantı',
+      render: (_value, conn) => formatDate(conn.lastConnectedAt),
+    },
+    {
+      key: 'aktif',
+      header: 'Aktif',
+      render: (_value, conn) => (
+        <>
+          {conn.isActive ? (
+            <CheckCircle className="h-4 w-4 text-green-500" />
+          ) : (
+            <XCircle className="h-4 w-4 text-gray-400" />
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'islemler',
+      header: 'Islemler',
+      align: 'right',
+      render: (_value, conn) => (
+        <div className="relative" ref={menuOpenId === conn.id ? openMenuRef : undefined}>
+          <button
+            onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}
+            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+          {menuOpenId === conn.id && (
+            <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white py-1 shadow-lg">
+              <button
+                onClick={() => {
+                  handleTest(conn.id, conn.name);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Zap className="h-4 w-4" />
+                Bağlantı Test Et
+              </button>
+              <button
+                onClick={() => {
+                  setEditingConnection(conn);
+                  setShowForm(true);
+                  setMenuOpenId(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Edit className="h-4 w-4" />
+                Düzenle
+              </button>
+              {conn.isActive ? (
+                <button
+                  onClick={() => handleDeactivate(conn.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
+                >
+                  <ZapOff className="h-4 w-4" />
+                  Devre Disi Birak
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleActivate(conn.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Etkinlestir
+                </button>
+              )}
+              <div className="border-t my-1" />
+              <button
+                onClick={() => {
+                  setDeleteConfirm(conn.id);
+                  setMenuOpenId(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Sil
+              </button>
+            </div>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
@@ -989,164 +1147,15 @@ const PlcConnectionsPage: React.FC = () => {
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
         </div>
       ) : connections && connections.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Bağlantı
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Endpoint
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Durum
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Guvenlik
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Son Bağlantı
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
-                  Aktif
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">
-                  Islemler
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {connections.map((conn) => {
-                const statusCfg = STATUS_CONFIG[conn.status] || STATUS_CONFIG.OFFLINE;
-                return (
-                  <tr key={conn.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Server className="h-4 w-4 text-gray-400" />
-                        <div>
-                          <div className="font-medium text-gray-900">{conn.name}</div>
-                          {conn.description && (
-                            <div className="text-xs text-gray-500 truncate max-w-[200px]">
-                              {conn.description}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <code className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
-                        {conn.endpointUrl}
-                      </code>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.bgColor}`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dotColor}`} />
-                        {statusCfg.label}
-                      </span>
-                      {conn.lastError && conn.status === 'ERROR' && (
-                        <p
-                          className="text-xs text-red-500 mt-1 max-w-[200px] truncate"
-                          title={conn.lastError}
-                        >
-                          {conn.lastError}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      <div>{SECURITY_MODE_LABELS[conn.securityMode] || conn.securityMode}</div>
-                      {conn.securityPolicy && conn.securityPolicy !== 'None' && (
-                        <div className="text-gray-500">
-                          {SECURITY_POLICY_LABELS[conn.securityPolicy] || conn.securityPolicy}
-                        </div>
-                      )}
-                      <div className="text-gray-400">
-                        {AUTH_MODE_LABELS[conn.authMode] || conn.authMode}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {formatDate(conn.lastConnectedAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {conn.isActive ? (
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-gray-400" />
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div
-                        className="relative"
-                        ref={menuOpenId === conn.id ? openMenuRef : undefined}
-                      >
-                        <button
-                          onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                        {menuOpenId === conn.id && (
-                          <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white py-1 shadow-lg">
-                            <button
-                              onClick={() => {
-                                handleTest(conn.id, conn.name);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Zap className="h-4 w-4" />
-                              Bağlantı Test Et
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingConnection(conn);
-                                setShowForm(true);
-                                setMenuOpenId(null);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Edit className="h-4 w-4" />
-                              Düzenle
-                            </button>
-                            {conn.isActive ? (
-                              <button
-                                onClick={() => handleDeactivate(conn.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
-                              >
-                                <ZapOff className="h-4 w-4" />
-                                Devre Disi Birak
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleActivate(conn.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                              >
-                                <PlayCircle className="h-4 w-4" />
-                                Etkinlestir
-                              </button>
-                            )}
-                            <div className="border-t my-1" />
-                            <button
-                              onClick={() => {
-                                setDeleteConfirm(conn.id);
-                                setMenuOpenId(null);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Sil
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<PlcConnection>
+          data={connections}
+          columns={plcConnectionColumns}
+          keyExtractor={(conn) => conn.id}
+          emptyMessage="No PLC connections"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       ) : (
         <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
           <Server className="mx-auto h-12 w-12 text-gray-400" />

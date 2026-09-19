@@ -18,7 +18,7 @@
  *    variance details for compliance record-keeping.
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Modal, useToast, useAuth } from '@aquaculture/shared-ui';
+import { Modal, useToast, useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useInventoryCount,
   useUpdateInventoryCountItems,
@@ -258,6 +258,92 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
 
   const isBusy = updateItems.isPending || submitCount.isPending || approveCount.isPending;
 
+  type ItemRow = (typeof editableItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'item',
+      header: 'Item',
+      render: (_value, item) => item.itemName,
+    },
+    {
+      key: 'lot',
+      header: 'Lot #',
+      render: (_value, item) => item.lotNumber || '-',
+    },
+    {
+      key: 'expected',
+      header: 'Expected',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          {item.expectedQuantity} {item.unit}
+        </>
+      ),
+    },
+    {
+      key: 'actual',
+      header: 'Actual',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          {isCountingMode ? (
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={item.actualQuantity ?? ''}
+              onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
+              placeholder="0"
+              className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:ring-blue-500 focus:border-blue-500"
+            />
+          ) : (
+            <span className="text-sm text-gray-900">
+              {item.actualQuantity != null ? `${item.actualQuantity} ${item.unit}` : '-'}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'variance',
+      header: 'Variance',
+      align: 'right',
+      render: (_value, item) => {
+        const variance = getVariance(item);
+        return (
+          <>
+            {variance !== null ? (
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getVarianceBadgeClass(
+                  variance,
+                  item.expectedQuantity,
+                )}`}
+              >
+                {variance > 0 ? '+' : ''}
+                {variance}
+              </span>
+            ) : (
+              <span className="text-gray-400 text-sm">-</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, item) => (
+        <input
+          type="text"
+          value={item.notes}
+          onChange={(e) => handleNotesChange(item.itemId, e.target.value)}
+          placeholder="Notes..."
+          className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+  ];
+
   return (
     <Modal
       isOpen={isOpen && !!countId}
@@ -392,114 +478,15 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
 
         {/* Items table — the core of the counting interface */}
         {!isLoading && editableItems.length > 0 && (
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Item
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Lot #
-                  </th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                    Expected
-                  </th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actual
-                  </th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                    Variance
-                  </th>
-                  {isCountingMode && (
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Notes
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {editableItems.map((item) => {
-                  const variance = getVariance(item);
-                  return (
-                    <tr key={item.itemId}>
-                      <td className="px-4 py-2 text-sm text-gray-900">{item.itemName}</td>
-                      <td className="px-4 py-2 text-sm text-gray-500 font-mono text-xs">
-                        {item.lotNumber || '-'}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-gray-500 text-right">
-                        {item.expectedQuantity} {item.unit}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {isCountingMode ? (
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.actualQuantity ?? ''}
-                            onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
-                            placeholder="0"
-                            className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        ) : (
-                          <span className="text-sm text-gray-900">
-                            {item.actualQuantity != null
-                              ? `${item.actualQuantity} ${item.unit}`
-                              : '-'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {variance !== null ? (
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getVarianceBadgeClass(
-                              variance,
-                              item.expectedQuantity,
-                            )}`}
-                          >
-                            {variance > 0 ? '+' : ''}
-                            {variance}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-sm">-</span>
-                        )}
-                      </td>
-                      {isCountingMode && (
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={item.notes}
-                            onChange={(e) => handleNotesChange(item.itemId, e.target.value)}
-                            placeholder="Notes..."
-                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-gray-50">
-                <tr>
-                  <td
-                    className="px-4 py-2 text-sm font-medium text-gray-900"
-                    colSpan={isCountingMode ? 4 : 4}
-                  >
-                    Total Variance
-                  </td>
-                  <td
-                    className={`px-4 py-2 text-right text-sm font-bold ${
-                      totalVariance === 0 ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {totalVariance > 0 ? '+' : ''}
-                    {totalVariance}
-                  </td>
-                  {isCountingMode && <td />}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={editableItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.itemId}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Empty state — shouldn't happen in normal flow, but handles edge case */}

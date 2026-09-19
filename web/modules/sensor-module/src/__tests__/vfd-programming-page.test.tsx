@@ -530,10 +530,10 @@ describe('VfdAuditLogViewer', () => {
         onParameterFilter={noop}
       />,
     );
-    expect(screen.getByTestId('audit-table')).toBeTruthy();
-    expect(screen.getByTestId('audit-row-log-1')).toBeTruthy();
-    expect(screen.getByTestId('audit-row-log-2')).toBeTruthy();
-    expect(screen.getByTestId('audit-row-log-3')).toBeTruthy();
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(screen.getByTestId('risk-log-1')).toBeTruthy();
+    expect(screen.getByTestId('risk-log-2')).toBeTruthy();
+    expect(screen.getByTestId('risk-log-3')).toBeTruthy();
   });
 
   it('parameter filter calls handler', async () => {

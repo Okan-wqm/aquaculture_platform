@@ -24,9 +24,7 @@ const AiConsentSwitch: React.FC<AiConsentSwitchProps> = ({ enabled = true }) => 
 
   if (isLoading) {
     return (
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#5c7783', fontSize: 13 }}
-      >
+      <div className="flex items-center gap-2 text-[13px] text-sd-ink-muted">
         <RefreshCw size={14} className="animate-spin" /> {t('messaging.ai.loadingSettings')}
       </div>
     );
@@ -34,8 +32,8 @@ const AiConsentSwitch: React.FC<AiConsentSwitchProps> = ({ enabled = true }) => 
   if (isError || !settings) {
     return (
       <div className="sd-banner sd-banner--error" role="alert">
-        <AlertCircle size={17} style={{ color: '#b04a28' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+        <AlertCircle size={17} className="text-sd-danger" />
+        <span className="text-[13.5px] font-semibold text-sd-danger-ink">
           {t('messaging.ai.errorSettings')}
         </span>
       </div>
@@ -43,16 +41,16 @@ const AiConsentSwitch: React.FC<AiConsentSwitchProps> = ({ enabled = true }) => 
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div className="flex flex-col gap-1.5">
       {!settings.tenantAiEnabled && (
         <div className="sd-banner sd-banner--error" role="alert">
-          <AlertCircle size={17} style={{ color: '#b04a28' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+          <AlertCircle size={17} className="text-sd-danger" />
+          <span className="text-[13.5px] font-semibold text-sd-danger-ink">
             {t('messaging.ai.tenantDisabled')}
           </span>
         </div>
       )}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+      <label className="flex cursor-pointer items-center gap-2.5">
         <input
           type="checkbox"
           role="switch"
@@ -61,9 +59,9 @@ const AiConsentSwitch: React.FC<AiConsentSwitchProps> = ({ enabled = true }) => 
           disabled={isPending}
           onChange={(e) => updateConsent(e.target.checked)}
         />
-        <span style={{ fontSize: 13.5, color: '#0a1f2b' }}>{t('messaging.ai.consentLabel')}</span>
+        <span className="text-[13.5px] text-sd-ink">{t('messaging.ai.consentLabel')}</span>
       </label>
-      <span style={{ fontSize: 12, color: '#5c7783' }}>{t('messaging.ai.consentHint')}</span>
+      <span className="text-xs text-sd-ink-muted">{t('messaging.ai.consentHint')}</span>
     </div>
   );
 };

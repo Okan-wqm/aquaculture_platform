@@ -17,6 +17,8 @@ import {
   useAuth,
   createTenantQueryKey,
   createTenantInvalidationKey,
+  DataTable,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
@@ -339,6 +341,60 @@ const IoTagAnalysisPanel: React.FC<{
   const mismatchCount = bindings.filter((b) => b.status === 'mismatch').length;
   const boundCount = bindings.filter((b) => b.status === 'bound').length;
 
+  const ioVariableWithBindingColumns: DataTableColumn<IoVariableWithBinding>[] = [
+    {
+      key: 'variable',
+      header: 'Variable',
+      render: (_value, b) => b.name,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, b) => b.dataType,
+    },
+    {
+      key: 'direction',
+      header: 'Direction',
+      render: (_value, b) => (
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}
+        >
+          {directionLabel[b.direction] || b.direction}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, b) => (
+        <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeStyle[b.status]}`}>
+          {statusLabel[b.status]}
+        </span>
+      ),
+    },
+    {
+      key: 'boundTag',
+      header: 'Bound Tag',
+      render: (_value, b) => (
+        <>
+          {b.boundTagName ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
+              <Link2 className="h-3 w-3" />
+              {b.boundTagName}
+            </span>
+          ) : (
+            <span className="text-gray-500 text-xs">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'line',
+      header: 'Line',
+      render: (_value, b) => <>L{b.line}</>,
+    },
+  ];
+
   return (
     <div className="space-y-3">
       {/* Summary bar */}
@@ -467,63 +523,16 @@ const IoTagAnalysisPanel: React.FC<{
       )}
 
       {/* I/O variable binding table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Variable
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Type
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Direction
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Status
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Bound Tag
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                Line
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {bindings.map((b) => (
-              <tr key={`${b.name}-${b.line}`} className="hover:bg-gray-50">
-                <td className="px-4 py-2 font-mono text-sm text-gray-900">{b.name}</td>
-                <td className="px-4 py-2 text-xs text-gray-600">{b.dataType}</td>
-                <td className="px-4 py-2">
-                  <span
-                    className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}
-                  >
-                    {directionLabel[b.direction] || b.direction}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeStyle[b.status]}`}>
-                    {statusLabel[b.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  {b.boundTagName ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
-                      <Link2 className="h-3 w-3" />
-                      {b.boundTagName}
-                    </span>
-                  ) : (
-                    <span className="text-gray-500 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-xs text-gray-500 font-mono">L{b.line}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<IoVariableWithBinding>
+        data={bindings}
+        columns={ioVariableWithBindingColumns}
+        keyExtractor={(b) => `${b.name}-${b.line}`}
+        emptyMessage="No I/O variables"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        compact
+      />
 
       {/* Warnings list */}
       {bindings.some((b) => b.warning) && (
@@ -1139,6 +1148,66 @@ const AutomationProgramEditorPage: React.FC = () => {
       </div>
     );
   }
+
+  const deploymentRecordColumns: DataTableColumn<DeploymentRecord>[] = [
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, dep) => {
+        const statusBadge: Record<string, string> = {
+          success: 'bg-green-100 text-green-700',
+          failed: 'bg-red-100 text-red-700',
+          pending: 'bg-yellow-100 text-yellow-700',
+          in_progress: 'bg-blue-100 text-blue-700',
+          rolled_back: 'bg-gray-100 text-gray-700',
+        };
+        return (
+          <span
+            className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}
+          >
+            {dep.status}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (_value, dep) => <>v{dep.version}</>,
+    },
+    {
+      key: 'deployedBy',
+      header: 'Deployed By',
+      render: (_value, dep) => dep.deployedBy,
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, dep) => new Date(dep.deployedAt).toLocaleString('en-US'),
+    },
+    {
+      key: 'commandId',
+      header: 'Command ID',
+      render: (_value, dep) => dep.commandId || '-',
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, dep, idx) => (
+        <>
+          {idx === 0 && dep.status === 'success' && (
+            <button
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 rounded"
+              title="Roll back to this version"
+            >
+              <Undo2 className="h-3 w-3" />
+              Rollback
+            </button>
+          )}
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -1850,71 +1919,16 @@ const AutomationProgramEditorPage: React.FC = () => {
             {deploymentHistory.length === 0 ? (
               <div className="text-center py-6 text-gray-500 text-sm">No deployments yet</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Status
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Version
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Deployed By
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Date
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Command ID
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {deploymentHistory.map((dep, idx) => {
-                      const statusBadge: Record<string, string> = {
-                        success: 'bg-green-100 text-green-700',
-                        failed: 'bg-red-100 text-red-700',
-                        pending: 'bg-yellow-100 text-yellow-700',
-                        in_progress: 'bg-blue-100 text-blue-700',
-                        rolled_back: 'bg-gray-100 text-gray-700',
-                      };
-                      return (
-                        <tr key={dep.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2">
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}
-                            >
-                              {dep.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-sm">v{dep.version}</td>
-                          <td className="px-3 py-2 text-sm text-gray-600">{dep.deployedBy}</td>
-                          <td className="px-3 py-2 text-sm text-gray-500">
-                            {new Date(dep.deployedAt).toLocaleString('en-US')}
-                          </td>
-                          <td className="px-3 py-2 text-xs font-mono text-gray-500">
-                            {dep.commandId || '-'}
-                          </td>
-                          <td className="px-3 py-2">
-                            {idx === 0 && dep.status === 'success' && (
-                              <button
-                                className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 rounded"
-                                title="Roll back to this version"
-                              >
-                                <Undo2 className="h-3 w-3" />
-                                Rollback
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<DeploymentRecord>
+                data={deploymentHistory}
+                columns={deploymentRecordColumns}
+                keyExtractor={(dep) => dep.id}
+                emptyMessage="No deployments yet"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+                compact
+              />
             )}
             {deploymentHistory.length > 0 &&
               deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (

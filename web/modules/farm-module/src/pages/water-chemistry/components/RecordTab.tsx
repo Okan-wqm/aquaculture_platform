@@ -13,7 +13,7 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
-import { useAuth, useTenantScopedStorage } from '@aquaculture/shared-ui';
+import { useAuth, useTenantScopedStorage, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useEquipmentList } from '../../../hooks/useEquipment';
@@ -174,6 +174,46 @@ export const RecordTab: React.FC = () => {
 
   const recentEntries = recentEntriesQuery.data?.items ?? [];
 
+  type EntryRow = (typeof recentEntries)[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, entry) => new Date(entry.measuredAt).toLocaleString(),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, entry) => entry.source,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+              entry.overallStatus === 'OPTIMAL'
+                ? 'bg-green-100 text-green-800'
+                : entry.overallStatus === 'WARNING'
+                  ? 'bg-yellow-100 text-yellow-800'
+                  : entry.overallStatus === 'CRITICAL'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-gray-100 text-gray-800'
+            }`}
+          >
+            {entry.overallStatus}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, entry) => entry.notes || '—',
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Selectors Row */}
@@ -328,48 +368,15 @@ export const RecordTab: React.FC = () => {
               Recent Entries — {selectedEquipmentName}
             </h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Source</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Status</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {recentEntries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-4 py-2 whitespace-nowrap text-gray-900">
-                      {new Date(entry.measuredAt).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap text-gray-600">
-                      {entry.source}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                          entry.overallStatus === 'OPTIMAL'
-                            ? 'bg-green-100 text-green-800'
-                            : entry.overallStatus === 'WARNING'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : entry.overallStatus === 'CRITICAL'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {entry.overallStatus}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-gray-500 truncate max-w-[200px]">
-                      {entry.notes || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<EntryRow>
+            data={recentEntries}
+            columns={entryRowColumns}
+            keyExtractor={(entry) => entry.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
     </div>

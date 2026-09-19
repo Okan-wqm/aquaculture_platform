@@ -11,7 +11,10 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 
 export interface TableColumn<T> {
   key: keyof T | string;
+  /** The column's name: what the export writes, the visibility menu lists and the sort control is labelled with. */
   header: string;
+  /** What the header cell shows when the name alone is not enough (key and sensitivity markers, units); defaults to `header`. */
+  headerRender?: React.ReactNode;
   sortable?: boolean;
   filterable?: boolean;
   width?: string;
@@ -43,9 +46,11 @@ export interface PaginationConfig {
 }
 
 export interface DataTableProps<T> {
-  data: T[];
+  /** Rows to render. Accepts readonly arrays: the table never mutates them. */
+  data: readonly T[];
   columns: TableColumn<T>[];
-  keyExtractor: (row: T) => string;
+  /** Stable row key; the index is there for rows that have no identity of their own (form arrays). */
+  keyExtractor: (row: T, index: number) => string;
 
   // Sorting
   sortable?: boolean;
@@ -97,7 +102,8 @@ export interface DataTableProps<T> {
   // Loading & Empty States
   loading?: boolean;
   loadingMessage?: string;
-  emptyMessage?: string;
+  /** What the empty body says — a string, or a heading-plus-hint node. */
+  emptyMessage?: React.ReactNode;
   emptyIcon?: React.ReactNode;
 
   // Styling
@@ -116,6 +122,12 @@ export interface DataTableProps<T> {
   // Expansion
   expandable?: boolean;
   renderExpandedRow?: (row: T) => React.ReactNode;
+
+  /**
+   * A totals row under the body, keyed by column key and aligned with the
+   * columns; rendered only when there are rows to total.
+   */
+  summaryRow?: Partial<Record<string, React.ReactNode>>;
 
   // Header Actions
   headerActions?: React.ReactNode;
@@ -196,7 +208,7 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg' }> = ({ size = 'md' }) => {
 interface TableBodyProps<T> {
   loading: boolean;
   loadingMessage: string;
-  emptyMessage: string;
+  emptyMessage: React.ReactNode;
   emptyIcon?: React.ReactNode;
   processedData: T[];
   activeColumns: TableColumn<T>[];
@@ -204,7 +216,7 @@ interface TableBodyProps<T> {
   expandable: boolean;
   selectedRows: string[];
   expandedRows: Set<string>;
-  keyExtractor: (row: T) => string;
+  keyExtractor: (row: T, index: number) => string;
   rowClasses: (row: T, index: number) => string;
   cellClasses: string;
   onRowClick?: (row: T) => void;
@@ -259,13 +271,13 @@ const TableBodyInner = <T,>({
                   />
                 </svg>
               )}
-              <span className="text-sm">{emptyMessage}</span>
+              <div className="text-sm">{emptyMessage}</div>
             </div>
           </td>
         </tr>
       ) : (
         processedData.map((row, index) => {
-          const rowId = keyExtractor(row);
+          const rowId = keyExtractor(row, index);
           const isSelected = selectedRows.includes(rowId);
           const isExpanded = expandedRows.has(rowId);
 
@@ -377,6 +389,7 @@ export function DataTable<T>({
   rowClassName,
   expandable = false,
   renderExpandedRow,
+  summaryRow,
   headerActions,
   onRefresh,
   refreshing = false,
@@ -431,7 +444,7 @@ export function DataTable<T>({
   const handleSelectAll = useCallback(
     (checked: boolean) => {
       if (checked) {
-        onSelectionChange?.(data.map(keyExtractor));
+        onSelectionChange?.(data.map((row, index) => keyExtractor(row, index)));
       } else {
         onSelectionChange?.([]);
       }
@@ -574,9 +587,21 @@ export function DataTable<T>({
 
   const cellClasses = compact ? 'px-3 py-2 text-sm' : 'px-4 py-3 text-sm';
 
+  // WHY conditional: a page that keeps its own filters above the table would
+  // otherwise get an empty bordered strip where the toolbar would be.
+  const hasToolbar =
+    searchable ||
+    filterable ||
+    exportable ||
+    columnVisibilityToggle ||
+    Boolean(headerActions) ||
+    Boolean(onRefresh) ||
+    (selectable && selectedRows.length > 0 && bulkActions.length > 0);
+
   return (
     <div className={`bg-white rounded-lg shadow ${className}`}>
-      {/* Header */}
+      {/* Header — only when there is something to put in it */}
+      {hasToolbar && (
       <div className="px-4 py-3 border-b border-gray-200">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           {/* Search */}
@@ -788,6 +813,7 @@ export function DataTable<T>({
           </div>
         )}
       </div>
+      )}
 
       {/* Table Container */}
       <div className={`overflow-x-auto ${maxHeight ? 'overflow-y-auto' : ''}`} style={{ maxHeight }}>
@@ -829,7 +855,7 @@ export function DataTable<T>({
                   aria-label={col.sortable !== false && sortable ? `Sort by ${col.header}` : undefined}
                 >
                   <div className={`flex items-center gap-2 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>
-                    {col.header}
+                    {col.headerRender ?? col.header}
                     {col.sortable !== false && sortable && (
                       <SortIcon direction={sortConfig?.key === String(col.key) ? sortConfig.direction : undefined} />
                     )}
@@ -859,6 +885,25 @@ export function DataTable<T>({
             handleToggleExpand={handleToggleExpand}
             renderExpandedRow={renderExpandedRow}
           />
+
+          {/* Summary (totals) row */}
+          {summaryRow && !loading && processedData.length > 0 && (
+            <tfoot className="bg-gray-50 border-t border-gray-200">
+              <tr>
+                {selectable && <td className={cellClasses} />}
+                {expandable && <td className={cellClasses} />}
+                {activeColumns.map((col) => (
+                  <td
+                    key={String(col.key)}
+                    className={`${cellClasses} font-semibold text-gray-900 ${col.className || ''}`}
+                    style={{ textAlign: col.align }}
+                  >
+                    {summaryRow[String(col.key)]}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
@@ -871,21 +916,24 @@ export function DataTable<T>({
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Page Size Selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Rows:</span>
-              <select
-                value={pagination.limit}
-                onChange={(e) => onPageSizeChange?.(Number(e.target.value))}
-                className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              >
-                {pageSizeOptions.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Page Size Selector — only when the page can act on it; an inert select is a false affordance */}
+            {onPageSizeChange && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Rows:</span>
+                <select
+                  value={pagination.limit}
+                  onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                  aria-label="Rows per page"
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                >
+                  {pageSizeOptions.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Page Navigation */}
             <div className="flex items-center gap-1">

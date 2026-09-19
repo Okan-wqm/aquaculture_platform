@@ -30,6 +30,7 @@ import {
   CreateSparePartInput,
 } from '../../hooks/useMaintenance';
 import { isBlockingError } from '../../utils/list-view-state';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<SparePartStatus, string> = {
@@ -300,6 +301,89 @@ export const SparePartsPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'kodSim',
+      header: 'Kod / İsim',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{item.code}</div>
+          <div className="text-sm text-gray-500">{item.name}</div>
+        </>
+      ),
+    },
+    {
+      key: 'parANo',
+      header: 'Parça No',
+      render: (_value, item) => item.partNumber,
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
+      ),
+    },
+    {
+      key: 'miktar',
+      header: 'Miktar',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`text-sm font-medium ${
+              item.quantity <= item.minStock
+                ? 'text-red-600'
+                : item.quantity <= item.reorderPoint
+                  ? 'text-yellow-600'
+                  : 'text-gray-900'
+            }`}
+          >
+            {item.quantity} {item.unit}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'minMax',
+      header: 'Min / Max',
+      render: (_value, item) => (
+        <>
+          {item.minStock} / {item.maxStock}
+        </>
+      ),
+    },
+    {
+      key: 'birimFiyat',
+      header: 'Birim Fiyat',
+      render: (_value, item) => formatCurrency(parseMoney(item.unitPriceDecimal), item.currency),
+    },
+    {
+      key: 'lemler',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button
+            onClick={() => handleOpenStockMovement(item)}
+            className="text-green-600 hover:text-green-900 mr-3"
+          >
+            Stok
+          </button>
+          <button
+            onClick={() => handleOpenEdit(item)}
+            className="text-indigo-600 hover:text-indigo-900 mr-3"
+          >
+            Düzenle
+          </button>
+          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+            Sil
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
@@ -377,100 +461,15 @@ export const SparePartsPage: React.FC = () => {
             <Spinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kod / İsim
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Parça No
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Durum
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Miktar
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Min / Max
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Birim Fiyat
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Henüz yedek parça bulunmuyor
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{item.code}</div>
-                        <div className="text-sm text-gray-500">{item.name}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.partNumber}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={statusColors[item.status]}>
-                          {statusLabels[item.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`text-sm font-medium ${
-                            item.quantity <= item.minStock
-                              ? 'text-red-600'
-                              : item.quantity <= item.reorderPoint
-                                ? 'text-yellow-600'
-                                : 'text-gray-900'
-                          }`}
-                        >
-                          {item.quantity} {item.unit}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.minStock} / {item.maxStock}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatCurrency(parseMoney(item.unitPriceDecimal), item.currency)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleOpenStockMovement(item)}
-                          className="text-green-600 hover:text-green-900 mr-3"
-                        >
-                          Stok
-                        </button>
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-3"
-                        >
-                          Düzenle
-                        </button>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Sil
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={filteredItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="Henüz yedek parça bulunmuyor"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Pagination */}

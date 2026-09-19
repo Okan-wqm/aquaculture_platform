@@ -24,6 +24,7 @@ import {
 } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -112,6 +113,50 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  type StockRow = (typeof filtered)[number];
+  const stockColumns: DataTableColumn<StockRow>[] = [
+    ...columns.map((col): DataTableColumn<StockRow> => ({
+      key: col,
+      header: COLUMN_HEADERS[col],
+      className: getCellClassName(col),
+      render: (_value, item) => renderCell(col, item, lowStockByItemId.get(item.itemId)),
+    })),
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      // Per-row actions: Adjust (count correction) and Write Off (waste disposal).
+      render: (_value, item) => (
+        <div className="flex gap-1 justify-end">
+          <button
+            onClick={() =>
+              openModal({
+                movementType: MovementType.ADJUSTMENT,
+                itemId: item.itemId,
+                itemName: item.itemName,
+              })
+            }
+            className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
+          >
+            Adjust
+          </button>
+          <button
+            onClick={() =>
+              openModal({
+                movementType: MovementType.WASTE,
+                itemId: item.itemId,
+                itemName: item.itemName,
+              })
+            }
+            className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
+          >
+            Write Off
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Search + Add Stock header */}
@@ -171,76 +216,16 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
       {/* Data table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {columns.map(col => (
-                  <th
-                    key={col}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
-                  >
-                    {COLUMN_HEADERS[col]}
-                  </th>
-                ))}
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.map(item => (
-                <tr
-                  key={item.id}
-                  className={`hover:bg-gray-50 ${hasExpiryColumn ? getExpiryRowClass(item.expiryDate) : ''}`}
-                >
-                  {columns.map(col => (
-                    <td key={col} className={getCellClassName(col)}>
-                      {renderCell(col, item, lowStockByItemId.get(item.itemId))}
-                    </td>
-                  ))}
-
-                  {/* Per-row actions: Adjust (count correction) and Write Off (waste disposal). */}
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex gap-1 justify-end">
-                      <button
-                        onClick={() =>
-                          openModal({
-                            movementType: MovementType.ADJUSTMENT,
-                            itemId: item.itemId,
-                            itemName: item.itemName,
-                          })
-                        }
-                        className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
-                      >
-                        Adjust
-                      </button>
-                      <button
-                        onClick={() =>
-                          openModal({
-                            movementType: MovementType.WASTE,
-                            itemId: item.itemId,
-                            itemName: item.itemName,
-                          })
-                        }
-                        className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
-                      >
-                        Write Off
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Empty state */}
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">
-              No {itemLabel} stock items found.
-            </div>
-          )}
-        </div>
+        <DataTable<StockRow>
+          data={filtered}
+          columns={stockColumns}
+          keyExtractor={(item) => item.id}
+          rowClassName={(item) => (hasExpiryColumn ? getExpiryRowClass(item.expiryDate) : '')}
+          emptyMessage={`No ${itemLabel} stock items found.`}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Stock movement modal — pre-filled with the tab's item type */}
@@ -262,13 +247,13 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 function getCellClassName(col: StockTabColumn): string {
   switch (col) {
     case 'itemName':
-      return 'px-6 py-4 text-sm font-medium text-gray-900';
+      return 'font-medium text-gray-900';
     case 'quantity':
-      return 'px-6 py-4 text-sm font-medium text-gray-900';
+      return 'font-medium text-gray-900';
     case 'lotNumber':
-      return 'px-6 py-4 text-sm text-gray-500 font-mono';
+      return 'text-gray-500 font-mono';
     default:
-      return 'px-6 py-4 text-sm text-gray-500';
+      return 'text-gray-500';
   }
 }
 

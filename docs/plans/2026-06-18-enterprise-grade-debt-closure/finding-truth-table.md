@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `ca7d474ea54b0ccc2d36b4de46e1835288b5e561578b404bb9d48ce12d8f83aa`
+Registry tip: `70305be89f2eeac533da998e70dd3ee919e133d4343b6cf0fde63c65cb9f6c2d`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -245,6 +245,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -371,6 +372,13 @@ Allowed truth buckets:
   ticket and support-messaging tables beside the auth/messaging authorities; the RC chain's support-silo
   consolidation was not re-derived. Real open work, owner admin-expert, deadline 2026-10-15
   (`docs/reviews/admin-expert/2026-09-04-admin-panel-rc1-integration.md`).
+- `ORPHAN-CRITICAL-810` (2026-09-05, registered by the messaging-fix-1 line and carried onto main by
+  PR #1586): the live `aqua-postgres` container was created from the base TimescaleDB image with a
+  bind-mounted checkout entrypoint, while the declared release uses the custom `Dockerfile.postgres-walg`
+  image, root bootstrap, exact certificate mounts and runtime tmpfs — a restart replays an entrypoint from
+  one release contract into a container from another. Real open work, owner infra-expert (registry
+  owner_user okan), placed in the go-live gate beside `DEPLOY-CRITICAL-017`
+  (`docs/reviews/orphan-findings.md`).
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

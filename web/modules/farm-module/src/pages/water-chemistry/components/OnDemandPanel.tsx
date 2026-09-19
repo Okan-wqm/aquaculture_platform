@@ -6,6 +6,7 @@
  */
 import React from 'react';
 import type { OnDemandStep } from '@platform/aquaculture-engines';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface OnDemandPanelProps {
   steps: OnDemandStep[];
@@ -27,6 +28,50 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
     return 'text-green-700';
   };
 
+  type StepRow = (typeof steps)[number];
+  const stepRowColumns: DataTableColumn<StepRow>[] = [
+    {
+      key: 'step',
+      header: 'Step',
+      render: (_value, step, idx) => {
+        const isStart = idx === 0;
+        const isFinal = idx === steps.length - 1;
+        return (
+          <>
+            {isStart && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1.5 align-middle" />}
+            {isFinal && !isStart && <span className="inline-block w-2 h-2 rounded-full bg-orange-500 mr-1.5 align-middle" />}
+            {!isStart && !isFinal && <span className="inline-block w-2 h-2 border border-orange-400 rounded-full mr-1.5 align-middle" />}
+            {step.label}
+          </>
+        );
+      },
+    },
+    {
+      key: 'ph',
+      header: 'pH',
+      align: 'right',
+      render: (_value, step) => step.ph.toFixed(2),
+    },
+    {
+      key: 'alkMeqL',
+      header: 'ALK (meq/L)',
+      align: 'right',
+      render: (_value, step) => step.alk.toFixed(3),
+    },
+    {
+      key: 'dicMmolL',
+      header: 'DIC (mmol/L)',
+      align: 'right',
+      render: (_value, step) => step.dic.toFixed(3),
+    },
+    {
+      key: 'coMgL',
+      header: 'CO₂ (mg/L)',
+      align: 'right',
+      render: (_value, step) => step.co2.toFixed(1),
+    }
+  ];
+
   return (
     <div className="bg-white rounded-lg shadow p-4">
       <div className="mb-3">
@@ -35,48 +80,15 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-2 py-1.5 font-medium text-gray-600">Step</th>
-              <th className="text-right px-2 py-1.5 font-medium text-gray-600">pH</th>
-              <th className="text-right px-2 py-1.5 font-medium text-gray-600">ALK (meq/L)</th>
-              <th className="text-right px-2 py-1.5 font-medium text-gray-600">DIC (mmol/L)</th>
-              <th className="text-right px-2 py-1.5 font-medium text-gray-600">CO₂ (mg/L)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {steps.map((step, idx) => {
-              const isStart = idx === 0;
-              const isFinal = idx === steps.length - 1;
-              return (
-                <tr
-                  key={idx}
-                  className={`border-b border-gray-100 ${isFinal ? 'bg-orange-50 font-medium' : isStart ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                >
-                  <td className="px-2 py-1.5 text-gray-700">
-                    {isStart && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1.5 align-middle" />}
-                    {isFinal && !isStart && <span className="inline-block w-2 h-2 rounded-full bg-orange-500 mr-1.5 align-middle" />}
-                    {!isStart && !isFinal && <span className="inline-block w-2 h-2 border border-orange-400 rounded-full mr-1.5 align-middle" />}
-                    {step.label}
-                  </td>
-                  <td className={`px-2 py-1.5 text-right tabular-nums ${pHColor(step.ph)}`}>
-                    {step.ph.toFixed(2)}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
-                    {step.alk.toFixed(3)}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
-                    {step.dic.toFixed(3)}
-                  </td>
-                  <td className={`px-2 py-1.5 text-right tabular-nums ${co2Color(step.co2)}`}>
-                    {step.co2.toFixed(1)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <DataTable<StepRow>
+          data={steps}
+          columns={stepRowColumns}
+          keyExtractor={(_step, idx) => String(idx)}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
         <div className="flex gap-4 mt-2 text-xs text-gray-500">
           <span>
             ΔpH: <span className={pHColor(steps[steps.length - 1].ph)}>

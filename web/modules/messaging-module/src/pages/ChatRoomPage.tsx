@@ -260,47 +260,24 @@ const ChatRoomPage: React.FC = () => {
   const visibleMessages = messages.filter((m) => !m.isDeleted);
 
   return (
-    <div className="sd-page" style={{ maxWidth: 520 }}>
+    <div className="sd-page max-w-[520px]">
       <div className="sd-card sd-card--flush sd-chat-card">
         {/* Header */}
         <div className="sd-chat-head">
           <button
             onClick={() => navigate('/messaging')}
-            style={{
-              display: 'flex',
-              border: 0,
-              background: 'transparent',
-              color: '#8aa0aa',
-              cursor: 'pointer',
-              padding: 0,
-            }}
+            className="flex cursor-pointer border-0 bg-transparent p-0 text-sd-ink-hint"
             aria-label={t('messaging.backToChannels')}
           >
             <ArrowLeft size={17} />
           </button>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#0a1f2b' }}>
+          <span className="text-[13.5px] font-semibold text-sd-ink">
             {t('messaging.conversation')}
           </span>
           <span className="sd-chat-head-divider" />
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: 12.5,
-              color: '#5c7783',
-            }}
-          >
-            {heading}
-          </span>
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-sd-ink-muted">{heading}</span>
           {channelId && !isConnected && (
-            <span
-              className="sd-hint"
-              role="status"
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, marginTop: 0 }}
-            >
+            <span className="sd-hint mt-0 flex shrink-0 items-center gap-1" role="status">
               <RefreshCw size={11} className="animate-spin" aria-hidden />
               {t('messaging.reconnecting')}
             </span>
@@ -310,10 +287,7 @@ const ChatRoomPage: React.FC = () => {
         {/* FE-MEDIUM-065: the bridge answers in an AI room only for members who
             opted in — the switch lives where the refusal would otherwise show. */}
         {currentChannel?.type === 'AI' && canUseAi && (
-          <div
-            data-testid="ai-consent"
-            style={{ padding: '10px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}
-          >
+          <div data-testid="ai-consent" className="border-b border-sd-rule px-4 py-2.5">
             <AiConsentSwitch />
           </div>
         )}
@@ -329,30 +303,14 @@ const ChatRoomPage: React.FC = () => {
           {isFetchingNextPage && (
             <div
               data-testid="loading-older"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                color: '#8aa0aa',
-                fontSize: 12,
-                padding: '4px 0',
-              }}
+              className="flex items-center justify-center gap-1.5 py-1 text-xs text-sd-ink-hint"
             >
               <RefreshCw size={12} className="animate-spin" aria-hidden />
               {t('messaging.loadingOlder')}
             </div>
           )}
           {isLoading && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                color: '#8aa0aa',
-                fontSize: 13,
-              }}
-            >
+            <div className="flex items-center gap-2 text-[13px] text-sd-ink-hint">
               <RefreshCw size={14} className="animate-spin" /> {t('messaging.loadingMessages')}
             </div>
           )}
@@ -362,16 +320,14 @@ const ChatRoomPage: React.FC = () => {
               role="alert"
               data-testid="messages-error-banner"
             >
-              <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+              <AlertCircle size={17} className="text-sd-danger" />
+              <span className="text-[13.5px] font-semibold text-sd-danger-ink">
                 {t('messaging.errorMessages')}
               </span>
             </div>
           )}
           {!isLoading && !isError && visibleMessages.length === 0 && (
-            <p style={{ margin: 'auto', fontSize: 13, color: '#8aa0aa' }}>
-              {t('messaging.noMessages')}
-            </p>
+            <p className="m-auto text-[13px] text-sd-ink-hint">{t('messaging.noMessages')}</p>
           )}
           {visibleMessages.map((m) => {
             const mine = m.senderId === myId;
@@ -388,16 +344,7 @@ const ChatRoomPage: React.FC = () => {
             if (!mine && isAiErrorNotice(m)) {
               return (
                 <div key={m.id} className="sd-msg-row" data-testid="ai-error-notice" role="note">
-                  <p
-                    className="sd-hint"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      margin: '2px 0',
-                      fontStyle: 'italic',
-                    }}
-                  >
+                  <p className="sd-hint my-0.5 flex items-center gap-1.5 italic">
                     <AlertCircle size={12} aria-hidden />
                     {t('messaging.aiUnavailable')}
                   </p>
@@ -415,7 +362,7 @@ const ChatRoomPage: React.FC = () => {
 
             return (
               <div key={m.id} className={`sd-msg-row${mine ? ' sd-msg-row--mine' : ''}`}>
-                <div style={{ maxWidth: '80%', minWidth: 0 }}>
+                <div className="min-w-0 max-w-[80%]">
                   {!mine && (
                     <div className="sd-msg-author">
                       {m.isAiGenerated && <Sparkles size={12} />}
@@ -434,7 +381,7 @@ const ChatRoomPage: React.FC = () => {
                         data-testid={`media-placeholder-${bodyKind}`}
                         role="img"
                         aria-label={t(messageBodyLabelKey(bodyKind))}
-                        style={{ fontStyle: 'italic' }}
+                        className="italic"
                       >
                         {t(messageBodyLabelKey(bodyKind))}
                       </span>
@@ -455,20 +402,15 @@ const ChatRoomPage: React.FC = () => {
         </div>
 
         {/* Composer */}
-        <div
-          className="sd-composer-wrap"
-          style={{ padding: '11px 12px', borderTop: '1px solid rgba(10,31,43,.09)' }}
-        >
+        <div className="sd-composer-wrap border-t border-sd-rule px-3 py-[11px]">
           {bannerKey && (
             <div
               className="sd-banner sd-banner--error"
               role="alert"
               data-testid="send-error-banner"
             >
-              <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
-                {t(bannerKey)}
-              </span>
+              <AlertCircle size={17} className="text-sd-danger" />
+              <span className="text-[13.5px] font-semibold text-sd-danger-ink">{t(bannerKey)}</span>
             </div>
           )}
           {unseenCount > 0 && (
@@ -477,20 +419,7 @@ const ChatRoomPage: React.FC = () => {
               data-testid="new-messages-pill"
               aria-live="polite"
               onClick={jumpToLatest}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                margin: '0 auto 8px',
-                padding: '4px 12px',
-                border: 0,
-                borderRadius: 999,
-                background: '#0b4f60',
-                color: '#eafaf4',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className="mx-auto mb-2 flex cursor-pointer items-center gap-1 rounded-full border-0 bg-sd-teal-deep px-3 py-1 text-xs font-semibold text-sd-mint-paper"
             >
               <ChevronDown size={13} aria-hidden />
               {t('messaging.newMessages', { count: unseenCount })}

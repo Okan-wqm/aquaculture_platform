@@ -26,7 +26,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -752,6 +752,86 @@ export const CompliancePage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
+  const dataRequestColumns: DataTableColumn<DataRequest>[] = [
+    {
+      key: 'request',
+      header: 'Request',
+      render: (_value, request) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{request.id}</div>
+          <div className="text-xs text-gray-500">{formatDate(request.submittedAt)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'requester',
+      header: 'Requester',
+      render: (_value, request) => (
+        <>
+          <div className="text-sm text-gray-900">{request.requesterName}</div>
+          <div className="text-xs text-gray-500">{request.requesterEmail}</div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, request) => (
+        <div className="flex items-center gap-2">
+          {getRequestTypeIcon(request.requestType)}
+          <span className="text-sm text-gray-900 capitalize">{request.requestType}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, request) => (
+        <>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
+          >
+            {request.status.replace('_', ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'dueDate',
+      header: 'Due Date',
+      render: (_value, request) => (
+        <>
+          <div
+            className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
+          >
+            {formatDate(request.dueDate)}
+          </div>
+          {request.isOverdue && <div className="text-xs text-red-500">Overdue</div>}
+        </>
+      ),
+    },
+    {
+      key: 'assignedTo',
+      header: 'Assigned To',
+      render: (_value, request) => request.assignedToName || '-',
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, request) => (
+        <>
+          <button
+            onClick={() => setSelectedRequest(request)}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Partial failure: the requests loaded but the reports or the framework
@@ -926,94 +1006,15 @@ export const CompliancePage: React.FC = () => {
 
           {/* Requests Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Request
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Requester
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Type
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Due Date
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Assigned To
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredRequests.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No data requests found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRequests.map((request) => (
-                    <tr
-                      key={request.id}
-                      className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium text-gray-900">{request.id}</div>
-                        <div className="text-xs text-gray-500">
-                          {formatDate(request.submittedAt)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">{request.requesterName}</div>
-                        <div className="text-xs text-gray-500">{request.requesterEmail}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {getRequestTypeIcon(request.requestType)}
-                          <span className="text-sm text-gray-900 capitalize">
-                            {request.requestType}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
-                        >
-                          {request.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div
-                          className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
-                        >
-                          {formatDate(request.dueDate)}
-                        </div>
-                        {request.isOverdue && <div className="text-xs text-red-500">Overdue</div>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {request.assignedToName || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setSelectedRequest(request)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <DataTable<DataRequest>
+              data={filteredRequests}
+              columns={dataRequestColumns}
+              keyExtractor={(request) => request.id}
+              emptyMessage="No data requests found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           </div>
         </div>
       )}

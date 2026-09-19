@@ -9,7 +9,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Modal } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Modal,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 
@@ -252,6 +259,94 @@ const MessagingRetentionPage: React.FC = () => {
     [fetchData],
   );
 
+  const retentionPolicyColumns: DataTableColumn<RetentionPolicy>[] = [
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, p) => (
+        <>
+          <p className="text-sm font-medium text-gray-900">{p.tenantName}</p>
+          <p className="text-xs text-gray-400 font-mono">{p.tenantId.slice(0, 8)}...</p>
+        </>
+      ),
+    },
+    {
+      key: 'defaultPolicy',
+      header: 'Default Policy',
+      align: 'center',
+      render: (_value, p) => (
+        <Badge variant="info">{RETENTION_LABELS[p.defaultRetention] ?? p.defaultRetention}</Badge>
+      ),
+    },
+    {
+      key: 'channelOverrides',
+      header: 'Channel Overrides',
+      align: 'center',
+      render: (_value, p) => p.channelOverridesCount,
+    },
+    {
+      key: 'totalMessages',
+      header: 'Total Messages',
+      align: 'right',
+      render: (_value, p) => p.messagesCount.toLocaleString(),
+    },
+    {
+      key: 'expired',
+      header: 'Expired',
+      align: 'right',
+      render: (_value, p) => (
+        <span className={p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>
+          {p.expiredCount.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: 'lastCleanup',
+      header: 'Last Cleanup',
+      align: 'right',
+      render: (_value, p) =>
+        p.lastCleanup ? new Date(p.lastCleanup).toLocaleDateString() : 'Never',
+    },
+    {
+      key: 'nextCleanup',
+      header: 'Next Cleanup',
+      align: 'right',
+      render: (_value, p) => new Date(p.nextCleanup).toLocaleDateString(),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, p) => (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={() =>
+              setEditModal({
+                policyId: p.id,
+                tenantName: p.tenantName,
+                currentRetention: p.defaultRetention,
+              })
+            }
+            className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() =>
+              setOverrideModal({
+                tenantId: p.tenantId,
+                tenantName: p.tenantName,
+              })
+            }
+            className="text-xs px-2 py-1 rounded font-medium text-purple-600 hover:bg-purple-50"
+          >
+            + Override
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -306,103 +401,16 @@ const MessagingRetentionPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tenant
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Default Policy
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Channel Overrides
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Total Messages
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Expired
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Last Cleanup
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Next Cleanup
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {policies.map((p) => (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-gray-900">{p.tenantName}</p>
-                        <p className="text-xs text-gray-400 font-mono">
-                          {p.tenantId.slice(0, 8)}...
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <Badge variant="info">
-                          {RETENTION_LABELS[p.defaultRetention] ?? p.defaultRetention}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-center">
-                        {p.channelOverridesCount}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                        {p.messagesCount.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right">
-                        <span
-                          className={
-                            p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'
-                          }
-                        >
-                          {p.expiredCount.toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {p.lastCleanup ? new Date(p.lastCleanup).toLocaleDateString() : 'Never'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {new Date(p.nextCleanup).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() =>
-                              setEditModal({
-                                policyId: p.id,
-                                tenantName: p.tenantName,
-                                currentRetention: p.defaultRetention,
-                              })
-                            }
-                            className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() =>
-                              setOverrideModal({
-                                tenantId: p.tenantId,
-                                tenantName: p.tenantName,
-                              })
-                            }
-                            className="text-xs px-2 py-1 rounded font-medium text-purple-600 hover:bg-purple-50"
-                          >
-                            + Override
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<RetentionPolicy>
+              data={policies}
+              columns={retentionPolicyColumns}
+              keyExtractor={(p) => p.tenantId}
+              emptyMessage="No retention policies"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
       </Card>

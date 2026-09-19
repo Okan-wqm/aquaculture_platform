@@ -28,7 +28,7 @@ import {
   Calendar,
   ArrowUpCircle,
 } from 'lucide-react';
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
@@ -231,6 +231,93 @@ const TenantBillingPage: React.FC = () => {
     return <BillingSkeleton />;
   }
 
+  const paymentColumns: DataTableColumn<TenantInvoice>[] = [
+    {
+      key: 'invoice',
+      header: 'Invoice',
+      render: (_value, invoice) => (
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-green-500" />
+          <span className="text-sm text-gray-900">{invoice.invoiceNumber}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'paidDate',
+      header: 'Paid Date',
+      render: (_value, invoice) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="w-3.5 h-3.5 text-gray-500" />
+          <span className="text-sm text-gray-600">
+            {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      render: (_value, invoice) => (
+        <span className="text-sm font-medium text-green-600">
+          {invoice.currency === 'USD' ? '$' : invoice.currency}
+          {parseMoney(invoice.amountDecimal).toFixed(2)}
+        </span>
+      ),
+    },
+  ];
+
+  const tenantInvoiceColumns: DataTableColumn<TenantInvoice>[] = [
+    {
+      key: 'invoice',
+      header: 'Invoice',
+      render: (_value, invoice) => (
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-gray-500" />
+          <div>
+            <p className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</p>
+            <p className="text-xs text-gray-500">{invoice.description}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, invoice) => (
+        <span className="text-sm text-gray-600">
+          {new Date(invoice.issuedAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      key: 'dueDate',
+      header: 'Due Date',
+      render: (_value, invoice) => (
+        <span className="text-sm text-gray-600">
+          {new Date(invoice.dueDate).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      render: (_value, invoice) => (
+        <span className="text-sm font-medium text-gray-900">
+          {invoice.currency === 'USD' ? '$' : invoice.currency}
+          {parseMoney(invoice.amountDecimal).toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'right',
+      render: (_value, invoice) => <InvoiceStatusBadge status={invoice.status} />,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -424,65 +511,16 @@ const TenantBillingPage: React.FC = () => {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Invoices</h2>
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           {invoices.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoice
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                      Due Date
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoices.map((invoice: TenantInvoice) => (
-                    <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-500" />
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {invoice.invoiceNumber}
-                            </p>
-                            <p className="text-xs text-gray-500">{invoice.description}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-gray-600">
-                          {new Date(invoice.issuedAt).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 hidden sm:table-cell">
-                        <span className="text-sm text-gray-600">
-                          {new Date(invoice.dueDate).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-medium text-gray-900">
-                          {invoice.currency === 'USD' ? '$' : invoice.currency}
-                          {parseMoney(invoice.amountDecimal).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <InvoiceStatusBadge status={invoice.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<TenantInvoice>
+              data={invoices}
+              columns={tenantInvoiceColumns}
+              keyExtractor={(invoice) => invoice.id}
+              emptyMessage="No invoices"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           ) : (
             <div className="py-12 text-center">
               <FileText className="w-12 h-12 text-gray-500 mx-auto" />
@@ -500,56 +538,16 @@ const TenantBillingPage: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment History</h2>
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoice
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Paid Date
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoices
-                    .filter((inv) => inv.paidAt)
-                    .map((invoice) => (
-                      <tr
-                        key={`payment-${invoice.id}`}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                            <span className="text-sm text-gray-900">{invoice.invoiceNumber}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-3.5 h-3.5 text-gray-500" />
-                            <span className="text-sm text-gray-600">
-                              {invoice.paidAt
-                                ? new Date(invoice.paidAt).toLocaleDateString()
-                                : '--'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <span className="text-sm font-medium text-green-600">
-                            {invoice.currency === 'USD' ? '$' : invoice.currency}
-                            {parseMoney(invoice.amountDecimal).toFixed(2)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<TenantInvoice>
+              data={invoices.filter((inv) => inv.paidAt)}
+              columns={paymentColumns}
+              keyExtractor={(invoice) => invoice.id}
+              emptyMessage="No payments"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           </div>
         </div>
       )}

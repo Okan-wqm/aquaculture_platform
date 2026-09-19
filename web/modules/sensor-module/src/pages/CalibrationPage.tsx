@@ -34,6 +34,7 @@ import {
   getStatusLabel,
   getStatusColor,
 } from '../hooks/useCalibration';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -55,247 +56,6 @@ const CalibrationStatusBadge: React.FC<{ channel: CalibrationChannel }> = ({ cha
 // Calibration Edit Row
 // ============================================================================
 
-interface CalibrationRowProps {
-  channel: CalibrationChannel;
-  onUpdate: (input: CalibrationUpdateInput) => Promise<void>;
-  updating: boolean;
-}
-
-const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, updating }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState({
-    calibrationEnabled: channel.calibrationEnabled,
-    calibrationMultiplier: channel.calibrationMultiplier,
-    calibrationOffset: channel.calibrationOffset,
-    calibrationIntervalDays: channel.calibrationIntervalDays,
-  });
-  const [saving, setSaving] = useState(false);
-
-  // Sync edit data when channel changes (not while editing)
-  React.useEffect(() => {
-    if (!isEditing) {
-      setEditData({
-        calibrationEnabled: channel.calibrationEnabled,
-        calibrationMultiplier: channel.calibrationMultiplier,
-        calibrationOffset: channel.calibrationOffset,
-        calibrationIntervalDays: channel.calibrationIntervalDays,
-      });
-    }
-  }, [channel, isEditing]);
-
-  const handleEdit = () => {
-    setEditData({
-      calibrationEnabled: channel.calibrationEnabled,
-      calibrationMultiplier: channel.calibrationMultiplier,
-      calibrationOffset: channel.calibrationOffset,
-      calibrationIntervalDays: channel.calibrationIntervalDays,
-    });
-    setIsEditing(true);
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await onUpdate({
-        channelId: channel.id,
-        calibrationEnabled: editData.calibrationEnabled,
-        calibrationMultiplier: editData.calibrationMultiplier,
-        calibrationOffset: editData.calibrationOffset,
-        intervalDays: editData.calibrationIntervalDays,
-      });
-      setIsEditing(false);
-    } catch (err) {
-      console.error('Failed to save calibration:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const status = getCalibrationStatus(channel);
-
-  return (
-    <tr className="hover:bg-gray-50 transition-colors">
-      {/* Channel Name */}
-      <td className="px-4 py-3">
-        <div>
-          <span className="font-medium text-gray-900">{channel.displayLabel}</span>
-          <p className="text-xs text-gray-500 font-mono">{channel.channelKey}</p>
-        </div>
-      </td>
-
-      {/* Unit */}
-      <td className="px-4 py-3 text-center text-gray-500 text-sm">
-        {channel.unit || channel.unitSymbol || '-'}
-      </td>
-
-      {/* Status */}
-      <td className="px-4 py-3 text-center">
-        <CalibrationStatusBadge channel={channel} />
-      </td>
-
-      {/* Enabled */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <label className="inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={editData.calibrationEnabled}
-              onChange={(e) =>
-                setEditData((prev) => ({ ...prev, calibrationEnabled: e.target.checked }))
-              }
-              className="sr-only peer"
-            />
-            <div className="relative w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
-          </label>
-        ) : (
-          <span
-            className={`inline-block w-3 h-3 rounded-full ${
-              channel.calibrationEnabled ? 'bg-green-500' : 'bg-gray-300'
-            }`}
-            title={channel.calibrationEnabled ? 'Aktif' : 'Pasif'}
-          />
-        )}
-      </td>
-
-      {/* Multiplier */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.001"
-            value={editData.calibrationMultiplier}
-            onChange={(e) =>
-              setEditData((prev) => ({
-                ...prev,
-                calibrationMultiplier: parseFloat(e.target.value) || 1,
-              }))
-            }
-            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
-        ) : (
-          <span className="text-sm text-gray-700 font-mono">
-            {channel.calibrationMultiplier}
-          </span>
-        )}
-      </td>
-
-      {/* Offset */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.001"
-            value={editData.calibrationOffset}
-            onChange={(e) =>
-              setEditData((prev) => ({
-                ...prev,
-                calibrationOffset: parseFloat(e.target.value) || 0,
-              }))
-            }
-            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
-        ) : (
-          <span className="text-sm text-gray-700 font-mono">
-            {channel.calibrationOffset}
-          </span>
-        )}
-      </td>
-
-      {/* Calibration Interval (days) */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            min="1"
-            step="1"
-            value={editData.calibrationIntervalDays ?? ''}
-            placeholder="-"
-            onChange={(e) =>
-              setEditData((prev) => ({
-                ...prev,
-                calibrationIntervalDays:
-                  e.target.value === '' ? undefined : Math.max(1, parseInt(e.target.value, 10) || 1),
-              }))
-            }
-            className="w-20 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
-        ) : (
-          <span className="text-sm text-gray-700 font-mono">
-            {channel.calibrationIntervalDays ?? '-'}
-          </span>
-        )}
-      </td>
-
-      {/* Last Calibrated */}
-      <td className="px-4 py-3 text-center text-sm text-gray-500">
-        {channel.lastCalibratedAt
-          ? new Date(channel.lastCalibratedAt).toLocaleDateString('tr-TR')
-          : '-'}
-      </td>
-
-      {/* Next Due */}
-      <td className="px-4 py-3 text-center">
-        {channel.nextCalibrationDue ? (
-          <span
-            className={`text-sm ${
-              status === 'overdue'
-                ? 'text-red-600 font-medium'
-                : status === 'due'
-                ? 'text-yellow-600 font-medium'
-                : 'text-gray-500'
-            }`}
-          >
-            {new Date(channel.nextCalibrationDue).toLocaleDateString('tr-TR')}
-          </span>
-        ) : (
-          <span className="text-sm text-gray-500">-</span>
-        )}
-      </td>
-
-      {/* Actions */}
-      <td className="px-4 py-3 text-right">
-        {isEditing ? (
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-              title="Kaydet"
-            >
-              {saving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-            </button>
-            <button
-              onClick={handleCancel}
-              disabled={saving}
-              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              title="İptal"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={handleEdit}
-            disabled={updating}
-            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-            title="Düzenle"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-        )}
-      </td>
-    </tr>
-  );
-};
-
 // ============================================================================
 // Sensor Calibration Group
 // ============================================================================
@@ -307,12 +67,225 @@ interface SensorGroupProps {
   updating: boolean;
 }
 
+interface CalibrationDraft {
+  calibrationEnabled: boolean;
+  calibrationMultiplier: number;
+  calibrationOffset: number;
+  calibrationIntervalDays?: number;
+}
+
+const draftOf = (channel: CalibrationChannel): CalibrationDraft => ({
+  calibrationEnabled: channel.calibrationEnabled,
+  calibrationMultiplier: channel.calibrationMultiplier,
+  calibrationOffset: channel.calibrationOffset,
+  calibrationIntervalDays: channel.calibrationIntervalDays,
+});
+
 const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
   sensorId,
   channels,
   onUpdate,
   updating,
 }) => {
+  // One row edits at a time; its draft lives here so the rows are plain columns.
+  const [editing, setEditing] = useState<{ channelId: string; data: CalibrationDraft } | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const startEdit = (channel: CalibrationChannel): void => setEditing({ channelId: channel.id, data: draftOf(channel) });
+  const cancelEdit = (): void => setEditing(null);
+  const patchDraft = (patch: Partial<CalibrationDraft>): void =>
+    setEditing((prev) => (prev ? { ...prev, data: { ...prev.data, ...patch } } : prev));
+  const saveEdit = async (channel: CalibrationChannel): Promise<void> => {
+    if (!editing || editing.channelId !== channel.id) return;
+    setSavingId(channel.id);
+    try {
+      await onUpdate({
+        channelId: channel.id,
+        calibrationEnabled: editing.data.calibrationEnabled,
+        calibrationMultiplier: editing.data.calibrationMultiplier,
+        calibrationOffset: editing.data.calibrationOffset,
+        intervalDays: editing.data.calibrationIntervalDays,
+      });
+      setEditing(null);
+    } catch {
+      // The hook reports the failure; the row stays in edit mode for a retry.
+    } finally {
+      setSavingId(null);
+    }
+  };
+  const isEditingRow = (channel: CalibrationChannel): boolean => editing?.channelId === channel.id;
+
+  const calibrationColumns: DataTableColumn<CalibrationChannel>[] = [
+    {
+      key: 'displayLabel',
+      header: 'Kanal',
+      render: (_value, channel) => (
+        <div>
+          <span className="font-medium text-gray-900">{channel.displayLabel}</span>
+          <p className="text-xs text-gray-500 font-mono">{channel.channelKey}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Birim',
+      align: 'center',
+      render: (_value, channel) => <span className="text-gray-500">{channel.unit || channel.unitSymbol || '-'}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Durum',
+      align: 'center',
+      render: (_value, channel) => <CalibrationStatusBadge channel={channel} />,
+    },
+    {
+      key: 'calibrationEnabled',
+      header: 'Aktif',
+      align: 'center',
+      render: (_value, channel) =>
+        isEditingRow(channel) && editing ? (
+          <label className="inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={editing.data.calibrationEnabled}
+              onChange={(e) => patchDraft({ calibrationEnabled: e.target.checked })}
+              className="sr-only peer"
+            />
+            <div className="relative w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+          </label>
+        ) : (
+          <span
+            className={`inline-block w-3 h-3 rounded-full ${channel.calibrationEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
+            title={channel.calibrationEnabled ? 'Aktif' : 'Pasif'}
+          />
+        ),
+    },
+    {
+      key: 'calibrationMultiplier',
+      header: 'Çarpan',
+      headerRender: <span className="text-cyan-600">Çarpan</span>,
+      align: 'center',
+      render: (_value, channel) =>
+        isEditingRow(channel) && editing ? (
+          <input
+            type="number"
+            step="0.001"
+            value={editing.data.calibrationMultiplier}
+            onChange={(e) => patchDraft({ calibrationMultiplier: parseFloat(e.target.value) || 1 })}
+            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          />
+        ) : (
+          <span className="text-sm text-gray-700 font-mono">{channel.calibrationMultiplier}</span>
+        ),
+    },
+    {
+      key: 'calibrationOffset',
+      header: 'Ofset',
+      headerRender: <span className="text-cyan-600">Ofset</span>,
+      align: 'center',
+      render: (_value, channel) =>
+        isEditingRow(channel) && editing ? (
+          <input
+            type="number"
+            step="0.001"
+            value={editing.data.calibrationOffset}
+            onChange={(e) => patchDraft({ calibrationOffset: parseFloat(e.target.value) || 0 })}
+            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          />
+        ) : (
+          <span className="text-sm text-gray-700 font-mono">{channel.calibrationOffset}</span>
+        ),
+    },
+    {
+      key: 'calibrationIntervalDays',
+      header: 'Aralık (gün)',
+      align: 'center',
+      render: (_value, channel) =>
+        isEditingRow(channel) && editing ? (
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={editing.data.calibrationIntervalDays ?? ''}
+            placeholder="-"
+            onChange={(e) =>
+              patchDraft({
+                calibrationIntervalDays:
+                  e.target.value === '' ? undefined : Math.max(1, parseInt(e.target.value, 10) || 1),
+              })
+            }
+            className="w-20 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          />
+        ) : (
+          <span className="text-sm text-gray-700 font-mono">{channel.calibrationIntervalDays ?? '-'}</span>
+        ),
+    },
+    {
+      key: 'lastCalibratedAt',
+      header: 'Son Kalibrasyon',
+      align: 'center',
+      render: (_value, channel) => (
+        <span className="text-gray-500">
+          {channel.lastCalibratedAt ? new Date(channel.lastCalibratedAt).toLocaleDateString('tr-TR') : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'nextCalibrationDue',
+      header: 'Sonraki',
+      align: 'center',
+      render: (_value, channel) => {
+        const status = getCalibrationStatus(channel);
+        return channel.nextCalibrationDue ? (
+          <span
+            className={`text-sm ${
+              status === 'overdue' ? 'text-red-600 font-medium' : status === 'due' ? 'text-yellow-600 font-medium' : 'text-gray-500'
+            }`}
+          >
+            {new Date(channel.nextCalibrationDue).toLocaleDateString('tr-TR')}
+          </span>
+        ) : (
+          <span className="text-sm text-gray-500">-</span>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, channel) =>
+        isEditingRow(channel) ? (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => void saveEdit(channel)}
+              disabled={savingId === channel.id}
+              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+              title="Kaydet"
+            >
+              {savingId === channel.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={cancelEdit}
+              disabled={savingId === channel.id}
+              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              title="İptal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => startEdit(channel)}
+            disabled={updating}
+            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            title="Düzenle"
+          >
+            <Edit className="w-4 h-4" />
+          </button>
+        ),
+    },
+  ];
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Header */}
@@ -324,35 +297,16 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
         <span className="text-sm text-gray-500">({channels.length} kanal)</span>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Kanal</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Birim</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Durum</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Aktif</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Çarpan</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Ofset</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Aralık (gün)</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Son Kalibrasyon</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Sonraki</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">İşlemler</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {channels.map((channel) => (
-              <CalibrationRow
-                key={channel.id}
-                channel={channel}
-                onUpdate={onUpdate}
-                updating={updating}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<CalibrationChannel>
+        data={channels}
+        columns={calibrationColumns}
+        keyExtractor={(channel) => channel.id}
+        emptyMessage="Kanal yok"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        className="border-0 rounded-none shadow-none"
+      />
     </div>
   );
 };

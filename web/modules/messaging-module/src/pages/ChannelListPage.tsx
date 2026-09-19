@@ -57,7 +57,7 @@ const ChannelListPage: React.FC = () => {
   const canUseAi = hasPermission('ai_assistant:use');
 
   return (
-    <div className="sd-page" style={{ maxWidth: 520 }}>
+    <div className="sd-page max-w-[520px]">
       <div className="sd-pagehead">
         <span className="sd-eyebrow">{t('messaging.overview')}</span>
         <h1 className="sd-page-title">{t('messaging.title')}</h1>
@@ -67,36 +67,21 @@ const ChannelListPage: React.FC = () => {
       {canUseAi && (
         <button
           onClick={() => navigate('/messaging/new-ai')}
-          className="sd-send"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 14px',
-            marginBottom: 12,
-          }}
+          className="sd-send mb-3 inline-flex items-center gap-2 px-3.5 py-2"
         >
           <Sparkles size={15} /> {t('messaging.ai.newChat')}
         </button>
       )}
 
       {isLoading && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            color: '#5c7783',
-            fontSize: 13.5,
-          }}
-        >
+        <div className="flex items-center gap-2 text-[13.5px] text-sd-ink-muted">
           <RefreshCw size={15} className="animate-spin" /> {t('messaging.loadingChannels')}
         </div>
       )}
       {isError && (
         <div className="sd-banner sd-banner--error" role="alert">
-          <AlertCircle size={17} style={{ color: '#b04a28' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+          <AlertCircle size={17} className="text-sd-danger" />
+          <span className="text-[13.5px] font-semibold text-sd-danger-ink">
             {t('messaging.errorChannels')}
           </span>
         </div>
@@ -110,16 +95,8 @@ const ChannelListPage: React.FC = () => {
 
       {(channels?.length ?? 0) > 0 && (
         <div className="sd-card sd-card--flush">
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}>
-            <span
-              style={{
-                fontSize: 11.5,
-                fontWeight: 700,
-                letterSpacing: '0.09em',
-                textTransform: 'uppercase',
-                color: '#0b4f60',
-              }}
-            >
+          <div className="border-b border-sd-rule px-4 py-3">
+            <span className="text-[11.5px] font-bold uppercase tracking-[0.09em] text-sd-teal-deep">
               {t('messaging.channelsLabel')}
             </span>
           </div>
@@ -134,21 +111,14 @@ const ChannelListPage: React.FC = () => {
                 <span className={`sd-chan-icon${channel.type === 'AI' ? ' sd-chan-icon--ai' : ''}`}>
                   <ChannelIcon channel={channel} />
                 </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
-                  >
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
                     <span className="sd-chan-title">{channelTitle(channel, myId)}</span>
                     {!!channel.unreadCount && channel.unreadCount > 0 && (
                       <span className="sd-unread">{channel.unreadCount}</span>
                     )}
                   </span>
-                  <span className="sd-chan-preview" style={{ display: 'block', marginTop: 2 }}>
+                  <span className="sd-chan-preview mt-0.5 block">
                     {lastMessagePreview(channel, t)}
                   </span>
                 </span>

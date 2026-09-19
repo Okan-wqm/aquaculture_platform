@@ -7,7 +7,7 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
-section; FE-HIGH-069 (formerly FE-HIGH-066), INFRA-HIGH-174, FE-HIGH-067 and
+section; FE-HIGH-080 (formerly FE-HIGH-066, then 069), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828 (base-branch / platform defects found by this branch's gates and
 work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
 farm-module maintainer, deadline 2026-10-16).
@@ -100,11 +100,12 @@ is the pure-engines SSoT both ai-service and the MCP package import. Fix:
 move the formulas into the lib with golden-value tests, expose the four
 tools in ai-service, have the MCP package import the lib.
 
-## FE-HIGH-069 — the aquamobil main-tree port regressed the FAZ 2.4 AI identity contract
+## FE-HIGH-080 — the aquamobil main-tree port regressed the FAZ 2.4 AI identity contract
 
-_Renumbered from FE-HIGH-066 when this branch merged onto main (main had allocated
-FE-HIGH-066 first); the closing commit's trailer cites the original id via
-`finding-id-aliases.yaml`._
+_Renumbered twice while this branch merged onto main: FE-HIGH-066 → 069 (main's
+design-system wave had allocated 066), then 069 → 080 (main's DataTable ratchet
+took 069; 080 sits past that wave's surveyed 065..079 block). The closing
+commit's trailer names the original id; the commit-msg validator allowlists it._
 
 Found by the pre-push `type-check-changed-files` gate on this branch (the
 `messaging-fix-1` line had pushed through a dangling `node_modules` symlink, so

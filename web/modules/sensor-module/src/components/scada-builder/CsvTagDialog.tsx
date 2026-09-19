@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Download, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
@@ -237,6 +237,30 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
   const previewExportRows = exportRows.slice(0, 10);
   const importPreviewRows = importData.length > 1 ? importData.slice(0, 11) : []; // header + 10 rows max
 
+  type TagExportRow = (typeof previewExportRows)[number];
+  const tagExportRowColumns: DataTableColumn<TagExportRow>[] = [
+    {
+      key: 'widgetId',
+      header: 'Widget ID',
+      render: (_value, row) => row.widgetId,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, row) => row.widgetType,
+    },
+    {
+      key: 'tagName',
+      header: 'Tag Name',
+      render: (_value, row) => row.tagName,
+    },
+    {
+      key: 'label',
+      header: 'Label',
+      render: (_value, row) => row.label,
+    },
+  ];
+
   return (
     <Modal
       isOpen={open}
@@ -306,30 +330,16 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                   {exportRows.length} widget(s) with tag bindings.
                   {exportRows.length > 10 && ' Showing first 10 rows.'}
                 </p>
-                <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 text-left text-gray-600">
-                        <th className="px-3 py-2 font-medium">Widget ID</th>
-                        <th className="px-3 py-2 font-medium">Type</th>
-                        <th className="px-3 py-2 font-medium">Tag Name</th>
-                        <th className="px-3 py-2 font-medium">Label</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {previewExportRows.map((row) => (
-                        <tr key={row.widgetId} className="text-gray-700">
-                          <td className="px-3 py-2 font-mono text-xs truncate max-w-[160px]">
-                            {row.widgetId}
-                          </td>
-                          <td className="px-3 py-2">{row.widgetType}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{row.tagName}</td>
-                          <td className="px-3 py-2">{row.label}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<TagExportRow>
+                  data={previewExportRows}
+                  columns={tagExportRowColumns}
+                  keyExtractor={(row) => row.widgetId}
+                  emptyMessage="No rows"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  compact
+                />
               </>
             )}
           </div>

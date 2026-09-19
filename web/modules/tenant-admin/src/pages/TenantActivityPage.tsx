@@ -9,16 +9,6 @@
  *
  * SEC-007: Protected by RequireTenantAdmin guard in Module.tsx.
  * Read-only page -- no mutations.
- *
- * SUDERRA restyle — sd-page/sd-stat/sd-bar/sd-seg primitives; every query,
- * computed value, and label is unchanged.
- *
- * DATA SOURCES (all real backend — no mocked data on this page):
- * - useTenantActivity → auth-service `tenantActivity`: recentLogins (incl.
- *   IP + device from real login records), activeSessions (unexpired
- *   non-revoked refresh tokens — a session proxy, not live sockets),
- *   userActivitySummaries (real action/login counts), dailyActiveUsers
- *   (real per-day distinct actives).
  */
 
 import React, { useMemo } from 'react';
@@ -55,13 +45,13 @@ import { UserAvatar } from '../components/ui/UserAvatar';
 function getDeviceIcon(deviceType: string | null): React.ReactNode {
   switch (deviceType?.toLowerCase()) {
     case 'mobile':
-      return <Smartphone size={14} style={{ color: '#5c7783' }} />;
+      return <Smartphone className="w-4 h-4 text-gray-500" />;
     case 'tablet':
-      return <Tablet size={14} style={{ color: '#5c7783' }} />;
+      return <Tablet className="w-4 h-4 text-gray-500" />;
     case 'desktop':
-      return <Monitor size={14} style={{ color: '#5c7783' }} />;
+      return <Monitor className="w-4 h-4 text-gray-500" />;
     default:
-      return <Globe size={14} style={{ color: '#5c7783' }} />;
+      return <Globe className="w-4 h-4 text-gray-500" />;
   }
 }
 
@@ -79,19 +69,44 @@ function getUserName(
 // ============================================================================
 
 /**
- * Period selector — SUDERRA segmented control
+ * Stat card with icon and optional trend
+ */
+const StatCard: React.FC<{
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color: string;
+  subtext?: string;
+}> = ({ label, value, icon, color, subtext }) => (
+  <div className="bg-white rounded-xl border border-gray-100 p-5">
+    <div className="flex items-center gap-4">
+      <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
+      <div>
+        <p className="text-xs font-medium text-gray-500 uppercase">{label}</p>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        {subtext && <p className="text-xs text-gray-500">{subtext}</p>}
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * Period selector
  */
 const PeriodSelector: React.FC<{
   value: ActivityPeriod;
   onChange: (p: ActivityPeriod) => void;
 }> = ({ value, onChange }) => (
-  <div className="sd-seg" role="group" aria-label="Activity period">
+  <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
     {(['7d', '30d'] as ActivityPeriod[]).map((p) => (
       <button
         key={p}
         onClick={() => onChange(p)}
-        className={`sd-seg-btn${value === p ? ' sd-seg-btn--on' : ''}`}
-        aria-pressed={value === p}
+        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+          value === p
+            ? 'bg-white text-tenant-700 shadow-sm'
+            : 'text-gray-500 hover:text-gray-700'
+        }`}
       >
         {p === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
       </button>
@@ -100,21 +115,21 @@ const PeriodSelector: React.FC<{
 );
 
 /**
- * Simple bar chart for daily active users — mint bars, deep-teal today marker
+ * Simple bar chart for daily active users
  */
 const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data }) => {
   const maxCount = useMemo(() => Math.max(...data.map((d) => d.count), 1), [data]);
 
   if (data.length === 0) {
     return (
-      <div className="sd-empty" style={{ padding: '40px 12px' }}>
+      <div className="flex items-center justify-center h-40 text-sm text-gray-500">
         No activity data available
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 168, padding: '0 4px' }}>
+    <div className="flex items-end gap-1 h-40 px-2">
       {data.map((day) => {
         const heightPercent = (day.count / maxCount) * 100;
         const date = new Date(day.date);
@@ -122,29 +137,20 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
           date.toDateString() === new Date().toDateString();
 
         return (
-          <div
-            key={day.date}
-            title={`${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}: ${day.count} active`}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, height: '100%' }}
-          >
-            {/* Bar grows within the remaining space; label sits under it */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', width: '100%' }}>
-              <div
-                className={`sd-bar${isToday ? ' sd-bar--today' : ''}`}
-                style={{ height: `${Math.max(heightPercent, 2)}%` }}
-              />
+          <div key={day.date} className="flex-1 flex flex-col items-center gap-1 group">
+            {/* Tooltip */}
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-600 whitespace-nowrap">
+              {day.count}
             </div>
-            <span
-              style={{
-                fontSize: 9.5,
-                color: isToday ? '#0b4f60' : '#8aa0aa',
-                fontWeight: isToday ? 700 : 500,
-                whiteSpace: 'nowrap',
-                transform: 'rotate(-38deg)',
-                transformOrigin: 'top left',
-              }}
-              className="hidden sm:block"
-            >
+            {/* Bar */}
+            <div
+              className={`w-full rounded-t transition-all duration-200 ${
+                isToday ? 'bg-tenant-500' : 'bg-tenant-300 group-hover:bg-tenant-400'
+              }`}
+              style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
+            />
+            {/* Label */}
+            <span className="text-[10px] text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap hidden sm:block">
               {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
           </div>
@@ -159,14 +165,19 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
 // ============================================================================
 
 const ActivitySkeleton: React.FC = () => (
-  <div className="sd-page" aria-busy="true">
-    <div style={{ height: 30, width: 260, borderRadius: 10, background: 'rgba(10,31,43,.06)' }} />
-    <div className="sd-stat-grid">
-      {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="sd-card" style={{ height: 110 }} />
+  <div className="space-y-6 animate-pulse">
+    <div className="flex justify-between">
+      <div>
+        <div className="w-48 h-7 bg-gray-200 rounded" />
+        <div className="w-64 h-4 bg-gray-200 rounded mt-2" />
+      </div>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 h-24" />
       ))}
     </div>
-    <div className="sd-card" style={{ height: 240 }} />
+    <div className="bg-white rounded-xl border border-gray-100 p-6 h-60" />
   </div>
 );
 
@@ -204,204 +215,174 @@ const TenantActivityPage: React.FC = () => {
     return <ActivitySkeleton />;
   }
 
-  const stats = [
-    {
-      id: 'sessions',
-      title: 'Active sessions',
-      value: String(activeSessions),
-      unit: 'now',
-      // REAL field, PROXY semantics: activeSessions counts unexpired
-      // non-revoked refresh tokens, not live sockets.
-      change: 'Valid sessions (token-based)',
-      dot: 'sd-dot--mint',
-      icon: <Wifi size={17} style={{ color: '#166f5a' }} />,
-    },
-    {
-      id: 'unique',
-      title: 'Unique users',
-      value: String(uniqueActiveUsers),
-      unit: period === '7d' ? 'in 7 days' : 'in 30 days',
-      change: 'Distinct users with a successful login',
-      dot: 'sd-dot--cyan',
-      icon: <Users size={17} style={{ color: '#0b4f60' }} />,
-    },
-    {
-      id: 'logins',
-      title: 'Total logins',
-      value: String(recentLogins.filter((l) => l.success).length),
-      unit: 'records',
-      change: 'Successful login records in period',
-      dot: 'sd-dot--cyan',
-      icon: <Activity size={17} style={{ color: '#0b4f60' }} />,
-    },
-    {
-      id: 'failed',
-      title: 'Failed logins',
-      value: String(failedLogins),
-      unit: 'attempts',
-      change: failedLogins > 0 ? 'Review recommended' : 'No issues',
-      dot: failedLogins > 0 ? 'sd-dot--red' : 'sd-dot--faint',
-      icon: <Shield size={17} style={{ color: failedLogins > 0 ? '#b04a28' : '#3d5c69' }} />,
-    },
-  ];
-
   return (
-    <div className="sd-page">
-      {/* Page header (mockup pattern: eyebrow + serif title + actions) */}
-      <div className="sd-pagehead">
-        <span className="sd-eyebrow">People &amp; access</span>
-        <h1 className="sd-page-title">User Activity</h1>
-        <span className="sd-page-sub">Monitor user logins, sessions, and activity trends</span>
-      </div>
-
-      {/* Actions row */}
-      <div className="sd-actions">
-        <PeriodSelector value={period} onChange={changePeriod} />
-        <button
-          onClick={() => refetch()}
-          className="sd-iconbtn"
-          title="Refresh"
-          aria-label="Refresh"
-        >
-          <RefreshCw size={16} />
-        </button>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">User Activity</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Monitor user logins, sessions, and activity trends
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <PeriodSelector value={period} onChange={changePeriod} />
+          <button
+            onClick={() => refetch()}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
       {error && (
-        <div className="sd-banner sd-banner--error" role="alert">
-          <AlertCircle size={19} style={{ color: '#b04a28', flexShrink: 0 }} />
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>Failed to load activity data</p>
-          <p style={{ margin: 0, flex: 1, fontSize: 13.5, color: '#3d5c69' }}>{(error as Error).message}</p>
-          <button onClick={() => refetch()} className="sd-btn-ghost" style={{ padding: '6px 13px', fontSize: 12.5, color: '#8e3a1e', borderColor: 'rgba(176,74,40,.35)' }}>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-red-800">Failed to load activity data</p>
+            <p className="text-sm text-red-600">{(error as Error).message}</p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+          >
             Retry
           </button>
         </div>
       )}
 
       {/* Summary Cards */}
-      <div className="sd-stat-grid">
-        {stats.map((stat) => (
-          <div key={stat.id} className="sd-card sd-card--dash sd-stat-card">
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-              <span className="sd-stat-title">{stat.title}</span>
-              {stat.icon}
-            </div>
-            <div>
-              <span className="sd-stat-value">{stat.value}</span>{' '}
-              <span className="sd-stat-unit">{stat.unit}</span>
-            </div>
-            <div className="sd-stat-change">
-              <span className={`sd-dot ${stat.dot}`} />
-              {stat.change}
-            </div>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Active Sessions"
+          value={activeSessions}
+          icon={<Wifi className="w-5 h-5 text-green-600" />}
+          color="bg-green-50"
+          subtext="Currently online"
+        />
+        <StatCard
+          label="Unique Users"
+          value={uniqueActiveUsers}
+          icon={<Users className="w-5 h-5 text-tenant-600" />}
+          color="bg-tenant-50"
+          subtext={`${period === '7d' ? 'Last 7 days' : 'Last 30 days'}`}
+        />
+        <StatCard
+          label="Total Logins"
+          value={recentLogins.filter((l) => l.success).length}
+          icon={<Activity className="w-5 h-5 text-blue-600" />}
+          color="bg-blue-50"
+        />
+        <StatCard
+          label="Failed Logins"
+          value={failedLogins}
+          icon={<Shield className="w-5 h-5 text-red-600" />}
+          color="bg-red-50"
+          subtext={failedLogins > 0 ? 'Review recommended' : 'No issues'}
+        />
       </div>
 
       {/* Daily Active Users Chart */}
-      <div className="sd-card" style={{ padding: '17px 19px' }}>
-        <div className="sd-card-head" style={{ marginBottom: 12 }}>
+      <div className="bg-white rounded-xl border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <span className="sd-card-label">Daily active users</span>
-            <span className="sd-page-sub" style={{ display: 'block', marginTop: 2 }}>
+            <h2 className="text-lg font-semibold text-gray-900">Daily Active Users</h2>
+            <p className="text-sm text-gray-500">
               {period === '7d' ? 'Last 7 days' : 'Last 30 days'} trend
-            </span>
+            </p>
           </div>
-          <TrendingUp size={17} style={{ color: '#0b4f60' }} aria-hidden="true" />
+          <TrendingUp className="w-5 h-5 text-gray-500" />
         </div>
         <DailyActiveUsersChart data={dailyActiveUsers} />
       </div>
 
       {/* Recent Logins & User Summary - Two Column */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Logins */}
-        <div className="sd-card sd-card--flush" style={{ flex: '1 1 420px', minWidth: 0 }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}>
-            <span className="sd-card-label">Recent logins</span>
+        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900">Recent Logins</h2>
           </div>
           {recentLogins.length > 0 ? (
-            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+            <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {recentLogins.slice(0, 20).map((login: RecentLogin) => (
-                <div
-                  key={login.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 16px', borderBottom: '1px solid rgba(10,31,43,.05)' }}
-                >
+                <div key={login.id} className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors">
                   <UserAvatar name={getUserName(login.firstName, login.lastName, login.email)} size="sm" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span className="sd-rowname" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
                       {getUserName(login.firstName, login.lastName, login.email)}
-                    </span>
-                    <span className="sd-rowemail" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {login.email}
-                    </span>
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{login.email}</p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }} className="hidden sm:flex">
+                  <div className="hidden sm:flex items-center gap-3">
                     {getDeviceIcon(login.deviceType)}
-                    <span className="sd-cellmono">{login.ipAddress || '--'}</span>
+                    <span className="text-xs text-gray-500 font-mono">{login.ipAddress || '--'}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className="flex items-center gap-2">
                     {login.success ? (
-                      <CheckCircle size={14} style={{ color: '#166f5a', flexShrink: 0 }} aria-label="Success" />
+                      <CheckCircle className="w-4 h-4 text-green-500" />
                     ) : (
-                      <XCircle size={14} style={{ color: '#b04a28', flexShrink: 0 }} aria-label="Failed" />
+                      <XCircle className="w-4 h-4 text-red-500" />
                     )}
-                    <span className="sd-celltime">{formatRelativeTime(login.loginAt)}</span>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                      {formatRelativeTime(login.loginAt)}
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="sd-empty" style={{ padding: '36px 14px' }}>
-              <Activity size={26} style={{ color: '#8aa0aa', marginBottom: 8 }} aria-hidden="true" />
-              No recent login data
+            <div className="py-12 text-center">
+              <Activity className="w-10 h-10 text-gray-500 mx-auto" />
+              <p className="mt-3 text-sm text-gray-500">No recent login data</p>
             </div>
           )}
         </div>
 
         {/* User Activity Summary */}
-        <div className="sd-card sd-card--flush" style={{ flex: '1 1 420px', minWidth: 0 }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}>
-            <span className="sd-card-label">User activity summary</span>
+        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900">User Activity Summary</h2>
           </div>
           {userSummaries.length > 0 ? (
-            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+            <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {userSummaries.map((summary: UserActivitySummary) => (
                 <div
                   key={summary.userId}
-                  style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 16px', borderBottom: '1px solid rgba(10,31,43,.05)' }}
+                  className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
                 >
                   <UserAvatar
                     name={getUserName(summary.firstName, summary.lastName, summary.email)}
                     size="sm"
                   />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span className="sd-rowname" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
                       {getUserName(summary.firstName, summary.lastName, summary.email)}
-                    </span>
-                    <span className="sd-rowemail" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {summary.email}
-                    </span>
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{summary.email}</p>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span className="sd-rowname" style={{ display: 'block' }}>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-gray-900">
                       {summary.totalActions} actions
-                    </span>
-                    <span className="sd-rowemail" style={{ display: 'block' }}>
+                    </p>
+                    <p className="text-xs text-gray-500">
                       {summary.loginCount} logins
-                    </span>
+                    </p>
                   </div>
-                  <div className="sd-celltime hidden sm:flex" style={{ alignItems: 'center', gap: 4 }}>
-                    <Clock size={12} aria-hidden="true" />
+                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500">
+                    <Clock className="w-3 h-3" />
                     {formatRelativeTime(summary.lastActiveAt)}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="sd-empty" style={{ padding: '36px 14px' }}>
-              <Users size={26} style={{ color: '#8aa0aa', marginBottom: 8 }} aria-hidden="true" />
-              No user activity data
+            <div className="py-12 text-center">
+              <Users className="w-10 h-10 text-gray-500 mx-auto" />
+              <p className="mt-3 text-sm text-gray-500">No user activity data</p>
             </div>
           )}
         </div>

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -132,6 +132,107 @@ const ScadaPackageListPage: React.FC = () => {
     );
   }
 
+  const scadaPackageColumns: DataTableColumn<ScadaPackage>[] = [
+    {
+      key: 'packageName',
+      header: 'Package Name',
+      render: (_value, pkg) => (
+        <>
+          <Link to={`/sensor/scada-builder/${pkg.id}`} className="block">
+            <div className="font-medium text-gray-900 hover:text-purple-600">{pkg.name}</div>
+            <div className="text-sm text-gray-500 line-clamp-1">
+              {pkg.description || 'No description'}
+            </div>
+          </Link>
+        </>
+      ),
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (_value, pkg) => <>v{pkg.version}</>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, pkg) => {
+        const config = statusConfig[pkg.status] || statusConfig.DRAFT;
+        return (
+          <>
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+            >
+              {config.label}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      key: 'screens',
+      header: 'Screens',
+      render: (_value, pkg) => {
+        const screenCount = pkg.packageData?.screens?.length || 0;
+        return <>{screenCount} screens</>;
+      },
+    },
+    {
+      key: 'lastUpdated',
+      header: 'Last Updated',
+      render: (_value, pkg) => (
+        <div className="flex items-center gap-1 text-sm text-gray-500">
+          <Clock className="w-4 h-4" />
+          {formatDate(pkg.updatedAt)}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, pkg) => (
+        <div className="relative inline-block">
+          <button
+            onClick={() => setActiveDropdown(activeDropdown === pkg.id ? null : pkg.id)}
+            className="p-2 hover:bg-gray-100 rounded-lg"
+          >
+            <MoreVertical className="w-4 h-4 text-gray-500" />
+          </button>
+
+          {activeDropdown === pkg.id && (
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+              <Link
+                to={`/sensor/scada-builder/${pkg.id}`}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Edit className="w-4 h-4" />
+                Edit
+              </Link>
+              <button
+                onClick={() => {
+                  setActiveDropdown(null);
+                  navigate(`/sensor/scada-builder/${pkg.id}?deploy=true`);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Upload className="w-4 h-4" />
+                Deploy
+              </button>
+              <hr className="my-1 border-gray-200" />
+              <button
+                onClick={() => handleDelete(pkg)}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -207,110 +308,15 @@ const ScadaPackageListPage: React.FC = () => {
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Package Name
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Version
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Screens
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Updated
-                </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredPackages.map((pkg) => {
-                const config = statusConfig[pkg.status] || statusConfig.DRAFT;
-                const screenCount = pkg.packageData?.screens?.length || 0;
-
-                return (
-                  <tr key={pkg.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <Link to={`/sensor/scada-builder/${pkg.id}`} className="block">
-                        <div className="font-medium text-gray-900 hover:text-purple-600">
-                          {pkg.name}
-                        </div>
-                        <div className="text-sm text-gray-500 line-clamp-1">
-                          {pkg.description || 'No description'}
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">v{pkg.version}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
-                      >
-                        {config.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{screenCount} screens</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-sm text-gray-500">
-                        <Clock className="w-4 h-4" />
-                        {formatDate(pkg.updatedAt)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="relative inline-block">
-                        <button
-                          onClick={() =>
-                            setActiveDropdown(activeDropdown === pkg.id ? null : pkg.id)
-                          }
-                          className="p-2 hover:bg-gray-100 rounded-lg"
-                        >
-                          <MoreVertical className="w-4 h-4 text-gray-500" />
-                        </button>
-
-                        {activeDropdown === pkg.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
-                            <Link
-                              to={`/sensor/scada-builder/${pkg.id}`}
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Edit className="w-4 h-4" />
-                              Edit
-                            </Link>
-                            <button
-                              onClick={() => {
-                                setActiveDropdown(null);
-                                navigate(`/sensor/scada-builder/${pkg.id}?deploy=true`);
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Upload className="w-4 h-4" />
-                              Deploy
-                            </button>
-                            <hr className="my-1 border-gray-200" />
-                            <button
-                              onClick={() => handleDelete(pkg)}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ScadaPackage>
+          data={filteredPackages}
+          columns={scadaPackageColumns}
+          keyExtractor={(pkg) => pkg.id}
+          emptyMessage="No packages found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
     </div>
   );

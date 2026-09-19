@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { AI_TIER_PRESENTATION, parseAiPersonaId } from '@aquaculture/shared-contracts';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
@@ -88,18 +88,15 @@ function tierAndSpecialty(personaId: string | null): { tier: string; specialty: 
   return { tier: AI_TIER_PRESENTATION[parsed.tier].label, specialty: parsed.specialty };
 }
 
-// ============================================================================
-// PersonaRow Component
-// ============================================================================
-
-/** Row for a single persona in the configuration table. */
-function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactElement {
-  const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
-  const shape = tierAndSpecialty(persona.id);
-
-  return (
-    <tr className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-      <td className="px-4 py-3">
+/** Columns of the persona configuration table (FE-HIGH-069). The persona
+ *  colour drives both the icon tile and the capability chips. */
+const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
+  {
+    key: 'name',
+    header: 'Persona',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex items-center gap-3">
           <span
             className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}
@@ -111,13 +108,24 @@ function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactE
             <p className="text-xs text-gray-500 dark:text-gray-400">{persona.description}</p>
           </div>
         </div>
-      </td>
-      <td className="px-4 py-3">
-        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-400">
-          {persona.id ?? 'general'}
-        </code>
-      </td>
-      <td className="px-4 py-3">
+      );
+    },
+  },
+  {
+    key: 'id',
+    header: 'ID',
+    render: (_value, persona) => (
+      <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-300">
+        {persona.id ?? 'general'}
+      </code>
+    ),
+  },
+  {
+    key: 'tier',
+    header: 'Tier / Specialty',
+    render: (_value, persona) => {
+      const shape = tierAndSpecialty(persona.id);
+      return (
         <div className="flex flex-col gap-0.5">
           <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
             {shape.tier}
@@ -126,8 +134,15 @@ function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactE
             {shape.specialty}
           </code>
         </div>
-      </td>
-      <td className="px-4 py-3">
+      );
+    },
+  },
+  {
+    key: 'capabilities',
+    header: 'Capabilities',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex flex-wrap gap-1">
           {persona.capabilities.slice(0, 3).map((cap) => (
             <span key={cap} className={`text-[10px] px-1.5 py-0.5 rounded-full ${colorClass}`}>
@@ -140,10 +155,10 @@ function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactE
             </span>
           )}
         </div>
-      </td>
-    </tr>
-  );
-}
+      );
+    },
+  },
+];
 
 // ============================================================================
 // Main Component
@@ -307,36 +322,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
 
       {/* Personas table -- only shown when data is loaded */}
       {!loadState.loading && !loadState.error && personas.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Persona
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    ID
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Tier / Specialty
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Capabilities
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">
-                    Scope
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {personas.map((persona) => (
-                  <PersonaRow key={persona.id ?? 'general'} persona={persona} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <DataTable<AiPersonaDefinition>
+          data={personas}
+          columns={personaColumns}
+          keyExtractor={(persona) => persona.id ?? 'general'}
+          emptyMessage="No personas"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* No personas loaded yet (initial state) */}

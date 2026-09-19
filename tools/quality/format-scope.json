@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "43bbe6e6dd84f1de7bdcc9f1808fe9d51fd04c65931f9d869920284b7eb8bf34",
+      "content_sha256": "0e19ffa58c3266abbc4a1867a7d8811b859e407cc1637b170b86d7ab92428ce1",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -55651,12 +55651,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/hr-module/src/components/common/DataTable.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/hr-module/src/components/common/DepartmentBadge.tsx",
       "prettier_managed": true
     },
@@ -62041,6 +62035,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/ConfiguredBrowserRouter.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/DataTable/__tests__/DataTable.spec.tsx",
       "prettier_managed": true
     },
     {

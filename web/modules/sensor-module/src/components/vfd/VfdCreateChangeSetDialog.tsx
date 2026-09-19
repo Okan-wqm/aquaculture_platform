@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Calendar, AlertTriangle, Loader2 } from 'lucide-react';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 
@@ -91,6 +91,25 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
 
   if (!isCreateDialogOpen) return null;
 
+  type PendingParameterChange = (typeof items)[number];
+  const pendingParameterChangeColumns: DataTableColumn<PendingParameterChange>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, item) => item.parameterName,
+    },
+    {
+      key: 'current',
+      header: 'Current',
+      render: (_value, item) => String(item.originalValue),
+    },
+    {
+      key: 'new',
+      header: 'New',
+      render: (_value, item) => String(item.newValue),
+    },
+  ];
+
   return (
     <Modal
       isOpen={isCreateDialogOpen}
@@ -144,26 +163,16 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
             Parameter Changes ({items.length})
           </h3>
           <div className="max-h-48 overflow-y-auto rounded-md border border-gray-200">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-gray-50">
-                <tr className="text-left text-gray-500">
-                  <th className="px-3 py-2">Parameter</th>
-                  <th className="px-3 py-2">Current</th>
-                  <th className="px-3 py-2">New</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.parameterName} className="border-t border-gray-100">
-                    <td className="px-3 py-1.5 font-mono font-medium">{item.parameterName}</td>
-                    <td className="px-3 py-1.5 text-gray-600">{String(item.originalValue)}</td>
-                    <td className="px-3 py-1.5 font-medium text-indigo-700">
-                      {String(item.newValue)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<PendingParameterChange>
+              data={items}
+              columns={pendingParameterChangeColumns}
+              keyExtractor={(item) => item.parameterName}
+              emptyMessage="No changes"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+            />
           </div>
         </div>
 

@@ -17,6 +17,8 @@ import {
   formatCurrency as sharedFormatCurrency,
   parseMoney,
   DEFAULT_CURRENCY,
+  DataTable,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
@@ -25,8 +27,8 @@ import {
   useApprovePayroll,
   useEmployees,
 } from '../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../components/common';
-import type { Column } from '../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../components/common';
 import type { Payroll, PayrollFilterInput, CreatePayrollInput, Employee } from '../types';
 import {
   PayrollStatus,
@@ -563,13 +565,12 @@ const PayrollPage: React.FC = () => {
   }, [displayData, searchQuery]);
 
   // Table columns
-  const columns: Column<Payroll>[] = useMemo(
+  const columns: DataTableColumn<Payroll>[] = useMemo(
     () => [
       {
         key: 'employee',
         header: 'Employee',
-        sortable: true,
-        accessor: (row) => (
+        render: (_value, row) => (
           <div className="flex items-center gap-3">
             {row.employee ? (
               <>
@@ -594,8 +595,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'period',
         header: 'Period',
-        sortable: true,
-        accessor: (row) => (
+        render: (_value, row) => (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
               {formatDate(row.payPeriodStart)} - {formatDate(row.payPeriodEnd)}
@@ -609,8 +609,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'status',
         header: 'Status',
-        sortable: true,
-        accessor: (row) => {
+        render: (_value, row) => {
           const config = PAYROLL_STATUS_CONFIG[row.status] || {
             label: row.status,
             variant: 'default',
@@ -622,7 +621,7 @@ const PayrollPage: React.FC = () => {
         key: 'grossPay',
         header: 'Gross Pay',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="font-medium text-gray-900 dark:text-white">
             {formatCurrency(parseMoney(row.earningsGrossPayDecimal), row.currency)}
           </span>
@@ -632,7 +631,7 @@ const PayrollPage: React.FC = () => {
         key: 'deductions',
         header: 'Deductions',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="text-red-600 dark:text-red-400">
             {formatCurrency(parseMoney(row.deductionsTotalDecimal), row.currency)}
           </span>
@@ -642,7 +641,7 @@ const PayrollPage: React.FC = () => {
         key: 'netPay',
         header: 'Net Pay',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="font-semibold text-green-700 dark:text-green-400">
             {formatCurrency(parseMoney(row.netPayDecimal), row.currency)}
           </span>
@@ -653,7 +652,7 @@ const PayrollPage: React.FC = () => {
         header: '',
         width: '80px',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <div className="flex items-center justify-end gap-2">
             {row.status === PayrollStatus.PENDING_APPROVAL && (
               <button
@@ -904,16 +903,21 @@ const PayrollPage: React.FC = () => {
       )}
 
       {/* Data Table */}
-      <DataTable
+      <DataTable<Payroll>
         data={filteredData || []}
         columns={columns}
         keyExtractor={keyExtractor}
-        isLoading={isLoading}
+        loading={isLoading}
         emptyMessage="No payroll records found"
-        total={activeTab === 'pending' ? undefined : allPayrolls?.total}
-        page={activeTab === 'pending' ? 1 : filter.page || 1}
-        pageSize={filter.limit || 20}
+        pagination={
+          activeTab !== 'pending' && allPayrolls
+            ? derivePaginationMetadataV1(allPayrolls.total, filter.page || 1, filter.limit || 20)
+            : undefined
+        }
         onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
       />
     </div>
   );

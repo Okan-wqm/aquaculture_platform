@@ -1,7 +1,8 @@
 import { clsx } from 'clsx';
-import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
 import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
 import type { JSX } from 'react';
+
+import { PageHeader, SectionTitle, Button, List, ListRow } from '../../components/ui';
 
 import { DataFreshness } from '@/components/DataFreshness';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -54,7 +55,7 @@ export function SyncStatusPage(): JSX.Element {
 
   return (
     <>
-      <Navbar title="Sync Status" />
+      <PageHeader tone="ocean" title="Sync Status" back />
 
       {/* MOB-LOW-011: the global last-synced clock — every drain (auto or
           manual) updates the stamp; DataFreshness colors its age. */}
@@ -64,7 +65,7 @@ export function SyncStatusPage(): JSX.Element {
       </div>
 
       {/* Connection Status */}
-      <Block className="!mt-0">
+      <section className="px-4 pt-4">
         <div
           className={clsx(
             'flex items-center justify-center gap-3 p-4 rounded-xl',
@@ -95,10 +96,10 @@ export function SyncStatusPage(): JSX.Element {
             </>
           )}
         </div>
-      </Block>
+      </section>
 
       {/* Pending Count */}
-      <Block>
+      <section className="px-4 pt-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{pendingCount}</h2>
@@ -107,19 +108,18 @@ export function SyncStatusPage(): JSX.Element {
           <Button
             onClick={() => { void syncNow(); }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
-            className="!bg-ocean-500"
+            leading={<RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />}
           >
-            <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-            <span className="ml-2">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+            {isSyncing ? 'Syncing...' : 'Sync Now'}
           </Button>
         </div>
-      </Block>
+      </section>
 
       {/* Pending Operations List */}
       {pendingOperations.length > 0 ? (
         <>
-          <BlockTitle>Pending Operations</BlockTitle>
-          <List strongIos insetIos>
+          <SectionTitle>Pending Operations</SectionTitle>
+          <List>
             {pendingOperations.map((op) => {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
@@ -144,7 +144,7 @@ export function SyncStatusPage(): JSX.Element {
                 );
 
               return (
-                <ListItem
+                <ListRow
                   key={op.id}
                   title={
                     <span className="flex items-center gap-2">
@@ -193,17 +193,17 @@ export function SyncStatusPage(): JSX.Element {
           </List>
         </>
       ) : (
-        <Block>
+        <section className="px-4 pt-4">
           <div className="text-center py-12">
             <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
             <h3 className="font-semibold text-gray-900 dark:text-white mb-1">All Synced!</h3>
             <p className="text-gray-500 dark:text-gray-400 text-sm">No pending operations</p>
           </div>
-        </Block>
+        </section>
       )}
 
       {/* Info */}
-      <Block>
+      <section className="px-4 pt-4">
         <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4">
           <h4 className="font-medium text-gray-900 dark:text-white mb-2">How it works</h4>
           <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
@@ -213,7 +213,7 @@ export function SyncStatusPage(): JSX.Element {
             <li>• Permanently failed entries can be manually removed</li>
           </ul>
         </div>
-      </Block>
+      </section>
 
       {/* Spacer for bottom nav */}
       <div className="h-20" />

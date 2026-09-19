@@ -1,8 +1,9 @@
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+import { SectionTitle, Select, Input, Textarea } from '../../components/ui';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -278,10 +279,11 @@ export function RecordTransferPage(): JSX.Element {
       {/* WHY: Source must have an active batch — you can only transfer fish that exist in a batch context */}
       {!tankId && (
         <>
-          <BlockTitle>Source Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
+          <SectionTitle>Source Tank</SectionTitle>
+          <div className="px-4">
+            <Select
+              label="Source tank"
+              hideLabel
               value={sourceTankId}
               onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                 setSourceTankId(e.target.value);
@@ -303,9 +305,8 @@ export function RecordTransferPage(): JSX.Element {
                   {t.name} (No active batch)
                 </option>
               ))}
-            </ListInput>
-          </List>
-          {errors.sourceTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>}
+            </Select>
+          </div>
           {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
               every dropdown option is disabled and no selection is possible. */}
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
@@ -324,10 +325,11 @@ export function RecordTransferPage(): JSX.Element {
       {/* Destination tank selector */}
       {/* WHY: Destination tanks are sorted — empty tanks first (ideal transfer targets), then tanks with
           batches. The source tank is excluded to prevent self-transfer. Capacity info helps users choose. */}
-      <BlockTitle>Destination Tank</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="select"
+      <SectionTitle>Destination Tank</SectionTitle>
+      <div className="px-4">
+        <Select
+          label="Destination tank"
+          hideLabel
           value={destinationTankId}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             setDestinationTankId(e.target.value);
@@ -348,51 +350,55 @@ export function RecordTransferPage(): JSX.Element {
               {t.name} - {t.batchMetrics?.batchNumber} ({(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
             </option>
           ))}
-        </ListInput>
-      </List>
-      {errors.destinationTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>}
+        </Select>
+      </div>
 
       {/* Quantity */}
-      <BlockTitle>Quantity</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Quantity</SectionTitle>
+      <div className="px-4">
+        <Input
+          label="Quantity"
+          hideLabel
           type="number"
+          inputMode="numeric"
           placeholder="Number of pieces to transfer"
           value={quantity}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
             setQuantity(e.target.value);
             setErrors((prev) => ({ ...prev, quantity: undefined }));
           }}
           error={errors.quantity}
         />
-      </List>
-      {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
+      </div>
 
       {/* Average weight per fish (grams) */}
       {/* WHY: the backend derives total biomass from quantity x avgWeightG, so we
           ask for average weight, not total biomass. Pre-filled from the source
           batch average; override only if the transferred fish differ in size. */}
-      <BlockTitle>Average Weight (g/fish) - Optional</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Average Weight (g/fish) - Optional</SectionTitle>
+      <div className="px-4">
+        <Input
+          label="Average weight (g/fish)"
+          hideLabel
           type="number"
+          inputMode="decimal"
           placeholder="Average weight per fish in grams"
           value={avgWeightG}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* Transfer reason */}
-      <BlockTitle>Transfer Reason (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Transfer Reason (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Transfer reason"
+          hideLabel
           placeholder="Transfer reason..."
           value={transferReason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
-          inputClassName="!h-20"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* WHY: "Review" button triggers confirmation step — transfer operations affect two tanks simultaneously */}
       <div className="px-4 pb-28">

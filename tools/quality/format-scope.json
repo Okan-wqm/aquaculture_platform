@@ -44133,7 +44133,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "eb770c61143111b60d27bacf9b257f3100fd1a91569a37318e9af1c558005730",
+      "content_sha256": "9472f31e4e6cdad48b5f558a5c498d5df4ab8c26088003b0a98442e71f8fb714",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -49683,7 +49683,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b17a4b468a273a0d6d58ef2e6ce94155ce22b3a948fd2b9af15e6d68628d4c2",
+      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -49714,12 +49714,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/public/sw.js",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/scripts/patch-konsta.cjs",
       "prettier_managed": true
     },
     {
@@ -50091,6 +50085,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/Field.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
       "prettier_managed": true
     },
@@ -50109,7 +50109,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Button.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/ConfirmSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Field.tsx",
       "prettier_managed": true
     },
     {
@@ -50121,13 +50133,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ListRow.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/PageHeader.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/SectionTitle.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/Spinner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Switch.tsx",
       "prettier_managed": true
     },
     {

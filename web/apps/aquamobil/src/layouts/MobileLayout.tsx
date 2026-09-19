@@ -3,10 +3,8 @@ import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 
 import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-// WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
-// classes with dark: variants that use Konsta's internal surface tokens (iOS grouped grey,
-// Material near-black). These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
-// to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
+// WHY: the layout paints its own surface (gray-50 / gray-950) so pages never
+// inherit a component library's grouped-background tokens.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';

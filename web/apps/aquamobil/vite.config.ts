@@ -156,9 +156,6 @@ export default defineConfig({
     //   path again.
     dedupe: ['react', 'react-dom'],
   },
-  optimizeDeps: {
-    include: ['konsta/react'],
-  },
   server: {
     port: 8090,
     strictPort: true,
@@ -190,8 +187,6 @@ export default defineConfig({
           query: ['@tanstack/react-query'],
         },
       },
-      // Force konsta/react resolution
-      external: [],
     },
   },
 });

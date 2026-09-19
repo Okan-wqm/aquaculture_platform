@@ -24,6 +24,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { IconButton } from '../../components/ui';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
@@ -283,12 +285,9 @@ export function ChannelListPage(): ReactElement {
         <div className="px-4 py-4 pt-safe-top">
           {isSearchOpen ? (
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleCloseSearch}
-                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback flex items-center justify-center"
-              >
+              <IconButton size="lg" onClick={handleCloseSearch} aria-label="Close search" className="-ml-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10">
                 <X size={22} />
-              </button>
+              </IconButton>
               <input
                 ref={searchInputRef}
                 type="text"
@@ -304,12 +303,9 @@ export function ChannelListPage(): ReactElement {
                 <MessageSquare size={22} />
                 <h1 className="text-lg font-bold">Messages</h1>
               </div>
-              <button
-                onClick={handleOpenSearch}
-                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback flex items-center justify-center"
-              >
+              <IconButton size="lg" onClick={handleOpenSearch} aria-label="Search messages" className="rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10">
                 <Search size={20} />
-              </button>
+              </IconButton>
             </div>
           )}
         </div>

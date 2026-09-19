@@ -13,7 +13,6 @@
  * (ADR-028 lib-creation rubric).
  */
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import { AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import {
@@ -25,6 +24,8 @@ import {
   useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+import { SectionTitle, Select, Input, Textarea } from '../../components/ui';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -352,10 +353,11 @@ export function RecordEntityPage<
           not selectable. */}
       {!tankId && (
         <>
-          <BlockTitle>Select Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
+          <SectionTitle>Select Tank</SectionTitle>
+          <div className="px-4">
+            <Select
+              label="Tank"
+              hideLabel
               value={selectedTankId}
               onChange={handleTankChange}
               error={errors.tank}
@@ -371,9 +373,8 @@ export function RecordEntityPage<
                   {t.name} (No active batch)
                 </option>
               ))}
-            </ListInput>
-          </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
+            </Select>
+          </div>
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
             <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
               <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
@@ -537,7 +538,7 @@ export function ReasonGrid<TValue extends string>(props: {
 }
 
 /**
- * Numeric field (decimal-capable) — konsta-styled, used by the regulatory
+ * Numeric field (decimal-capable) — on the app's Input primitive, used by the regulatory
  * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
  * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
  * cannot express. Empty input surfaces as null so "not entered" is
@@ -554,8 +555,8 @@ export function NumberField(props: {
 }): JSX.Element {
   const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
   return (
-    <List strongIos insetIos>
-      <ListInput
+    <div className="px-4">
+      <Input
         label={label}
         type="number"
         inputMode="decimal"
@@ -564,7 +565,7 @@ export function NumberField(props: {
         placeholder={placeholder}
         value={value ?? ''}
         error={error}
-        onInput={(e: ChangeEvent<HTMLInputElement>) => {
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
           const raw = e.target.value;
           if (raw === '') {
             onChange(null);
@@ -574,11 +575,11 @@ export function NumberField(props: {
           onChange(Number.isFinite(parsed) ? parsed : null);
         }}
       />
-    </List>
+    </div>
   );
 }
 
-/** Notes textarea — konsta-styled, used by cull + mortality. */
+/** Notes textarea — on the app's Textarea primitive, used by cull + mortality. */
 export function NotesInput(props: {
   value: string;
   onChange: (next: string) => void;
@@ -587,16 +588,16 @@ export function NotesInput(props: {
   const { value, onChange, placeholder = 'Additional observations...' } = props;
   return (
     <>
-      <BlockTitle>Notes (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Notes (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Notes"
+          hideLabel
           placeholder={placeholder}
           value={value}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-          inputClassName="!h-24"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
         />
-      </List>
+      </div>
     </>
   );
 }

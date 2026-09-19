@@ -1,7 +1,5 @@
-import konstaConfig from 'konsta/config';
-
 /** @type {import('tailwindcss').Config} */
-export default konstaConfig({
+export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
@@ -11,6 +9,13 @@ export default konstaConfig({
         display: ['DM Sans', 'system-ui', 'sans-serif'],
       },
       colors: {
+        // WCAG AA on both themes (FE-MEDIUM-091): gray-400 is real body copy in
+        // 355 places. Tailwind 3 bakes colours into utilities, so the value is a
+        // CSS variable src/styles/main.css assigns per theme — #6b7280 on white
+        // (4.6:1), Tailwind's #9ca3af on the dark surfaces (6.9:1 on gray-900).
+        gray: {
+          400: 'rgb(var(--am-gray-400) / <alpha-value>)',
+        },
         // Ocean blue — aligned with main platform #0073e6
         ocean: {
           50: '#eef6ff',
@@ -89,6 +94,7 @@ export default konstaConfig({
       // Safe area for iPhone notch
       spacing: {
         safe: 'env(safe-area-inset-bottom)',
+        'safe-bottom': 'env(safe-area-inset-bottom)',
         'safe-top': 'env(safe-area-inset-top)',
         'safe-left': 'env(safe-area-inset-left)',
         'safe-right': 'env(safe-area-inset-right)',
@@ -100,4 +106,4 @@ export default konstaConfig({
     },
   },
   plugins: [],
-});
+};

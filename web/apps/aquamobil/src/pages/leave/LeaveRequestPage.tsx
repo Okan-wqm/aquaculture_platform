@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+import { SectionTitle, Input, Textarea, Switch } from '../../components/ui';
 
 import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -184,9 +185,9 @@ export function LeaveRequestPage(): JSX.Element {
       )}
 
       {/* Dates */}
-      <BlockTitle>Dates</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Dates</SectionTitle>
+      <div className="space-y-3 px-4">
+        <Input
           type="date"
           label="Start Date"
           value={startDate}
@@ -196,7 +197,7 @@ export function LeaveRequestPage(): JSX.Element {
           }}
           error={errors.startDate}
         />
-        <ListInput
+        <Input
           type="date"
           label="End Date"
           value={endDate}
@@ -206,19 +207,17 @@ export function LeaveRequestPage(): JSX.Element {
           }}
           error={errors.endDate}
         />
-      </List>
+      </div>
 
       {/* Half Day Toggle */}
-      <div className="px-4">
-        <label className="flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-          <input
-            type="checkbox"
-            checked={isHalfDay}
-            onChange={(e) => setIsHalfDay(e.target.checked)}
-            className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-violet-600 focus:ring-violet-500"
-          />
-          <span className="text-sm font-medium text-gray-900 dark:text-white">Half Day</span>
-        </label>
+      <div className="mt-3 px-4">
+        <Switch
+          label="Half Day"
+          checked={isHalfDay}
+          onChange={setIsHalfDay}
+          tone="violet"
+          className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+        />
       </div>
 
       {/* Total Days */}
@@ -230,16 +229,16 @@ export function LeaveRequestPage(): JSX.Element {
       )}
 
       {/* Reason */}
-      <BlockTitle>Reason (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Reason (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Reason"
+          hideLabel
           placeholder="Why are you taking leave?"
           value={reason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
-          inputClassName="!h-24"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* Submit Button */}
       <div className="px-4 pb-28">

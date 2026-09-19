@@ -136,11 +136,17 @@ rawPageTitle:
       findingId: FE-MEDIUM-071
       reason: the 404 page — a centred message, not a page header
 darkSurface:
-  entries: []
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
 rawPalette:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 1455
+      ceiling: 1451
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

@@ -3,11 +3,12 @@ import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
-import { BlockTitle, List, ListInput } from 'konsta/react';
 import { Droplets, AlertCircle } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+import { SectionTitle, Select } from '../../components/ui';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -258,9 +259,9 @@ export function WaterQualityRecordPage(): JSX.Element {
       {/* Equipment Selector */}
       {!routeEquipmentId && (
         <>
-          <BlockTitle>Select Equipment</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput type="select" value={selectedEquipmentId} onChange={handleEquipmentChange}>
+          <SectionTitle>Select Equipment</SectionTitle>
+          <div className="px-4">
+            <Select label="Equipment" hideLabel value={selectedEquipmentId} onChange={handleEquipmentChange}>
               <option value="">-- Select Equipment --</option>
               {Object.entries(groupedEquipment).map(([category, items]) => (
                 <optgroup key={category} label={category}>
@@ -269,8 +270,8 @@ export function WaterQualityRecordPage(): JSX.Element {
                   ))}
                 </optgroup>
               ))}
-            </ListInput>
-          </List>
+            </Select>
+          </div>
         </>
       )}
 

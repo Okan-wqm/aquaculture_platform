@@ -374,11 +374,11 @@ Allowed truth buckets:
   (`docs/reviews/admin-expert/2026-09-04-admin-panel-rc1-integration.md`).
 - `ORPHAN-CRITICAL-810` (2026-09-05, registered by the messaging-fix-1 line and carried onto main by
   PR #1586): the live `aqua-postgres` container was created from the base TimescaleDB image with a
-  bind-mounted checkout entrypoint, while the declared release uses the custom `Dockerfile.postgres-walg`
-  image, root bootstrap, exact certificate mounts and runtime tmpfs — a restart replays an entrypoint from
-  one release contract into a container from another. Real open work, owner infra-expert (registry
-  owner_user okan), placed in the go-live gate beside `DEPLOY-CRITICAL-017`
-  (`docs/reviews/orphan-findings.md`).
+  bind-mounted checkout entrypoint, while the declared release uses the custom
+  `Dockerfile.postgres-walg` image, root bootstrap, exact certificate mounts and runtime tmpfs — a
+  restart replays an entrypoint from one release contract into a container from another. Real open
+  work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
+  `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

@@ -53335,7 +53335,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "18071e2ded05b23a74f3fab213b5797904e0d9d2ba689860c2d56ddab3d69a16",
+      "content_sha256": "78acf6a19b786ad8e8e38560b1050e134042bc6b3f84e6a783ff1b0facea9fec",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

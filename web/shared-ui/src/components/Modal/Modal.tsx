@@ -41,6 +41,14 @@ export interface ModalProps {
    * içeriğininkileri kabuk açıkken de alır (FE-MEDIUM-072).
    */
   theme?: DialogTheme;
+  /**
+   * Id of an element inside the body that names the dialog when no `title`
+   * is given (a centred confirmation renders its own heading). A dialog with
+   * neither is unnamed to assistive technology.
+   */
+  labelledBy?: string;
+  /** Id of an element inside the body that describes the dialog when no `description` is given. */
+  describedBy?: string;
   /** Footer içeriği */
   footer?: React.ReactNode;
   /** Modal içeriği */
@@ -112,6 +120,8 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
   closeLabel = 'Close',
   theme = 'auto',
+  labelledBy,
+  describedBy,
   footer,
   children,
   className = '',
@@ -143,8 +153,8 @@ export const Modal: React.FC<ModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? titleId : undefined}
-      aria-describedby={description ? descriptionId : undefined}
+      aria-labelledby={title ? titleId : labelledBy}
+      aria-describedby={description ? descriptionId : describedBy}
       {...dialogThemeAttributes(theme)}
     >
       {/* Overlay */}
@@ -310,6 +320,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // onay butonu disabled kalır. Modal her açıldığında sıfırlanır (yanlış
   // yazıp iptal eden bir kullanıcı ikinci açışta "hazır onaylı" bulmasın).
   const [typedConfirmation, setTypedConfirmation] = React.useState('');
+  const headingId = React.useId();
+  const messageId = React.useId();
+  const gateId = React.useId();
   React.useEffect(() => {
     if (isOpen) {
       setTypedConfirmation('');
@@ -357,6 +370,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       size="sm"
       showCloseButton={false}
+      labelledBy={headingId}
+      describedBy={messageId}
     >
       <div className="text-center">
         {/* İkon */}
@@ -365,15 +380,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         {/* Başlık ve mesaj */}
-        <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        <h3 id={headingId} className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
         {/*
           `message` ReactNode kabul ediyor — string ile tipografi
           `<p>` sarmalaması; ReactNode ile olduğu gibi render.
         */}
         {typeof message === 'string' ? (
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
+          <p id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
         ) : (
-          <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
+          <div id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
         )}
 
         {warning && (
@@ -388,7 +403,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
+            <label htmlFor={gateId} className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
               {typedConfirmationLabel ? (
                 typedConfirmationLabel.split('{text}').map((part, idx, arr) => (
                   <React.Fragment key={idx}>
@@ -406,13 +421,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               )}
             </label>
             <input
+              id={gateId}
               type="text"
               value={typedConfirmation}
               onChange={(e) => setTypedConfirmation(e.target.value)}
               disabled={isLoading}
               autoComplete="off"
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-primary-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              aria-label="Typed confirmation"
             />
           </div>
         )}

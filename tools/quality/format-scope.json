@@ -60654,6 +60654,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Form/__tests__/required.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/surface-glass-contrast.spec.ts",
       "prettier_managed": true
     },

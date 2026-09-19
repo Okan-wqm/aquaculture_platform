@@ -140,6 +140,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             disabled={disabled}
+            required={required}
+            aria-required={required || undefined}
             aria-invalid={!!error}
             aria-describedby={
               error ? `${selectId}-error` : helperText ? `${selectId}-helper` : undefined

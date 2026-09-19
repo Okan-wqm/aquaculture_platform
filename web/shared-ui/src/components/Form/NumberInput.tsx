@@ -118,6 +118,8 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
             id={inputId}
             type="number"
             disabled={disabled}
+            required={required}
+            aria-required={required || undefined}
             aria-invalid={!!error}
             aria-describedby={
               error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined

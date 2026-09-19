@@ -841,7 +841,7 @@ export function DataTable<T>({
             <tr>
               {/* Selection Checkbox */}
               {selectable && (
-                <th className="px-4 py-3 w-12">
+                <th scope="col" className="px-4 py-3 w-12">
                   <Checkbox
                     checked={isAllSelected}
                     indeterminate={isSomeSelected}
@@ -852,34 +852,47 @@ export function DataTable<T>({
               )}
 
               {/* Expand Toggle */}
-              {expandable && expandToggle && <th className="px-4 py-3 w-12" />}
+              {expandable && expandToggle && <th scope="col" className="px-4 py-3 w-12" />}
 
-              {/* Data Columns */}
-              {activeColumns.map((col) => (
-                <th
-                  key={String(col.key)}
-                  className={`${cellClasses} text-left text-xs font-semibold text-gray-600 uppercase tracking-wider dark:text-gray-300 ${
-                    col.sortable !== false && sortable ? 'cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-700' : ''
-                  } ${col.sticky ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-gray-50 z-20 dark:bg-gray-800` : ''} ${
-                    col.className || ''
-                  }`}
-                  style={{ width: col.width, minWidth: col.minWidth }}
-                  onClick={() => col.sortable !== false && sortable && handleSort(String(col.key))}
-                  aria-sort={
-                    sortConfig?.key === String(col.key)
-                      ? sortConfig.direction === 'asc' ? 'ascending' : 'descending'
-                      : undefined
-                  }
-                  aria-label={col.sortable !== false && sortable ? `Sort by ${col.header}` : undefined}
-                >
-                  <div className={`flex items-center gap-2 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>
+              {/* Data Columns — a sortable header is a real <button> inside the
+                  <th>, so sorting is reachable by keyboard and the column keeps
+                  its own name; aria-sort on the <th> carries the state. */}
+              {activeColumns.map((col) => {
+                const canSort = col.sortable !== false && sortable;
+                const alignClass = col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : '';
+                const sorted = sortConfig?.key === String(col.key);
+                const headerContent = (
+                  <>
                     {col.headerRender ?? col.header}
-                    {col.sortable !== false && sortable && (
-                      <SortIcon direction={sortConfig?.key === String(col.key) ? sortConfig.direction : undefined} />
+                    {canSort && <SortIcon direction={sorted ? sortConfig.direction : undefined} />}
+                  </>
+                );
+                return (
+                  <th
+                    key={String(col.key)}
+                    scope="col"
+                    className={`${cellClasses} text-left text-xs font-semibold text-gray-600 uppercase tracking-wider dark:text-gray-300 ${
+                      canSort ? 'hover:bg-gray-100 dark:hover:bg-gray-700' : ''
+                    } ${col.sticky ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-gray-50 z-20 dark:bg-gray-800` : ''} ${
+                      col.className || ''
+                    }`}
+                    style={{ width: col.width, minWidth: col.minWidth }}
+                    aria-sort={sorted ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : canSort ? 'none' : undefined}
+                  >
+                    {canSort ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(String(col.key))}
+                        className={`flex w-full items-center gap-2 select-none rounded uppercase tracking-wider focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 ${alignClass}`}
+                      >
+                        {headerContent}
+                      </button>
+                    ) : (
+                      <div className={`flex items-center gap-2 ${alignClass}`}>{headerContent}</div>
                     )}
-                  </div>
-                </th>
-              ))}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 

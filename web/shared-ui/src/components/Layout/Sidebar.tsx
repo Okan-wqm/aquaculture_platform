@@ -364,6 +364,8 @@ const MenuItem: React.FC<{
         onClick={handleClick}
         className={baseClasses}
         title={collapsed ? item.label : undefined}
+        aria-current={isActive ? 'page' : undefined}
+        aria-expanded={hasChildren ? isExpanded : undefined}
       >
         {itemContent}
       </button>

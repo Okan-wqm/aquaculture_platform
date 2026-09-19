@@ -290,6 +290,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
+        aria-required={required || undefined}
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left

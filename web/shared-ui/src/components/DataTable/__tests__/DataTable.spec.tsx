@@ -160,7 +160,11 @@ describe('DataTable — header slot', () => {
       />,
     );
     expect(screen.getByTestId('key-marker')).toBeTruthy();
-    expect(screen.getByLabelText('Sort by Name')).toBeTruthy();
+    // The sort control is a real button named by the column, inside a <th scope="col">.
+    const header = screen.getByRole('columnheader');
+    expect(header.getAttribute('scope')).toBe('col');
+    expect(header.getAttribute('aria-sort')).toBe('none');
+    expect(screen.getByRole('button', { name: 'Name (pk)' })).toBeTruthy();
   });
 });
 

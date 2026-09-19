@@ -133,6 +133,11 @@ export function useDialogBehavior<T extends HTMLElement>({
           document.removeEventListener('keydown', listenerRef.current);
           listenerRef.current = null;
         }
+        // Focus goes back to the opener here, in the cleanup, so a wrapper
+        // that early-returns null and unmounts the dialog restores it too —
+        // not only a dialog that re-renders with isOpen=false.
+        const opener = previousActiveElement.current;
+        if (opener?.isConnected) opener.focus();
       };
     }
 
@@ -143,7 +148,6 @@ export function useDialogBehavior<T extends HTMLElement>({
       document.removeEventListener('keydown', listenerRef.current);
       listenerRef.current = null;
     }
-    previousActiveElement.current?.focus();
     return undefined;
   }, [isOpen, trapFocus, containerRef]);
 }

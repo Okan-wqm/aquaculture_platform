@@ -152,7 +152,9 @@ once, on the `theme-color` meta tag in `index.html`, where both the
 pre-paint script and `useDarkMode` read them; the leave-type dot falls
 back to an ocean class through `LeaveTypeSwatch` when a type carries no
 colour; the Konsta surface note names tokens, not hex. Every package holds
-at zero. **Owner:** okan · **Expiry:** 2027-03-31.
+at zero. **Closed** — raw hex at zero in every web package since batch 23
+(PR #1592); the `rawHex` ratchet keeps it there. **Owner:** okan ·
+**Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 
@@ -349,7 +351,9 @@ cannot import shared-ui, gets the same component under `components/ui/`
 loader icon or an inline `<svg>` spun by a literal `animate-spin`, or a
 bordered ring spun the same way. An icon whose spin is conditional (a refresh
 arrow while refetching) is an affordance, not a loading indicator, and is not
-counted. **Owner:** okan · **Expiry:** 2027-06-30.
+counted. **Closed** — hand-rolled spinners at zero in every web package
+since batch 22 (PR #1591); the `rawSpinner` ratchet keeps it there.
+**Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-MEDIUM-071 — Page title rows hand-written beside no `PageHeader`
 

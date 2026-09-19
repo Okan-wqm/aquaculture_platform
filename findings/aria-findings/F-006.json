@@ -1,0 +1,79 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "ui_option_drift: 'financescope' value sets diverge across 2 surfaces (cross_service=True)",
+  "claim_type": "spine_drift",
+  "closes_in_commit": null,
+  "created_at": "2026-09-19T02:06:17Z",
+  "evidence_chain_id": "chain_e97d1a427de41730",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/farm-module/src/pages/finance/components/CategoriesTab.tsx",
+        "content_hash": "sha256:50abdcee872cdc4f395a26ef02e56f33c7e0ff709904e6cfc1a2f9c40596275a",
+        "envelope_hash": "sha256:772aff4c3826b6e6aa768f9f3651d7bd795adc9bbc39063ee19012a1120eed82",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 201,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "0fb5f096bbc19cd50f1775d1a7c9d50cd108532e",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/farm-module/src/pages/finance/components/CategoriesTab.tsx:201",
+      "summary": "new-category-scope values: ['FARM_OPEX', 'FARM_REVENUE']"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/event-contracts/src/finance-events.ts",
+        "content_hash": "sha256:be3fef46582743174f8f395e1f7f7f82e44b3a58efcbc340926b5133daddeb4b",
+        "envelope_hash": "sha256:00275ba33c0e5ee107f006331628edb41a8e21f1fe34d5cee50dff44d34e6502",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 38,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "0fb5f096bbc19cd50f1775d1a7c9d50cd108532e",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/event-contracts/src/finance-events.ts:38",
+      "summary": "FinanceScope values: ['FARM_OPEX', 'FARM_REVENUE', 'HR_EXPENSE']"
+    }
+  ],
+  "facts": [
+    "missing in ts/ui: ['hr_expense']",
+    "missing in sql: []"
+  ],
+  "finding_id": "F-006",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "seed:drift-scan",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "contract-parity-enforcer",
+    "data-expert",
+    "frontend-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "libs/event-contracts/src/finance-events.ts",
+      "web/modules/farm-module/src/pages/finance/components/CategoriesTab.tsx"
+    ]
+  },
+  "service": null,
+  "services": [
+    "shared:event-contracts",
+    "web:farm-module"
+  ],
+  "severity": "HIGH",
+  "source_event_id": "finding:F-006:emitted",
+  "source_ledger_hash": "sha256:2912263b57dbe525f00fa15fcfa1b2f457f082cffe82f473e59cf3697f7447f4",
+  "status": "OPEN"
+}

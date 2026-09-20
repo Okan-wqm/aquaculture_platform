@@ -168,6 +168,57 @@ Fix: a `ColorInput` primitive with the two shapes those sites actually need
 (`bar`, `swatch`), label bound and swatch sized from `size`, and
 `ColorAlphaInput` composing it rather than re-deriving it.
 
+### FE-HIGH-158 — icon-only buttons ship with no accessible name
+
+A button whose only child is an icon has no text to name it, so the name has to
+come from the markup. 63 of them across `web/` carry none, and a screen reader
+announces each as bare "button":
+
+- `shared-ui/src/components/DataTable/DataTable.tsx:301` — the row expander.
+- `shared-ui/src/components/Form/DatePicker.tsx:203,213` and
+  `DateRangePicker.tsx:337,347` — the month-navigation chevrons.
+- `shared-ui/src/components/Form/{FileUpload,MultiSelect,SearchInput,SearchableSelect}.tsx`
+  — remove-file, remove-chip, clear-search and clear-selection.
+- `admin-panel/src/pages/AnnouncementsPage.tsx:437` — **delete**, an
+  irreversible action, and `:431` edit, `:215` refresh beside it.
+- `apps/aquamobil/src/pages/HomePage.tsx:175` — **log out**.
+
+Nine of those are shared-ui's own, which is the sharpest part: every consumer
+inherits the absence from the primitive it was told to adopt.
+
+### FE-HIGH-159 — buttons paint a state they never announce
+
+329 buttons switch their class attribute on a selected state while the opening
+tag carries no `aria-pressed`, `aria-selected` or `aria-current`. The selection
+is visible and inaudible — colour alone, which WCAG 1.4.1 rejects. sensor-module
+holds 140 of them (SCADA toolbars, the alignment and undo/redo bars, protocol and
+template pickers), farm-module 55, AquaMobil 39, admin-panel 34.
+
+### Both: the count belongs in the gate, not in this document
+
+Four hand-written passes over this corpus produced four different totals, each
+wrong in a new way, before the numbers above settled:
+
+1. A case-insensitive `<button` matched `<Button>`, the primitive itself, and
+   counted 835 where 237 existed.
+2. Reading the opening tag up to the first `>` cut it at the `>` inside
+   `onClick={() => …}`, so an `aria-label` after an arrow function was invisible
+   and the rest of the element parsed as body.
+3. Treating an expression as text when its _condition_ was an identifier counted
+   `{open ? <X /> : <Menu />}` as labelled and hid every icon-only toggle.
+4. Requiring a bare identifier instead counted `{date.getDate()}` and
+   `{isLoading ? loadingText : confirmText}` as icon-only, inflating shared-ui's
+   ceiling by four buttons that do render words.
+
+Regex over JSX cannot be trusted to produce a number a finding can assert. Both
+counters therefore live in `tests/invariants/web-design-system-ratchet.spec.ts`
+as element-aware scans with brace- and quote-depth tracking, ratcheted per
+package. The count is then exact by construction, a false positive shows up as a
+red build rather than a wrong sentence, and neither defect can grow.
+
+Unlike the `rawButton` ratchet beside them, both read shared-ui as well: a
+primitive may render a raw `<button>`, but not one a screen reader cannot name.
+
 ### FE-MEDIUM-157 — there is no range/slider primitive
 
 19 call sites build one from a raw `<input type="range">`: 17 in sensor-module

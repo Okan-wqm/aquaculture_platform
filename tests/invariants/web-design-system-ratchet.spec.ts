@@ -128,6 +128,138 @@ const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
 const RAW_BUTTON = /<button\b/g;
 const RAW_FIELD = /<(?:input|select|textarea)\b/g;
 /**
+ * Element-aware reading of `<button>` (FE-HIGH-158, FE-HIGH-159). The two
+ * counters below ask what is INSIDE a button and what its opening tag declares,
+ * which a `/<button\b/` match cannot answer.
+ *
+ * The opening tag cannot be found by scanning to the first `>`: an arrow
+ * function in a prop (`onClick={() => close()}`) carries one. Four hand-rolled
+ * passes over this corpus each produced a different total because of exactly
+ * that, so the scan tracks brace depth and quotes and only accepts a `>` at
+ * depth zero. Nested `<button>` is not legal HTML, but the body scan counts
+ * depth anyway rather than trusting the corpus.
+ */
+function* buttonElements(source: string): Generator<{ openTag: string; body: string }> {
+  const OPEN = /<button\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = OPEN.exec(source)) !== null) {
+    const start = match.index;
+    let i = start + '<button'.length;
+    let depth = 0;
+    let quote: string | null = null;
+    let tagEnd = -1;
+    for (; i < source.length; i += 1) {
+      const c = source[i] as string;
+      if (quote !== null) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "'" || c === '`') {
+        quote = c;
+      } else if (c === '{') {
+        depth += 1;
+      } else if (c === '}') {
+        depth -= 1;
+      } else if (c === '>' && depth === 0) {
+        tagEnd = i + 1;
+        break;
+      }
+    }
+    if (tagEnd === -1) return;
+    const openTag = source.slice(start, tagEnd);
+    if (openTag.endsWith('/>')) {
+      yield { openTag, body: '' };
+      OPEN.lastIndex = tagEnd;
+      continue;
+    }
+    let bodyDepth = 1;
+    let j = tagEnd;
+    while (j < source.length && bodyDepth > 0) {
+      if (source.startsWith('<button', j)) {
+        bodyDepth += 1;
+        j += '<button'.length;
+      } else if (source.startsWith('</button>', j)) {
+        bodyDepth -= 1;
+        j += '</button>'.length;
+      } else {
+        j += 1;
+      }
+    }
+    yield { openTag, body: source.slice(tagEnd, Math.max(tagEnd, j - '</button>'.length)) };
+    OPEN.lastIndex = tagEnd;
+  }
+}
+
+/**
+ * Does the body put any words on screen? Tags are blanked to a sentinel first,
+ * so an icon's own props never read as text. What is left is literal JSX text
+ * plus expressions, and an expression is judged by what it can PRODUCE:
+ *
+ *   {open ? <X /> : <Menu />}            two elements  -> no words
+ *   {isLoading ? loadingText : confirm}  two values    -> words
+ *   {date.getDate()}                     a call        -> words
+ *   {count > 0 && <Badge />}             a guarded element -> no words
+ *
+ * Both halves of that distinction were learned the hard way. Reading only the
+ * condition counted the first line as text and hid every icon-only toggle;
+ * requiring a bare identifier counted the second and third as icons, which
+ * inflated shared-ui's ceiling by four buttons that render a day number or a
+ * confirm label.
+ */
+function rendersText(body: string): boolean {
+  const blanked = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/<[^>]*>/g, '\u0000');
+  /** An operand that can only yield an element, nothing, or an empty string. */
+  const yieldsNoWords = (operand: string): boolean =>
+    /^[\s\u0000]*$/.test(operand) ||
+    /^[\s]*(null|undefined|false|''|""|``)[\s]*$/.test(operand) ||
+    /^[\s\u0000()]*$/.test(operand);
+  for (const expr of blanked.match(/\{[^{}]*\}/g) ?? []) {
+    const inner = expr.slice(1, -1).trim();
+    if (inner === '') continue;
+    const ternary = /^([^?]*)\?([^:]*):(.*)$/s.exec(inner);
+    if (ternary) {
+      if (yieldsNoWords(ternary[2] ?? '') && yieldsNoWords(ternary[3] ?? '')) continue;
+      return true;
+    }
+    const guarded = /^(.*?)(?:&&|\|\|)(.*)$/s.exec(inner);
+    if (guarded) {
+      if (yieldsNoWords(guarded[2] ?? '')) continue;
+      return true;
+    }
+    if (yieldsNoWords(inner)) continue;
+    return true;
+  }
+  return blanked.replace(/\{[^{}]*\}/g, '').replace(/[\s\u0000]/g, '') !== '';
+}
+
+const NAMES_THE_CONTROL = /\baria-label\b|\baria-labelledby\b|\btitle=/;
+const DECLARES_ITS_STATE = /\baria-pressed\b|\baria-selected\b|\baria-current\b/;
+const PAINTS_A_STATE = /className=\{`[^`]*\$\{[^}]*\?|className=\{[^}]*\?[^}]*:/;
+
+/**
+ * FE-HIGH-158 — a button with no words in it and no accessible name. A screen
+ * reader announces it as "button", whether it deletes a row, logs the operator
+ * out or expands a table.
+ */
+function unnamedIconButtons(source: string): number {
+  let count = 0;
+  for (const { openTag, body } of buttonElements(source)) {
+    if (!rendersText(body) && !NAMES_THE_CONTROL.test(openTag)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * FE-HIGH-159 — a button whose class attribute switches on a selected state
+ * while its opening tag never declares that state. The selection is visible and
+ * inaudible: colour alone, which WCAG 1.4.1 rejects.
+ */
+function silentStateButtons(source: string): number {
+  let count = 0;
+  for (const { openTag } of buttonElements(source)) {
+    if (PAINTS_A_STATE.test(openTag) && !DECLARES_ITS_STATE.test(openTag)) count += 1;
+  }
+  return count;
+}
+/**
  * A class attribute that fixes `grid-cols-N` (N in 2–6 or 8–11) with no
  * breakpoint variant (FE-HIGH-088): on a 375 px phone the N columns share the
  * width and every cell wraps or overflows. Seven (a week) and twelve (a layout
@@ -330,6 +462,8 @@ interface Allowlist {
   rawTable: { entries: PackageCeiling[] };
   rawMutation: { entries: PackageCeiling[] };
   rawButton: { entries: PackageCeiling[] };
+  unnamedIconButton: { entries: PackageCeiling[] };
+  silentStateButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
   fixedGrid: { entries: PackageCeiling[] };
   inlineIconSvg: { entries: PackageCeiling[] };
@@ -557,6 +691,64 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.rawButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets buttons with no words and no accessible name per package (FE-HIGH-158)', () => {
+    // shared-ui is included, unlike the rawButton ratchet above, which reads
+    // ROOTS alone. A primitive is allowed to render a raw <button>; it is not
+    // allowed to render one a screen reader cannot name, because every consumer
+    // inherits that name — or its absence.
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])],
+      unnamedIconButtons,
+    );
+    const ceilings = new Map(doc.unnamedIconButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} unnamed icon buttons, no ceiling` : '').toBe(
+        '',
+      );
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} buttons with no text and no accessible name, ceiling ${entry.ceiling}. Give the control a name (aria-label from useI18n, or aria-labelledby pointing at visible text) and lower the ceiling when you fix one.`,
+        );
+      }
+    }
+    for (const entry of doc.unnamedIconButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets buttons that paint a state without declaring it per package (FE-HIGH-159)', () => {
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])],
+      silentStateButtons,
+    );
+    const ceilings = new Map(doc.silentStateButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} silent state buttons, no ceiling` : '').toBe(
+        '',
+      );
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} buttons whose class switches on a selected state with no aria-pressed / aria-selected / aria-current, ceiling ${entry.ceiling}. Declare the state on the same prop that paints it and lower the ceiling when you fix one.`,
+        );
+      }
+    }
+    for (const entry of doc.silentStateButton.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

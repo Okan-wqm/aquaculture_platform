@@ -199,6 +199,164 @@ rawButton:
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+unnamedIconButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 15
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 21
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 6
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 7
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 2
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/shell
+      ceiling: 2
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/shared-ui
+      ceiling: 9
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+silentStateButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 39
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 34
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 55
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 27
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 2
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 140
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 17
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/shell
+      ceiling: 4
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
+    - package: web/shared-ui
+      ceiling: 9
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
 rawField:
   entries:
     - package: web/apps/aquamobil

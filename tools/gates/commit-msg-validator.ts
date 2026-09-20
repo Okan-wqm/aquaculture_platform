@@ -356,6 +356,40 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // that is not bound writes the wrong type unchallenged. `npm run
   // hooks:install` exists; the author had not run it in this session.
   '7bda4ab1', // fix(edge): the generated token module follows its feature gate
+  // 2026-09-20 design rescan wave 31 (PR #1629, FE-HIGH-079). Added by
+  // OPERATOR DECISION: the three routes and their costs were put to the
+  // operator, who delegated the choice, and then granted the write to this
+  // file explicitly when the permission layer refused it as a CI bypass. It is
+  // recorded that way rather than as the author's own judgement — the 7bda4ab1
+  // entry above states why that distinction matters.
+  //
+  // All three are DEAD HISTORY. Their content is reverted wholesale in
+  // 291d932da and re-landed in 71cc7311e, which carries real trailers for
+  // FE-HIGH-151 (the form label had no linkage to its control's size) and
+  // FE-MEDIUM-152 (no colour-field primitive existed, so 39 call sites
+  // re-derived one). Both were raised in c7a0754de, because neither existed
+  // when these commits were written — which is exactly why they could carry no
+  // honest trailer: the only finding they relate to, FE-HIGH-079, this PR
+  // deliberately leaves OPEN. Nothing untraceable ships: the shipping commit
+  // cites its findings, and `reconcile` closes both on merge.
+  //
+  // Why revert + re-land did not clear the gate by itself: it validates
+  // `pull_request.base.sha..head.sha`, so a reverted commit stays in the range
+  // and keeps failing — reverting changes the tree, not the range. Only
+  // rewriting history would remove it, and the force-push ban forecloses that.
+  // The author attempted the repair first and records the result here so the
+  // next person does not spend the same cycle re-deriving it.
+  //
+  // The ROOT CAUSE is the same one ORPHAN-HIGH-441 and the 7bda4ab1 entry
+  // named, recurring a third time: `core.hooksPath` was unset in the authoring
+  // session, so `.husky/commit-msg` never ran and three wrong-typed commits
+  // went out unchallenged. `npm run hooks:install` has now been run there and
+  // the hook verified to refuse a trailerless `feat` at write time. That this
+  // keeps recurring per-session is the real defect — the hook binds through
+  // repo-local git config, which a fresh clone does not carry.
+  '49728221', // feat(shared-ui): a form label reads at its control's own size
+  'f021154d', // feat(shared-ui): ColorInput primitive; 36 hand-rolled colour pickers adopt it
+  'cb735bc7', // fix(shared-ui): ColorInput's doc comment no longer reads as user-visible copy
 ]);
 
 interface Commit {

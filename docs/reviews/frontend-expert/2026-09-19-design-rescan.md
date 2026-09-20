@@ -612,6 +612,22 @@ once because every rule already reads tokens and carries zero raw hex — the pa
 before landing it. That leverage is also the risk, so `suderra-console-contrast.spec.ts` reads the
 palette out of `theme.css` and asserts AA for text that carries meaning.
 
+### FE-MEDIUM-169 — the console's landing page is hardcoded English
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`TenantDashboard` is the first page a tenant sees after login, and it wrote all 24 of its
+user-visible strings into the file — stat titles, section headings, empty states, the error banner,
+the billing cycle and status vocabulary. So the landing page was English whatever the user chose.
+
+The locale maps were never the obstacle: `en` and `tr` carry identical key counts. The page simply
+never asked them anything, which is the console-wide shape — 1 of tenant-admin's 42 files calls
+`t()`.
+
+Fixed for this page; **FE-HIGH-089 stays open** for the other 41 and the 487 strings still in them.
+Four of the strings are interpolated, which is the shape that resists a naive sweep because a
+template literal fixes English word order; they go through `t()`'s variable form.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

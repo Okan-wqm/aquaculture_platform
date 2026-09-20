@@ -53,18 +53,21 @@ describe('service criticality profile contract', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('pins sensor-ingestion as an active droplet service only with the sidecar deploy evidence in-tree', () => {
+  it('pins sensor-ingestion as an active droplet service the health gate only warns about', () => {
     // The honesty gate's flip side: the sidecar was kept OUT of the
     // manifest while main.rs was a stub drain (deploy honesty invariant).
     // The real pipeline (per-tenant COPY + outbox + awaited PubAck,
     // sensor-ingestion-honest-deployment.spec) + the droplet compose entry
-    // + the GHCR image workflow are that evidence — so now the entry must
-    // EXIST, carry 'required' (the NestJS writer stays the seed backend
-    // and the ADR-031 kill-switch drains the sidecar), and stay out of
-    // 'critical'.
+    // + the GHCR image workflow are that evidence — so the entry must
+    // EXIST and stay out of 'critical'. It is 'warning', not 'required',
+    // because the deploy does not ship the prebuilt sidecar image yet
+    // (DEPLOY-HIGH-024: `required` demanded a container no deploy could
+    // create and every release ledger read failed/required_health); the
+    // catalog parity invariant (`deployShipsImage`) is what lifts it back
+    // to 'required' once droplet-up pulls and starts the sidecar.
     const entry = manifestByName.get('sensor-ingestion');
 
     expect(entry).toBeDefined();
-    expect(entry?.level).toBe('required');
+    expect(entry?.level).toBe('warning');
   });
 });

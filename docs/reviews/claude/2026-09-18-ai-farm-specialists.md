@@ -9,8 +9,8 @@ request-reply; user-decided actuation (`confirm_required` cap).
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181,
-INFRA-HIGH-184 and INFRA-HIGH-186 (base-branch / platform defects found by this
-branch's gates and work, fixed here); FARM-LOW-330
+INFRA-HIGH-184, INFRA-HIGH-186 and DEPLOY-HIGH-024 (base-branch / platform
+defects found by this branch's gates and work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -289,6 +289,24 @@ roots it recognised. Fix: the subscribe grant, `nats.conf` regenerated, and
 `extractRpcUsage` now treats a `.subscribe('<literal>')` as a handled
 subject with `telemetry.` as a recognised root; removing the grant again
 fails the gateway case with the exact subject.
+
+## DEPLOY-HIGH-024 — the deploy promised a container it could never create
+
+With 16/16 services healthy and login working, both 2026-09-20 droplet runs
+still ended `failed phase=required_health`: `[required] sensor-ingestion —
+container not found`, promotion blocked, baseline not advanced. The 2026-08-28
+catalogue "honesty flip" declared the Rust sidecar `active` + `required`, but
+the deploy never ships it — `rust-sidecar` is excluded from the image matrix
+("prebuilt from GHCR"), the compose pins the image to the deploy's `${TAG}`
+that no workflow produces, and `droplet-up.sh` neither pulls nor starts the
+service (it refuses the `rust-sidecar` profile outright). Nothing related a
+criticality level to what the deploy ships, so the contract went green in CI
+and red on every host run since. Fix: `criticality: 'warning'` (the truthful
+promise today), `deployShipsImage()` in the catalogue, and a parity invariant
+that fails any `critical` / `required` active droplet entry whose image the
+deploy does not build or pull — `required` on the sidecar now fails the test
+naming the entry. Shipping the sidecar for real (own release tag, pull + start
+in `droplet-up`, health) is the tracked follow-up that lifts it back.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

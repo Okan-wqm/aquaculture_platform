@@ -231,6 +231,13 @@ networks:
   # INFRA-HIGH-042 remains OPEN: this dedicated bridge removes PostgreSQL
   # from the application egress path and disables peer-to-peer traffic, but
   # host firewall allowlisting is still required to constrain destinations.
+  # BYOK LLM provider egress (Z.ai / OpenAI / Anthropic) — ai-service only.
+  # Same isolation posture as the backup egress: bridge with ICC disabled so
+  # co-attached containers cannot talk to each other THROUGH this network.
+  aqua-llm-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: 'false'
   aqua-backup-egress:
     driver: bridge
     driver_opts:
@@ -1755,6 +1762,8 @@ services:
     container_name: aqua-messaging
     restart: unless-stopped
     environment:
+      # FARM-AI: the chat pipeline is fixed and shipped — the kill-switch ships ON
+      MESSAGING_AI_TRIGGER_ENABLED: 'true'
       SERVICE_NAME: messaging-service
       NODE_ENV: production
       PORT: 3000
@@ -1872,7 +1881,10 @@ services:
       - *nats-ai-key-mount
       - *jwt-public-key-mount
     networks:
-      - aqua-internal
+      - aqua-internal      # BYOK LLM egress (Z.ai/OpenAI/Anthropic); aqua-internal is internal-only.
+      # Dedicated network — NOT aqua-backup-egress (postgres's isolated backup
+      # channel; the walg-pitr invariant pins its membership to postgres alone).
+      - aqua-llm-egress
     depends_on:
       postgres:
         condition: service_healthy

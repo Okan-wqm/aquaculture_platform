@@ -8,7 +8,7 @@
  * operator resubmits only the remainder — that message is surfaced verbatim.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast, Input } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import {
   useRecordGrading,
@@ -210,7 +210,6 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
           batchDetails={tank.batchDetails}
           selectedBatchId={selectedBatchId}
           onChange={setSelectedBatchId}
-          accent="purple"
         />
 
         {/* Output rows */}
@@ -263,25 +262,24 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
                       Loading tanks...
                     </div>
                   ) : (
-                    <select
+                    <Select
                       id={`grading-destination-${index}`}
+                      size="sm"
+                      placeholder="Select destination tank..."
                       value={row.destinationTankId}
                       onChange={(e) => updateRow(index, { destinationTankId: e.target.value })}
-                      className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-                    >
-                      <option value="">Select destination tank...</option>
-                      {destinationTanks.map((t: AvailableTank) => {
+                      options={destinationTanks.map((t: AvailableTank) => {
                         const available = Math.max(0, t.maxBiomass - t.currentBiomass);
-                        return (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.code}) - {available.toFixed(0)} kg available
-                            {t.currentCount > 0
-                              ? ` [${t.currentCount.toLocaleString()} fish]`
-                              : ' [Empty]'}
-                          </option>
-                        );
+                        const stock =
+                          t.currentCount > 0
+                            ? ` [${t.currentCount.toLocaleString()} fish]`
+                            : ' [Empty]';
+                        return {
+                          value: t.id,
+                          label: `${t.name} (${t.code}) - ${available.toFixed(0)} kg available${stock}`,
+                        };
                       })}
-                    </select>
+                    />
                   )}
                 </div>
 

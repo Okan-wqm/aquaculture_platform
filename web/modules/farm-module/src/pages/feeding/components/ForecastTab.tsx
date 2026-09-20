@@ -6,7 +6,7 @@
  * teslimatı dakikalar içinde yansıtır.
  */
 import React, { useMemo, useState } from 'react';
-import { useI18n } from '@aquaculture/shared-ui';
+import { useI18n, Select } from '@aquaculture/shared-ui';
 
 import { useProtocolFeedForecast } from '../../../hooks/useProtocolFeeding';
 import { useSiteList } from '../../../hooks/useSites';
@@ -37,31 +37,25 @@ export function ForecastTab(): React.ReactElement {
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.siteLabel')}
-          <select
-            className="ml-2 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
+          <Select
+            className="ml-2 inline-block align-middle"
+            fullWidth={false}
+            size="sm"
             value={effectiveSiteId ?? ''}
             onChange={(e) => setSiteId(e.target.value)}
-          >
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
-          </select>
+            options={sites.map((site) => ({ value: site.id, label: site.name }))}
+          />
         </label>
         <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.horizonLabel')}
-          <select
-            className="ml-2 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
+          <Select
+            className="ml-2 inline-block align-middle"
+            fullWidth={false}
+            size="sm"
             value={horizonDays}
             onChange={(e) => setHorizonDays(Number(e.target.value))}
-          >
-            {HORIZON_OPTIONS.map((days) => (
-              <option key={days} value={days}>
-                {days}
-              </option>
-            ))}
-          </select>
+            options={HORIZON_OPTIONS.map((days) => ({ value: days, label: String(days) }))}
+          />
         </label>
       </div>
 

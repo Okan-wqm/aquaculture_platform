@@ -12,6 +12,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -362,19 +363,17 @@ export const DepartmentsTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Site filter"
+            fullWidth={false}
             value={selectedSite}
             onChange={(e) => setSelectedSite(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Sites</option>
-            <option value="orphaned">Orphaned (No Site)</option>
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Sites' },
+              { value: 'orphaned', label: 'Orphaned (No Site)' },
+              ...sites.map((site) => ({ value: site.id, label: site.name })),
+            ]}
+          />
         </div>
         <Button
           variant="primary"
@@ -497,49 +496,28 @@ export const DepartmentsTab: React.FC = () => {
                 <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.code}</p>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Type
-              </label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-              >
-                {Object.entries(typeLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Site *
-              </label>
-              <select
-                value={formData.siteId}
-                onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, siteId: e.target.value }));
-                  if (formErrors.siteId && e.target.value)
-                    setFormErrors((prev) => ({ ...prev, siteId: undefined }));
-                }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.siteId ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
-                required
-              >
-                <option value="">Select Site...</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-              {formErrors.siteId && (
-                <p className="mt-1 text-sm text-error-600 dark:text-error-400">
-                  {formErrors.siteId}
-                </p>
-              )}
-            </div>
+            <Select
+              label="Type"
+              value={formData.type}
+              onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
+              options={Object.entries(typeLabels).map(([key, label]) => ({
+                value: key,
+                label,
+              }))}
+            />
+            <Select
+              label="Site"
+              required
+              placeholder="Select Site..."
+              value={formData.siteId}
+              onChange={(e) => {
+                setFormData((prev) => ({ ...prev, siteId: e.target.value }));
+                if (formErrors.siteId && e.target.value)
+                  setFormErrors((prev) => ({ ...prev, siteId: undefined }));
+              }}
+              error={formErrors.siteId}
+              options={sites.map((site) => ({ value: site.id, label: site.name }))}
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Capacity

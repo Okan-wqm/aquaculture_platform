@@ -17,6 +17,7 @@ import {
   type DataTableColumn,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -460,18 +461,16 @@ export const FishHealthChemicalsTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {THERAPEUTIC_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...THERAPEUTIC_CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+            ]}
+          />
         </div>
         <Button variant="primary" onClick={openCreate}>
           <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
@@ -557,89 +556,52 @@ export const FishHealthChemicalsTab: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Category *
-                  </label>
-                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                    <select
-                      required
-                      value={formData.type}
-                      onChange={(e) => updateField('type', e.target.value as ChemicalType)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select</option>
-                      {THERAPEUTIC_CATEGORIES.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Unit
-                  </label>
-                  <select
-                    value={formData.unit}
-                    onChange={(e) => updateField('unit', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u.value} value={u.value}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Category"
+                  required
+                  placeholder="Select"
+                  value={formData.type}
+                  onChange={(e) => updateField('type', e.target.value as ChemicalType)}
+                  error={formData.type ? undefined : fieldErrors.type}
+                  options={THERAPEUTIC_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+                />
+                <Select
+                  label="Unit"
+                  value={formData.unit}
+                  onChange={(e) => updateField('unit', e.target.value)}
+                  options={UNIT_OPTIONS.map((u) => ({ value: u.value, label: u.label }))}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Site {editing ? '' : '*'}
-                  </label>
-                  {editing ? (
-                    <Input fullWidth type="text" disabled value={getSiteName(formData.siteId)} />
-                  ) : (
-                    <FormField
-                      error={formData.siteId ? undefined : fieldErrors.siteId}
-                      className="mb-0"
-                    >
-                      <select
-                        required
-                        value={formData.siteId}
-                        onChange={(e) => updateField('siteId', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                      >
-                        <option value="">Select site</option>
-                        {sites.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Supplier
-                  </label>
-                  <select
-                    value={formData.supplierId}
-                    onChange={(e) => updateField('supplierId', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select supplier</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {editing ? (
+                  <Input
+                    fullWidth
+                    label="Site"
+                    type="text"
+                    disabled
+                    value={getSiteName(formData.siteId)}
+                  />
+                ) : (
+                  <Select
+                    label="Site"
+                    required
+                    placeholder="Select site"
+                    value={formData.siteId}
+                    onChange={(e) => updateField('siteId', e.target.value)}
+                    error={formData.siteId ? undefined : fieldErrors.siteId}
+                    options={sites.map((s) => ({ value: s.id, label: s.name }))}
+                  />
+                )}
+                <Select
+                  label="Supplier"
+                  value={formData.supplierId}
+                  onChange={(e) => updateField('supplierId', e.target.value)}
+                  options={[
+                    { value: '', label: 'Select supplier' },
+                    ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+                  ]}
+                />
               </div>
 
               {/* Composition */}
@@ -673,21 +635,15 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Formulation
-                  </label>
-                  <select
+                  <Select
+                    label="Formulation"
                     value={formData.formulation}
                     onChange={(e) => updateField('formulation', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select</option>
-                    {FORMULATION_OPTIONS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Select' },
+                      ...FORMULATION_OPTIONS.map((f) => ({ value: f, label: f })),
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -747,40 +703,25 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   Storage &amp; Status
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Storage Requirements
-                    </label>
-                    <select
-                      value={formData.storageRequirements}
-                      onChange={(e) => updateField('storageRequirements', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select</option>
-                      {STORAGE_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Storage Requirements"
+                    value={formData.storageRequirements}
+                    onChange={(e) => updateField('storageRequirements', e.target.value)}
+                    options={[
+                      { value: '', label: 'Select' },
+                      ...STORAGE_OPTIONS.map((s) => ({ value: s, label: s })),
+                    ]}
+                  />
                   {editing && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Status
-                      </label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                      >
-                        {Object.entries(statusLabels).map(([v, l]) => (
-                          <option key={v} value={v}>
-                            {l}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <Select
+                      label="Status"
+                      value={formData.status}
+                      onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
+                      options={Object.entries(statusLabels).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
                   )}
                 </div>
               </div>

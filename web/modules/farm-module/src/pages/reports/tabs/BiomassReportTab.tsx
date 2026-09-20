@@ -6,6 +6,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { graphqlClient, Button, Input, Select } from '@aquaculture/shared-ui';
+import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import {
   useBiomassReport,
@@ -1978,20 +1979,12 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {!siteId && siteMappings.length > 0 && (
-            <select
-              value={effectiveSiteId ?? ''}
-              onChange={(e) => setSelectedSiteId(e.target.value || undefined)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900"
-              aria-label="Site"
-            >
-              {siteMappings.map((m) => (
-                <option key={m.siteId} value={m.siteId}>
-                  {m.siteName ?? `Lokalitet ${m.lokalitetsnummer}`}
-                </option>
-              ))}
-            </select>
-          )}
+          <SiteLocalitySelector
+            siteMappings={siteMappings}
+            effectiveSiteId={effectiveSiteId}
+            onChange={setSelectedSiteId}
+            show={!siteId && siteMappings.length > 0}
+          />
           <Button
             variant="primary"
             onClick={() => handleOpenWizard()}

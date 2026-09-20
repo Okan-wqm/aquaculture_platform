@@ -21,6 +21,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -500,19 +501,20 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
       key: 'feedId',
       header: t('feedingV2.band.feed'),
       render: (_value, { band, index }) => (
-        <select
+        <Select
+          aria-label={t('feedingV2.band.feed')}
           required
+          fullWidth={false}
+          size="sm"
+          className="w-44"
+          placeholder={t('feedingV2.band.selectFeed')}
           value={band.feedId}
           onChange={(e) => setBand(index, { feedId: e.target.value })}
-          className="w-44 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-        >
-          <option value="">{t('feedingV2.band.selectFeed')}</option>
-          {feeds.map((feed) => (
-            <option key={feed.id} value={feed.id}>
-              {feed.name} ({feed.code})
-            </option>
-          ))}
-        </select>
+          options={feeds.map((feed) => ({
+            value: feed.id,
+            label: `${feed.name} (${feed.code})`,
+          }))}
+        />
       ),
     },
     {
@@ -603,23 +605,18 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('feedingV2.species')}
-            </label>
-            <select
-              value={form.speciesId}
-              onChange={(e) => setForm((prev) => ({ ...prev, speciesId: e.target.value }))}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-            >
-              <option value="">{t('feedingV2.speciesAny')}</option>
-              {speciesList.map((species) => (
-                <option key={species.id} value={species.id}>
-                  {species.commonName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label={t('feedingV2.species')}
+            value={form.speciesId}
+            onChange={(e) => setForm((prev) => ({ ...prev, speciesId: e.target.value }))}
+            options={[
+              { value: '', label: t('feedingV2.speciesAny') },
+              ...speciesList.map((species) => ({
+                value: species.id,
+                label: species.commonName,
+              })),
+            ]}
+          />
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('feedingV2.description')}
@@ -633,24 +630,21 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             />
           </div>
           <div className="flex items-center gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('feedingV2.statusLabel')}
-              </label>
-              <select
-                value={form.status}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    status: e.target.value as FeedingProtocolV2Status,
-                  }))
-                }
-                className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              >
-                <option value="DRAFT">{t('feedingV2.status.draft')}</option>
-                <option value="ACTIVE">{t('feedingV2.status.active')}</option>
-              </select>
-            </div>
+            <Select
+              label={t('feedingV2.statusLabel')}
+              fullWidth={false}
+              value={form.status}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  status: e.target.value as FeedingProtocolV2Status,
+                }))
+              }
+              options={[
+                { value: 'DRAFT', label: t('feedingV2.status.draft') },
+                { value: 'ACTIVE', label: t('feedingV2.status.active') },
+              ]}
+            />
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mt-5">
               <input
                 type="checkbox"
@@ -835,27 +829,25 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                 }
               />
             </div>
-            <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400">
-                {t('feedingV2.settings.growthMode')}
-              </label>
-              <select
-                value={form.settings.growthApplicationMode}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    settings: {
-                      ...prev.settings,
-                      growthApplicationMode: e.target.value as 'per_meal' | 'daily',
-                    },
-                  }))
-                }
-                className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              >
-                <option value="per_meal">{t('feedingV2.settings.growthMode.perMeal')}</option>
-                <option value="daily">{t('feedingV2.settings.growthMode.daily')}</option>
-              </select>
-            </div>
+            <Select
+              label={t('feedingV2.settings.growthMode')}
+              fullWidth={false}
+              size="sm"
+              value={form.settings.growthApplicationMode}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  settings: {
+                    ...prev.settings,
+                    growthApplicationMode: e.target.value as 'per_meal' | 'daily',
+                  },
+                }))
+              }
+              options={[
+                { value: 'per_meal', label: t('feedingV2.settings.growthMode.perMeal') },
+                { value: 'daily', label: t('feedingV2.settings.growthMode.daily') },
+              ]}
+            />
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.settings.underfeedThreshold')}
@@ -876,32 +868,30 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                 }
               />
             </div>
-            <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400">
-                {t('feedingV2.settings.fcrSource')}
-              </label>
-              <select
-                value={form.settings.fcrSource}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    settings: {
-                      ...prev.settings,
-                      fcrSource: e.target.value as ProtocolSettings['fcrSource'],
-                    },
-                    fcrMatrix:
-                      e.target.value === 'matrix'
-                        ? (prev.fcrMatrix ?? ensureMatrix())
-                        : prev.fcrMatrix,
-                  }))
-                }
-                className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              >
-                <option value="band">{t('feedingV2.settings.fcrSource.band')}</option>
-                <option value="matrix">{t('feedingV2.settings.fcrSource.matrix')}</option>
-                <option value="feed">{t('feedingV2.settings.fcrSource.feed')}</option>
-              </select>
-            </div>
+            <Select
+              label={t('feedingV2.settings.fcrSource')}
+              fullWidth={false}
+              size="sm"
+              value={form.settings.fcrSource}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  settings: {
+                    ...prev.settings,
+                    fcrSource: e.target.value as ProtocolSettings['fcrSource'],
+                  },
+                  fcrMatrix:
+                    e.target.value === 'matrix'
+                      ? (prev.fcrMatrix ?? ensureMatrix())
+                      : prev.fcrMatrix,
+                }))
+              }
+              options={[
+                { value: 'band', label: t('feedingV2.settings.fcrSource.band') },
+                { value: 'matrix', label: t('feedingV2.settings.fcrSource.matrix') },
+                { value: 'feed', label: t('feedingV2.settings.fcrSource.feed') },
+              ]}
+            />
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.settings.minDO')}

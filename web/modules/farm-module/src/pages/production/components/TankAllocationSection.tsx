@@ -4,8 +4,27 @@
  */
 import React, { useMemo } from 'react';
 import type { AvailableTank, InitialLocationInput } from '../../../hooks/useBatches';
-import { Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Spinner, Button, Input, Select, type SelectOption } from '@aquaculture/shared-ui';
 import { CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react';
+
+/** `{code} - {name} ({capacity} kg available)` — one option per tank, one shape. */
+const tankOption = (tank: AvailableTank): SelectOption => ({
+  value: tank.id,
+  label: `${tank.code} - ${tank.name} (${tank.availableCapacity.toFixed(1)} kg available)`,
+});
+
+/**
+ * Options for one allocation row: the tanks still free, plus the row's own current
+ * tank when another row has since claimed it — without that entry the select would
+ * render a value it has no option for and appear empty.
+ */
+const rowTankOptions = (
+  selectedTank: AvailableTank | undefined,
+  availableForRow: AvailableTank[],
+): SelectOption[] =>
+  selectedTank && !availableForRow.some((t) => t.id === selectedTank.id)
+    ? [tankOption(selectedTank), ...availableForRow.map(tankOption)]
+    : availableForRow.map(tankOption);
 
 interface TankAllocation {
   id: string;
@@ -174,36 +193,18 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                 <div className="grid grid-cols-12 gap-3">
                   {/* Tank Selection */}
                   <div className="col-span-5">
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Tank <span className="text-error-500">*</span>
-                    </label>
-                    <select
+                    <Select
+                      label="Tank"
+                      required
+                      size="sm"
+                      placeholder="Select a tank..."
                       value={allocation.tankId}
                       onChange={(e) =>
                         handleAllocationChange(allocation.id, 'tankId', e.target.value)
                       }
-                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
-                        !allocation.tankId
-                          ? 'border-warning-300 dark:border-warning-700'
-                          : 'border-gray-300 dark:border-gray-600'
-                      }`}
                       disabled={isLoadingTanks}
-                    >
-                      <option value="">Select a tank...</option>
-                      {/* Show currently selected tank */}
-                      {selectedTank && !availableForRow.find((t) => t.id === selectedTank.id) && (
-                        <option key={selectedTank.id} value={selectedTank.id}>
-                          {selectedTank.code} - {selectedTank.name} (
-                          {selectedTank.availableCapacity.toFixed(1)} kg available)
-                        </option>
-                      )}
-                      {availableForRow.map((tank) => (
-                        <option key={tank.id} value={tank.id}>
-                          {tank.code} - {tank.name} ({tank.availableCapacity.toFixed(1)} kg
-                          available)
-                        </option>
-                      ))}
-                    </select>
+                      options={rowTankOptions(selectedTank, availableForRow)}
+                    />
                   </div>
 
                   {/* Quantity */}

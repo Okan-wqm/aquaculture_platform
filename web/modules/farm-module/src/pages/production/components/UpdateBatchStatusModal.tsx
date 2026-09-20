@@ -12,7 +12,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Select, Textarea } from '@aquaculture/shared-ui';
 
 import { BatchStatus, useUpdateBatchStatus } from '../../../hooks/useBatches';
 
@@ -102,27 +102,18 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label
-              htmlFor="target-status"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Target status <span className="text-accent-500">*</span>
-            </label>
-            <select
-              id="target-status"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as BatchStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} disabled={opt.value === currentStatus}>
-                  {opt.label}
-                  {opt.value === currentStatus ? ' (current)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="target-status"
+            label="Target status"
+            required
+            value={status}
+            onChange={(e) => setStatus(e.target.value as BatchStatus)}
+            options={STATUS_OPTIONS.map((opt) => ({
+              value: opt.value,
+              label: opt.value === currentStatus ? `${opt.label} (current)` : opt.label,
+              disabled: opt.value === currentStatus,
+            }))}
+          />
 
           <div>
             <label

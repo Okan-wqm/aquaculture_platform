@@ -562,22 +562,24 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                       <div>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <label
+                          htmlFor={`sea-lice-cage-${index}`}
+                          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                        >
                           Cage
                         </label>
                         {cageOptions.length > 0 ? (
-                          <select
+                          <Select
+                            id={`sea-lice-cage-${index}`}
+                            size="sm"
+                            placeholder="Select cage..."
                             value={cage.cageId}
                             onChange={(e) => handleCageSelect(index, e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          >
-                            <option value="">Select cage...</option>
-                            {cageOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.name} ({opt.code})
-                              </option>
-                            ))}
-                          </select>
+                            options={cageOptions.map((opt) => ({
+                              value: opt.id,
+                              label: `${opt.name} (${opt.code})`,
+                            }))}
+                          />
                         ) : (
                           <Input
                             fullWidth
@@ -801,21 +803,20 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 {/* Non-medicated type selection */}
                 {treatment.category === 'non_medicated' && (
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    <label
+                      htmlFor={`sea-lice-non-medicated-type-${index}`}
+                      className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                    >
                       Type
                     </label>
-                    <select
+                    <Select
+                      id={`sea-lice-non-medicated-type-${index}`}
+                      size="sm"
+                      placeholder="Select type..."
                       value={treatment.nonMedicatedType || ''}
                       onChange={(e) => updateTreatment(index, { nonMedicatedType: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="">Select type...</option>
-                      {NON_MEDICATED_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={NON_MEDICATED_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                    />
                   </div>
                 )}
 
@@ -823,23 +824,25 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 {treatment.category === 'medicated' && (
                   <>
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <label
+                        htmlFor={`sea-lice-active-ingredient-${index}`}
+                        className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                      >
                         Active Ingredient
                       </label>
-                      <select
+                      <Select
+                        id={`sea-lice-active-ingredient-${index}`}
+                        size="sm"
+                        placeholder="Select ingredient..."
                         value={treatment.activeIngredient || ''}
                         onChange={(e) =>
                           updateTreatment(index, { activeIngredient: e.target.value })
                         }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      >
-                        <option value="">Select ingredient...</option>
-                        {ACTIVE_INGREDIENTS.map((ai) => (
-                          <option key={ai.value} value={ai.value}>
-                            {ai.label}
-                          </option>
-                        ))}
-                      </select>
+                        options={ACTIVE_INGREDIENTS.map((ai) => ({
+                          value: ai.value,
+                          label: ai.label,
+                        }))}
+                      />
                     </div>
                     <div className="flex gap-2">
                       <div className="flex-1">
@@ -860,20 +863,19 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                         />
                       </div>
                       <div className="w-24">
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <label
+                          htmlFor={`sea-lice-dosage-unit-${index}`}
+                          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                        >
                           Unit
                         </label>
-                        <select
+                        <Select
+                          id={`sea-lice-dosage-unit-${index}`}
+                          size="sm"
                           value={treatment.dosageUnit || 'mg/L'}
                           onChange={(e) => updateTreatment(index, { dosageUnit: e.target.value })}
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                        >
-                          {DOSAGE_UNITS.map((u) => (
-                            <option key={u.value} value={u.value}>
-                              {u.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={DOSAGE_UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                        />
                       </div>
                     </div>
                   </>
@@ -1085,21 +1087,20 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <label
+                htmlFor="sea-lice-sensitivity-ingredient"
+                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+              >
                 Active Ingredient Tested
               </label>
-              <select
+              <Select
+                id="sea-lice-sensitivity-ingredient"
+                size="sm"
+                placeholder="Select ingredient..."
                 value={formData.sensitivityTest.ingredientTested}
                 onChange={(e) => updateSensitivityTest({ ingredientTested: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              >
-                <option value="">Select ingredient...</option>
-                {ACTIVE_INGREDIENTS.map((ai) => (
-                  <option key={ai.value} value={ai.value}>
-                    {ai.label}
-                  </option>
-                ))}
-              </select>
+                options={ACTIVE_INGREDIENTS.map((ai) => ({ value: ai.value, label: ai.label }))}
+              />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Result</label>

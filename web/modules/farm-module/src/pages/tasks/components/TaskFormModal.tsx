@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -142,63 +142,39 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           {/* Category + Priority */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Kategori
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Öncelik
-              </label>
-              <select
-                value={formData.priority}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Kategori"
+              value={formData.category}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
+              }
+              options={Object.entries(CATEGORY_CONFIG).map(([key, val]) => ({
+                value: key,
+                label: val.label,
+              }))}
+            />
+            <Select
+              label="Öncelik"
+              value={formData.priority}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
+              }
+              options={Object.entries(PRIORITY_CONFIG).map(([key, val]) => ({
+                value: key,
+                label: val.label,
+              }))}
+            />
           </div>
 
           {/* Assignee */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Atanan Kişi *
-            </label>
-            <select
-              value={formData.assignedTo}
-              onChange={(e) => handleAssigneeChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              required
-            >
-              <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
-              {users.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Atanan Kişi"
+            required
+            placeholder={users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}
+            value={formData.assignedTo}
+            onChange={(e) => handleAssigneeChange(e.target.value)}
+            options={users.map((a) => ({ value: a.id, label: a.name }))}
+          />
 
           {/* Due Date + Time */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Select } from '@aquaculture/shared-ui';
 import { Task, TaskStats, CATEGORY_CONFIG, PRIORITY_CONFIG } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
 
@@ -90,42 +91,48 @@ export const TodayTab: React.FC<TodayTabProps> = ({
 
       {/* Quick Filters */}
       <div className="flex flex-wrap gap-3">
-        <select
+        <Select
+          aria-label="Kategori filtresi"
+          fullWidth={false}
+          size="sm"
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-        >
-          <option value="all">Tüm Kategoriler</option>
-          {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
-            <option key={key} value={key}>
-              {val.label}
-            </option>
-          ))}
-        </select>
-        <select
+          options={[
+            { value: 'all', label: 'Tüm Kategoriler' },
+            ...Object.entries(CATEGORY_CONFIG).map(([key, val]) => ({
+              value: key,
+              label: val.label,
+            })),
+          ]}
+        />
+        <Select
+          aria-label="Kişi filtresi"
+          fullWidth={false}
+          size="sm"
           value={filterAssignee}
           onChange={(e) => setFilterAssignee(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-        >
-          <option value="all">Tüm Kişiler</option>
-          {assignees.map((a: { id: string; name: string }) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <select
+          options={[
+            { value: 'all', label: 'Tüm Kişiler' },
+            ...assignees.map((a: { id: string; name: string }) => ({
+              value: a.id,
+              label: a.name,
+            })),
+          ]}
+        />
+        <Select
+          aria-label="Öncelik filtresi"
+          fullWidth={false}
+          size="sm"
           value={filterPriority}
           onChange={(e) => setFilterPriority(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-        >
-          <option value="all">Tüm Öncelikler</option>
-          {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
-            <option key={key} value={key}>
-              {val.label}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: 'all', label: 'Tüm Öncelikler' },
+            ...Object.entries(PRIORITY_CONFIG).map(([key, val]) => ({
+              value: key,
+              label: val.label,
+            })),
+          ]}
+        />
       </div>
 
       {/* Task List */}

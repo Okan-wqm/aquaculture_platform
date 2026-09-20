@@ -1044,20 +1044,23 @@ export const TanksPage: React.FC = () => {
           <>
             {/* Quick Actions - Top Right */}
             <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700">
-              <select
+              <Select
+                aria-label="Quick action tank"
+                fullWidth={false}
+                size="sm"
+                className="min-w-[160px]"
                 value={selectedTankId || ''}
                 onChange={(e) => setSelectedTankId(e.target.value || null)}
-                className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm min-w-[160px] bg-white dark:bg-gray-900 focus:ring-1 focus:ring-info-500"
-              >
-                <option value="">Select Tank...</option>
-                {tableData
-                  .filter((t) => t.batchNumber || t.hasCleanerFish)
-                  .map((tank) => (
-                    <option key={tank.id} value={tank.id}>
-                      {tank.name} {tank.hasCleanerFish ? '🐟' : ''}
-                    </option>
-                  ))}
-              </select>
+                options={[
+                  { value: '', label: 'Select Tank...' },
+                  ...tableData
+                    .filter((t) => t.batchNumber || t.hasCleanerFish)
+                    .map((tank) => ({
+                      value: tank.id,
+                      label: `${tank.name} ${tank.hasCleanerFish ? '🐟' : ''}`,
+                    })),
+                ]}
+              />
 
               <div className="h-6 w-px bg-gray-300" />
 

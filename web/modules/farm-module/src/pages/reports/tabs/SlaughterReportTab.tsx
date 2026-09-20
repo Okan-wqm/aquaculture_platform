@@ -9,7 +9,7 @@
  * - Regulatory metadata from settings
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
@@ -538,10 +538,16 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
           </p>
         ) : (
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            <label
+              htmlFor="slaughter-facility"
+              className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+            >
               Facility (slakteri) *
             </label>
-            <select
+            <Select
+              id="slaughter-facility"
+              size="sm"
+              placeholder="Select a facility…"
               value={selectedFacilityId}
               onChange={(e) => {
                 const picked = facilities.find((f) => f.id === e.target.value);
@@ -552,19 +558,11 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
                   });
                 }
               }}
-              aria-label="Slaughter facility"
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-            >
-              <option value="" disabled>
-                Select a facility…
-              </option>
-              {facilities.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name} — {f.godkjenningsnummer}
-                  {f.isDefault ? ' (default)' : ''}
-                </option>
-              ))}
-            </select>
+              options={facilities.map((f) => ({
+                value: f.id,
+                label: `${f.name} — ${f.godkjenningsnummer}${f.isDefault ? ' (default)' : ''}`,
+              }))}
+            />
             {formData.facility.approvalNumber && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Approval number (godkjenningsnummer):{' '}
@@ -747,22 +745,23 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <label
+                        htmlFor={`slaughter-planned-batch-${entry.originalIndex}`}
+                        className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                      >
                         Batch
                       </label>
-                      <select
+                      <Select
+                        id={`slaughter-planned-batch-${entry.originalIndex}`}
+                        size="sm"
+                        placeholder="Select batch..."
                         value={entry.batchId}
                         onChange={(e) => handleBatchSelect(entry.originalIndex, e.target.value)}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      >
-                        <option value="">Select batch...</option>
-                        {batchOptions.map((b) => (
-                          <option key={b.batchId} value={b.batchId}>
-                            {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs,{' '}
-                            {b.tankName})
-                          </option>
-                        ))}
-                      </select>
+                        options={batchOptions.map((b) => ({
+                          value: b.batchId,
+                          label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${b.tankName})`,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -976,22 +975,23 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Batch Selection Dropdown */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <label
+                    htmlFor={`slaughter-completed-batch-${index}`}
+                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                  >
                     Batch (select to auto-fill)
                   </label>
-                  <select
+                  <Select
+                    id={`slaughter-completed-batch-${index}`}
+                    size="sm"
+                    placeholder="Select batch..."
                     value={record.batchId}
                     onChange={(e) => handleBatchSelectCompleted(index, e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  >
-                    <option value="">Select batch...</option>
-                    {batchOptions.map((b) => (
-                      <option key={b.batchId} value={b.batchId}>
-                        {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs,{' '}
-                        {formatWeight(b.biomassKg)}, {b.tankName})
-                      </option>
-                    ))}
-                  </select>
+                    options={batchOptions.map((b) => ({
+                      value: b.batchId,
+                      label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${formatWeight(b.biomassKg)}, ${b.tankName})`,
+                    }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">

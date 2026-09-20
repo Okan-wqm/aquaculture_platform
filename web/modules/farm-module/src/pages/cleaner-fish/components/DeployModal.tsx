@@ -4,7 +4,7 @@
  * Modal for deploying cleaner fish from a batch to a tank.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { useDeployCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
 import type { TankOption } from '../types';
 
@@ -110,28 +110,18 @@ export const DeployModal: React.FC<DeployModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Deploy Cleaner Fish" size="md">
       <div className="space-y-6">
         {/* Batch Selection */}
-        <div>
-          <label
-            htmlFor="batch"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Cleaner Fish Batch <span className="text-error-500">*</span>
-          </label>
-          <select
-            id="batch"
-            value={selectedBatchId}
-            onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">Select a batch...</option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.batchNumber} - {b.speciesName || 'Unknown'} ({b.currentQuantity.toLocaleString()}{' '}
-                available)
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          id="batch"
+          label="Cleaner Fish Batch"
+          required
+          placeholder="Select a batch..."
+          value={selectedBatchId}
+          onChange={(e) => setSelectedBatchId(e.target.value)}
+          options={batches.map((b) => ({
+            value: b.id,
+            label: `${b.batchNumber} - ${b.speciesName || 'Unknown'} (${b.currentQuantity.toLocaleString()} available)`,
+          }))}
+        />
 
         {/* Selected Batch Info */}
         {selectedBatch && (
@@ -156,27 +146,18 @@ export const DeployModal: React.FC<DeployModalProps> = ({
         )}
 
         {/* Target Tank */}
-        <div>
-          <label
-            htmlFor="targetTank"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Target Tank <span className="text-error-500">*</span>
-          </label>
-          <select
-            id="targetTank"
-            value={targetTankId}
-            onChange={(e) => setTargetTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">Select a tank...</option>
-            {tanks.map((tank) => (
-              <option key={tank.id} value={tank.id}>
-                {tank.name} ({tank.code})
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          id="targetTank"
+          label="Target Tank"
+          required
+          placeholder="Select a tank..."
+          value={targetTankId}
+          onChange={(e) => setTargetTankId(e.target.value)}
+          options={tanks.map((tank) => ({
+            value: tank.id,
+            label: `${tank.name} (${tank.code})`,
+          }))}
+        />
 
         {/* Quantity */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -78,10 +79,28 @@ def _by_id(stdout: str) -> dict[int, dict]:
     return replies
 
 
+def _cleanup_waiting_for_late_writers(tmp: tempfile.TemporaryDirectory, *, deadline_seconds: float = 3.0) -> None:
+    """The fixture root's cleanup, retried inside a bound: a broker handler
+    or prober still closing can add an entry under the root between the
+    walk and the rmdir (`Directory not empty`, the flake that failed the
+    hosted kernel lane and unrelated branches' pre-push suites)."""
+    import time
+
+    end = time.monotonic() + deadline_seconds
+    while True:
+        try:
+            tmp.cleanup()
+            return
+        except OSError:
+            if time.monotonic() >= end:
+                raise
+            time.sleep(0.1)
+
+
 class RelayThroughTheBrokerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-124-mcp-")
-        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(_cleanup_waiting_for_late_writers, self.tmp)
         self.root = Path(self.tmp.name).resolve()
         self.repo = make_repo_with_initial_commit(self.root, {"src/app.ts": "export const app = true;\n"}, name="ws")
         self.tools = ensure_tools_dir(self.root / "aria-tools")
@@ -180,6 +199,29 @@ class RelayThroughTheBrokerTests(unittest.TestCase):
                 self.assertEqual(swept["live"], [broker.socket_path.parent.name])
         self.assertTrue(unrelated.exists(), "a directory this module did not make is left alone")
         self.assertEqual(prune_stale_mcp_brokers(temp_root=temp_root)["swept"], [])
+        # The broker's own socket directory is gone once the body has exited,
+        # not merely scheduled for removal.
+        self.assertFalse(broker.socket_path.parent.exists())
+
+    def test_the_socket_dir_removal_waits_out_a_late_writer(self) -> None:
+        from aria_kernel.mcp_broker import remove_socket_dir
+
+        late = self.root / "aria-mb-late"
+        late.mkdir()
+        (late / "sock").touch()
+        self.assertTrue(remove_socket_dir(late, deadline_seconds=0.5))
+        self.assertFalse(late.exists())
+        # A directory that keeps being refilled past the bound is reported, not hidden.
+        stubborn = self.root / "aria-mb-stubborn"
+        stubborn.mkdir()
+        original = shutil.rmtree
+
+        def refill(path, ignore_errors=False, **kwargs):
+            original(path, ignore_errors=ignore_errors, **kwargs)
+            Path(path).mkdir(exist_ok=True)
+
+        with mock.patch.object(shutil, "rmtree", refill):
+            self.assertFalse(remove_socket_dir(stubborn, deadline_seconds=0.2))
 
 
 def mcp_broker_error_code() -> int:

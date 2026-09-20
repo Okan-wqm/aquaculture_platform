@@ -30,12 +30,23 @@ from typing import Any
 from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
 from .confidence import confidence_in_unit_interval
 from .feedback_store import (
+    CONFIDENCE_SOURCES,
     CONSENSUS_UNCERTAINTY_REASONS,
     CONSENSUS_MIN_CONFIDENCE,
     FEEDBACK_SEVERITIES,
     FEEDBACK_VERDICTS,
     generate_ai_consensus,
     record_operator_feedback,
+)
+from .model_fleet import provider_reports_confidence
+from .typed_judgment import (
+    PRIMITIVES,
+    ChoiceQuestion,
+    ParseFailure,
+    TypedAnswer,
+    TypedJudgmentError,
+    materialize_evidence_refs,
+    parse_single_answer,
 )
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -89,6 +100,66 @@ def _verdict_field(details: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def typed_verdict_block(verdict_block: dict[str, Any]) -> dict[str, Any] | None:
+    """The verdict block when it is a TYPED answer (typed-judgment plan).
+
+    A typed block names its ``primitive`` (``choice`` for the binary judge
+    roles), carries ``value`` instead of ``verdict``, cites evidence by
+    ``{index, quote}`` and never names a path. A legacy block names
+    ``verdict`` and carries its own ``evidence_refs``; both remain valid, and
+    each is validated by its own law.
+    """
+    if verdict_block.get("primitive") in PRIMITIVES:
+        return dict(verdict_block)
+    return None
+
+
+def _typed_question_for_request(request: dict[str, Any]) -> ChoiceQuestion:
+    """The request re-expressed as the choice the typed judge answered.
+
+    Options are the closed verdict vocabulary; refs and pinned excerpts are
+    the request's own, so an index resolves to the request's ref and a quote
+    is checked against the excerpt the mint pinned.
+    """
+    refs = [str(ref) for ref in (request.get("evidence_refs") or []) if isinstance(ref, str) and ref.strip()]
+    excerpts = request.get("evidence_excerpts")
+    return ChoiceQuestion(
+        question_id=str(request.get("request_id") or "request"),
+        prompt=str(request.get("suggested_prompt") or "judge the finding"),
+        options=tuple(FEEDBACK_VERDICTS),
+        evidence_refs=tuple(refs),
+        evidence_excerpts=tuple(excerpts) if isinstance(excerpts, list) else None,
+    )
+
+
+def parse_typed_verdict(
+    request: dict[str, Any], verdict_block: dict[str, Any],
+) -> tuple[ChoiceQuestion, TypedAnswer | ParseFailure]:
+    """Parse a typed block against the request with the typed-judgment parser."""
+    question = _typed_question_for_request(request)
+    payload = {**verdict_block, "question_id": question.question_id, "primitive": "choice"}
+    return question, parse_single_answer(question, payload)
+
+
+def stamped_confidence_source(details: dict[str, Any]) -> tuple[str, str | None]:
+    """The route's stamp for where the confidence came from, and why it is refused.
+
+    Returns ``(source, error)``. An envelope sealed before the stamp existed
+    is a model's own number: ``self_reported``. ``provider_reported`` stands
+    only when the stamped dispatch model belongs to a provider the fleet
+    marks confidence-native (`model_fleet.provider_reports_confidence`); a
+    spelling the model wrote inside its verdict block is never read.
+    """
+    stamp = details.get("agent_confidence_source")
+    if stamp is None:
+        return "self_reported", None
+    if stamp not in CONFIDENCE_SOURCES:
+        return "self_reported", f"judge_verdict.confidence_source:invalid:{stamp!r}"
+    if stamp == "provider_reported" and not provider_reports_confidence(details.get("agent_dispatch_model")):
+        return "self_reported", "judge_verdict.confidence_source:unstamped"
+    return str(stamp), None
+
+
 def validate_judge_response(
     *,
     request: dict[str, Any],
@@ -116,8 +187,27 @@ def validate_judge_response(
     verdict_block = _verdict_field(details)
     if not verdict_block:
         return ["judge_verdict:absent"]
-    verdict = verdict_block.get("verdict")
-    if verdict not in FEEDBACK_VERDICTS:
+    _source, source_error = stamped_confidence_source(details)
+    if source_error:
+        errors.append(source_error)
+    typed = typed_verdict_block(verdict_block)
+    if typed is not None:
+        # Typed-judgment plan — the typed law is the parser's: primitive,
+        # value in the closed vocabulary, confidence contract, index+quote
+        # citations against the request's pinned excerpts, rationale.
+        if typed.get("primitive") != "choice":
+            errors.append(f"judge_verdict.typed:primitive_mismatch:{typed.get('primitive')!r}")
+        else:
+            try:
+                _question, outcome = parse_typed_verdict(request, typed)
+            except TypedJudgmentError as exc:
+                outcome = ParseFailure("request", "evidence_missing", str(exc))
+            if isinstance(outcome, ParseFailure):
+                errors.append(f"judge_verdict.typed:{outcome.reason_code}")
+        verdict = typed.get("value")
+    else:
+        verdict = verdict_block.get("verdict")
+    if verdict not in FEEDBACK_VERDICTS and typed is None:
         # ORPHAN-CRITICAL-735 — the arbiter's contract says "return
         # details.consensus, OR the uncertainty reason when the consensus
         # gate cannot be met", and the deterministic engine it mirrors
@@ -214,6 +304,25 @@ def record_judge_verdict_from_response(
             f"got tool_id={tool_id!r}, run_id={run_id!r}, finding_id={finding_id!r}"
         )
 
+    # Typed-judgment plan — a typed block folds through the typed parser:
+    # the verdict is its value, the confidence its top-label probability,
+    # the refs the request's own strings materialized from its indices.
+    confidence_source, _source_error = stamped_confidence_source(details)
+    typed = typed_verdict_block(verdict_block)
+    typed_answer: TypedAnswer | None = None
+    if typed is not None:
+        question, outcome = parse_typed_verdict(request, typed)
+        if isinstance(outcome, ParseFailure):
+            raise GovernanceError(f"judge bridge typed verdict refused: {outcome.reason_code}: {outcome.detail}")
+        typed_answer = outcome
+        verdict_block = {
+            **verdict_block,
+            "verdict": typed_answer.value,
+            "confidence": typed_answer.confidence,
+            "rationale": typed_answer.rationale,
+            "evidence_refs": materialize_evidence_refs(question, typed_answer),
+        }
+
     verdict = verdict_block.get("verdict")
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(
@@ -294,6 +403,8 @@ def record_judge_verdict_from_response(
         # so every consensus row settled from those rows inherited the empty
         # key — and promote_consensus_findings silently skipped it forever.
         finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
+        confidence_source=confidence_source if confidence is not None else None,
+        evidence_selection="index" if typed_answer is not None else "ref",
         base_dir=base_dir,
     )
     return row

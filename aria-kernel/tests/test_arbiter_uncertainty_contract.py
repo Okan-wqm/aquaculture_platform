@@ -122,6 +122,10 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 "conformal_abstain", "evidence_not_repo_verified",
                 "judge_disagreement", "low_confidence",
                 "missing_confidence", "single_judge",
+                # ARIA-MEDIUM-164 — emitted for years, named at last.
+                "observer_identity_missing",
+                # Typed-judgment plan Phase 6 — the calibrated quorum's refusal.
+                "confidence_uncalibrated",
             },
         )
 

@@ -645,13 +645,22 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         self.assertEqual(len(claim_argvs), 1, "one claim argv")
         literals = [arg.value for arg in claim_argvs[0].args if isinstance(arg, ast.Constant)]
         self.assertIn("--lease-seconds", literals)
-        # The value beside the flag is `str(_lease_seconds)`.
+        # The value beside the flag is `str(lease_seconds)` — the helper's
+        # one parameter (typed-judgment plan Phase 4a: the argv lives in
+        # `_claim_request_via_cli`, and `_main` hands it `_lease_seconds`).
         flag_index = next(i for i, arg in enumerate(claim_argvs[0].args)
                           if isinstance(arg, ast.Constant) and arg.value == "--lease-seconds")
         value = claim_argvs[0].args[flag_index + 1]
         self.assertIsInstance(value, ast.Call)
         self.assertEqual(getattr(value.func, "id", None), "str")
-        self.assertEqual(getattr(value.args[0], "id", None), "_lease_seconds")
+        self.assertEqual(getattr(value.args[0], "id", None), "lease_seconds")
+        main_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_claim_request_via_cli"
+        ]
+        self.assertEqual(len(main_calls), 1, "one caller of the claim helper in this module")
+        lease_kw = next(kw for kw in main_calls[0].keywords if kw.arg == "lease_seconds")
+        self.assertEqual(getattr(lease_kw.value, "id", None), "_lease_seconds")
         # And `_lease_seconds` is the priced bound with the request's own
         # delivery term.
         assignment = next(

@@ -175,7 +175,17 @@ class JudgmentPipelinePhaseTest(unittest.TestCase):
             self.assertIsNotNone(weights, "fresh in-memory calibration must yield weights")
             self.assertIn("judge-a", weights)
             self.assertIn("judge-b", weights)
-            self.assertGreater(weights["judge-a"], weights["judge-b"])
+            # ARIA-HIGH-173 — one truth-backed vote does not measure a judge:
+            # both weigh the prior until `calibrated`, and what proves the
+            # calibration is THIS cycle's is the status map the consensus
+            # receives beside the weights (computed here, not read from a
+            # stale ledger tail) and the gate it names.
+            from aria_kernel.calibrated_intelligence import PRIOR_A, PRIOR_B
+            self.assertEqual(weights["judge-a"], PRIOR_A / (PRIOR_A + PRIOR_B))
+            self.assertEqual(weights["judge-b"], PRIOR_A / (PRIOR_A + PRIOR_B))
+            self.assertEqual(calls["consensus_kw"]["judge_calibration"],
+                             {"judge-a": "insufficient_data", "judge-b": "insufficient_data"})
+            self.assertEqual(calls["consensus_kw"]["calibration_gate"], "measure_only")
             # The pipeline computes; only the calibration phase owns the
             # ledger append — no row may appear as a side effect.
             from aria_kernel.judge_calibration import calibration_path

@@ -30982,7 +30982,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "bb4afdfc77278878b6ee9097b5cbb2839adc003e0f8298f2cd1af98444da260d",
+      "content_sha256": "57bdd9bd86f64bed8bcdbbf769c260ac2b4b3aa9c7514a43b2b03d8cec10733c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "docs/aria/generated/JUDGE-DIGEST.md",
@@ -36683,6 +36683,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-09-18-environment-monitoring-enablement-surface.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-19-aria-typed-judgment-plan.md",
       "prettier_managed": true
     },
     {

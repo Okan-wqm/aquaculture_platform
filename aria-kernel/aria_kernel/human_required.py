@@ -613,7 +613,19 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Z2c — a passing consensus below the calibrated conformal floor is a
     # statistically-guaranteed "too uncertain to auto-accept" signal.
     "conformal_abstain": "HIGH",
+    # ARIA-MEDIUM-164 — an anchor-grade group whose observer has no model
+    # identity: the anchor's distinct-model guarantee cannot be checked.
+    # Emitted since Plan 024 and dropped as benign until it was named here.
+    "observer_identity_missing": "HIGH",
+    # Typed-judgment plan Phase 6 — the agreeing judges did not include two
+    # calibrated judges of distinct models. Labelling work, not adjudication:
+    # the label queue reads it first; the sweep records at most
+    # `max_uncalibrated_escalations_per_cycle` of them per sweep so the day
+    # `enforce` switches on cannot flood the escalation ledger.
+    "confidence_uncalibrated": "LOW",
 }
+CAPPED_UNCERTAINTY_REASONS: tuple[str, ...] = ("confidence_uncalibrated",)
+DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP: int = 5
 
 
 def _consensus_uncertainties_path(tools_root: Path) -> Path:
@@ -624,6 +636,7 @@ def sweep_consensus_uncertainties_for_human_required(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    max_uncalibrated_escalations: int = DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP,
 ) -> dict[str, list[dict[str, Any]]]:
     """Drain ``feedback-consensus-uncertainties.jsonl`` into HUMAN_REQUIRED.
 
@@ -640,6 +653,7 @@ def sweep_consensus_uncertainties_for_human_required(
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen_escalations: set[str] = set()
+    capped_created: dict[str, int] = {}
     # E14 — arbitration first, the operator as the fallback. A split verdict
     # now mints a `consensus_arbitration` envelope (judge_fanout), and that
     # arbiter is one of the three agents this escalation's adjudication panel
@@ -681,6 +695,11 @@ def sweep_consensus_uncertainties_for_human_required(
             if _human_required_path(root, escalation_id).exists():
                 skipped.append({"request_id": escalation_id, "reason": "already_recorded"})
                 continue
+            if reason in CAPPED_UNCERTAINTY_REASONS and capped_created.get(reason, 0) >= max_uncalibrated_escalations:
+                skipped.append({"request_id": escalation_id, "reason": reason, "kind": "sweep_cap_reached"})
+                continue
+            if reason in CAPPED_UNCERTAINTY_REASONS:
+                capped_created[reason] = capped_created.get(reason, 0) + 1
             record = record_human_required(
                 request_id=escalation_id,
                 severity=severity,

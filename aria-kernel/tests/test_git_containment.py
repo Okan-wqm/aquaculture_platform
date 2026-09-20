@@ -777,7 +777,9 @@ class PublicationTests(_Checkout):
         # And a well-formed object under the wrong name.
         payload = b"blob 6\0hello\n"
         wrong_name = hashlib.sha1(b"blob 6\0other\n").hexdigest()
-        (self.quarantine / wrong_name[:2]).mkdir()
+        # The base commit's own fan-out directory may be this one (one run in
+        # 256: the base hash is minted per run), so the directory is shared.
+        (self.quarantine / wrong_name[:2]).mkdir(exist_ok=True)
         (self.quarantine / wrong_name[:2] / wrong_name[2:]).write_bytes(zlib.compress(payload))
         (self.replica / "refs" / "heads" / "aria-impl-0000ea11").write_text(wrong_name + "\n", encoding="utf-8")
         publication = publish_quarantine(gc.replace(self.containment, seeded_refs=(("aria-impl-0000ea11", self.base),)))

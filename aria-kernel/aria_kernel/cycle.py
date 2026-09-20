@@ -1584,7 +1584,12 @@ def _phase_consensus_escalation(context: PhaseContext) -> dict[str, Any]:
     # into HUMAN_REQUIRED so a split judge vote reaches an operator instead
     # of being silently held. Idempotent, so re-running a cycle never
     # double-escalates.
-    return sweep_consensus_uncertainties_for_human_required(base_dir=context.base_dir)
+    from .genesis_policy import judgment_pipeline_policy as _pipeline_policy
+
+    return sweep_consensus_uncertainties_for_human_required(
+        base_dir=context.base_dir,
+        max_uncalibrated_escalations=int(_pipeline_policy(context.workspace_root)["max_uncalibrated_escalations_per_cycle"]),
+    )
 
 
 def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
@@ -1734,15 +1739,43 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     # unchanged: any error → None → the legacy gate bit for bit; failure
     # costs calibration, never consensus.
     _judge_weights = None
+    _judge_calibration: dict[str, dict[str, Any]] | None = None
+    _calibration_scoring_error: str | None = None
     try:
         from .calibrated_intelligence import judge_weights_from_calibration
         from .judge_calibration import score_judges
 
-        _judge_weights = judge_weights_from_calibration(
-            score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir)
-        ) or None
-    except (OSError, ValueError, KeyError, TypeError):
+        _scored = score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir,
+                               **_calibration_knobs(context.workspace_root))
+        _judge_weights = judge_weights_from_calibration(_scored) or None
+        _judge_calibration = {
+            str(judge.get("judge_id") or ""): {
+                "calibration_status": judge.get("calibration_status"),
+                # The judge's model as the calibration saw it (per-source
+                # rows carry it; the judge row does not).
+                "model": next((str(src.get("model") or "") for src in judge.get("by_source") or []), ""),
+            }
+            for judge in _scored.get("judges") or []
+        }
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         _judge_weights = None
+        _calibration_scoring_error = f"{type(exc).__name__}: {exc}"[:200]
+    # Typed-judgment plan Phase 6 — the gate this cycle runs under, on the
+    # record. Under a configured `enforce`, a scoring failure is not the
+    # legacy gate: it is "no judge is calibrated" (every group escalates
+    # `confidence_uncalibrated`), never a silent fall-back to self-report.
+    from .genesis_policy import effective_calibration_gate
+    _configured_gate = str(pipeline_policy.get("calibration_gate") or "measure_only")
+    if _calibration_scoring_error is not None and _configured_gate == "enforce":
+        _judge_calibration = {}
+    _gate = effective_calibration_gate(_configured_gate, _judge_calibration)
+    if _calibration_scoring_error is not None:
+        _gate["scoring_error"] = _calibration_scoring_error
+    _gate_for_consensus = {jid: str(entry.get("calibration_status") or "") for jid, entry in (_judge_calibration or {}).items()}
+    try:
+        append_tools_governance(context.base_dir, "calibration_gate", {"schema_version": 1, "cycle_id": context.cycle_id, **_gate})
+    except (OSError, ValueError, TypeError):
+        pass
     sampled = 0
     fanned_out = 0
     mint_skipped_backlog = 0
@@ -1790,12 +1823,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 from .calibrated_intelligence import conformal_threshold
                 from .feedback_store import load_feedback
 
-                _correct_confidences = [
-                    float(row.get("confidence"))
-                    for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
-                    if row.get("source_type") == "ai_consensus"
-                    and isinstance(row.get("confidence"), (int, float))
-                ]
+                # ARIA-HIGH-173 — the floor is taken over the consensus rows a
+                # human later agreed with, not over every consensus output.
+                from .judge_calibration import correct_consensus_confidences
+
+                _correct_confidences = correct_consensus_confidences(
+                    load_feedback(tool_id=tool_id, base_dir=context.base_dir)
+                )
                 _conformal_floor = conformal_threshold(_correct_confidences)
             except (OSError, ValueError, KeyError, TypeError):
                 _conformal_floor = None
@@ -1815,6 +1849,8 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 workspace_root=context.workspace_root,
                 judge_weights=_judge_weights,
                 conformal_floor=_conformal_floor,
+                judge_calibration=(_gate_for_consensus if _judge_calibration is not None else None),
+                calibration_gate=str(_gate["effective"]),
             )
             consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
         except GovernanceError as exc:
@@ -1992,11 +2028,26 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     }
 
 
+def _calibration_knobs(repo_root: Any) -> dict[str, Any]:
+    """The judge-calibration thresholds from the judgment_pipeline policy
+    (typed-judgment plan Phase 5); the module defaults when unreadable."""
+    try:
+        from .genesis_policy import judgment_pipeline_policy
+
+        block = judgment_pipeline_policy(repo_root)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    keys = ("calibration_min_samples", "provisional_min_samples", "ece_threshold",
+            "high_confidence_floor", "high_confidence_accuracy_min", "calibration_bins")
+    return {key: block[key] for key in keys if key in block}
+
+
 def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # Plan 024 §A — score each judge against accumulated ground truth so
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
-    return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir,
+                                     **_calibration_knobs(context.workspace_root))
 
 
 def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:

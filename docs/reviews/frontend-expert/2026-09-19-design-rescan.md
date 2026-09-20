@@ -531,7 +531,7 @@ undone mutation. Gated on the ledger's bytes actually changing, so `--dry-run` s
 60 action surfaces paint the informational scale as their accent, so the product shows two blues
 that both read as "this is the action": the primitive's `primary-600` and the info scale beside it.
 
-### INFRA-HIGH-187 — the aria-kernel gate never reaches a verdict on an active branch
+### INFRA-HIGH-189 — the aria-kernel gate never reaches a verdict on an active branch
 
 **Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
 

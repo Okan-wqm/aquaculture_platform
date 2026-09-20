@@ -9,8 +9,9 @@ request-reply; user-decided actuation (`confirm_required` cap).
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181,
-INFRA-HIGH-184, INFRA-HIGH-186, DEPLOY-HIGH-024 and DEPLOY-HIGH-025 (base-branch /
-platform defects found by this branch's gates and work, fixed here); FARM-LOW-330
+INFRA-HIGH-184, INFRA-HIGH-186, DEPLOY-HIGH-024, DEPLOY-HIGH-025, INFRA-HIGH-187 and
+INFRA-HIGH-188 (base-branch / platform defects found by this branch's gates and
+work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -321,6 +322,46 @@ sibling. Fix: the generator keeps only entries `deployShipsImage()` accepts,
 and the parity invariant asserts an un-shipped service is absent from the
 manifest; a signal the deploy cannot observe is not asserted until the image
 ships.
+
+## INFRA-HIGH-187 — the client proxy asked for a reply inbox nobody granted
+
+INFRA-HIGH-179/180 made the reply inbox follow the identity on the wire:
+the connection factory sets `inboxPrefix` from the certificate CN and
+services.yaml grants each identity `_INBOX<CN>.>` instead of the shared
+`_INBOX.>`. `NatsV3Client.publish()` never read that decision — it called
+`createInbox(this.options.inboxPrefix)` on the registration option, which
+only the two config-reply clients set, so every other ClientProxy on the
+platform subscribed `_INBOX.<nuid>` and the broker refused it: the request
+went out, the answer had nowhere granted to land, and the caller waited for
+its timeout. After the 8c9795f3 deploy aqua-nats logged ten such violations
+for gateway_service in one second (WebSocket RPCs); admin-api, messaging, ai,
+hr and sensor share the path. HTTP/GraphQL login does not, which is why every
+probe today passed over it. Fix: the client captures the connection's prefix
+at `connect()` (an explicit registration prefix stays an override for the
+separately granted `_INBOXBILLINGCFG` / `_INBOXFARMMARINECFG` channels) and
+creates every inbox under it; a spec drives the real `publish()` through a
+stubbed transport and fails on the `_INBOX.` root.
+
+## INFRA-HIGH-188 — the responder's reply had nowhere granted to go
+
+INFRA-HIGH-187 fixed the requester's half: the inbox it subscribes is now
+the one its identity is granted. The other half was still refused. A reply
+goes to `_INBOX<REQUESTER CN>.<nuid>`, and no responder holds a publish grant
+for another identity's inbox root — every identity publishes `_INBOX.>`
+only, whose first token does not match. aqua-saas-0a proved it on the live
+broker (auth_service → `_INBOXGATEWAY_SERVICE.probe`: Publish Violation) and
+a throwaway nats:2.10.24 on main's conf reproduced the whole round trip:
+gateway_service → messaging_service `request.messaging.verifyMembership`
+times out, one `Publish Violation` at messaging_service. Only the two
+config-reply prefixes worked, because config_service is granted them
+explicitly. Fix: the generator emits `allow_responses: { max: 64, expires:
+"5m" }` for every user — the broker's own mechanism: a user may publish to
+the reply subject of a request it actually received, and to nothing else —
+and the same probe on the new conf lands the reply with zero violations.
+The invariant requires exactly one `allow_responses` per generated user
+block; the runbook shows the scoped inbox root and says why a responder
+needs no inbox publish grant. The blanket `_INBOX.>` publish grants are
+inert now (nothing subscribes that root) and stay until a separate tightening.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

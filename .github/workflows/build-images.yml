@@ -255,13 +255,8 @@ jobs:
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ inputs.head_sha }}
           build-args: SERVICE_NAME=${{ matrix.service }}
           no-cache: ${{ inputs.no_cache }}
-          # Cache key rotated to v2 on 2026-09-20: the v1 registry cache served a
-          # stale `COPY dist/apps/<service>` layer (a 2026-09-03 dist) as CACHED
-          # while the fresh backend-dist artifact carried different bytes, so the
-          # images pushed for 2ee11ed6 ran old code against the current NATS ACL.
-          # Rotating the ref is the only invalidation the registry cache honours.
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v2,mode=max,ignore-error=true
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
 
   build-frontend-images:
     needs: [prepare, build-frontend-artifacts]
@@ -300,8 +295,8 @@ jobs:
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ inputs.head_sha }}
           build-args: MODULE_PATH=${{ matrix.module_path }}
           no-cache: ${{ inputs.no_cache }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v2,mode=max,ignore-error=true
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
 
   build-infra-images:
     needs: prepare
@@ -365,8 +360,8 @@ jobs:
             BUILD_MAIN_SHA=${{ inputs.head_sha }}
             POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
           no-cache: ${{ inputs.no_cache }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v2,mode=max,ignore-error=true
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
 
   verify-images:
     needs: [prepare, build-backend-images, build-frontend-images, build-infra-images]

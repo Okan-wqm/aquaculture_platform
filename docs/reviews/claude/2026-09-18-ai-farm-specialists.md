@@ -8,10 +8,10 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
-ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-CRITICAL-178 and INFRA-HIGH-179
-(base-branch / platform defects found by this branch's gates and work, fixed
-here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
-farm-module maintainer, deadline 2026-10-16).
+ORPHAN-HIGH-828, INFRA-HIGH-176 and INFRA-HIGH-179 (base-branch / platform
+defects found by this branch's gates and work, fixed here); FARM-LOW-330
+(tracked, open — MCP analytics test debt, owner: farm-module maintainer,
+deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -200,22 +200,21 @@ server unhealthy and every deploy dead at the same step. Fix:
 `max_bytes` defaults out of `nats-event-bus.ts` and fails the build when
 their sum no longer fits under the conf value.
 
-## INFRA-CRITICAL-178 — the registry buildcache shipped stale layers under fresh tags
+## Withdrawn: "the registry buildcache shipped stale layers" (was INFRA-CRITICAL-178)
 
-Found when the droplet deploy for main `2ee11ed6` (2026-09-20 00:0x UTC)
-recreated every backend service and all of them crash-looped. The run's
-`backend-dist` artifact was fresh, but `build-backend-images` logged the
-`COPY dist/apps/<service> ./dist` step as `CACHED` from
-`buildcache-development-v1`, and the pushed images carried older
-`libs/backend-common` output than the artifact: `nats-connection.factory.js`
-without the scoped inbox rule (6469 B vs 6600 B), `create-service-app.js`
-without the `serviceVisibility` gate (11633 B vs 12369 B). Live effect:
-config/ai/messaging died on "CORS_ORIGINS must be set in production" — a
-check ADR-0006 skips for internal services since 2026-09-07 — and sensor/
-admin-api on a bare `_INBOX.<nuid>.*` subscription. Fix here: rotate the
-cache ref to `buildcache-<channel>-v2` so every layer rebuilds from the
-artifact. Open under this id: make the image's dist provably the artifact's
-(digest pin or a pre-push comparison), so a cache can never do this again.
+Raised, then withdrawn before it reached main. After the 2ee11ed6 deploy
+failed its health gate, the images running on the droplet lacked the
+`serviceVisibility` gate and the scoped-inbox rule, and the sensor build log
+showed the `COPY dist/apps/<service>` step as `CACHED` — read together as a
+poisoned registry cache. It was not: the deploy's rollback re-tags
+`<service>:<sha>` onto the previous release's image, so the tag inspected
+pointed at the pre-deploy build, while the digest CI actually pushed
+(`sha256:39d58abf…` for sensor-service) carries the run's artifact byte for
+byte. `CACHED` on an unchanged layer is the cache working. The real defect —
+a rollback that recreates the previous images under the new checkout's
+compose environment and `nats.conf` — is filed by the aqua-saas-0a session
+against `droplet-up.sh`; the cache-key rotation this branch briefly carried is
+reverted and the registry row was dropped before merge.
 
 ## INFRA-HIGH-179 — the reply inbox followed the caller's label, not the identity
 

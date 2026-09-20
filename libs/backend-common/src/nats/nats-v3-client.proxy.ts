@@ -40,6 +40,19 @@ export interface NatsV3ClientOptions {
 export class NatsV3Client extends ClientProxy {
   private natsConnection: NatsConnection | null = null;
   private connectionPromise: Promise<NatsConnection> | null = null;
+  /**
+   * SEC-HIGH-098 completion: the reply-inbox prefix publish() actually
+   * subscribes. Registrations pass only `serviceName` — the factory then
+   * scopes the CONNECTION's inbox prefix (`_INBOX<IDENTITY>`), but publish()
+   * used to read `this.options.inboxPrefix` (undefined) and fell back to
+   * nats-core's default `_INBOX.`, which scoped-only broker grants deny →
+   * every request-reply silently died with a subscription Permissions
+   * Violation (observed live: messaging → request.ai.isEnabled). The factory
+   * value IS the authority; an explicit proxy option still wins. Trailing
+   * dots are stripped: createInbox() joins with its own '.', and a dotted
+   * prefix yields an empty token the broker rejects.
+   */
+  private effectiveInboxPrefix?: string;
 
   constructor(private readonly options: NatsV3ClientOptions = {}) {
     super();
@@ -55,6 +68,8 @@ export class NatsV3Client extends ClientProxy {
     // is an excess field connect() ignores), mirroring the PR-A event-bus pattern.
     const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
     const connectionOptions: ConnectionOptions = { ...factoryOptions };
+    const chosenPrefix = this.options.inboxPrefix ?? factoryOptions.inboxPrefix;
+    this.effectiveInboxPrefix = chosenPrefix?.replace(/\.+$/, '');
     this.connectionPromise = connect(connectionOptions);
     try {
       this.natsConnection = await this.connectionPromise;
@@ -93,7 +108,7 @@ export class NatsV3Client extends ClientProxy {
       const packet = this.assignPacketId(partialPacket);
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
-      const inbox = createInbox(this.options.inboxPrefix);
+      const inbox = createInbox(this.effectiveInboxPrefix);
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
       // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned

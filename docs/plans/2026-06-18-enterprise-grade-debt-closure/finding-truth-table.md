@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `59069f50fc93e92bbb9b27f2f8bef409470ec4d8f14efa23488e1c5009f92bff`
+Registry tip: `ecf38bf85e180408658995a17fcb060a9f821dfe70042bfba7563f64c1fba5e2`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,10 +246,6 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`   | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `SENSOR-CRITICAL-127`  | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
-| `BILLING-CRITICAL-019` | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
-| `FARM-CRITICAL-331`    | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
-| `SEC-CRITICAL-169`     | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -857,3 +853,15 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `ARIA-CRITICAL-007`: registry state is `RESOLVED` with closing commit
   `be7eb53e4`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `SENSOR-CRITICAL-127`: registry state is `RESOLVED` with closing commit
+  `9c0341f16`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `BILLING-CRITICAL-019`: registry state is `RESOLVED` with closing commit
+  `9c0341f16`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-331`: registry state is `RESOLVED` with closing commit
+  `0ef5dcea7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SEC-CRITICAL-169`: registry state is `RESOLVED` with closing commit
+  `0ef5dcea7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

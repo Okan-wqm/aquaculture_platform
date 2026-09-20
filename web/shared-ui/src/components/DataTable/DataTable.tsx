@@ -256,6 +256,7 @@ const TableBodyInner = <T,>({
   handleToggleExpand,
   renderExpandedRow,
 }: TableBodyProps<T>) => {
+  const { t } = useI18n();
   const colSpan =
     (selectable ? 1 : 0) + (expandable && expandToggle ? 1 : 0) + activeColumns.length;
 
@@ -300,6 +301,8 @@ const TableBodyInner = <T,>({
                   <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => handleToggleExpand(rowId)}
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded ? t('a11y.collapseRow') : t('a11y.expandRow')}
                       className="p-1 rounded hover:bg-gray-200 transition-colors dark:hover:bg-gray-700"
                     >
                       <ChevronRight

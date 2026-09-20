@@ -3,6 +3,7 @@
  * Select a date range with two calendars
  */
 
+import { useI18n } from '../../i18n';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -91,6 +92,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   className = '',
   presets = defaultPresets,
 }) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState(value.start || new Date());
   const [selecting, setSelecting] = useState<'start' | 'end'>('start');
@@ -337,6 +339,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 <button
                   type="button"
                   onClick={handlePrevMonth}
+                  aria-label={t('a11y.previousMonth')}
                   className="absolute left-40 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                 >
                   <ChevronLeft className="w-4 h-4" aria-hidden="true" />
@@ -347,6 +350,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 <button
                   type="button"
                   onClick={handleNextMonth}
+                  aria-label={t('a11y.nextMonth')}
                   className="absolute right-4 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                 >
                   <ChevronRight className="w-4 h-4" aria-hidden="true" />

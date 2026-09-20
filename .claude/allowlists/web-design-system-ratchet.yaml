@@ -272,7 +272,7 @@ unnamedIconButton:
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/shared-ui
-      ceiling: 9
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158

@@ -3,6 +3,7 @@
  * Date input with calendar popup
  */
 
+import { useI18n } from '../../i18n';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -54,6 +55,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   clearable = true,
   className = '',
 }) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState(value || new Date());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -203,6 +205,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={handlePrevMonth}
+              aria-label={t('a11y.previousMonth')}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <ChevronLeft className="w-5 h-5" aria-hidden="true" />
@@ -213,6 +216,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={handleNextMonth}
+              aria-label={t('a11y.nextMonth')}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <ChevronRight className="w-5 h-5" aria-hidden="true" />

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `133be1b7e282bfe59bd3a2454305b7969ebdba3a179f1722d7d2078f4b3828d8`
+Registry tip: `faea0a4a9275703a0db2a6c2e61d0d276c423cf23fac1bdc0628afd1a6fd7d57`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,6 +246,7 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-178`  | OPEN           | 2026-09-20   | infra-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -379,6 +380,12 @@ Allowed truth buckets:
   restart replays an entrypoint from one release contract into a container from another. Real open
   work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
+- `INFRA-CRITICAL-178` (2026-09-20, PR #1586's go-live): the registry buildcache returned another
+  commit's `COPY dist/apps/<service>` layer as CACHED, so images tagged `2ee11ed6` ran pre-2026-09-07
+  backend-common code and every backend service crash-looped on the droplet. The cache ref is
+  rotated (`buildcache-<channel>-v2`) as the immediate fix; the guarantee that an image's dist IS the
+  run's artifact (digest pin or a pre-push comparison) is the open work, owner infra-expert, deadline
+  2026-09-27 (`docs/reviews/claude/2026-09-18-ai-farm-specialists.md`).
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

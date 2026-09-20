@@ -6,7 +6,9 @@ import yaml from 'js-yaml';
 import { SCHEMA_REGISTRY } from '../../apps/db-migrate/src/schema-registry';
 import {
   PLATFORM_SERVICE_CATALOG,
+  activeDropletServices,
   backendImageBuildTargets,
+  deployShipsImage,
   frontendImageBuildMatrix,
   frontendImageBuildTargets,
   imageBuildTargets,
@@ -152,6 +154,26 @@ describe('platform service catalog parity', () => {
     for (const service of manifest.services) {
       expect(catalog.get(service.name)?.criticality).toBe(service.level);
     }
+  });
+
+  it('promises the health gate only services the deploy can ship (DEPLOY-HIGH-024)', () => {
+    // `critical` / `required` is enforced by scripts/deploy/check-service-health.ts
+    // after every droplet deploy. A service whose image the deploy never
+    // pulls or builds cannot have a container, so that level turns every
+    // release into `failed phase=required_health` with promotion blocked —
+    // sensor-ingestion sat there from 2026-08-28 until the 2026-09-20
+    // outage review read the verdict line. The catalog's own predicate is
+    // the rule; this case fails on the entry, not on the deploy.
+    const overpromised = activeDropletServices()
+      .filter((entry) => entry.criticality === 'critical' || entry.criticality === 'required')
+      .filter((entry) => !deployShipsImage(entry))
+      .map((entry) => `${entry.serviceId} (${entry.criticality}, buildKind=${entry.buildKind})`);
+    expect(overpromised).toEqual([]);
+
+    const sidecar = catalog.get('sensor-ingestion');
+    expect(sidecar?.buildKind).toBe('rust-sidecar');
+    expect(sidecar && deployShipsImage(sidecar)).toBe(false);
+    expect(sidecar?.criticality).toBe('warning');
   });
 
   it('keeps required boot signals in sync for cataloged services', () => {

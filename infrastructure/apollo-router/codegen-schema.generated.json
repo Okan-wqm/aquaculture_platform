@@ -1,6 +1,6 @@
 {
   "source": "infrastructure/apollo-router/subgraphs.json",
-  "registryHash": "1ca780be4641c664d606f04e2f7b220b82d13f69b2984024357efbade6b91bfc",
+  "registryHash": "ddec5d292743a320a34fe955abfa0f858468660d5d37344e730ca69d11be98f1",
   "generatorVersion": "1",
   "supergraphPath": "dist/graphql/supergraph.graphql",
   "schemaArtifactPaths": [

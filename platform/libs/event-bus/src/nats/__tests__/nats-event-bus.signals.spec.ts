@@ -175,6 +175,26 @@ describe('NatsEventBus boot invariant signals', () => {
     await eventBus.disconnect();
   });
 
+  // The SSoT ACL enumerates each service's JetStream rights as STREAM.{INFO,
+  // CREATE,UPDATE}.> + CONSUMER.>; the manager's default availability probe
+  // requests `$JS.API.INFO`, which no identity is granted, so with the default
+  // the bus never connects (2026-09-20 outage). The live counterpart is
+  // tools/scripts/nats-boot-path-acl-smoke.ts, which drives this sequence per
+  // certificate identity against the generated broker configuration.
+  it('creates the JetStream manager without the $JS.API.INFO availability probe', async () => {
+    const connection = successfulConnection();
+    jest.mocked(connect).mockResolvedValue(connection);
+    jest.mocked(jetstream).mockReturnValue({} as ReturnType<typeof jetstream>);
+    jest.mocked(jetstreamManager).mockResolvedValue(successfulManager());
+    const eventBus = new NatsEventBus(config());
+
+    await eventBus.connect();
+
+    expect(jetstreamManager).toHaveBeenCalledTimes(1);
+    expect(jetstreamManager).toHaveBeenCalledWith(connection, { checkAPI: false });
+    await eventBus.disconnect();
+  });
+
   it('rejects an invalid reconnect policy returned by the shared factory', async () => {
     jest.mocked(buildNatsConnectionOptions).mockReturnValueOnce({
       servers: ['tls://nats:4222'],

@@ -148,7 +148,15 @@ export type NatsAuthMode = 'mtls-cert' | 'token' | 'user-pass' | 'none';
 
 /** `_INBOX<IDENTITY>.` — the reply-inbox root services.yaml grants to a NATS user. */
 export function scopedInboxPrefix(identity: string): string {
-  return `_INBOX${identity.toUpperCase().replace(/-/g, '_')}.`;
+  // No trailing dot: the client joins `${prefix}.${nuid}` itself
+  // (@nats-io/nats-core createInbox). A prefix that already ends in '.'
+  // yields `_INBOXSENSOR_SERVICE..<nuid>` — an empty token that the grant
+  // `_INBOXSENSOR_SERVICE.>` never matches, so every request/reply
+  // subscription is a permissions violation and the service cannot boot
+  // (the 2026-09-20 outage; INFRA-CRITICAL-182). The two fixed prefixes in
+  // @platform/event-contracts (_INBOXBILLINGCFG, _INBOXFARMMARINECFG) are
+  // written the same way, without the dot.
+  return `_INBOX${identity.toUpperCase().replace(/-/g, '_')}`;
 }
 
 /**

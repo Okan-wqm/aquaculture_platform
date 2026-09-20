@@ -563,8 +563,21 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
 
       // v3: jetstream()/jetstreamManager() are top-level functions taking the
       // connection, not methods on it (v2 was `this.connection.jetstream()`).
+      //
+      // checkAPI:false — the manager's default availability probe is a
+      // request to `$JS.API.INFO` (account info). The SSoT ACL
+      // (infrastructure/nats/services.yaml) enumerates each service's
+      // JetStream rights as `$JS.API.STREAM.{INFO,CREATE,UPDATE}.>` and
+      // `$JS.API.CONSUMER.>`; no identity is granted the account-level
+      // INFO subject, so the probe is a Publish Violation and the bus never
+      // connects (2026-09-20 outage, INFRA-CRITICAL-183). setupStream() runs
+      // right after and its STREAM.INFO request fails just as loudly when
+      // JetStream is off, so the probe bought nothing the boot path did not
+      // already check. tools/scripts/nats-boot-path-acl-smoke.ts drives this exact
+      // sequence per certificate identity against the generated broker
+      // configuration.
       const candidateJetStream = jetstream(connected);
-      const candidateJetStreamManager = await jetstreamManager(connected);
+      const candidateJetStreamManager = await jetstreamManager(connected, { checkAPI: false });
 
       this.connection = connected;
       this.jetStream = candidateJetStream;

@@ -12,6 +12,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createInbox } from '@nats-io/nats-core';
+
 import {
   buildNatsConnectionOptions,
   certificateCommonName,
@@ -73,8 +75,24 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
 
   it('reads the identity out of the client certificate CN', () => {
     expect(certificateCommonName(FIXTURE_CERT_PEM, '<inline>')).toBe('sensor_service');
-    expect(scopedInboxPrefix('sensor_service')).toBe('_INBOXSENSOR_SERVICE.');
-    expect(scopedInboxPrefix('auth-service')).toBe('_INBOXAUTH_SERVICE.');
+    expect(scopedInboxPrefix('sensor_service')).toBe('_INBOXSENSOR_SERVICE');
+    expect(scopedInboxPrefix('auth-service')).toBe('_INBOXAUTH_SERVICE');
+  });
+
+  it('the inbox the client derives from the prefix is exactly what the ACL grants', () => {
+    // The grant is `_INBOX<CN>.>`: one literal token, then one or more
+    // non-empty tokens. createInbox joins `${prefix}.${nuid}`, so the prefix
+    // must not end in a dot — a trailing dot produces an empty token that the
+    // grant never matches (INFRA-CRITICAL-182).
+    for (const identity of ['sensor_service', 'auth_service', 'config_service', 'hr_service']) {
+      const inbox = createInbox(scopedInboxPrefix(identity));
+      const grantToken = `_INBOX${identity.toUpperCase()}`;
+      expect(inbox.startsWith(`${grantToken}.`)).toBe(true);
+      const tokens = inbox.split('.');
+      expect(tokens[0]).toBe(grantToken);
+      expect(tokens.length).toBeGreaterThanOrEqual(2);
+      expect(tokens.every((token) => token.length > 0)).toBe(true);
+    }
   });
 
   it('under mTLS the inbox prefix follows the certificate CN, not the caller label', () => {
@@ -91,7 +109,7 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
 
     expect(options.authMode).toBe('mtls-cert');
     expect(options.name).toBe('aquaculture-sensor-service');
-    expect(options.inboxPrefix).toBe('_INBOXSENSOR_SERVICE.');
+    expect(options.inboxPrefix).toBe('_INBOXSENSOR_SERVICE');
   });
 
   it('without a client certificate the caller name still scopes the inbox (dev / CI)', () => {
@@ -104,7 +122,7 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
     process.env['NATS_AUTH_USER'] = 'dev';
     process.env['NATS_AUTH_PASS'] = 'dev';
 
-    expect(buildNatsConnectionOptions('sensor-service').inboxPrefix).toBe('_INBOXSENSOR_SERVICE.');
+    expect(buildNatsConnectionOptions('sensor-service').inboxPrefix).toBe('_INBOXSENSOR_SERVICE');
   });
 
   it('refuses a client certificate without a CN', () => {

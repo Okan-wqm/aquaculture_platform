@@ -36694,6 +36694,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -48513,6 +48519,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nest-injected-type-only-import.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nest-module-provider-duplication.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nested-steering-parity.spec.ts",
       "prettier_managed": true
     },
@@ -50849,6 +50867,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/migrate-tenant-query-key.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/nats-boot-path-acl-smoke.ts",
       "prettier_managed": true
     },
     {

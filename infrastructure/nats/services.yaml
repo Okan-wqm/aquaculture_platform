@@ -404,6 +404,10 @@ services:
   - $JS.ACK.>
   subscribe:
   - events.>
+  # WebSocket bridge (nats-bridge.service.ts): SensorReading moved to the
+  # telemetry root with SENSOR-HIGH-092; `events.>` no longer reaches it
+  # (INFRA-HIGH-186 — 2 Subscription Violations at every gateway boot).
+  - telemetry.*.SensorReading
   - st.language.>
   - _INBOXGATEWAY_SERVICE.>
   - $JS.API.STREAM.INFO.>

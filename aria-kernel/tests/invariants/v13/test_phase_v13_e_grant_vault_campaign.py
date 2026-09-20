@@ -17,10 +17,12 @@ Invariants:
 from __future__ import annotations
 
 import base64
+import builtins
 import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -237,6 +239,56 @@ class Campaign(unittest.TestCase):
         self.assertIsNotNone(bound)
         with self.assertRaises(Exception):
             mission.bind_mission(mission_id=mid, bindings={"campaign_targets": ["https://x"]}, step_id="s", base_dir=self.tools)
+
+
+class SigningBackendProbeIsTotal(unittest.TestCase):
+    """I-V13-GRANT-03 — `backend_available()` ANSWERS; it never propagates.
+
+    Deliberately NOT gated on HAVE_CRYPTO: the property under test is what the
+    probe does when the backend is unusable, so a host that has a working one
+    must still prove it. A native binding built for another interpreter does not
+    raise ImportError — it panics, and pyo3's PanicException derives from
+    BaseException, so it escaped `_backend`'s `except ImportError` and
+    `backend_available`'s `except SigningBackendUnavailable` alike. The module
+    docstring promises the lane "fails closed instead of degrading to an unsigned
+    grant"; a probe that raises cannot deliver that, and it took this module and
+    test_phase_v13_f down at IMPORT time — the `skipUnless` guard written for
+    exactly this case never got to run. ARIA-HIGH-180.
+    """
+
+    class _SimulatedPanic(BaseException):
+        """Stands in for pyo3_runtime.PanicException: a BaseException, not an Exception."""
+
+    def _with_import_raising(self, exc: BaseException):
+        real = builtins.__import__
+
+        def fake(name, *a, **kw):
+            if name.startswith("cryptography"):
+                raise exc
+            return real(name, *a, **kw)
+
+        return unittest.mock.patch.object(builtins, "__import__", fake)
+
+    def test_a_panicking_binding_reads_as_unavailable_not_as_a_crash(self) -> None:
+        with self._with_import_raising(self._SimulatedPanic("Python API call failed")):
+            with self.assertRaises(G.SigningBackendUnavailable):
+                G._backend()
+            self.assertFalse(G.backend_available())
+
+    def test_a_missing_backend_still_reads_as_unavailable(self) -> None:
+        with self._with_import_raising(ImportError("No module named 'cryptography'")):
+            with self.assertRaises(G.SigningBackendUnavailable):
+                G._backend()
+            self.assertFalse(G.backend_available())
+
+    def test_an_interrupt_is_never_reported_as_a_missing_backend(self) -> None:
+        for interrupt in (KeyboardInterrupt(), SystemExit(2)):
+            with self.subTest(interrupt=type(interrupt).__name__):
+                with self._with_import_raising(interrupt):
+                    with self.assertRaises(type(interrupt)):
+                        G._backend()
+                    with self.assertRaises(type(interrupt)):
+                        G.backend_available()
 
 
 if __name__ == "__main__":

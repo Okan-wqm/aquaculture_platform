@@ -73,6 +73,58 @@ mapping hole, `ARIA_SUITE_FULL=1`, and the gate self-validation clause. `tests/i
 aria-doc-runtime-ssot.spec.ts` and `tests/invariants/git-hook-binding.spec.ts` (32 assertions)
 pass unchanged.
 
+### ARIA-HIGH-180 — the signing-backend probe propagates instead of answering
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+The full-suite push (#5) was refused by two import errors, and the reason they were import errors
+rather than skips is a contract defect in ARIA's only cryptographic path:
+
+    File ".../aria_kernel/security/grant.py", line 55, in backend_available
+        _backend()
+    ...
+    pyo3_runtime.PanicException: Python API call failed
+
+`grant.py`'s module docstring promises that "if the signing backend is missing the lane fails
+closed instead of degrading to an unsigned grant", and `backend_available() -> bool` is the
+predicate that delivers it. `_backend()` caught only `ImportError`. A native binding built for
+another interpreter does not raise `ImportError` — it panics, and pyo3's `PanicException` derives
+from `BaseException`, so it escaped `_backend()`'s handler and `backend_available()`'s
+`except SigningBackendUnavailable` alike. An **installed but broken** backend is exactly as
+unavailable as a missing one, and the probe answered neither way: it propagated.
+
+The cost is precise. Both v13 modules guard themselves for this case in so many words —
+
+    @unittest.skipUnless(G.backend_available(), "cryptography (Ed25519) not installed — grant lane is fail-closed here")
+
+— and the guard written for this exact case could not run, because evaluating it is what raised.
+`test_phase_v13_e` died on the same call at module scope (`HAVE_CRYPTO = G.backend_available()`).
+Two modules that would have SKIPPED instead failed to import, and the push was refused.
+
+**Why HIGH:** it is the only signature path ARIA has, and it defeats that module's own documented
+fail-closed contract. To be accurate about the blast radius: it does **not** produce an unsigned
+grant — issuing and verifying still raise `SigningBackendUnavailable`. The harm is that a
+_predicate_ can kill its caller, so every guard built on it is unreliable exactly when the backend
+is in the degraded state the guard exists for.
+
+**Fix (this cycle):** `_backend()` re-raises `SigningBackendUnavailable` for any import-time
+failure, not just `ImportError`, while `KeyboardInterrupt` and `SystemExit` are re-raised
+untouched — an operator interrupt is the process ending, not the lane degrading.
+`SigningBackendProbeIsTotal` in `test_phase_v13_e_grant_vault_campaign.py` pins all three
+branches and is deliberately **not** gated on `HAVE_CRYPTO`, since the property under test is what
+the probe does when the backend is unusable. Verified by reverting the fix: the panic case errors
+with the simulated `BaseException` escaping, exactly as pyo3's did.
+
+**What is NOT closed by this:** why the binding panicked at all. Debian's `cryptography` 41.0.7
+lives in `/usr/lib/python3/dist-packages` (built for python3.12) and is on python3.11's path here,
+which is the likely mismatch — but the panic is not deterministic. After the failing run the same
+import succeeded 5/5 standalone, under the push's hermetic environment and under the suite's
+`PYTHONPATH`; both v13 modules pass standalone (14 tests); a discovery run over the whole
+`tests/invariants` subtree passed (1050 tests) without reproducing it; and the host has 16 GB with
+no cgroup limit and no OOM events, so memory pressure is ruled out. Whatever the trigger, this
+finding is about the probe's contract — that is what turned a flaky import into a refused push,
+and it is the part that is fixed.
+
 ## Environment notes (not findings against this repository)
 
 The kernel suite could not run at all in the Claude Code remote container until four packages were

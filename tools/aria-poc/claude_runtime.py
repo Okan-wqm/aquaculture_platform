@@ -486,6 +486,17 @@ def _probe_claude_auth_status(
     return classify_claude_status_answer(completed.stdout, completed.returncode, command=command)
 
 
+def _session_store_dir() -> Path | None:
+    """ARIA-HIGH-179 — the durable session store the sandbox binds at the
+    private config dir's `projects`; None only when the kernel is not
+    importable (the sandbox then carries no store and no session resumes)."""
+    try:
+        from aria_kernel.session_continuity import session_store_dir
+    except ImportError:  # pragma: no cover - kernel always importable here
+        return None
+    return session_store_dir()
+
+
 def _managed_auth_present() -> bool:
     """True when a logged-in Claude Code session credential surface exists.
 
@@ -700,6 +711,7 @@ def _apply_write_containment(
     hook_broker_socket: Path | None = None,
     mcp_broker_socket: Path | None = None,
     read_containment: bool = False,
+    session_store_dir: Path | None = None,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
 
@@ -748,6 +760,7 @@ def _apply_write_containment(
             return _apply_read_containment(
                 argv, workspace_root=workspace_root, executable=executable, spawn_files=spawn_files,
                 managed_login_dir=managed_login_dir, hook_broker_socket=hook_broker_socket,
+                session_store_dir=session_store_dir,
             )
         return argv
     workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
@@ -782,6 +795,7 @@ def _apply_write_containment(
             argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
             spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
             hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
+            session_store_dir=session_store_dir,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -811,6 +825,7 @@ def _apply_read_containment(
     spawn_files: Sequence[Path] = (),
     managed_login_dir: Path | None = None,
     hook_broker_socket: Path | None = None,
+    session_store_dir: Path | None = None,
 ) -> list[str]:
     """The READ shape's sandbox (ARIA-HIGH-162).
 
@@ -839,6 +854,7 @@ def _apply_read_containment(
             argv, workspace_root=workspace, write_scope=(), executable=executable,
             spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
             hook_broker_socket=hook_broker_socket, mcp_broker_socket=None,
+            session_store_dir=session_store_dir,
         )
     except SandboxUnavailable as exc:
         raise ClaudePolicyViolation(
@@ -1514,6 +1530,7 @@ def run_claude_exec(
             hook_broker_socket=broker.socket_path if broker is not None else None,
             mcp_broker_socket=mcp_broker.socket_path if mcp_broker is not None else None,
             read_containment=read_containment,
+            session_store_dir=_session_store_dir(),
         )
         # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
         # reason containment is. `apply_resource_limits` shipped with the sandbox

@@ -534,3 +534,35 @@ dispatch_model` under `if dispatch_model:` with `agent_profile.model`; `run_with
   (the live 30/27/1 case green; one harness failure red; half the attempted red; the only outcome
   red), a rejected result among successes green with both halves recorded and the annotation
   written, a contract violation as the only outcome red.
+
+## ARIA-HIGH-179 — a resumed session never finds its transcript
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** executor run 35471772861 (2026-09-19 22:02Z), request
+  `AIR-aria-challenger-planner-2d16fdbb749e`: the session ledger matched the fingerprint and the
+  journal showed progress, so `decide_session` returned `--resume 10c31c16-…`; the CLI's transcript
+  is one row, `error_during_execution`, `num_turns 0`, `errors: ["No conversation found with
+session ID: 10c31c16-…"]`, exit 1 → `provider_nonzero` → claim released
+  `native_runtime_execution_unavailable`, `requeue_count 1`. The cause is structural:
+  `wrap_managed_claude_in_sandbox` gives every spawn a tmpfs HOME (`SANDBOX_HOME`) and sets
+  `CLAUDE_CONFIG_DIR` inside it; the CLI writes the conversation under
+  `<config>/projects/<cwd>/<session>.jsonl`, and the tmpfs is gone with the process. Only the
+  credential file is bound in. Every request whose first attempt made progress without finishing —
+  a planner by construction — resumes into nothing, forever, as a harness-class release that burns
+  no budget and produces no plan.
+- **Rule:** a session is resumed only where its transcript will be found; the transcript outlives
+  the spawn in a durable store the sandbox binds at the private config dir, and the resume decision
+  reads that store.
+- **Fix:** `session_continuity.session_store_dir()` (`$ARIA_SESSION_STORE_DIR`, else
+  `~/.config/aria/sessions` of the executor's user — outside every checkout),
+  `transcript_present(session_id, store_dir)`, `decide_session(store_dir=)` resumes only when the
+  transcript is present (no store → never); `wrap_managed_claude_in_sandbox(session_store_dir=)`
+  creates `<store>/projects` and binds it writable at `<private config>/projects` after the tmpfs,
+  refusing a store inside the workspace by name; both containment shapes (`claude_runtime`) and the
+  executor's `_decide_session_and_recovery` pass the same store.
+- **Proof:** `tests/invariants/v12/test_phase_v12_c_session_recovery.py` (I-V12-SESS-02 now:
+  progress and fingerprint without a transcript → fresh; with the transcript in the store → resume;
+  no store → never; the store's resolution order; the executor and the runtime hand the same store
+  to both decisions) and `tests/test_managed_claude_sandbox.py` (the store's `projects` bound
+  writable at the private config dir after the tmpfs; nothing bound without a store; a store inside
+  the workspace refused).

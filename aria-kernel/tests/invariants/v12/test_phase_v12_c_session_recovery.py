@@ -5,7 +5,8 @@ Invariants:
                  (target sha, profile, prompt hash, settings hash, model family,
                  policy version) and is stable otherwise.
   I-V12-SESS-02  `decide_session` resumes only when the last bound session has the
-                 same fingerprint AND journal progress; otherwise it mints a fresh
+                 same fingerprint AND journal progress AND its transcript is in the
+                 durable session store (ARIA-HIGH-179); otherwise it mints a fresh
                  session; every decision is bound on `agent-invocations/sessions.jsonl`.
   I-V12-SESS-03  `build_claude_exec_argv` carries `--session-id` for a fresh session
                  and `--resume` for a resumed one.
@@ -28,6 +29,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
@@ -64,23 +66,47 @@ class SessionsAreBound(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_I_V12_SESS_02_resume_only_with_same_fingerprint_and_progress(self) -> None:
-        first, resumed = sc.decide_session(request_id="AIR-1", claim_id="c1", fingerprint="fp:a", base_dir=self.tools)
+    def test_I_V12_SESS_02_resume_only_with_same_fingerprint_progress_and_transcript(self) -> None:
+        store = Path(self._tmp.name) / "session-store"
+        first, resumed = sc.decide_session(request_id="AIR-1", claim_id="c1", fingerprint="fp:a", base_dir=self.tools, store_dir=store)
         self.assertFalse(resumed)
         # no progress yet → a fresh session even with the same fingerprint
-        second, resumed = sc.decide_session(request_id="AIR-1", claim_id="c2", fingerprint="fp:a", base_dir=self.tools)
+        second, resumed = sc.decide_session(request_id="AIR-1", claim_id="c2", fingerprint="fp:a", base_dir=self.tools, store_dir=store)
         self.assertFalse(resumed)
         self.assertNotEqual(first, second)
         hooks.record_journal({"tool_name": "Bash", "tool_input": {"command": "git status"}},
                              base_dir=self.tools, request_id="AIR-1", session_id=second, tool_use_id="t")
-        third, resumed = sc.decide_session(request_id="AIR-1", claim_id="c3", fingerprint="fp:a", base_dir=self.tools)
+        # ARIA-HIGH-179 — progress, same fingerprint, but no transcript in the
+        # store: the CLI could not honour a resume, so a fresh session is minted.
+        absent, resumed = sc.decide_session(request_id="AIR-1", claim_id="c3", fingerprint="fp:a", base_dir=self.tools, store_dir=store)
+        self.assertFalse(resumed, "a resume the CLI cannot honour is never issued")
+        self.assertNotEqual(absent, second)
+        hooks.record_journal({"tool_name": "Bash", "tool_input": {"command": "git status"}},
+                             base_dir=self.tools, request_id="AIR-1", session_id=absent, tool_use_id="t2")
+        project = store / sc.SESSION_STORE_PROJECTS_DIRNAME / "-tmp-worktree-req-AIR-1"
+        project.mkdir(parents=True)
+        (project / f"{absent}.jsonl").write_text('{"type":"user"}\n', encoding="utf-8")
+        self.assertTrue(sc.transcript_present(absent, store_dir=store))
+        third, resumed = sc.decide_session(request_id="AIR-1", claim_id="c4", fingerprint="fp:a", base_dir=self.tools, store_dir=store)
         self.assertTrue(resumed)
-        self.assertEqual(third, second)
-        fourth, resumed = sc.decide_session(request_id="AIR-1", claim_id="c4", fingerprint="fp:b", base_dir=self.tools)
+        self.assertEqual(third, absent)
+        fourth, resumed = sc.decide_session(request_id="AIR-1", claim_id="c5", fingerprint="fp:b", base_dir=self.tools, store_dir=store)
         self.assertFalse(resumed, "a changed envelope never resumes")
+        # No store at all → never a resume (the default a caller gets without one).
+        hooks.record_journal({"tool_name": "Bash", "tool_input": {"command": "git status"}},
+                             base_dir=self.tools, request_id="AIR-1", session_id=fourth, tool_use_id="t3")
+        _fifth, resumed = sc.decide_session(request_id="AIR-1", claim_id="c6", fingerprint="fp:b", base_dir=self.tools)
+        self.assertFalse(resumed)
         rows = sc.sessions_for("AIR-1", base_dir=self.tools)
-        self.assertEqual([r["claim_id"] for r in rows], ["c1", "c2", "c3", "c4"])
-        self.assertEqual(rows[2]["resumed_from"], "c2")
+        self.assertEqual([r["claim_id"] for r in rows], ["c1", "c2", "c3", "c4", "c5", "c6"])
+        self.assertEqual(rows[3]["resumed_from"], "c3")
+        self.assertFalse(sc.transcript_present("", store_dir=store))
+        self.assertFalse(sc.transcript_present(absent, store_dir=None))
+
+    def test_I_V12_SESS_02b_the_store_is_the_runner_env_or_the_user_config(self) -> None:
+        self.assertEqual(sc.session_store_dir({"ARIA_SESSION_STORE_DIR": "/srv/aria/sessions"}), Path("/srv/aria/sessions"))
+        self.assertEqual(sc.session_store_dir({"XDG_CONFIG_HOME": "/xdg"}), Path("/xdg/aria/sessions"))
+        self.assertEqual(sc.session_store_dir({}), Path.home() / ".config" / "aria" / "sessions")
 
     def test_I_V12_SESS_03_argv_carries_the_session_flag(self) -> None:
         import claude_runtime
@@ -154,3 +180,22 @@ class RecoveryClassifies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheExecutorHandsTheStoreToBothDecisions(unittest.TestCase):
+    """ARIA-HIGH-179 — one store: the executor decides `--resume` against the
+    store the sandbox binds, so a resume is issued only for a transcript the
+    spawn will actually find."""
+
+    def test_the_executor_decides_with_the_store_and_the_runtime_binds_it(self) -> None:
+        import claude_runtime
+        import ci_executor
+
+        executor = Path(ci_executor.__file__).read_text(encoding="utf-8")
+        self.assertIn("store_dir=session_store_dir()", executor)
+        runtime = Path(claude_runtime.__file__).read_text(encoding="utf-8")
+        self.assertIn("session_store_dir=_session_store_dir()", runtime)
+        self.assertEqual(runtime.count("session_store_dir=session_store_dir,"), 3,
+                         "both containment shapes and the write wrapper pass the store through")
+        with mock.patch.dict("os.environ", {"ARIA_SESSION_STORE_DIR": "/srv/aria/sessions"}):
+            self.assertEqual(claude_runtime._session_store_dir(), Path("/srv/aria/sessions"))

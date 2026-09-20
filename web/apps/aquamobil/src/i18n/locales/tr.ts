@@ -64,4 +64,20 @@ export const tr: Record<MessageKey, string> = {
   'feeding.errors.amountRequired': "Miktar 0'dan büyük olmalı",
   'feeding.errors.amountMax': 'Miktar 10000 kg üzerinde olamaz',
   'feeding.errors.generic': 'Yemleme kaydedilemedi',
+
+  // ── Accessible names for icon-only controls (FE-HIGH-158) ──
+  'a11y.logOut': 'Çıkış yap',
+  'a11y.refresh': 'Yenile',
+  'a11y.showPassword': 'Parolayı göster',
+  'a11y.hidePassword': 'Parolayı gizle',
+  'a11y.decrease': 'Azalt',
+  'a11y.increase': 'Artır',
+  'a11y.dismiss': 'Kapat',
+  'a11y.back': 'Geri',
+  'a11y.channelSettings': 'Kanal ayarları',
+  'a11y.clearSearch': 'Aramayı temizle',
+  'a11y.previousWeek': 'Önceki hafta',
+  'a11y.nextWeek': 'Sonraki hafta',
+  'a11y.newLeaveRequest': 'Yeni izin talebi',
+  'a11y.sendComment': 'Yorumu gönder',
 };

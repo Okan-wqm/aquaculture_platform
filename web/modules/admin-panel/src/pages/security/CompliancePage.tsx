@@ -860,6 +860,7 @@ export const CompliancePage: React.FC = () => {
       render: (_value, request) => (
         <>
           <button
+            aria-label="View request details"
             onClick={() => setSelectedRequest(request)}
             className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           >

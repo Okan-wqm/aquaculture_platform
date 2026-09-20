@@ -146,7 +146,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 144
+      ceiling: 139
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -202,14 +202,14 @@ rawButton:
 unnamedIconButton:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 15
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 20
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
@@ -223,14 +223,14 @@ unnamedIconButton:
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 6
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 1
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
@@ -251,21 +251,21 @@ unnamedIconButton:
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 7
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 1
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158
       reason: >-
         buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
     - package: web/shell
-      ceiling: 1
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-158

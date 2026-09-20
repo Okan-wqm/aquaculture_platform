@@ -22,6 +22,7 @@ import {
   severityClasses,
   Spinner,
   ToggleButton,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -1158,6 +1159,7 @@ const PolicyCard: React.FC<{
 // ============================================================================
 
 const EscalationPoliciesPage: React.FC = () => {
+  const { t } = useI18n();
   // Form state
   const [formMode, setFormMode] = useState<FormMode>('closed');
   const [editingPolicy, setEditingPolicy] = useState<EscalationPolicy | null>(null);
@@ -1486,6 +1488,7 @@ const EscalationPoliciesPage: React.FC = () => {
       {suppressionPolicy && formMode === 'closed' && (
         <div className="relative">
           <button
+            aria-label={t('common.close')}
             onClick={() => setSuppressionPolicy(null)}
             className="absolute -top-2 -right-2 z-10 p-1 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600"
           >

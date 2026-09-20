@@ -213,6 +213,7 @@ export const AnnouncementsPage: React.FC = () => {
           actions={
             <div className="flex items-center gap-2">
               <button
+                aria-label="Refresh announcements"
                 onClick={() => {
                   fetchAnnouncements();
                   fetchStats();
@@ -429,12 +430,14 @@ export const AnnouncementsPage: React.FC = () => {
                             Publish
                           </button>
                           <button
+                            aria-label="Edit announcement"
                             onClick={() => setSelectedAnnouncement(announcement)}
                             className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                           >
                             <Edit3 size={16} />
                           </button>
                           <button
+                            aria-label="Delete announcement"
                             onClick={() => handleDelete(announcement.id)}
                             className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600 rounded-lg hover:bg-error-50"
                           >

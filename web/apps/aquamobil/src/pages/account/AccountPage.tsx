@@ -26,6 +26,7 @@ import type { DarkModePreference } from '@/hooks/useDarkMode';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
+import { useI18n } from '@/i18n';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 import type { Role } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
@@ -201,6 +202,7 @@ interface BiometricPanelProps {
 }
 
 function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
+  const { t } = useI18n();
   const { user } = useAuth();
   const {
     isRegistering,
@@ -253,6 +255,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
             </h3>
           </div>
           <button
+            aria-label={t('common.close')}
             onClick={() => {
               onClose();
               clearBiometricError();

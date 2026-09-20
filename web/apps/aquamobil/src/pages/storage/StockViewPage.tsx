@@ -25,6 +25,7 @@ import { ToggleButton } from '@/components/ui/ToggleButton';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useI18n } from '@/i18n';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -95,6 +96,7 @@ function formatExpiryDate(dateStr: string): string {
 // ============================================================================
 
 export function StockViewPage(): JSX.Element {
+  const { t } = useI18n();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline } = useOfflineQueue();
   const queryClient = useQueryClient();
@@ -190,6 +192,7 @@ export function StockViewPage(): JSX.Element {
           <>
             {selectedLocationId && isOnline && (
               <button
+                aria-label={t('a11y.refresh')}
                 onClick={() => {
                   void handleRefresh();
                 }}

@@ -564,6 +564,7 @@ const AuditLogPage: React.FC = () => {
         <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center justify-between">
           <span className="text-error-700 dark:text-error-300 text-sm">{exportError}</span>
           <button
+            aria-label="Dismiss export error"
             onClick={() => setExportError(null)}
             className="text-error-400 hover:text-error-600 dark:hover:text-error-300 ml-4"
           >

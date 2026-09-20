@@ -137,6 +137,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       render: (_value, tmpl) => (
         <>
           <ToggleButton
+            aria-label={tmpl.title}
             onClick={() => onToggleActive(tmpl.id)}
             pressed={tmpl.isActive}
             className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"

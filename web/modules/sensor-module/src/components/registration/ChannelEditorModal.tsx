@@ -515,6 +515,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                 </p>
               </div>
               <ToggleButton
+                aria-label={t('a11y.showOnDashboard')}
                 onClick={() =>
                   handleDisplaySettingChange(
                     'showOnDashboard',
@@ -566,6 +567,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
               <div className="flex items-center space-x-2">
                 {COLOR_PRESETS.map((color) => (
                   <ToggleButton
+                    aria-label={`${t('a11y.selectColour')} ${color}`}
                     key={color}
                     onClick={() => handleDisplaySettingChange('color', color)}
                     pressed={formData.displaySettings?.color === color}

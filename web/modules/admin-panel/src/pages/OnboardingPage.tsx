@@ -505,6 +505,7 @@ export const OnboardingPage: React.FC = () => {
                     </div>
                   </div>
                   <button
+                    aria-label="Close tenant details"
                     onClick={() => setSelectedTenantId(null)}
                     className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                   >

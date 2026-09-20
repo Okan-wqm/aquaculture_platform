@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Button, Input, Modal, Select, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, ToggleButton, useI18n } from '@aquaculture/shared-ui';
 import {
   X,
   Settings,
@@ -54,6 +54,7 @@ import { EquipmentLinkDialog } from '../dialogs/EquipmentLinkDialog';
 import { SensorConfigDialog } from '../dialogs/SensorConfigDialog';
 
 export const PropertiesPanel: React.FC = () => {
+  const { t } = useI18n();
   const {
     selectedNode,
     selectedEdge,
@@ -795,6 +796,7 @@ export const PropertiesPanel: React.FC = () => {
                       Edit
                     </Button>
                     <button
+                      aria-label={t('a11y.unlinkSensor')}
                       onClick={handleSensorUnlink}
                       className="text-xs text-error-600 dark:text-error-400 hover:text-error-700 dark:hover:text-error-200 flex items-center gap-1 px-2 py-1 hover:bg-error-50 dark:hover:bg-error-900/30 rounded transition-colors"
                     >

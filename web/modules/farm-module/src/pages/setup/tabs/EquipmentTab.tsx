@@ -34,6 +34,7 @@ import {
   SpecificationSchema,
   Spinner,
   ToggleButton,
+  useI18n,
   useToast,
   validateSpecifications,
   type SelectOption,
@@ -277,6 +278,7 @@ const initialFormData: EquipmentFormData = {
 };
 
 export const EquipmentTab: React.FC = () => {
+  const { t } = useI18n();
   // Local state - declared before hooks that depend on it
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -828,6 +830,7 @@ export const EquipmentTab: React.FC = () => {
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             <ToggleButton
+              aria-label={t('a11y.gridView')}
               onClick={() => setViewMode('grid')}
               pressed={viewMode === 'grid'}
               className="px-3 py-2"
@@ -837,6 +840,7 @@ export const EquipmentTab: React.FC = () => {
               <LayoutGrid className="w-5 h-5" aria-hidden="true" />
             </ToggleButton>
             <ToggleButton
+              aria-label={t('a11y.tableView')}
               onClick={() => setViewMode('table')}
               pressed={viewMode === 'table'}
               className="px-3 py-2"

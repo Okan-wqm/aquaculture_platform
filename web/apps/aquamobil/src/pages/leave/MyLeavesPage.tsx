@@ -13,6 +13,7 @@ import {
   useCancelLeaveRequest,
   useLeaveTypes,
 } from '@/hooks/useLeave';
+import { useI18n } from '@/i18n';
 import type { LeaveBalance, LeaveRequest } from '@/types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,6 +27,7 @@ const STATUS_COLORS: Record<string, string> = {
 type Tab = 'balances' | 'requests';
 
 export function MyLeavesPage(): JSX.Element {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('balances');
 
@@ -67,6 +69,7 @@ export function MyLeavesPage(): JSX.Element {
         title="Leave"
         actions={
           <button
+            aria-label={t('a11y.newLeaveRequest')}
             onClick={() => navigate('/leave/request')}
             className="p-2 rounded-xl bg-white/20 dark:bg-gray-900/20 hover:bg-white/30 dark:hover:bg-gray-800/30 touch-feedback"
           >

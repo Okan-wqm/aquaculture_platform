@@ -191,6 +191,7 @@ const EmailTemplatesPage: React.FC = () => {
         <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4 flex items-center justify-between">
           <span className="text-success-700 dark:text-success-300">{successMessage}</span>
           <button
+            aria-label="Dismiss message"
             onClick={() => setSuccessMessage(null)}
             className="text-success-400 hover:text-success-600 dark:hover:text-success-300 ml-4"
           >

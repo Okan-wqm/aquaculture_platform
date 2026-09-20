@@ -283,6 +283,7 @@ const ConsentBanner: React.FC = () => {
               >
                 {/* Toggle */}
                 <button
+                  aria-label={info.label}
                   type="button"
                   role="switch"
                   aria-checked={isEssential || isGranted}

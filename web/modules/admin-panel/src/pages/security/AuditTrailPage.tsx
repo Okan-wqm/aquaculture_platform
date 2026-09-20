@@ -14,8 +14,6 @@ import {
   AlertTriangle,
   Bell,
   Plus,
-  Edit2,
-  Trash2,
   Archive,
   XCircle,
   Info,
@@ -688,6 +686,7 @@ export const AuditTrailPage: React.FC = () => {
       render: (_value, entry) => (
         <>
           <button
+            aria-label="View audit entry"
             onClick={() => setSelectedEntry(entry)}
             className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           >
@@ -966,14 +965,6 @@ export const AuditTrailPage: React.FC = () => {
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         Condition: {rule.condition}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   </div>
 

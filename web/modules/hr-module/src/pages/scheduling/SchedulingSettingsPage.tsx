@@ -18,7 +18,15 @@ import {
   X,
   Layers,
 } from 'lucide-react';
-import { Button, cn, colors, Input, PageHeader, ToggleButton } from '@aquaculture/shared-ui';
+import {
+  Button,
+  cn,
+  colors,
+  Input,
+  PageHeader,
+  ToggleButton,
+  useI18n,
+} from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -39,6 +47,7 @@ const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
 ];
 
 export function SchedulingSettingsPage() {
+  const { t } = useI18n();
   const { data: settings, isLoading, error } = useSchedulingSettings();
   const { data: shifts } = useShifts({ isActive: true });
   const updateMutation = useUpdateSchedulingSettings();
@@ -404,6 +413,7 @@ export function SchedulingSettingsPage() {
                   <div className="flex gap-2 flex-wrap">
                     {SHIFT_COLORS.map((color) => (
                       <ToggleButton
+                        aria-label={`${t('a11y.selectColour')} ${color}`}
                         key={color}
                         type="button"
                         onClick={() => setShiftForm((p) => ({ ...p, colorCode: color }))}

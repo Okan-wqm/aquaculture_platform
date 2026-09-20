@@ -82,6 +82,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <div className="flex gap-1">
           {ALIGN_OPTIONS.map(({ value, icon: Icon }) => (
             <ToggleButton
+              aria-label={`${t('a11y.textAlign')} ${value}`}
               key={value}
               type="button"
               onClick={() => onChange({ textAlign: value })}

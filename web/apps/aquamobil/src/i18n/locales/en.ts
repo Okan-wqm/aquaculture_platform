@@ -66,6 +66,22 @@ export const en = {
   'feeding.errors.amountRequired': 'Amount must be greater than 0',
   'feeding.errors.amountMax': 'Amount cannot exceed 10000 kg',
   'feeding.errors.generic': 'Failed to record feeding',
+
+  // ── Accessible names for icon-only controls (FE-HIGH-158) ──
+  'a11y.logOut': 'Log out',
+  'a11y.refresh': 'Refresh',
+  'a11y.showPassword': 'Show password',
+  'a11y.hidePassword': 'Hide password',
+  'a11y.decrease': 'Decrease',
+  'a11y.increase': 'Increase',
+  'a11y.dismiss': 'Dismiss',
+  'a11y.back': 'Back',
+  'a11y.channelSettings': 'Channel settings',
+  'a11y.clearSearch': 'Clear search',
+  'a11y.previousWeek': 'Previous week',
+  'a11y.nextWeek': 'Next week',
+  'a11y.newLeaveRequest': 'New leave request',
+  'a11y.sendComment': 'Send comment',
 } as const;
 
 export type MessageKey = keyof typeof en;

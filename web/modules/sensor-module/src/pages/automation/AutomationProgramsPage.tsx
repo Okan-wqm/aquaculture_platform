@@ -45,6 +45,7 @@ import {
   ToggleButton,
   useAuth,
   useConfirm,
+  useI18n,
   usePrompt,
   type DataTableColumn,
 } from '@aquaculture/shared-ui';
@@ -281,6 +282,7 @@ const ProgramCard: React.FC<{
 // ============================================================================
 
 const AutomationProgramsPage: React.FC = () => {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const navigate = useNavigate();
@@ -680,6 +682,7 @@ const AutomationProgramsPage: React.FC = () => {
 
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <ToggleButton
+            aria-label={t('a11y.gridView')}
             onClick={() => setViewMode('grid')}
             pressed={viewMode === 'grid'}
             className="p-2 rounded"
@@ -688,6 +691,7 @@ const AutomationProgramsPage: React.FC = () => {
             <LayoutGrid className="h-4 w-4" />
           </ToggleButton>
           <ToggleButton
+            aria-label={t('a11y.listView')}
             onClick={() => setViewMode('list')}
             pressed={viewMode === 'list'}
             className="p-2 rounded"

@@ -113,6 +113,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
 
                   {/* Toggle */}
                   <ToggleButton
+                    aria-label={rule.name}
                     onClick={() => onToggleActive(rule.id)}
                     pressed={rule.isActive}
                     className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0"

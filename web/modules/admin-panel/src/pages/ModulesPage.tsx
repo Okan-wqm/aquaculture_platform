@@ -234,6 +234,7 @@ const ModulesPage: React.FC = () => {
           <CircleX className="w-5 h-5 text-error-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
           <p className="text-sm text-error-700 dark:text-error-300 flex-1">{toggleError}</p>
           <button
+            aria-label="Dismiss error"
             onClick={() => toggleModule.reset()}
             className="text-error-400 hover:text-error-600 dark:hover:text-error-300"
           >

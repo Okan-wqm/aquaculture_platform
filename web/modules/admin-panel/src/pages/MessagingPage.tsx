@@ -13,7 +13,6 @@ import {
   Users,
   Search,
   Archive,
-  MoreVertical,
   Paperclip,
   Clock,
   CheckCheck,
@@ -267,6 +266,7 @@ export const MessagingPage: React.FC = () => {
           actions={
             <div className="flex items-center gap-3">
               <button
+                aria-label="Refresh threads"
                 onClick={() => {
                   fetchThreads();
                   fetchStats();
@@ -485,13 +485,11 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     )}
                     <button
+                      aria-label="Archive thread"
                       onClick={() => handleArchiveThread(selectedThread.id)}
                       className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       <Archive size={18} />
-                    </button>
-                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                      <MoreVertical size={18} />
                     </button>
                   </div>
                 </div>
@@ -635,10 +633,8 @@ export const MessagingPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <Paperclip size={20} />
-                      </button>
                       <button
+                        aria-label="Send message"
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim()}
                         className="p-3 bg-info-600 text-white rounded-lg hover:bg-info-700 disabled:opacity-50 disabled:cursor-not-allowed"

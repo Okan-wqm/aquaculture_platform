@@ -34,6 +34,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
+import { useI18n } from '@/i18n';
 import type { OperationType, QueuedPayload } from '@/types';
 
 /* ---------------------------------------------------------------- */
@@ -473,6 +474,7 @@ export function QuantityStepper(props: {
   theme: Pick<RecordEntityTheme, 'surfaceSoftBg' | 'surfaceBorder' | 'accentText'>;
 }): JSX.Element {
   const { label, value, onChange, max, error, theme } = props;
+  const { t } = useI18n();
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
@@ -482,6 +484,7 @@ export function QuantityStepper(props: {
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
         <div className="flex items-center justify-center gap-5">
           <button
+            aria-label={`${t('a11y.decrease')} ${label}`}
             type="button"
             onClick={() => onChange(clamp(value - 1))}
             disabled={value <= 1}
@@ -497,6 +500,7 @@ export function QuantityStepper(props: {
             {value}
           </div>
           <button
+            aria-label={`${t('a11y.increase')} ${label}`}
             type="button"
             onClick={() => onChange(clamp(value + 1))}
             disabled={value >= max}

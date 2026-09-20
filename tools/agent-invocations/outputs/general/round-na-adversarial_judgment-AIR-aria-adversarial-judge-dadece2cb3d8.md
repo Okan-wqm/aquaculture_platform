@@ -1,0 +1,42 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-35471772861",
+  "claim_id": "claim_9a152b0448021c5e",
+  "details": {
+    "agent_contract_hash": "sha256:371b4ba23b1933b796d76fa515e10124942c4c37a33483da01ab3dcea184be63",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-dadece2cb3d8\",\n  \"claim_id\": \"AIR-aria-adversarial-judge-dadece2cb3d8\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"adversarial_judgment\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-adversarial_judgment-AIR-aria-adversarial-judge-dadece2cb3d8.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"verdict\",\n      \"verdict\": \"contradicted\",\n      \"note\": \"false_positive. The finding's load-bearing premise \u2014 that e2e/playwright-report no longer exists at snapshot b8febe123d0573643bada3bb0c20b0a157a3d89f \u2014 is established by zero admissible evidence: the payload ships only the referencing doc, never the referenced path's absence. The doc's one verifiable mention (line 3 of the excerpt, lines 1-22, content_hash sha256:329cc80c634f2f5db9cb02d76120007866aae53f5c8a8312fa6d8a17c83fbaf2) is a grep-methodology exclusion that groups e2e/playwright-report with node_modules, dist, .nx and .git \u2014 generated tool output the audit excluded from its scan, not a surface the doc 'answers confidently' about. The excerpt window ends at line 22, so the claimed line-276 occurrence cannot be confirmed from admissible evidence either; only the line-3 occurrence is verifiable. Sole evidence ref read first and last (reverse-order anchoring is trivial with one ref).\",\n      \"evidence_refs\": [\n        \"docs/reviews/_audit/2026-04-W16-anti-patterns.md:3\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"docs/reviews/_audit/2026-04-W16-anti-patterns.md:3\"\n  ],\n  \"details\": {\n    \"verdict\": {\n      \"judge_id\": \"aria-adversarial-judge\",\n      \"finding_id\": \"doc-staleness:missing:docs/reviews/_audit/2026-04-W16-anti-patterns.md:276:e2e/playwright-report\",\n      \"true_positive\": false,\n      \"false_positive\": true,\n      \"confidence\": 0.7,\n      \"evidence_refs\": [\n        \"docs/reviews/_audit/2026-04-W16-anti-patterns.md:3\"\n      ],\n      \"rationale\": \"What must be done: a doc_references_missing_path verdict stands on two legs \u2014 (1) the doc names the path, and (2) the path is gone at the snapshot SHA. Leg 1 is proven: line 3 of the excerpt names e2e/playwright-report in the audit's exclusion list. Leg 2 has no support anywhere in the admissible evidence: the evidence payload contains only docs/reviews/_audit/2026-04-W16-anti-patterns.md \u2014 no tree listing, no .gitignore, no deletion record for e2e/ \u2014 and the repository map is explicitly labeled a projection, not evidence, so it cannot prove absence either. Why it matters: doc-staleness findings exist so a reader following a doc does not land on a removed surface; confirming one without proof of removal rubber-stamps an unverified adapter existence check. What breaks if wrongly confirmed: maintainers are directed to edit a dated, READ-ONLY audit record (2026-04-W16) whose only proven mention is a grep-exclusion footnote grouping the path with node_modules, dist, .nx and .git \u2014 i.e., generated Playwright report output whose on-disk presence is a side effect of the last e2e run, not a tracked surface at a commit SHA. The doc's substantive claims (anti-pattern counts, offender files) never depend on that directory, so no reader is misled about any live architecture; the downstream surfaces harmed by a confirm are the repair queue, diluted by noise, and the historical accuracy of immutable audit records. Evidence proving the result: the provided excerpt (lines 1-22, sha256:329cc80c634f2f5db9cb02d76120007866aae53f5c8a8312fa6d8a17c83fbaf2) was adequate to verify the line-3 mention and its exclusion-list context, so no file read was needed; it cannot and does not speak to path existence, which is exactly the leg the finding never proved. The finding's own anchor (line 276) also lies beyond the excerpt's 22-line window, so the cited occurrence is unconfirmed. Per contract: directionally plausible cl...",
+    "counter_evidence_refs": [
+      "docs/reviews/_audit/2026-04-W16-anti-patterns.md:3"
+    ],
+    "runtime_attempt_ledger_hash": "sha256:a76269a8ad545d3ff2b570f7704ec6afa76d01eb2ab700831c50467a10855214",
+    "verdict": {
+      "confidence": 0.7,
+      "evidence_refs": [
+        "docs/reviews/_audit/2026-04-W16-anti-patterns.md:3"
+      ],
+      "false_positive": true,
+      "finding_id": "doc-staleness:missing:docs/reviews/_audit/2026-04-W16-anti-patterns.md:276:e2e/playwright-report",
+      "judge_id": "aria-adversarial-judge",
+      "rationale": "What must be done: a doc_references_missing_path verdict stands on two legs \u2014 (1) the doc names the path, and (2) the path is gone at the snapshot SHA. Leg 1 is proven: line 3 of the excerpt names e2e/playwright-report in the audit's exclusion list. Leg 2 has no support anywhere in the admissible evidence: the evidence payload contains only docs/reviews/_audit/2026-04-W16-anti-patterns.md \u2014 no tree listing, no .gitignore, no deletion record for e2e/ \u2014 and the repository map is explicitly labeled a projection, not evidence, so it cannot prove absence either. Why it matters: doc-staleness findings exist so a reader following a doc does not land on a removed surface; confirming one without proof of removal rubber-stamps an unverified adapter existence check. What breaks if wrongly confirmed: maintainers are directed to edit a dated, READ-ONLY audit record (2026-04-W16) whose only proven mention is a grep-exclusion footnote grouping the path with node_modules, dist, .nx and .git \u2014 i.e., generated Playwright report output whose on-disk presence is a side effect of the last e2e run, not a tracked surface at a commit SHA. The doc's substantive claims (anti-pattern counts, offender files) never depend on that directory, so no reader is misled about any live architecture; the downstream surfaces harmed by a confirm are the repair queue, diluted by noise, and the historical accuracy of immutable audit records. Evidence proving the result: the provided excerpt (lines 1-22, sha256:329cc80c634f2f5db9cb02d76120007866aae53f5c8a8312fa6d8a17c83fbaf2) was adequate to verify the line-3 mention and its exclusion-list context, so no file read was needed; it cannot and does not speak to path existence, which is exactly the leg the finding never proved. The finding's own anchor (line 276) also lies beyond the excerpt's 22-line window, so the cited occurrence is unconfirmed. Per contract: directionally plausible class, unsupported concrete premise \u2014 false_positive at moderate confidence.",
+      "true_positive": false
+    }
+  },
+  "evidence_refs": [
+    "docs/reviews/_audit/2026-04-W16-anti-patterns.md:3"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-dadece2cb3d8",
+  "role": "adversarial_judgment",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "docs/reviews/_audit/2026-04-W16-anti-patterns.md:3"
+      ],
+      "id": "verdict",
+      "note": "false_positive. The finding's load-bearing premise \u2014 that e2e/playwright-report no longer exists at snapshot b8febe123d0573643bada3bb0c20b0a157a3d89f \u2014 is established by zero admissible evidence: the payload ships only the referencing doc, never the referenced path's absence. The doc's one verifiable mention (line 3 of the excerpt, lines 1-22, content_hash sha256:329cc80c634f2f5db9cb02d76120007866aae53f5c8a8312fa6d8a17c83fbaf2) is a grep-methodology exclusion that groups e2e/playwright-report with node_modules, dist, .nx and .git \u2014 generated tool output the audit excluded from its scan, not a surface the doc 'answers confidently' about. The excerpt window ends at line 22, so the claimed line-276 occurrence cannot be confirmed from admissible evidence either; only the line-3 occurrence is verifiable. Sole evidence ref read first and last (reverse-order anchoring is trivial with one ref).",
+      "verdict": "contradicted"
+    }
+  ],
+  "status": "submitted"
+}

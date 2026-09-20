@@ -1,0 +1,40 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-35471772861",
+  "claim_id": "claim_051cb85d5a64c453",
+  "details": {
+    "agent_contract_hash": "sha256:371b4ba23b1933b796d76fa515e10124942c4c37a33483da01ab3dcea184be63",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-c92fef5b4727\",\n  \"claim_id\": \"bundle-budget:no-budget:web/modules/admin-panel\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"adversarial_judgment\",\n  \"status\": \"submitted\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"verdict\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"Independent reverse-order scan (anchored on the tail build/test block first, then swept up through plugins and imports) confirms the finding: the sole build declaration at web/modules/admin-panel/vite.config.ts:47 is `{ target: 'esnext' }` \u2014 no `chunkSizeWarningLimit`, no rollup size control, and no import, plugin, or loader that could consume a `bundle-budget.json` anywhere in the 56-line config. This module is a Module Federation remote (name 'adminPanel', remoteEntry.js, four exposes entries at lines 19-31) whose chunks load inside the host shell, so unbudgeted growth regresses host load time with no project-level signal. Caveat weighed and set aside: Vite's built-in 500 kB default chunk warning still fires without explicit config, so the message tail 'nothing warns when the bundle grows' is slightly overstated \u2014 but a stock default warning is not a declared budget for this MFE, so the rule's substance (no_bundle_budget_declared) holds. No counter-evidence exists in the admissible refs.\",\n      \"evidence_refs\": [\n        \"web/modules/admin-panel/vite.config.ts:47\",\n        \"web/modules/admin-panel/vite.config.ts:19\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"web/modules/admin-panel/vite.config.ts:47\",\n    \"web/modules/admin-panel/vite.config.ts:19\"\n  ],\n  \"details\": {\n    \"verdict\": {\n      \"judge_id\": \"aria-adversarial-judge\",\n      \"verdict\": \"true_positive\",\n      \"confidence\": \"high\",\n      \"rationale\": \"What was checked: whether the admin-panel MFE declares any bundle budget by either channel the rule names (build.chunkSizeWarningLimit in the vite config, or a bundle-budget.json the build consumes). What the evidence shows: the config is one inline, self-contained object spanning lines 1-56; the build block at line 47 is exactly `build: { target: 'esnext' }`, so the compile target is the only build option \u2014 no chunkSizeWarningLimit, no rollupOptions size control, and no plugin or import that reads a bundle-budget.json. Even if a bundle-budget.json file were present in the module directory, nothing in this config's plugin list or build options consumes it, so no budget would be enforced anyway; the effective claim (no budget declared for this remote's build) is verified against the full file. Why it matters and what breaks downstream: admin-panel is a Module Federation remote (lines 19-31: name 'adminPanel', remoteEntry.js, exposes ./Module, ./UserManagement, ./TenantManagement, ./SystemSettings) loaded by the host shell; without a declared budget, chunk growth in the remote silently regresses host load time \u2014 the exact failure class this rule exists to make visible at build time. Adversarial angles weighed and dismissed: (a) Vite's default 500 kB chunk-size warning still fires when the limit is unset, making the message's 'nothing warns' tail mildly overstated, but a stock default is not a declared budget and does not falsify the rule; (b) a budget could live outside this file, but this config merges no shared build config (the only shared imports are federation shared-deps, aliases, and the vitest policy, none of which touch build sizing) and nothing in the admissible payload registers one. Result: true_positive with high confidence on the config-verified core.\",\n      \"finding_id\": \"bundle-budget:no-budget:web/modules/admin-panel\",\n      \"rule\": \"no_bundle_budget_declared\",\n      \"severity\": \"medium\"\n    },\n    \"counter_evidence_refs\": []\n  }\n}\n```",
+    "counter_evidence_refs": [],
+    "runtime_attempt_ledger_hash": "sha256:6956408b4c5bbcebf67f53678fc9a4ad1868123d02b09bdba47c266624d171dc",
+    "verdict": {
+      "confidence": "high",
+      "finding_id": "bundle-budget:no-budget:web/modules/admin-panel",
+      "judge_id": "aria-adversarial-judge",
+      "rationale": "What was checked: whether the admin-panel MFE declares any bundle budget by either channel the rule names (build.chunkSizeWarningLimit in the vite config, or a bundle-budget.json the build consumes). What the evidence shows: the config is one inline, self-contained object spanning lines 1-56; the build block at line 47 is exactly `build: { target: 'esnext' }`, so the compile target is the only build option \u2014 no chunkSizeWarningLimit, no rollupOptions size control, and no plugin or import that reads a bundle-budget.json. Even if a bundle-budget.json file were present in the module directory, nothing in this config's plugin list or build options consumes it, so no budget would be enforced anyway; the effective claim (no budget declared for this remote's build) is verified against the full file. Why it matters and what breaks downstream: admin-panel is a Module Federation remote (lines 19-31: name 'adminPanel', remoteEntry.js, exposes ./Module, ./UserManagement, ./TenantManagement, ./SystemSettings) loaded by the host shell; without a declared budget, chunk growth in the remote silently regresses host load time \u2014 the exact failure class this rule exists to make visible at build time. Adversarial angles weighed and dismissed: (a) Vite's default 500 kB chunk-size warning still fires when the limit is unset, making the message's 'nothing warns' tail mildly overstated, but a stock default is not a declared budget and does not falsify the rule; (b) a budget could live outside this file, but this config merges no shared build config (the only shared imports are federation shared-deps, aliases, and the vitest policy, none of which touch build sizing) and nothing in the admissible payload registers one. Result: true_positive with high confidence on the config-verified core.",
+      "rule": "no_bundle_budget_declared",
+      "severity": "medium",
+      "verdict": "true_positive"
+    }
+  },
+  "evidence_refs": [
+    "web/modules/admin-panel/vite.config.ts:47",
+    "web/modules/admin-panel/vite.config.ts:19"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-c92fef5b4727",
+  "role": "adversarial_judgment",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "web/modules/admin-panel/vite.config.ts:47",
+        "web/modules/admin-panel/vite.config.ts:19"
+      ],
+      "id": "verdict",
+      "note": "Independent reverse-order scan (anchored on the tail build/test block first, then swept up through plugins and imports) confirms the finding: the sole build declaration at web/modules/admin-panel/vite.config.ts:47 is `{ target: 'esnext' }` \u2014 no `chunkSizeWarningLimit`, no rollup size control, and no import, plugin, or loader that could consume a `bundle-budget.json` anywhere in the 56-line config. This module is a Module Federation remote (name 'adminPanel', remoteEntry.js, four exposes entries at lines 19-31) whose chunks load inside the host shell, so unbudgeted growth regresses host load time with no project-level signal. Caveat weighed and set aside: Vite's built-in 500 kB default chunk warning still fires without explicit config, so the message tail 'nothing warns when the bundle grows' is slightly overstated \u2014 but a stock default warning is not a declared budget for this MFE, so the rule's substance (no_bundle_budget_declared) holds. No counter-evidence exists in the admissible refs.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

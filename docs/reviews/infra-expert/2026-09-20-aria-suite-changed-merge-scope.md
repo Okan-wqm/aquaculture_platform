@@ -216,6 +216,27 @@ failed allocation rather than a silent loss. The merge recipe can diff by
 rather than drop it. Both belong with the registry's owner, not inside a
 design-system PR.
 
+### PROC-MEDIUM-036 — the changed-file type-check builds a program the package never uses
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+`type-check-changed-files.mjs` extends the owning package's `tsconfig.json` but replaces `include`
+with an explicit `files` list: the changed files plus every `.d.ts` under the project. That is not
+the program the package type-checks. `web/modules/farm-module/vite.config.ts` loads
+`./src/test-setup.ts`, and that module's `import '@testing-library/jest-dom'` is what declares
+`toBeInTheDocument` and `toHaveValue` on vitest's `Assertion`. With the setup file out of the
+program, five matchers in `SiteFormModal.spec.tsx` failed the pre-push hook while
+`tsc --noEmit -p web/modules/farm-module/tsconfig.json` on the same tree passed.
+
+The failure is latent: it fires the first time a spec using a jest-dom matcher is _touched_, for a
+reason unrelated to the change. Here the change was adding `ToggleButton` to a `vi.mock` list. A
+gate that reports errors the project does not have is worse than no gate — it is the argument
+people use for `--no-verify`, which this repository forbids.
+
+**Fix:** the hook resolves `setupFiles` from the package's vite/vitest config and adds them to the
+synthetic program, alongside the `.d.ts` files it already collects. The setup file is part of how
+the package type-checks its tests, so the gate now compiles what the package compiles.
+
 ## Environment notes (not findings against this repository)
 
 The kernel suite could not run at all in the Claude Code remote container until four packages were

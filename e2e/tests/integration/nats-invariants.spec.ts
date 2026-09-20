@@ -336,7 +336,7 @@ function loadContractSubjectConstants(): Map<string, string> {
 // `sensor.lookup.` (not bare `sensor.`) — sensor-service uses EventEmitter2
 // with `sensor.<verb>` names for IN-PROCESS events; only the lookup RPC
 // rides NATS. A bare `sensor.` prefix would flag every eventEmitter.emit().
-const NATS_SUBJECT_PREFIXES = /^(request|commands|events|sensor\.lookup|st|policy)\./;
+const NATS_SUBJECT_PREFIXES = /^(request|commands|events|telemetry|sensor\.lookup|st|policy)\./;
 
 /**
  * Event types built by an app but NEVER published to NATS — persisted or
@@ -383,6 +383,18 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   for (const file of walkAppSources(appDir)) {
     const text = readFileSync(file, 'utf-8');
     for (const m of text.matchAll(/@(?:MessagePattern|EventPattern)\(\s*([^),]+)/g)) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) handled.add(subject);
+    }
+    // A raw core subscription — `connection.subscribe('telemetry.*.SensorReading')`
+    // in the gateway's WebSocket bridge — is a handled subject too. Only the
+    // decorator form was read before, so when SENSOR-HIGH-092 moved
+    // SensorReading under the telemetry root the bridge's subject left the
+    // gateway's `events.>` grant with nothing to notice it: two Subscription
+    // Violations at every boot and no live readings on the dashboards
+    // (INFRA-HIGH-186). Variables are not resolved — a bridge that builds its
+    // subject at runtime declares the pattern it needs in services.yaml.
+    for (const m of text.matchAll(/\.subscribe(?:<[^>]*>)?\(\s*([^),]+)/g)) {
       const subject = resolveRef(m[1].trim());
       if (subject && NATS_SUBJECT_PREFIXES.test(subject)) handled.add(subject);
     }

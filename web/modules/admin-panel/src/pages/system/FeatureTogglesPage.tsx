@@ -7,17 +7,18 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
   Input,
+  Modal,
+  PageHeader,
   Select,
   Slider,
-  Modal,
+  ToggleButton,
   useConfirm,
   type DataTableColumn,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
@@ -363,17 +364,16 @@ export const FeatureTogglesPage: React.FC = () => {
       align: 'right',
       render: (_value, toggle) => (
         <div className="flex justify-end gap-2">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => handleToggleStatus(toggle)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              toggle.status === 'enabled'
-                ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 hover:bg-error-200 dark:hover:bg-error-800/60'
-                : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60'
-            }`}
+            pressed={toggle.status === 'enabled'}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+            pressedClassName="bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 hover:bg-error-200 dark:hover:bg-error-800/60"
+            idleClassName="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60"
           >
             {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
-          </button>
+          </ToggleButton>
           <button
             type="button"
             onClick={() => openEditModal(toggle)}

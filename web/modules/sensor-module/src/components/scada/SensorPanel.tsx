@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton } from '@aquaculture/shared-ui';
 import { X, Settings, Bell, History, Gauge, BarChart3 } from 'lucide-react';
 import {
   useScadaViewerStore,
@@ -138,17 +138,17 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
           { mode: 'sparkline' as ViewMode, icon: History, label: 'Trend' },
           { mode: 'status' as ViewMode, icon: Bell, label: 'Status' },
         ].map(({ mode, icon: ModeIcon, label }) => (
-          <button
+          <ToggleButton
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`
-              p-1.5 rounded transition-colors
-              ${viewMode === mode ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
-            `}
+            pressed={viewMode === mode}
+            className="p-1.5 rounded transition-colors"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             title={label}
           >
             <ModeIcon size={16} />
-          </button>
+          </ToggleButton>
         ))}
       </div>
 

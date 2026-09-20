@@ -11,7 +11,7 @@ import { modulesApi } from '../services/adminApi';
 // byte-identical copies of the canonical declarations, which is how a copy
 // stops matching the endpoint it describes without anything saying so.
 import type { ModuleStats, PaginatedResult, SystemModule } from '../services/types';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, ToggleButton } from '@aquaculture/shared-ui';
 import { Box, CircleX, Plus, Search as SearchIcon, X } from 'lucide-react';
 
 /**
@@ -172,20 +172,19 @@ const ModulesPage: React.FC = () => {
             </div>
           </div>
           <div className="flex gap-2">
-            <button
+            <ToggleButton
               onClick={() => {
                 setIsActiveFilter(undefined);
                 setIsCoreFilter(undefined);
                 refresh();
               }}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isActiveFilter === undefined && isCoreFilter === undefined
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={isActiveFilter === undefined && isCoreFilter === undefined}
+              className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               All
-            </button>
+            </ToggleButton>
             <button
               onClick={() => {
                 setIsActiveFilter(true);

@@ -20,7 +20,15 @@
  *    retries do not create duplicate movements — critical for accurate inventory.
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Textarea,
+  ToggleButton,
+  useToast,
+} from '@aquaculture/shared-ui';
 import {
   useRecordStockMovement,
   StorageItemType,
@@ -383,19 +391,18 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
-                <button
+                <ToggleButton
                   key={opt.value}
                   type="button"
                   onClick={() => handleItemTypeChange(opt.value)}
                   disabled={!!defaultItemType}
-                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                    itemType === opt.value
-                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  } disabled:opacity-60 disabled:cursor-not-allowed`}
+                  pressed={itemType === opt.value}
+                  className="px-3 py-2 text-sm rounded-lg border transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {opt.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>

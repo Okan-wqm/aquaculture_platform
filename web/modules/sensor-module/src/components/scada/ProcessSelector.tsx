@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search, Play, Pause, FileText, Check } from 'lucide-react';
 import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
+import { ToggleButton } from '@aquaculture/shared-ui';
 
 interface ProcessSelectorProps {
   className?: string;
@@ -131,14 +132,13 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                   const isSelected = selectedProcessId === process.id;
 
                   return (
-                    <button
+                    <ToggleButton
                       key={process.id}
                       onClick={() => handleSelectProcess(process)}
-                      className={`
-                        w-full flex items-start gap-3 p-3 rounded-lg text-left
-                        transition-colors
-                        ${isSelected ? 'bg-info-50 dark:bg-info-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
-                      `}
+                      pressed={isSelected}
+                      className="w-full flex items-start gap-3 p-3 rounded-lg text-left transition-colors"
+                      pressedClassName="bg-info-50 dark:bg-info-900/20"
+                      idleClassName="hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                       {/* Status icon */}
                       <div className={`p-1.5 rounded ${status.color}`}>
@@ -172,7 +172,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                           </span>
                         </div>
                       </div>
-                    </button>
+                    </ToggleButton>
                   );
                 })}
               </div>

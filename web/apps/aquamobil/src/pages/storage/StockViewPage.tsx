@@ -14,25 +14,20 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import {
-  Package,
-  AlertCircle,
-  RefreshCw,
-  MapPin,
-} from 'lucide-react';
+import { Package, AlertCircle, RefreshCw, MapPin } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import type { JSX } from 'react';
 
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-
 
 // ============================================================================
 // TYPES
@@ -112,9 +107,7 @@ export function StockViewPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        STORAGE_LOCATIONS,
-      );
+      const result = await graphqlRequest(STORAGE_LOCATIONS);
       return result.storageLocations?.items ?? [];
     },
     // Allow offline access via React Query stale cache so workers can still
@@ -128,7 +121,11 @@ export function StockViewPage(): JSX.Element {
   // every render. Memoizing on `locationsData` keeps the reference stable.
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
-  const { data: stockData, isLoading: stockLoading, refetch: refetchStock } = useQuery<StockItem[]>({
+  const {
+    data: stockData,
+    isLoading: stockLoading,
+    refetch: refetchStock,
+  } = useQuery<StockItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId, tenantId),
     queryFn: async () => {
       // WHY guard tenantId here: `enabled` below already gates this query on
@@ -141,10 +138,7 @@ export function StockViewPage(): JSX.Element {
       }
       // Attempt server fetch first
       if (isOnline) {
-        const result = await graphqlRequest(
-          STOCK_AT_LOCATION,
-          { locationId: selectedLocationId },
-        );
+        const result = await graphqlRequest(STOCK_AT_LOCATION, { locationId: selectedLocationId });
         const items = result.storageInventory ?? [];
         // Cache for offline viewing (1-hour TTL, acceptable staleness for stock counts)
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
@@ -174,7 +168,9 @@ export function StockViewPage(): JSX.Element {
     try {
       await refetchStock();
       // Also invalidate the query client cache to force fresh data
-      await queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId) });
+      await queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId),
+      });
     } finally {
       setIsRefreshing(false);
     }
@@ -194,7 +190,9 @@ export function StockViewPage(): JSX.Element {
           <>
             {selectedLocationId && isOnline && (
               <button
-                onClick={() => { void handleRefresh(); }}
+                onClick={() => {
+                  void handleRefresh();
+                }}
                 disabled={isRefreshing}
                 className="p-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback"
               >
@@ -231,19 +229,17 @@ export function StockViewPage(): JSX.Element {
             className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
           >
             {locations.map((loc) => (
-              <button
+              <ToggleButton
                 key={loc.id}
                 onClick={() => setSelectedLocationId(loc.id)}
-                className={clsx(
-                  'flex-shrink-0 px-4 py-2.5 rounded-xl border-2 transition-all touch-feedback text-sm font-semibold whitespace-nowrap',
-                  selectedLocationId === loc.id
-                    ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400',
-                )}
+                pressed={selectedLocationId === loc.id}
+                className="flex-shrink-0 px-4 py-2.5 rounded-xl border-2 transition-all touch-feedback text-sm font-semibold whitespace-nowrap"
+                pressedClassName="border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300"
+                idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400"
               >
                 <MapPin size={14} className="inline mr-1.5" />
                 {loc.name}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}
@@ -252,7 +248,12 @@ export function StockViewPage(): JSX.Element {
       {/* Stock List */}
       <div className="flex-1 px-4 pt-4">
         {!selectedLocationId && (
-          <EmptyState icon={MapPin} title="Select a location" description="Choose a storage location above to view stock" className="py-16" />
+          <EmptyState
+            icon={MapPin}
+            title="Select a location"
+            description="Choose a storage location above to view stock"
+            className="py-16"
+          />
         )}
 
         {selectedLocationId && stockLoading && (
@@ -304,7 +305,9 @@ export function StockViewPage(): JSX.Element {
                         <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                           {item.quantity}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">{item.unit}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                          {item.unit}
+                        </span>
                       </div>
                     </div>
 
@@ -319,12 +322,17 @@ export function StockViewPage(): JSX.Element {
                         <span
                           className={clsx(
                             'text-xs px-2 py-0.5 rounded-md font-medium',
-                            expiryStatus === 'expired' && 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-                            expiryStatus === 'warning' && 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
-                            expiryStatus === 'ok' && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+                            expiryStatus === 'expired' &&
+                              'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+                            expiryStatus === 'warning' &&
+                              'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+                            expiryStatus === 'ok' &&
+                              'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
                           )}
                         >
-                          {expiryStatus === 'expired' ? 'EXPIRED' : `Exp: ${formatExpiryDate(item.expiryDate)}`}
+                          {expiryStatus === 'expired'
+                            ? 'EXPIRED'
+                            : `Exp: ${formatExpiryDate(item.expiryDate)}`}
                         </span>
                       )}
                     </div>
@@ -335,7 +343,6 @@ export function StockViewPage(): JSX.Element {
           </>
         )}
       </div>
-
     </div>
   );
 }

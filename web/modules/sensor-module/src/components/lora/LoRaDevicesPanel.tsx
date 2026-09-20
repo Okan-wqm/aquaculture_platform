@@ -6,12 +6,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ConfirmModal,
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  ConfirmModal,
+  DataTable,
+  Modal,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -265,18 +266,17 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
           <label className={labelCls}>Aktivasyon Modu</label>
           <div className="flex gap-2 mt-1">
             {(['OTAA', 'ABP'] as const).map((mode) => (
-              <button
+              <ToggleButton
                 key={mode}
                 type="button"
                 onClick={() => setActivationMode(mode)}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  activationMode === mode
-                    ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={activationMode === mode}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+                idleClassName="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {mode}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>
@@ -286,18 +286,17 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
           <label className={labelCls}>Cihaz Sinifi</label>
           <div className="flex gap-2 mt-1">
             {(['A', 'C'] as const).map((cls) => (
-              <button
+              <ToggleButton
                 key={cls}
                 type="button"
                 onClick={() => setDeviceClass(cls)}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  deviceClass === cls
-                    ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={deviceClass === cls}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+                idleClassName="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Class {cls}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>

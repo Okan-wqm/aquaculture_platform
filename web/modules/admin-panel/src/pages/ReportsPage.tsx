@@ -6,7 +6,16 @@
  * Uses real API data from backend reports service.
  */
 
-import { Card, Button, Badge, DataTable, Modal, Input, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
@@ -574,17 +583,16 @@ const ReportsPage: React.FC = () => {
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2">
         {categories.map((cat) => (
-          <button
+          <ToggleButton
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeCategory === cat
-                ? 'bg-info-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+            pressed={activeCategory === cat}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            pressedClassName="bg-info-600 text-white"
+            idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             {cat === 'all' ? 'All' : cat}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -734,17 +742,16 @@ const ReportsPage: React.FC = () => {
               </p>
               <div className="flex gap-2">
                 {(['json', 'csv', 'pdf'] as ReportFormat[]).map((format) => (
-                  <button
+                  <ToggleButton
                     key={format}
                     onClick={() => setSelectedFormat(format)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedFormat === format
-                        ? 'bg-info-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                    pressed={selectedFormat === format}
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    pressedClassName="bg-info-600 text-white"
+                    idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                   >
                     {format.toUpperCase()}
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </div>

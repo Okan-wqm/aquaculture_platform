@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
@@ -510,7 +511,9 @@ export function AccountPage(): JSX.Element {
                   {roleBadge.label}
                 </span>
                 {userTenantId && (
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Tenant: {userTenantId}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                    Tenant: {userTenantId}
+                  </span>
                 )}
               </div>
             </div>
@@ -543,18 +546,17 @@ export function AccountPage(): JSX.Element {
                   const OptIcon = opt.icon;
                   const isActive = themePreference === opt.value;
                   return (
-                    <button
+                    <ToggleButton
                       key={opt.value}
                       onClick={() => setThemePreference(opt.value)}
-                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}
+                      pressed={isActive}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all"
+                      pressedClassName="bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                      idleClassName="text-gray-500 dark:text-gray-400"
                     >
                       <OptIcon size={14} />
                       {opt.label}
-                    </button>
+                    </ToggleButton>
                   );
                 })}
               </div>
@@ -693,7 +695,6 @@ export function AccountPage(): JSX.Element {
         <p className="text-xs text-gray-400 dark:text-gray-500">App Version: {APP_VERSION}</p>
         <p className="text-xs text-gray-400 dark:text-gray-500">Last synced: {lastSyncLabel}</p>
       </div>
-
 
       {/* ================================================================
           Confirmation Dialogs

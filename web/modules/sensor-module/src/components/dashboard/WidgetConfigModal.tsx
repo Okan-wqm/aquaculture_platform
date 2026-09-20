@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import { Button, colors as themeColors, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -344,17 +344,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           /* Step 1: Widget Type Selection */
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {WIDGET_TYPES.map((type) => (
-              <button
+              <ToggleButton
                 key={type.type}
                 onClick={() => handleTypeSelect(type.type)}
-                className={`
-                      flex items-start gap-4 p-4 border-2 rounded-lg text-left transition-all
-                      ${
-                        selectedType === type.type
-                          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }
-                    `}
+                pressed={selectedType === type.type}
+                className="flex items-start gap-4 p-4 border-2 rounded-lg text-left transition-all"
+                pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <div
                   className={`
@@ -374,7 +370,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     {type.description}
                   </p>
                 </div>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         ) : (

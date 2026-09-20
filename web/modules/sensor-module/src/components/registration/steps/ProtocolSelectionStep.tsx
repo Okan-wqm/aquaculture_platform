@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useProtocols, useCategoryInfo, useCategoryStats } from '../../../hooks/useProtocols';
 import { ProtocolInfo, ProtocolCategory } from '../../../types/registration.types';
-import { Spinner, Input } from '@aquaculture/shared-ui';
+import { Input, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { CircleCheck } from 'lucide-react';
 
 interface ProtocolSelectionStepProps {
@@ -33,13 +33,12 @@ function CategoryCard({
   };
 
   return (
-    <button
+    <ToggleButton
       onClick={onClick}
-      className={`p-4 border-2 rounded-lg text-left transition-all ${
-        isSelected
-          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
+      pressed={isSelected}
+      className="p-4 border-2 rounded-lg text-left transition-all"
+      pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+      idleClassName="border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800"
     >
       <div className="flex items-center space-x-3">
         <span className="text-2xl">{iconMap[category]}</span>
@@ -49,7 +48,7 @@ function CategoryCard({
           <span className="text-xs text-info-600 dark:text-info-400">{count} protocols</span>
         </div>
       </div>
-    </button>
+    </ToggleButton>
   );
 }
 
@@ -64,13 +63,12 @@ function ProtocolCard({
   onClick: () => void;
 }) {
   return (
-    <button
+    <ToggleButton
       onClick={onClick}
-      className={`p-4 border-2 rounded-lg text-left transition-all w-full ${
-        isSelected
-          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
+      pressed={isSelected}
+      className="p-4 border-2 rounded-lg text-left transition-all w-full"
+      pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+      idleClassName="border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800"
     >
       <div className="flex justify-between items-start">
         <div>
@@ -116,7 +114,7 @@ function ProtocolCard({
           </span>
         )}
       </div>
-    </button>
+    </ToggleButton>
   );
 }
 

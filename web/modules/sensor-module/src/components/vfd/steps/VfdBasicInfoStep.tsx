@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input, Select, Textarea } from '@aquaculture/shared-ui';
+import { Input, Select, Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import { VfdBrandInfo, RegisterVfdInput } from '../../../types/vfd.types';
 import { Info } from 'lucide-react';
 
@@ -232,7 +232,7 @@ export function VfdBasicInfoStep({
         </label>
         <div className="flex flex-wrap gap-2">
           {['Yeni', 'Kritik', 'Yedek', 'Bakımda'].map((tag) => (
-            <button
+            <ToggleButton
               key={tag}
               type="button"
               onClick={() => {
@@ -242,14 +242,13 @@ export function VfdBasicInfoStep({
                   : [...currentTags, tag];
                 onChange({ tags: newTags });
               }}
-              className={`px-3 py-1 text-sm rounded-full border transition-colors ${
-                values.tags?.includes(tag)
-                  ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                  : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={(values.tags ?? []).includes(tag)}
+              className="px-3 py-1 text-sm rounded-full border transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               {tag}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

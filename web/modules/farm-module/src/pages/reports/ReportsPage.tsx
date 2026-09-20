@@ -36,7 +36,7 @@ import { BiomassReportTab } from './tabs/BiomassReportTab';
 import { SmoltReportTab } from './tabs/SmoltReportTab';
 import { CleanerFishReportTab } from './tabs/CleanerFishReportTab';
 import { SlaughterReportTab } from './tabs/SlaughterReportTab';
-import { PageHeader, Button } from '@aquaculture/shared-ui';
+import { Button, PageHeader, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Box,
   Calendar,
@@ -395,17 +395,13 @@ export const ReportsPage: React.FC = () => {
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Report tabs">
             {reportTabs.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => handleTabChange(tab.path)}
-                className={`
-                  group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-                  ${
-                    activeTab === tab.id
-                      ? 'border-info-500 text-info-600 dark:text-info-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                  }
-                `}
+                pressed={activeTab === tab.id}
+                className="group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap"
+                pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+                idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
                 title={tab.description}
               >
                 <span
@@ -429,7 +425,7 @@ export const ReportsPage: React.FC = () => {
                 {tab.badge && tab.badgeVariant && (
                   <Badge count={tab.badge} variant={tab.badgeVariant} />
                 )}
-              </button>
+              </ToggleButton>
             ))}
           </nav>
         </div>

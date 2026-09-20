@@ -2,10 +2,11 @@ import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import {
   ColorInput,
+  colors as themeColors,
   Input,
   Select,
   Textarea,
-  colors as themeColors,
+  ToggleButton,
   useI18n,
 } from '@aquaculture/shared-ui';
 
@@ -80,18 +81,17 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         </label>
         <div className="flex gap-1">
           {ALIGN_OPTIONS.map(({ value, icon: Icon }) => (
-            <button
+            <ToggleButton
               key={value}
               type="button"
               onClick={() => onChange({ textAlign: value })}
-              className={`flex-1 flex items-center justify-center py-2 rounded-lg border text-sm transition-colors ${
-                (config.textAlign || 'left') === value
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={(config.textAlign || 'left') === value}
+              className="flex-1 flex items-center justify-center py-2 rounded-lg border text-sm transition-colors"
+              pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+              idleClassName="border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Icon size={16} />
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

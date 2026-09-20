@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Button, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import { Task, CATEGORY_CONFIG, PRIORITY_CONFIG } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -124,18 +124,24 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
         {/* View Toggle */}
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-          <button
+          <ToggleButton
             onClick={() => setViewMode('week')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
+            pressed={viewMode === 'week'}
+            className="px-3 py-1.5 text-sm rounded-md transition-colors"
+            pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+            idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
           >
             Hafta
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setViewMode('month')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
+            pressed={viewMode === 'month'}
+            className="px-3 py-1.5 text-sm rounded-md transition-colors"
+            pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+            idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
           >
             Ay
-          </button>
+          </ToggleButton>
         </div>
       </div>
 

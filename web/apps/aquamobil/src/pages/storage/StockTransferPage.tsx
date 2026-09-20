@@ -29,6 +29,7 @@ import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { VirtualList } from '@/components/VirtualList';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -136,10 +137,7 @@ export function StockTransferPage(): JSX.Element {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        STORAGE_INVENTORY_ITEMS,
-        { itemType: selectedItemType },
-      );
+      const result = await graphqlRequest(STORAGE_INVENTORY_ITEMS, { itemType: selectedItemType });
       return toStorageItems(result.storageInventory ?? []);
     },
     // Data fetches when online; when offline, React Query serves the stale cache
@@ -156,9 +154,7 @@ export function StockTransferPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        STORAGE_LOCATIONS,
-      );
+      const result = await graphqlRequest(STORAGE_LOCATIONS);
       return result.storageLocations?.items ?? [];
     },
     // Same offline strategy: serve stale cache when offline
@@ -172,14 +168,25 @@ export function StockTransferPage(): JSX.Element {
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
-  const fromLocation = useMemo(() => locations.find((l) => l.id === fromLocationId), [locations, fromLocationId]);
-  const toLocation = useMemo(() => locations.find((l) => l.id === toLocationId), [locations, toLocationId]);
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === selectedItemId),
+    [items, selectedItemId],
+  );
+  const fromLocation = useMemo(
+    () => locations.find((l) => l.id === fromLocationId),
+    [locations, fromLocationId],
+  );
+  const toLocation = useMemo(
+    () => locations.find((l) => l.id === toLocationId),
+    [locations, toLocationId],
+  );
 
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
     const q = itemSearch.toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+    return items.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q),
+    );
   }, [items, itemSearch]);
 
   // WHY: Exclude the "from" location from the "to" list to prevent no-op transfers
@@ -193,12 +200,18 @@ export function StockTransferPage(): JSX.Element {
 
   const canAdvance = useCallback((): boolean => {
     switch (step) {
-      case 1: return selectedItemType !== null && selectedItemId !== '';
-      case 2: return fromLocationId !== '';
-      case 3: return toLocationId !== '';
-      case 4: return quantity !== '' && parseFloat(quantity) > 0;
-      case 5: return true;
-      default: return false;
+      case 1:
+        return selectedItemType !== null && selectedItemId !== '';
+      case 2:
+        return fromLocationId !== '';
+      case 3:
+        return toLocationId !== '';
+      case 4:
+        return quantity !== '' && parseFloat(quantity) > 0;
+      case 5:
+        return true;
+      default:
+        return false;
     }
   }, [step, selectedItemType, selectedItemId, fromLocationId, toLocationId, quantity]);
 
@@ -255,8 +268,16 @@ export function StockTransferPage(): JSX.Element {
       setIsSubmitting(false);
     }
   }, [
-    selectedItem, fromLocation, toLocation, selectedItemType, selectedItemId,
-    fromLocationId, toLocationId, quantity, addToQueue, navigate,
+    selectedItem,
+    fromLocation,
+    toLocation,
+    selectedItemType,
+    selectedItemId,
+    fromLocationId,
+    toLocationId,
+    quantity,
+    addToQueue,
+    navigate,
   ]);
 
   // ---- Success screen ------------------------------------------------------
@@ -277,7 +298,9 @@ export function StockTransferPage(): JSX.Element {
             <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
               <Package size={48} className="text-amber-600" />
             </div>
-            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
+              Saved to device
+            </h2>
             <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
               This transfer is not recorded until it reaches the server.
             </p>
@@ -307,7 +330,11 @@ export function StockTransferPage(): JSX.Element {
         tone="blue"
         icon={ArrowLeftRight}
         title="Stock Transfer"
-        subtitle={<>Step {step} of {TOTAL_STEPS}</>}
+        subtitle={
+          <>
+            Step {step} of {TOTAL_STEPS}
+          </>
+        }
         back={handleBack}
       >
         <div className="h-1 bg-white/20 dark:bg-gray-900/20">
@@ -331,7 +358,9 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 1: Item Type + Item (combined for fewer taps) */}
         {step === 1 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Select item to transfer</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              Select item to transfer
+            </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Choose the category and then the specific item.
             </p>
@@ -339,28 +368,30 @@ export function StockTransferPage(): JSX.Element {
             {/* Item type selector */}
             <div className="grid grid-cols-4 gap-2 mb-4">
               {ITEM_TYPES.map((it) => (
-                <button
+                <ToggleButton
                   key={it.type}
                   onClick={() => {
                     setSelectedItemType(it.type);
                     setSelectedItemId('');
                     setItemSearch('');
                   }}
-                  className={clsx(
-                    'p-3 rounded-xl border-2 transition-all touch-feedback text-center',
-                    selectedItemType === it.type
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                  )}
+                  pressed={selectedItemType === it.type}
+                  className="p-3 rounded-xl border-2 transition-all touch-feedback text-center"
+                  pressedClassName="border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                  idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                 >
                   <span className="text-xl block">{it.emoji}</span>
-                  <span className={clsx(
-                    'text-[10px] font-bold',
-                    selectedItemType === it.type ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400',
-                  )}>
+                  <span
+                    className={clsx(
+                      'text-[10px] font-bold',
+                      selectedItemType === it.type
+                        ? 'text-blue-700 dark:text-blue-300'
+                        : 'text-gray-600 dark:text-gray-400',
+                    )}
+                  >
                     {it.label}
                   </span>
-                </button>
+                </ToggleButton>
               ))}
             </div>
 
@@ -369,21 +400,26 @@ export function StockTransferPage(): JSX.Element {
               <>
                 <div className="flex items-stretch gap-2 mb-3">
                   <div className="relative flex-1">
-                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                  <input
-                    type="text"
-                    placeholder="Search items..."
-                    value={itemSearch}
-                    onChange={(e) => setItemSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                    <Search
+                      size={18}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search items..."
+                      value={itemSearch}
+                      onChange={(e) => setItemSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                   <BarcodeScanButton onScan={setItemSearch} />
                 </div>
                 {itemsLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Spinner size="md" />
-                    <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading...</span>
+                    <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">
+                      Loading...
+                    </span>
                   </div>
                 ) : filteredItems.length === 0 ? (
                   <div className="text-center py-8 text-gray-400 dark:text-gray-500">
@@ -399,25 +435,27 @@ export function StockTransferPage(): JSX.Element {
                     gapPx={8}
                     className="max-h-[40vh]"
                     renderItem={(item) => (
-                      <button
+                      <ToggleButton
                         onClick={() => setSelectedItemId(item.id)}
-                        className={clsx(
-                          'w-full p-3.5 rounded-xl border-2 text-left transition-all touch-feedback',
-                          selectedItemId === item.id
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                        )}
+                        pressed={selectedItemId === item.id}
+                        className="w-full p-3.5 rounded-xl border-2 text-left transition-all touch-feedback"
+                        pressedClassName="border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                        idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                       >
-                        <span className={clsx(
-                          'text-sm font-bold block',
-                          selectedItemId === item.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
-                        )}>
+                        <span
+                          className={clsx(
+                            'text-sm font-bold block',
+                            selectedItemId === item.id
+                              ? 'text-blue-700 dark:text-blue-300'
+                              : 'text-gray-900 dark:text-white',
+                          )}
+                        >
                           {item.name}
                         </span>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           {item.code} &middot; {item.unit}
                         </span>
-                      </button>
+                      </ToggleButton>
                     )}
                   />
                 )}
@@ -436,33 +474,37 @@ export function StockTransferPage(): JSX.Element {
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading locations...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">
+                  Loading locations...
+                </span>
               </div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {locations.map((loc) => (
-                  <button
+                  <ToggleButton
                     key={loc.id}
                     onClick={() => {
                       setFromLocationId(loc.id);
                       // Reset "to" if it was the same as the newly selected "from"
                       if (toLocationId === loc.id) setToLocationId('');
                     }}
-                    className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
-                      fromLocationId === loc.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                    )}
+                    pressed={fromLocationId === loc.id}
+                    className="w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback"
+                    pressedClassName="border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                   >
-                    <span className={clsx(
-                      'text-sm font-bold block',
-                      fromLocationId === loc.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-sm font-bold block',
+                        fromLocationId === loc.id
+                          ? 'text-blue-700 dark:text-blue-300'
+                          : 'text-gray-900 dark:text-white',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             )}
@@ -483,24 +525,26 @@ export function StockTransferPage(): JSX.Element {
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {toLocationOptions.map((loc) => (
-                  <button
+                  <ToggleButton
                     key={loc.id}
                     onClick={() => setToLocationId(loc.id)}
-                    className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
-                      toLocationId === loc.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                    )}
+                    pressed={toLocationId === loc.id}
+                    className="w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback"
+                    pressedClassName="border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                   >
-                    <span className={clsx(
-                      'text-sm font-bold block',
-                      toLocationId === loc.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-sm font-bold block',
+                        toLocationId === loc.id
+                          ? 'text-blue-700 dark:text-blue-300'
+                          : 'text-gray-900 dark:text-white',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             )}
@@ -510,7 +554,9 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 4: Quantity */}
         {step === 4 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Transfer quantity</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              Transfer quantity
+            </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               How much of {selectedItem?.name ?? 'this item'} are you transferring?
             </p>
@@ -536,19 +582,27 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 5: Confirm */}
         {step === 5 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Confirm transfer</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              Confirm transfer
+            </h2>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Item</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedItem?.name ?? '-'}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {selectedItem?.name ?? '-'}
+                </span>
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">From</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{fromLocation?.name ?? '-'}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {fromLocation?.name ?? '-'}
+                </span>
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">To</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{toLocation?.name ?? '-'}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {toLocation?.name ?? '-'}
+                </span>
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
@@ -568,7 +622,9 @@ export function StockTransferPage(): JSX.Element {
             )}
 
             <button
-              onClick={() => { void handleSubmit(); }}
+              onClick={() => {
+                void handleSubmit();
+              }}
               disabled={isSubmitting}
               className={clsx(
                 'w-full mt-6 py-4 rounded-2xl font-bold text-white text-base shadow-card transition-all active:scale-[0.98] touch-feedback',

@@ -4,7 +4,15 @@
  * Contact: varsling.akva@mattilsynet.no
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Spinner,
+  Textarea,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import {
   WelfareEventReport,
   WelfareEventType,
@@ -651,7 +659,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               </label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {EQUIPMENT_TYPE_OPTIONS.map((type) => (
-                  <button
+                  <ToggleButton
                     key={type}
                     type="button"
                     onClick={() => {
@@ -662,14 +670,13 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                         setEquipmentSearch('');
                       }
                     }}
-                    className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                      formData.equipmentType === type
-                        ? 'bg-info-100 dark:bg-info-900/40 border-info-400 text-info-800 dark:text-info-200'
-                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
-                    }`}
+                    pressed={formData.equipmentType === type}
+                    className="px-3 py-1 text-xs rounded-full border transition-colors"
+                    pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-400 text-info-800 dark:text-info-200"
+                    idleClassName="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500"
                   >
                     {type}
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </div>

@@ -3,16 +3,17 @@
  */
 import React, { useState } from 'react';
 import {
-  Modal,
-  useToast,
-  formatCurrency,
-  DEFAULT_CURRENCY,
-  DataTable,
-  type DataTableColumn,
   Button,
+  DataTable,
+  DEFAULT_CURRENCY,
+  formatCurrency,
   Input,
+  Modal,
   Select,
   Textarea,
+  ToggleButton,
+  useToast,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useCreatePurchaseOrder,
@@ -253,21 +254,20 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
             </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
-                <button
+                <ToggleButton
                   key={cat.value}
                   type="button"
                   onClick={() => {
                     setCategory(cat.value);
                     setItems([]);
                   }}
-                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                    category === cat.value
-                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={category === cat.value}
+                  className="px-3 py-2 text-sm rounded-lg border transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {cat.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>

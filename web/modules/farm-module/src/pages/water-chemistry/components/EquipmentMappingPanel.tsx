@@ -6,12 +6,13 @@
  */
 import React, { useState, useMemo } from 'react';
 import {
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  DataTable,
+  Modal,
   Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
@@ -190,17 +191,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       header: 'Alert',
       align: 'center',
       render: (_value, mapping) => (
-        <button
+        <ToggleButton
           onClick={() => void handleToggleAlert(mapping)}
           disabled={updateMutation.isPending}
-          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-            mapping.alertEnabled
-              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-          }`}
+          pressed={mapping.alertEnabled}
+          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+          pressedClassName="bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60"
+          idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           {mapping.alertEnabled ? 'On' : 'Off'}
-        </button>
+        </ToggleButton>
       ),
     },
     {

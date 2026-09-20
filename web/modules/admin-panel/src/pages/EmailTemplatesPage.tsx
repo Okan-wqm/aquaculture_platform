@@ -7,14 +7,15 @@
 
 import React, { useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   Input,
   Modal,
+  PageHeader,
   SandboxedHtmlPreview,
   Spinner,
-  PageHeader,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 
 import { settingsApi, EmailTemplate } from '../services/adminApi';
@@ -212,17 +213,16 @@ const EmailTemplatesPage: React.FC = () => {
         {/* Category Tabs */}
         <div className="flex flex-wrap gap-2">
           {categories.map((cat) => (
-            <button
+            <ToggleButton
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeCategory === cat
-                  ? 'bg-info-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={activeCategory === cat}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              pressedClassName="bg-info-600 text-white"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               {getCategoryLabel(cat)}
-            </button>
+            </ToggleButton>
           ))}
         </div>
 

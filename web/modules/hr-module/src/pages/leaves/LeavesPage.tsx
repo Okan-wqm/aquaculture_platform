@@ -6,16 +6,17 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Calendar, Plus, Search, Filter, Clock, CheckCircle, XCircle, Eye } from 'lucide-react';
 import {
-  cn,
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
   Button,
+  cn,
+  DataTable,
   Input,
+  Modal,
+  PageHeader,
   Select,
+  Spinner,
   Textarea,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
@@ -302,25 +303,21 @@ export function LeavesPage() {
 
       {/* Tabs */}
       <div className="flex gap-4 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('all')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'all'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'all'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           All Requests
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('pending')}
-          className={cn(
-            'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'pending'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'pending'}
+          className="flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Pending Approvals
           {pendingApprovals && pendingApprovals.length > 0 && (
@@ -328,18 +325,16 @@ export function LeavesPage() {
               {pendingApprovals.length}
             </span>
           )}
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('mine')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'mine'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'mine'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           My Requests
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Search and Filters */}
@@ -359,18 +354,16 @@ export function LeavesPage() {
           />
         </div>
 
-        <button
+        <ToggleButton
           onClick={() => setShowFilters(!showFilters)}
-          className={cn(
-            'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1',
-            showFilters
-              ? 'bg-primary-50 text-primary-600 ring-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
-              : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200',
-          )}
+          pressed={showFilters}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1"
+          pressedClassName="bg-primary-50 text-primary-600 ring-primary-200 dark:bg-primary-900/30 dark:text-primary-400"
+          idleClassName="bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200"
         >
           <Filter className="h-4 w-4" />
           Filters
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Filter Panel */}

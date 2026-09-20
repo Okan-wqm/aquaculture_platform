@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
@@ -367,16 +367,15 @@ export const MessagingPage: React.FC = () => {
                 <option value="open">Open</option>
                 <option value="closed">Closed</option>
               </select>
-              <button
+              <ToggleButton
                 onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-                className={`px-3 py-1.5 rounded-lg text-sm border ${
-                  showUnreadOnly
-                    ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={showUnreadOnly}
+                className="px-3 py-1.5 rounded-lg text-sm border"
+                pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+                idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Unread
-              </button>
+              </ToggleButton>
             </div>
           </div>
 

@@ -139,12 +139,15 @@ const RAW_FIELD = /<(?:input|select|textarea)\b/g;
  * depth zero. Nested `<button>` is not legal HTML, but the body scan counts
  * depth anyway rather than trusting the corpus.
  */
-function* buttonElements(source: string): Generator<{ openTag: string; body: string }> {
-  const OPEN = /<button\b/g;
+function* buttonElements(
+  source: string,
+  tag: 'button' | 'ToggleButton' = 'button',
+): Generator<{ openTag: string; body: string }> {
+  const OPEN = new RegExp(`<${tag}\\b`, 'g');
   let match: RegExpExecArray | null;
   while ((match = OPEN.exec(source)) !== null) {
     const start = match.index;
-    let i = start + '<button'.length;
+    let i = start + tag.length + 1;
     let depth = 0;
     let quote: string | null = null;
     let tagEnd = -1;
@@ -173,17 +176,17 @@ function* buttonElements(source: string): Generator<{ openTag: string; body: str
     let bodyDepth = 1;
     let j = tagEnd;
     while (j < source.length && bodyDepth > 0) {
-      if (source.startsWith('<button', j)) {
+      if (source.startsWith(`<${tag}`, j)) {
         bodyDepth += 1;
-        j += '<button'.length;
-      } else if (source.startsWith('</button>', j)) {
+        j += tag.length + 1;
+      } else if (source.startsWith(`</${tag}>`, j)) {
         bodyDepth -= 1;
-        j += '</button>'.length;
+        j += tag.length + 3;
       } else {
         j += 1;
       }
     }
-    yield { openTag, body: source.slice(tagEnd, Math.max(tagEnd, j - '</button>'.length)) };
+    yield { openTag, body: source.slice(tagEnd, Math.max(tagEnd, j - (tag.length + 3))) };
     OPEN.lastIndex = tagEnd;
   }
 }
@@ -340,8 +343,18 @@ function paintsOnlyTheDisabledLook(openTag: string): boolean {
  */
 function unnamedIconButtons(source: string): number {
   let count = 0;
-  for (const { openTag, body } of buttonElements(source)) {
-    if (!rendersText(body) && !NAMES_THE_CONTROL.test(openTag)) count += 1;
+  /**
+   * ToggleButton is scanned too. Moving a toggle onto the primitive takes it
+   * out of `<button`'s reach, and an icon-only toggle with no aria-label is
+   * still announced as "button" — a migration that lowered this count without
+   * naming anything would be the ratchet lying about work it had not done.
+   * The silent-state counter needs no such clause: ToggleButton declares
+   * aria-pressed by construction, so it cannot paint a state silently.
+   */
+  for (const tag of ['button', 'ToggleButton'] as const) {
+    for (const { openTag, body } of buttonElements(source, tag)) {
+      if (!rendersText(body) && !NAMES_THE_CONTROL.test(openTag)) count += 1;
+    }
   }
   return count;
 }

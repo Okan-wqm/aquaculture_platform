@@ -26,13 +26,14 @@ import {
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
 import {
-  Modal,
-  useConfirm,
-  Spinner,
   Button,
   Input,
+  Modal,
   Select,
+  Spinner,
   Textarea,
+  ToggleButton,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   Box,
@@ -829,18 +830,17 @@ export const SpeciesTab: React.FC = () => {
                 {/* Predefined Tags */}
                 <div className="flex flex-wrap gap-2 mb-4">
                   {PREDEFINED_TAGS.map((tag) => (
-                    <button
+                    <ToggleButton
                       key={tag}
                       type="button"
                       onClick={() => handleTagToggle(tag)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                        formData.tags.includes(tag)
-                          ? 'bg-info-500 text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
+                      pressed={formData.tags.includes(tag)}
+                      className="px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+                      pressedClassName="bg-info-500 text-white"
+                      idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                     >
                       {tag}
-                    </button>
+                    </ToggleButton>
                   ))}
                 </div>
 

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo, memo } from 'react';
-import { Modal, PageHeader, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, PageHeader, Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
@@ -65,14 +65,14 @@ const ColorPicker = memo<ColorPickerProps>(({ value, onChange }) => {
   return (
     <div className="flex flex-wrap gap-2">
       {ROLE_COLORS.map((color) => (
-        <button
+        <ToggleButton
           key={color.value}
           type="button"
           onClick={() => handleColorClick(color.value)}
-          className={`
-            w-8 h-8 rounded-lg border-2 transition-all
-            ${value === color.value ? 'border-gray-900 scale-110' : 'border-transparent hover:scale-105'}
-          `}
+          pressed={value === color.value}
+          className="w-8 h-8 rounded-lg border-2 transition-all"
+          pressedClassName="border-gray-900 scale-110"
+          idleClassName="border-transparent hover:scale-105"
           style={{ backgroundColor: color.value }}
           title={color.label}
         />

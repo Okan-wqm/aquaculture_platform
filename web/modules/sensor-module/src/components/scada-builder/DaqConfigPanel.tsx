@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
 import { Database, Plus, Trash2, Upload, ToggleLeft, ToggleRight, Search } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -293,9 +293,11 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               {/* Tag header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <button
+                  <ToggleButton
                     onClick={() => handleUpdate(config.tagName, { enabled: !config.enabled })}
-                    className={config.enabled ? 'text-success-500' : 'text-gray-300'}
+                    pressed={config.enabled}
+                    pressedClassName="text-success-500"
+                    idleClassName="text-gray-300"
                     title={config.enabled ? 'Disable logging' : 'Enable logging'}
                   >
                     {config.enabled ? (
@@ -303,7 +305,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                     ) : (
                       <ToggleLeft className="w-5 h-5" />
                     )}
-                  </button>
+                  </ToggleButton>
                   <span className="text-xs font-mono font-medium text-gray-800 dark:text-gray-200 truncate max-w-[150px]">
                     {config.tagName}
                   </span>

@@ -7,15 +7,16 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
   Input,
+  PageHeader,
   Select,
+  ToggleButton,
   useConfirm,
   type DataTableColumn,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
@@ -472,17 +473,16 @@ export const JobQueuePage: React.FC = () => {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {(['jobs', 'queues', 'scheduled'] as const).map((tab) => (
-            <button
+            <ToggleButton
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-2 border-b-2 font-medium text-sm capitalize transition-colors ${
-                activeTab === tab
-                  ? 'border-info-500 text-info-600 dark:text-info-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={activeTab === tab}
+              className="py-2 border-b-2 font-medium text-sm capitalize transition-colors"
+              pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+              idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               {tab}
-            </button>
+            </ToggleButton>
           ))}
         </nav>
       </div>

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Modal,
-  colors as themeColors,
   Button,
   ColorInput,
+  colors as themeColors,
   Input,
+  Modal,
   Select,
   Textarea,
+  ToggleButton,
   useI18n,
   type SelectOption,
 } from '@aquaculture/shared-ui';
@@ -199,17 +200,16 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
       {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
         {(['basic', 'calibration', 'alerts', 'display'] as const).map((tab) => (
-          <button
+          <ToggleButton
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 px-4 py-3 text-sm font-medium ${
-              activeTab === tab
-                ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={activeTab === tab}
+            className="flex-1 px-4 py-3 text-sm font-medium"
+            pressedClassName="text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -514,23 +514,24 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                   Display this channel on the main dashboard
                 </p>
               </div>
-              <button
+              <ToggleButton
                 onClick={() =>
                   handleDisplaySettingChange(
                     'showOnDashboard',
                     !formData.displaySettings?.showOnDashboard,
                   )
                 }
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  formData.displaySettings?.showOnDashboard ? 'bg-info-600' : 'bg-gray-300'
-                }`}
+                pressed={formData.displaySettings?.showOnDashboard === true}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+                pressedClassName="bg-info-600"
+                idleClassName="bg-gray-300"
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                     formData.displaySettings?.showOnDashboard ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
-              </button>
+              </ToggleButton>
             </div>
 
             <div>
@@ -539,14 +540,13 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {WIDGET_TYPE_OPTIONS.map((opt) => (
-                  <button
+                  <ToggleButton
                     key={opt.value}
                     onClick={() => handleDisplaySettingChange('widgetType', opt.value)}
-                    className={`p-3 text-left border rounded-lg transition-colors ${
-                      formData.displaySettings?.widgetType === opt.value
-                        ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
-                    }`}
+                    pressed={formData.displaySettings?.widgetType === opt.value}
+                    className="p-3 text-left border rounded-lg transition-colors"
+                    pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
                   >
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {opt.label}
@@ -554,7 +554,7 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       {opt.description}
                     </p>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </div>
@@ -565,14 +565,13 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
               </label>
               <div className="flex items-center space-x-2">
                 {COLOR_PRESETS.map((color) => (
-                  <button
+                  <ToggleButton
                     key={color}
                     onClick={() => handleDisplaySettingChange('color', color)}
-                    className={`w-8 h-8 rounded-full border-2 transition-transform ${
-                      formData.displaySettings?.color === color
-                        ? 'border-gray-900 scale-110'
-                        : 'border-transparent hover:scale-105'
-                    }`}
+                    pressed={formData.displaySettings?.color === color}
+                    className="w-8 h-8 rounded-full border-2 transition-transform"
+                    pressedClassName="border-gray-900 scale-110"
+                    idleClassName="border-transparent hover:scale-105"
                     style={{ backgroundColor: color }}
                   />
                 ))}

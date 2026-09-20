@@ -35,17 +35,18 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import {
-  useAuth,
-  createTenantQueryKey,
+  Button,
   createTenantInvalidationKey,
+  createTenantQueryKey,
+  DataTable,
+  PageHeader,
+  Select,
+  Spinner,
+  ToggleButton,
+  useAuth,
   useConfirm,
   usePrompt,
-  DataTable,
   type DataTableColumn,
-  Spinner,
-  PageHeader,
-  Button,
-  Select,
 } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
@@ -678,18 +679,22 @@ const AutomationProgramsPage: React.FC = () => {
         />
 
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-          <button
+          <ToggleButton
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            pressed={viewMode === 'grid'}
+            className="p-2 rounded"
+            pressedClassName="bg-white dark:bg-gray-900 shadow"
           >
             <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            pressed={viewMode === 'list'}
+            className="p-2 rounded"
+            pressedClassName="bg-white dark:bg-gray-900 shadow"
           >
             <List className="h-4 w-4" />
-          </button>
+          </ToggleButton>
         </div>
 
         <Button variant="secondary" iconOnly aria-label="Refresh" onClick={() => refetch()}>

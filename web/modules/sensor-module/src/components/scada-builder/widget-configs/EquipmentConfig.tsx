@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Input, ToggleButton } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 /* ------------------------------------------------------------------ */
@@ -112,18 +112,17 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Rotation</label>
         <div className="flex gap-1">
           {ROTATION_OPTIONS.map((deg) => (
-            <button
+            <ToggleButton
               key={deg}
               type="button"
               onClick={() => onChange({ rotation: deg })}
-              className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                currentRotation === deg
-                  ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
-                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={currentRotation === deg}
+              className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors"
+              pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300"
+              idleClassName="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {deg}°
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

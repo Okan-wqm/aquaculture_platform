@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { colors, DataTable, ToggleButton, type DataTableColumn } from '@aquaculture/shared-ui';
 import { CircleCheck, Presentation } from 'lucide-react';
 
 interface Batch {
@@ -239,26 +239,24 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="flex items-center space-x-4 mb-4">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View:</span>
-          <button
+          <ToggleButton
             onClick={() => setSelectedMetric('fcr')}
-            className={`px-3 py-1 text-sm rounded-md ${
-              selectedMetric === 'fcr'
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={selectedMetric === 'fcr'}
+            className="px-3 py-1 text-sm rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             FCR Comparison
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setSelectedMetric('sgr')}
-            className={`px-3 py-1 text-sm rounded-md ${
-              selectedMetric === 'sgr'
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={selectedMetric === 'sgr'}
+            className="px-3 py-1 text-sm rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             SGR Analysis
-          </button>
+          </ToggleButton>
         </div>
 
         {/* FCR Chart */}

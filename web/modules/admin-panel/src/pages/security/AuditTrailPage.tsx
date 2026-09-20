@@ -21,7 +21,13 @@ import {
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  PageHeader,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -792,18 +798,17 @@ export const AuditTrailPage: React.FC = () => {
             { id: 'retention', label: 'Retention Policies', icon: Archive },
             { id: 'alerts', label: 'Alert Rules', icon: Bell },
           ].map(({ id, label, icon: Icon }) => (
-            <button
+            <ToggleButton
               key={id}
               onClick={() => setActiveTab(id as typeof activeTab)}
-              className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
-                activeTab === id
-                  ? 'border-info-500 text-info-600 dark:text-info-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={activeTab === id}
+              className="flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm"
+              pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+              idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               <Icon className="w-4 h-4" />
               {label}
-            </button>
+            </ToggleButton>
           ))}
         </nav>
       </div>

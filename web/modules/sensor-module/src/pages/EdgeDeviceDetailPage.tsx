@@ -10,20 +10,21 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ConfirmModal,
-  Modal,
-  useConfirm,
-  colors as themeColors,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
-  qualityColor,
-  normalizeQuality,
   Button,
   Checkbox,
+  colors as themeColors,
+  ConfirmModal,
+  DataTable,
   Input,
+  Modal,
+  normalizeQuality,
+  PageHeader,
+  qualityColor,
   Select,
+  Spinner,
+  ToggleButton,
+  useConfirm,
+  type DataTableColumn,
   type SelectOption,
 } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
@@ -712,18 +713,17 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
             </p>
             <div className="flex gap-3 mt-1">
               {(['modbus', 'gpio', 'manual'] as const).map((p) => (
-                <button
+                <ToggleButton
                   key={p}
                   type="button"
                   onClick={() => set('protocolMode', p)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    form.protocolMode === p
-                      ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                      : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={form.protocolMode === p}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+                  idleClassName="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {p === 'modbus' ? 'Modbus' : p === 'gpio' ? 'GPIO' : 'Manuel'}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>

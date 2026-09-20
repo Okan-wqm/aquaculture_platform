@@ -27,14 +27,15 @@ import {
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
 import {
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  PageHeader,
-  Button,
-  Input,
-  Select,
   Badge,
+  Button,
+  DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -548,17 +549,16 @@ const TenantAuditLogPage: React.FC = () => {
                       pageNum = page - 2 + i;
                     }
                     return (
-                      <button
+                      <ToggleButton
                         key={pageNum}
                         onClick={() => goToPage(pageNum)}
-                        className={`w-8 h-8 text-sm rounded-lg transition-colors ${
-                          page === pageNum
-                            ? 'bg-success-600 text-white'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        pressed={page === pageNum}
+                        className="w-8 h-8 text-sm rounded-lg transition-colors"
+                        pressedClassName="bg-success-600 text-white"
+                        idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                       >
                         {pageNum}
-                      </button>
+                      </ToggleButton>
                     );
                   })}
                 </div>

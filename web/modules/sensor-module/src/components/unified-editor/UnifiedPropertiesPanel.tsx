@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Settings,
   Tag,
@@ -141,18 +141,17 @@ const HmiWidgetPanel: React.FC = () => {
         {HMI_TABS.map((tab) => {
           const Icon = tab.icon;
           return (
-            <button
+            <ToggleButton
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 text-xs font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'text-info-700 dark:text-info-300 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={activeTab === tab.id}
+              className="flex-1 flex items-center justify-center gap-1 px-2 py-2.5 text-xs font-medium transition-colors"
+              pressedClassName="text-info-700 dark:text-info-300 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Icon className="w-3.5 h-3.5" />
               {tab.label}
-            </button>
+            </ToggleButton>
           );
         })}
       </div>

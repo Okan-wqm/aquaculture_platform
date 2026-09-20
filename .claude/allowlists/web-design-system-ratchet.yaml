@@ -140,13 +140,13 @@ rawMutation:
 rawButton:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 153
+      ceiling: 131
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 177
+      ceiling: 150
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -158,37 +158,37 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 118
+      ceiling: 71
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 46
+      ceiling: 21
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 9
+      ceiling: 8
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/messaging-module
-      ceiling: 3
+      ceiling: 2
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 237
+      ceiling: 147
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 29
+      ceiling: 22
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -281,14 +281,14 @@ unnamedIconButton:
 silentStateButton:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 33
+      ceiling: 11
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 34
+      ceiling: 7
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -302,42 +302,42 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 50
+      ceiling: 3
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 26
+      ceiling: 1
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 1
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/messaging-module
-      ceiling: 1
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 113
+      ceiling: 23
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 12
+      ceiling: 5
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159

@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback, useId } from 'react';
-import { Button, Slider } from '@aquaculture/shared-ui';
+import { Button, Slider, ToggleButton } from '@aquaculture/shared-ui';
 import type {
   GradientConfig,
   GradientType,
@@ -124,15 +124,14 @@ const GradientPreview: React.FC<{
       {/* Stop handles rendered below the preview bar */}
       <div className="relative h-4 mt-0.5" style={{ width: PREVIEW_WIDTH }}>
         {gradient.stops.map((stop, i) => (
-          <button
+          <ToggleButton
             key={i}
             type="button"
             onClick={() => onStopClick(i)}
-            className={`absolute -translate-x-1/2 w-3 h-3 rounded-sm border-2 transition-colors ${
-              selectedStop === i
-                ? 'border-info-500 ring-2 ring-info-200'
-                : 'border-gray-400 hover:border-gray-600'
-            }`}
+            pressed={selectedStop === i}
+            className="absolute -translate-x-1/2 w-3 h-3 rounded-sm border-2 transition-colors"
+            pressedClassName="border-info-500 ring-2 ring-info-200"
+            idleClassName="border-gray-400 hover:border-gray-600"
             style={{
               left: `${stop.offset * 100}%`,
               top: 0,

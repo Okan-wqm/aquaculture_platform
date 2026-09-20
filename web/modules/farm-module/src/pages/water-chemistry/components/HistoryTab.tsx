@@ -36,13 +36,14 @@ import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
 import {
+  Button,
   colors,
   DataTable,
-  type DataTableColumn,
-  Spinner,
-  Button,
   Input,
   Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -502,32 +503,30 @@ export const HistoryTab: React.FC = () => {
               View
             </label>
             <div className="flex rounded-md shadow-sm">
-              <button
+              <ToggleButton
                 onClick={() => {
                   setViewMode('tank');
                   setSelectedSystemId('');
                 }}
-                className={`px-3 py-2 text-sm font-medium rounded-l-md border ${
-                  viewMode === 'tank'
-                    ? 'bg-info-600 text-white border-info-600'
-                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={viewMode === 'tank'}
+                className="px-3 py-2 text-sm font-medium rounded-l-md border"
+                pressedClassName="bg-info-600 text-white border-info-600"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Tank
-              </button>
-              <button
+              </ToggleButton>
+              <ToggleButton
                 onClick={() => {
                   setViewMode('system');
                   setSelectedTankId('');
                 }}
-                className={`px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
-                  viewMode === 'system'
-                    ? 'bg-info-600 text-white border-info-600'
-                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={viewMode === 'system'}
+                className="px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r"
+                pressedClassName="bg-info-600 text-white border-info-600"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 System
-              </button>
+              </ToggleButton>
             </div>
           </div>
 
@@ -573,28 +572,26 @@ export const HistoryTab: React.FC = () => {
             </label>
             <div className="flex items-center space-x-1">
               {TIME_RANGE_OPTIONS.map((opt) => (
-                <button
+                <ToggleButton
                   key={opt.days}
                   onClick={() => handleTimeRange(opt.days)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
-                    !customRange && days === opt.days
-                      ? 'bg-info-600 text-white border-info-600'
-                      : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={!customRange && days === opt.days}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border"
+                  pressedClassName="bg-info-600 text-white border-info-600"
+                  idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {opt.label}
-                </button>
+                </ToggleButton>
               ))}
-              <button
+              <ToggleButton
                 onClick={() => setCustomRange(true)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
-                  customRange
-                    ? 'bg-info-600 text-white border-info-600'
-                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={customRange}
+                className="px-3 py-1.5 text-sm font-medium rounded-md border"
+                pressedClassName="bg-info-600 text-white border-info-600"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Custom
-              </button>
+              </ToggleButton>
             </div>
           </div>
 

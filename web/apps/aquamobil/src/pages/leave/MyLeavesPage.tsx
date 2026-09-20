@@ -6,9 +6,14 @@ import { useNavigate } from 'react-router-dom';
 import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
-import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest, useLeaveTypes } from '@/hooks/useLeave';
+import { ToggleButton } from '@/components/ui/ToggleButton';
+import {
+  useMyLeaveBalances,
+  useMyLeaveRequests,
+  useCancelLeaveRequest,
+  useLeaveTypes,
+} from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
-
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
@@ -72,28 +77,24 @@ export function MyLeavesPage(): JSX.Element {
 
       {/* Tabs */}
       <div className="px-4 mt-4 flex gap-2">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('balances')}
-          className={clsx(
-            'flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all',
-            activeTab === 'balances'
-              ? 'bg-violet-600 text-white shadow-md'
-              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700',
-          )}
+          pressed={activeTab === 'balances'}
+          className="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
+          pressedClassName="bg-violet-600 text-white shadow-md"
+          idleClassName="bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
         >
           Balances
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('requests')}
-          className={clsx(
-            'flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all',
-            activeTab === 'requests'
-              ? 'bg-violet-600 text-white shadow-md'
-              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700',
-          )}
+          pressed={activeTab === 'requests'}
+          className="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
+          pressedClassName="bg-violet-600 text-white shadow-md"
+          idleClassName="bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
         >
           Requests
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Balances Tab */}
@@ -122,7 +123,9 @@ export function MyLeavesPage(): JSX.Element {
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
                   <p className="text-xs text-gray-400 dark:text-gray-500">Total</p>
-                  <p className="font-bold text-gray-900 dark:text-white">{balance.totalEntitlement}</p>
+                  <p className="font-bold text-gray-900 dark:text-white">
+                    {balance.totalEntitlement}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-400 dark:text-gray-500">Used</p>
@@ -175,22 +178,35 @@ export function MyLeavesPage(): JSX.Element {
                 <h3 className="font-semibold text-gray-900 dark:text-white">
                   {request.leaveType?.name || 'Leave'}
                 </h3>
-                <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold', STATUS_COLORS[request.status])}>
+                <span
+                  className={clsx(
+                    'px-2 py-0.5 rounded-full text-xs font-semibold',
+                    STATUS_COLORS[request.status],
+                  )}
+                >
                   {request.status}
                 </span>
               </div>
 
               <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
                 <p>
-                  {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
+                  {new Date(request.startDate).toLocaleDateString()} -{' '}
+                  {new Date(request.endDate).toLocaleDateString()}
                 </p>
-                <p>{request.totalDays} day{request.totalDays !== 1 ? 's' : ''}{request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}</p>
-                {request.reason && <p className="text-gray-400 dark:text-gray-500 italic">{request.reason}</p>}
+                <p>
+                  {request.totalDays} day{request.totalDays !== 1 ? 's' : ''}
+                  {request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}
+                </p>
+                {request.reason && (
+                  <p className="text-gray-400 dark:text-gray-500 italic">{request.reason}</p>
+                )}
               </div>
 
               {(request.status === 'PENDING' || request.status === 'DRAFT') && (
                 <button
-                  onClick={() => { void handleCancel(request.id); }}
+                  onClick={() => {
+                    void handleCancel(request.id);
+                  }}
                   disabled={cancelling}
                   className="mt-3 w-full py-2 text-sm font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 touch-feedback"
                 >

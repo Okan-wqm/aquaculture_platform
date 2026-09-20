@@ -9,7 +9,7 @@
  * - Regulatory metadata from settings
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
@@ -332,14 +332,13 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
           Report Type
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => onChange({ reportType: 'planned' })}
-            className={`p-4 border-2 rounded-lg text-center ${
-              formData.reportType === 'planned'
-                ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
-            }`}
+            pressed={formData.reportType === 'planned'}
+            className="p-4 border-2 rounded-lg text-center"
+            pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+            idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
           >
             <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg inline-block mb-2">
               <Calendar className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
@@ -349,7 +348,7 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               Weekly schedule by day
             </div>
-          </button>
+          </ToggleButton>
           {/* Executed (utført) slaughter is filed from harvest records via the
               records-based "Scheduled reports due" review-and-approve draft — the
               manual grade-percentage form cannot compute per-species gutted kg, so

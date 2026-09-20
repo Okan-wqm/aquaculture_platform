@@ -2,7 +2,7 @@
  * Control Panel - tank values, target ranges, reagent selection, system params
  */
 import React from 'react';
-import { Button, Select, Slider, useI18n } from '@aquaculture/shared-ui';
+import { Button, Select, Slider, ToggleButton, useI18n } from '@aquaculture/shared-ui';
 import { SimConfig, SimState } from '../simulation/types';
 import { ACID_REAGENTS, BASE_REAGENTS } from '../engine/reagents';
 
@@ -371,17 +371,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </h4>
         <div className="flex gap-1">
           {[1, 5, 20, 60].map((s) => (
-            <button
+            <ToggleButton
               key={s}
               onClick={() => onConfigChange({ ...config, speedMultiplier: s })}
-              className={`flex-1 py-1 text-xs rounded border ${
-                config.speedMultiplier === s
-                  ? 'bg-info-600 text-white border-info-700'
-                  : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
+              pressed={config.speedMultiplier === s}
+              className="flex-1 py-1 text-xs rounded border"
+              pressedClassName="bg-info-600 text-white border-info-700"
+              idleClassName="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               {s}x
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

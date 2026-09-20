@@ -8,14 +8,15 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
-  Modal,
-  useConfirm,
-  useClickOutside,
-  Spinner,
   Button,
   Input,
+  Modal,
   Slider,
+  Spinner,
   Textarea,
+  ToggleButton,
+  useClickOutside,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
@@ -698,36 +699,32 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
                   </span>
                 </div>
                 <div className="max-h-48 overflow-y-auto">
-                  <button
+                  <ToggleButton
                     onClick={() => {
                       setProcessBackground((prev) => ({ ...prev, processId: null }));
                       setShowProcessDropdown(false);
                       setHasUnsavedChanges(true);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      !processBackground.processId
-                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                        : ''
-                    }`}
+                    pressed={!processBackground.processId}
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                    pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
                   >
                     None
-                  </button>
+                  </ToggleButton>
                   {activeProcesses.map((process) => (
-                    <button
+                    <ToggleButton
                       key={process.id}
                       onClick={() => {
                         setProcessBackground((prev) => ({ ...prev, processId: process.id }));
                         setShowProcessDropdown(false);
                         setHasUnsavedChanges(true);
                       }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                        processBackground.processId === process.id
-                          ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                          : ''
-                      }`}
+                      pressed={processBackground.processId === process.id}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                      pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
                     >
                       {process.name}
-                    </button>
+                    </ToggleButton>
                   ))}
                   {activeProcesses.length === 0 && (
                     <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">

@@ -12,7 +12,7 @@
  */
 
 import React, { useState } from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Input, ToggleButton } from '@aquaculture/shared-ui';
 import type { ScriptTrigger, ScadaScript } from '../../../engine/events/types';
 import { TagBrowser } from '../TagBrowser';
 
@@ -127,28 +127,26 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
               data-testid="trigger-interval-input"
             />
             <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
-              <button
+              <ToggleButton
                 onClick={() => setIntervalUnit('ms')}
-                className={`px-2 py-1.5 text-[10px] font-medium transition-colors ${
-                  intervalUnit === 'ms'
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={intervalUnit === 'ms'}
+                className="px-2 py-1.5 text-[10px] font-medium transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                 data-testid="interval-unit-ms"
               >
                 ms
-              </button>
-              <button
+              </ToggleButton>
+              <ToggleButton
                 onClick={() => setIntervalUnit('s')}
-                className={`px-2 py-1.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-gray-600 ${
-                  intervalUnit === 's'
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={intervalUnit === 's'}
+                className="px-2 py-1.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-gray-600"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                 data-testid="interval-unit-s"
               >
                 s
-              </button>
+              </ToggleButton>
             </div>
           </div>
           {(triggerInterval ?? 5000) < 1000 && (

@@ -18,7 +18,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, colors as themeColors, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  colors as themeColors,
+  Input,
+  Modal,
+  Spinner,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import { Download, Image, FileText } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -301,28 +308,26 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             Format
           </label>
           <div className="flex gap-2">
-            <button
+            <ToggleButton
               onClick={() => setFormat('png')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                format === 'png'
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={format === 'png'}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors"
+              pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+              idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Image className="w-4 h-4" />
               PNG
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => setFormat('pdf')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                format === 'pdf'
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={format === 'pdf'}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors"
+              pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+              idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <FileText className="w-4 h-4" />
               PDF
-            </button>
+            </ToggleButton>
           </div>
         </div>
 
@@ -333,17 +338,16 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           </label>
           <div className="flex gap-2">
             {([1, 2, 3] as ExportResolution[]).map((res) => (
-              <button
+              <ToggleButton
                 key={res}
                 onClick={() => setResolution(res)}
-                className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                  resolution === res
-                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={resolution === res}
+                className="flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors"
+                pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>

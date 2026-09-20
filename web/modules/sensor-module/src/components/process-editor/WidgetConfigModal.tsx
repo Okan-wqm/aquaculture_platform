@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
@@ -137,21 +137,20 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         {step === 'type' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {PROCESS_WIDGET_TYPES.map((wt) => (
-              <button
+              <ToggleButton
                 key={wt.type}
                 onClick={() => handleTypeSelect(wt.type)}
-                className={`p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-md ${
-                  selectedType === wt.type
-                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 ring-2 ring-info-200'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
-                }`}
+                pressed={selectedType === wt.type}
+                className="p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-md"
+                pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 ring-2 ring-info-200"
+                idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
               >
                 <div className="text-2xl mb-2">{WIDGET_ICONS[wt.type] || '📊'}</div>
                 <div className="font-medium text-gray-900 dark:text-gray-100">{wt.label}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   {wt.description}
                 </div>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}

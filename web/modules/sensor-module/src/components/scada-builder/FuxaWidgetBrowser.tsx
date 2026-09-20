@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Button, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import {
   X,
   Search,
@@ -145,34 +145,32 @@ const CategoryTree: React.FC<{
               </Button>
             )}
             {/* Category button */}
-            <button
+            <ToggleButton
               onClick={() => onSelectCategory(cat.name, null)}
-              className={`flex-1 text-left px-2 py-1.5 text-xs rounded transition-colors ${
-                selectedCategory === cat.name && selectedSubcategory === null
-                  ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
+              pressed={selectedCategory === cat.name && selectedSubcategory === null}
+              className="flex-1 text-left px-2 py-1.5 text-xs rounded transition-colors"
+              pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold"
+              idleClassName="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               {cat.name}
               <span className="ml-1 text-gray-400 dark:text-gray-500">({cat.count})</span>
-            </button>
+            </ToggleButton>
           </div>
 
           {/* Subcategories */}
           {expanded.has(cat.name) && cat.children.length > 0 && (
             <div className="ml-5 space-y-0.5">
               {cat.children.map((sub) => (
-                <button
+                <ToggleButton
                   key={sub}
                   onClick={() => onSelectCategory(cat.name, sub)}
-                  className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
-                    selectedCategory === cat.name && selectedSubcategory === sub
-                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
+                  pressed={selectedCategory === cat.name && selectedSubcategory === sub}
+                  className="w-full text-left px-2 py-1 text-xs rounded transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold"
+                  idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   {sub}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           )}
@@ -191,13 +189,12 @@ const WidgetCard: React.FC<{
   isSelected: boolean;
   onClick: () => void;
 }> = ({ entry, isSelected, onClick }) => (
-  <button
+  <ToggleButton
     onClick={onClick}
-    className={`w-full text-left p-3 rounded-lg border transition-all ${
-      isSelected
-        ? 'border-info-400 bg-info-50 dark:bg-info-900/20 ring-1 ring-info-400'
-        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-    }`}
+    pressed={isSelected}
+    className="w-full text-left p-3 rounded-lg border transition-all"
+    pressedClassName="border-info-400 bg-info-50 dark:bg-info-900/20 ring-1 ring-info-400"
+    idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800"
     data-testid={`fuxa-widget-card-${entry.id}`}
   >
     {/* Placeholder icon area */}
@@ -210,7 +207,7 @@ const WidgetCard: React.FC<{
     <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
       {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
     </div>
-  </button>
+  </ToggleButton>
 );
 
 /* ------------------------------------------------------------------ */

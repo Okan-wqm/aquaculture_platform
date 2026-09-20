@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Input, ToggleButton } from '@aquaculture/shared-ui';
 import { Settings, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
 import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
@@ -222,17 +222,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       { type: 'multiHandle' as const, label: 'Polyline' },
                       { type: 'draggable' as const, label: 'Bezier' },
                     ].map((opt) => (
-                      <button
+                      <ToggleButton
                         key={opt.type}
                         onClick={() => onEdgeTypeChange?.(selectedEdge.id, opt.type)}
-                        className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
-                          selectedEdge.type === opt.type
-                            ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 font-medium'
-                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        pressed={selectedEdge.type === opt.type}
+                        className="flex-1 px-2 py-1.5 text-xs rounded border transition-colors"
+                        pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 font-medium"
+                        idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                       >
                         {opt.label}
-                      </button>
+                      </ToggleButton>
                     ))}
                   </div>
                 </div>

@@ -25,7 +25,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  PageHeader,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -819,17 +825,16 @@ export const ActivityLogPage: React.FC = () => {
             <option value="error">Error</option>
             <option value="critical">Critical</option>
           </select>
-          <button
+          <ToggleButton
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg ${
-              showFilters
-                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={showFilters}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg"
+            pressedClassName="border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Filter className="w-4 h-4" />
             Filters
-          </button>
+          </ToggleButton>
         </div>
 
         {/* Advanced Filters */}

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -635,30 +635,28 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           Target Audience
         </label>
         <div className="flex gap-3">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => setIsGlobal(true)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              isGlobal
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={isGlobal}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Globe size={18} />
             All Tenants
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             type="button"
             onClick={() => setIsGlobal(false)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              !isGlobal
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={!isGlobal}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Target size={18} />
             Targeted
-          </button>
+          </ToggleButton>
         </div>
       </div>
 
@@ -668,28 +666,26 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           Publishing
         </label>
         <div className="flex gap-3">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => setScheduleType('now')}
-            className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'now'
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={scheduleType === 'now'}
+            className="flex-1 px-4 py-2 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Save as Draft
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             type="button"
             onClick={() => setScheduleType('scheduled')}
-            className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'scheduled'
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={scheduleType === 'scheduled'}
+            className="flex-1 px-4 py-2 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Schedule
-          </button>
+          </ToggleButton>
         </div>
         {scheduleType === 'scheduled' && (
           <input

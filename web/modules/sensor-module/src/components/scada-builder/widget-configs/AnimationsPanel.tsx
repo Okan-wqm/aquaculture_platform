@@ -27,10 +27,11 @@ import { TagValueBus } from '../../../engine/tags/TagValueBus';
 import {
   Button,
   ColorInput,
-  Input,
-  Textarea,
   colors as themeColors,
+  Input,
   Slider,
+  Textarea,
+  ToggleButton,
   useI18n,
 } from '@aquaculture/shared-ui';
 
@@ -197,19 +198,18 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
         <div className="flex items-center gap-2">
           {/* Preview toggle — only visible when there are animations to preview */}
           {animations.length > 0 && (
-            <button
+            <ToggleButton
               onClick={() => setPreviewActive((prev) => !prev)}
-              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
-                previewActive
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 border border-info-300 dark:border-info-700'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 border border-gray-200 dark:border-gray-700'
-              }`}
+              pressed={previewActive}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 border border-info-300 dark:border-info-700"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 border border-gray-200 dark:border-gray-700"
               data-testid="preview-toggle"
               title={previewActive ? 'Stop animation preview' : 'Start animation preview'}
             >
               {previewActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
               Preview
-            </button>
+            </ToggleButton>
           )}
           <Button
             variant="ghost"

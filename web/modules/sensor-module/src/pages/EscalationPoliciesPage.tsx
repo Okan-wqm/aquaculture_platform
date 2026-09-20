@@ -14,13 +14,14 @@
 
 import React, { useState, useCallback } from 'react';
 import {
+  Button,
   ConfirmModal,
+  Input,
   Modal,
-  Spinner,
   PageHeader,
   severityClasses,
-  Button,
-  Input,
+  Spinner,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -306,19 +307,18 @@ const LevelEditor: React.FC<{
             </label>
             <div className="flex flex-wrap gap-1.5">
               {CHANNEL_OPTIONS.map((ch) => (
-                <button
+                <ToggleButton
                   key={ch.value}
                   type="button"
                   onClick={() => toggleChannel(index, ch.value)}
-                  className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
-                    level.channels.includes(ch.value)
-                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800'
-                      : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={level.channels.includes(ch.value)}
+                  className="px-3 py-1 rounded-md text-xs font-medium border transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800"
+                  idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {level.channels.includes(ch.value) && <Check className="w-3 h-3 inline mr-1" />}
                   {ch.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>
@@ -410,19 +410,18 @@ const PolicyForm: React.FC<{
           </label>
           <div className="flex flex-wrap gap-2">
             {SEVERITY_OPTIONS.map((sev) => (
-              <button
+              <ToggleButton
                 key={sev.value}
                 type="button"
                 onClick={() => toggleSeverity(sev.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  form.severity.includes(sev.value)
-                    ? sev.className
-                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={form.severity.includes(sev.value)}
+                className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                pressedClassName={sev.className}
+                idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {form.severity.includes(sev.value) && <Check className="w-3.5 h-3.5 inline mr-1" />}
                 {sev.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>
@@ -971,15 +970,14 @@ const PolicyCard: React.FC<{
 
         {/* Actions */}
         <div className="flex items-center gap-1 ml-4 shrink-0">
-          <button
+          <ToggleButton
             onClick={() => onToggle(policy)}
             disabled={isToggling}
             title={policy.isActive ? 'Pasif yap' : 'Aktif yap'}
-            className={`p-2 rounded-lg transition-colors ${
-              policy.isActive
-                ? 'text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30'
-                : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-            } disabled:opacity-50`}
+            pressed={policy.isActive}
+            className="p-2 rounded-lg transition-colors disabled:opacity-50"
+            pressedClassName="text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30"
+            idleClassName="text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             {isToggling ? (
               <Spinner size="sm" color="inherit" />
@@ -988,7 +986,7 @@ const PolicyCard: React.FC<{
             ) : (
               <BellOff className="w-4 h-4" />
             )}
-          </button>
+          </ToggleButton>
           <Button
             variant="ghost"
             iconOnly
@@ -1402,17 +1400,16 @@ const EscalationPoliciesPage: React.FC = () => {
               { value: 'inactive', label: 'Pasif' },
               { value: 'default', label: 'Varsayilan' },
             ].map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.value}
                 onClick={() => setFilterStatus(tab.value)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  filterStatus === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
+                pressed={filterStatus === tab.value}
+                className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+                pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>

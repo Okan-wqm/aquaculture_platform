@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, ToggleButton } from '@aquaculture/shared-ui';
 import {
   X,
   Settings,
@@ -1248,14 +1248,13 @@ export const PropertiesPanel: React.FC = () => {
             </label>
             <div className="space-y-1.5 max-h-64 overflow-y-auto">
               {CONNECTION_TYPES.map((type) => (
-                <button
+                <ToggleButton
                   key={type.id}
                   onClick={() => updateEdgeData(selectedEdge.id, { connectionType: type.id })}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
-                    currentConnectionType === type.id
-                      ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={currentConnectionType === type.id}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors"
+                  pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                  idleClassName="border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {/* SVG Line Preview */}
                   <svg width="32" height="12" className="flex-shrink-0">
@@ -1275,7 +1274,7 @@ export const PropertiesPanel: React.FC = () => {
                       {type.label}
                     </span>
                   </div>
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>

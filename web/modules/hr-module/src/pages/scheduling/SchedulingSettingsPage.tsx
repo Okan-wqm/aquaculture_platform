@@ -18,7 +18,7 @@ import {
   X,
   Layers,
 } from 'lucide-react';
-import { cn, colors, PageHeader, Button, Input } from '@aquaculture/shared-ui';
+import { Button, cn, colors, Input, PageHeader, ToggleButton } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -403,16 +403,14 @@ export function SchedulingSettingsPage() {
                   </label>
                   <div className="flex gap-2 flex-wrap">
                     {SHIFT_COLORS.map((color) => (
-                      <button
+                      <ToggleButton
                         key={color}
                         type="button"
                         onClick={() => setShiftForm((p) => ({ ...p, colorCode: color }))}
-                        className={cn(
-                          'w-7 h-7 rounded-full border-2 transition-all',
-                          shiftForm.colorCode === color
-                            ? 'border-gray-800 scale-110'
-                            : 'border-transparent hover:scale-105',
-                        )}
+                        pressed={shiftForm.colorCode === color}
+                        className="w-7 h-7 rounded-full border-2 transition-all"
+                        pressedClassName="border-gray-800 scale-110"
+                        idleClassName="border-transparent hover:scale-105"
                         style={{ backgroundColor: color }}
                       />
                     ))}
@@ -499,18 +497,16 @@ export function SchedulingSettingsPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <button
+                      <ToggleButton
                         onClick={() => handleToggleShiftActive(shift)}
                         disabled={updateShiftMutation.isPending}
-                        className={cn(
-                          'px-2 py-1 text-xs rounded-full font-medium transition-colors',
-                          shift.isActive
-                            ? 'text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40 hover:bg-success-200 dark:hover:bg-success-800/60'
-                            : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600',
-                        )}
+                        pressed={shift.isActive}
+                        className="px-2 py-1 text-xs rounded-full font-medium transition-colors"
+                        pressedClassName="text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40 hover:bg-success-200 dark:hover:bg-success-800/60"
+                        idleClassName="text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600"
                       >
                         {shift.isActive ? 'Aktif' : 'Pasif'}
-                      </button>
+                      </ToggleButton>
                     </div>
                   </div>
                 ))}

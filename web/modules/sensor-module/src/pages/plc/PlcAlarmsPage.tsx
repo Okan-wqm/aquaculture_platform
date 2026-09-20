@@ -10,14 +10,15 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  Modal,
-  Spinner,
-  PageHeader,
-  severityClasses,
   Button,
   Input,
+  Modal,
+  PageHeader,
   Select,
+  severityClasses,
+  Spinner,
   Textarea,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
@@ -404,17 +405,16 @@ const PlcAlarmsPage: React.FC = () => {
         />
         <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
           {(['all', 'unacknowledged', 'acknowledged'] as const).map((tab) => (
-            <button
+            <ToggleButton
               key={tab}
               onClick={() => setAckFilter(tab)}
-              className={`px-3 py-2 text-sm font-medium transition-colors ${
-                ackFilter === tab
-                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={ackFilter === tab}
+              className="px-3 py-2 text-sm font-medium transition-colors"
+              pressedClassName="bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+              idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {tab === 'all' ? 'Tumu' : tab === 'unacknowledged' ? 'Onaylanmamis' : 'Onaylandi'}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

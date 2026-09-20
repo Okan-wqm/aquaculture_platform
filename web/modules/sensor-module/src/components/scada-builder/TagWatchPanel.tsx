@@ -31,12 +31,13 @@ import {
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
 import {
+  Button,
   colors as themeColors,
   DataTable,
+  Input,
+  ToggleButton,
   type DataTableColumn,
   type SortConfig,
-  Button,
-  Input,
 } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
@@ -327,17 +328,16 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({ tagBus, defaultExp
                 data-testid="tag-watch-search"
               />
             </div>
-            <button
+            <ToggleButton
               onClick={() => setPaused((p) => !p)}
-              className={`p-1.5 rounded transition-colors ${
-                paused
-                  ? 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'
-              }`}
+              pressed={paused}
+              className="p-1.5 rounded transition-colors"
+              pressedClassName="bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400"
+              idleClassName="hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               title={paused ? 'Resume' : 'Pause'}
             >
               {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-            </button>
+            </ToggleButton>
             <Button
               variant="ghost"
               size="sm"

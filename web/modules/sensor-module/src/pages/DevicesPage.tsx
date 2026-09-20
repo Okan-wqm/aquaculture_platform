@@ -39,15 +39,16 @@ import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
 import {
+  Button,
+  DataTable,
   Modal,
+  PageHeader,
+  Select,
+  Spinner,
+  ToggleButton,
   useAuth,
   useClickOutside,
-  DataTable,
   type DataTableColumn,
-  Spinner,
-  PageHeader,
-  Button,
-  Select,
   type SelectOption,
 } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
@@ -762,45 +763,42 @@ const DevicesPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('edge')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'edge'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-          }`}
+          pressed={activeTab === 'edge'}
+          className="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+          idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <span className="flex items-center gap-2">
             <Server className="w-4 h-4" />
             Edge Controllers
           </span>
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('sensors')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'sensors'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-          }`}
+          pressed={activeTab === 'sensors'}
+          className="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+          idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <span className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
             Sensörler
           </span>
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('vfd')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'vfd'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-          }`}
+          pressed={activeTab === 'vfd'}
+          className="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+          idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <span className="flex items-center gap-2">
             <Zap className="w-4 h-4" />
             VFD Cihazları
           </span>
-        </button>
+        </ToggleButton>
       </div>
 
       {/* ========================================================================
@@ -930,28 +928,26 @@ const DevicesPage: React.FC = () => {
 
               {/* View Mode Toggle */}
               <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-                <button
+                <ToggleButton
                   onClick={() => setEdgeViewMode('grid')}
-                  className={`p-2 rounded-md transition-colors ${
-                    edgeViewMode === 'grid'
-                      ? 'bg-white dark:bg-gray-900 shadow-sm'
-                      : 'hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                  pressed={edgeViewMode === 'grid'}
+                  className="p-2 rounded-md transition-colors"
+                  pressedClassName="bg-white dark:bg-gray-900 shadow-sm"
+                  idleClassName="hover:bg-gray-200 dark:hover:bg-gray-600"
                   title="Grid Görünümü"
                 >
                   <LayoutGrid size={18} className="text-gray-600 dark:text-gray-400" />
-                </button>
-                <button
+                </ToggleButton>
+                <ToggleButton
                   onClick={() => setEdgeViewMode('list')}
-                  className={`p-2 rounded-md transition-colors ${
-                    edgeViewMode === 'list'
-                      ? 'bg-white dark:bg-gray-900 shadow-sm'
-                      : 'hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                  pressed={edgeViewMode === 'list'}
+                  className="p-2 rounded-md transition-colors"
+                  pressedClassName="bg-white dark:bg-gray-900 shadow-sm"
+                  idleClassName="hover:bg-gray-200 dark:hover:bg-gray-600"
                   title="Liste Görünümü"
                 >
                   <List size={18} className="text-gray-600 dark:text-gray-400" />
-                </button>
+                </ToggleButton>
               </div>
             </div>
           </div>
@@ -1078,17 +1074,16 @@ const DevicesPage: React.FC = () => {
                   {[...Array(Math.min(5, edgeTotalPages))].map((_, i) => {
                     const pageNum = i + 1;
                     return (
-                      <button
+                      <ToggleButton
                         key={pageNum}
                         onClick={() => setEdgePage(pageNum)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium ${
-                          edgePage === pageNum
-                            ? 'bg-info-600 text-white'
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        pressed={edgePage === pageNum}
+                        className="w-8 h-8 rounded-lg text-sm font-medium"
+                        pressedClassName="bg-info-600 text-white"
+                        idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                       >
                         {pageNum}
-                      </button>
+                      </ToggleButton>
                     );
                   })}
                 </div>

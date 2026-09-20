@@ -3,7 +3,7 @@
  * Modal for creating and editing sites
  */
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import SiteContactsSection from './SiteContactsSection';
 import type { MonitoringArea, Site, SiteType } from '../../../hooks/useSites';
 import { validateMonitoringAreaForSite } from './monitoringAreaUxValidation';
@@ -298,18 +298,17 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
       {/* Tabs */}
       <div className="mb-4 flex space-x-4">
         {(['basic', 'location', 'contact'] as const).map((tab) => (
-          <button
+          <ToggleButton
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md ${
-              activeTab === tab
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={activeTab === tab}
+            className="px-3 py-1.5 text-sm font-medium rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)} Info
-          </button>
+          </ToggleButton>
         ))}
       </div>
 

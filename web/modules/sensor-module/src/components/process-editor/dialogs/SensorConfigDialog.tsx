@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import {
@@ -286,18 +286,17 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
               </label>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 {DISPLAY_TYPES.map((type) => (
-                  <button
+                  <ToggleButton
                     key={type.value}
                     onClick={() => setConfig((prev) => ({ ...prev, displayType: type.value }))}
-                    className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-colors ${
-                      config.displayType === type.value
-                        ? 'border-success-500 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
-                    }`}
+                    pressed={config.displayType === type.value}
+                    className="flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-colors"
+                    pressedClassName="border-success-500 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300"
+                    idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400"
                   >
                     {type.icon}
                     <span className="text-xs font-medium">{type.label}</span>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </div>

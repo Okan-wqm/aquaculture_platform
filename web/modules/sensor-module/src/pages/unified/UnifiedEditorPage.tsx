@@ -14,7 +14,14 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { Modal, useClickOutside, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Spinner,
+  ToggleButton,
+  useClickOutside,
+} from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -777,17 +784,16 @@ const UnifiedEditorPage: React.FC = () => {
                   No device
                 </Button>
                 {devices.map((device) => (
-                  <button
+                  <ToggleButton
                     key={device.id}
                     onClick={() => {
                       setTargetDeviceId(device.id);
                       setShowDeviceDropdown(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between ${
-                      targetDeviceId === device.id
-                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                        : 'text-gray-700 dark:text-gray-300'
-                    }`}
+                    pressed={targetDeviceId === device.id}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
+                    pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                    idleClassName="text-gray-700 dark:text-gray-300"
                   >
                     <span className="truncate">{device.deviceName}</span>
                     <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
@@ -800,7 +806,7 @@ const UnifiedEditorPage: React.FC = () => {
                         <span className="w-2 h-2 rounded-full bg-gray-300" />
                       )}
                     </span>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             )}
@@ -811,13 +817,12 @@ const UnifiedEditorPage: React.FC = () => {
         <div className="flex items-center gap-1">
           {mode === 'hmi' && (
             <>
-              <button
+              <ToggleButton
                 onClick={() => setSimulationMode(!simulationMode)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  simulationMode
-                    ? 'text-white bg-error-500 hover:bg-error-600'
-                    : 'text-white bg-success-600 hover:bg-success-700'
-                }`}
+                pressed={simulationMode}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                pressedClassName="text-white bg-error-500 hover:bg-error-600"
+                idleClassName="text-white bg-success-600 hover:bg-success-700"
                 title={
                   simulationMode
                     ? 'Stop simulation'
@@ -830,7 +835,7 @@ const UnifiedEditorPage: React.FC = () => {
                   <Play className="w-3.5 h-3.5" />
                 )}
                 {simulationMode ? 'Stop' : 'Run'}
-              </button>
+              </ToggleButton>
               <div className="h-5 w-px bg-gray-300 mx-1" />
             </>
           )}
@@ -1132,29 +1137,27 @@ const UnifiedEditorPage: React.FC = () => {
             {mode === 'pid' ? (
               <>
                 <div className="flex border-b border-gray-200 dark:border-gray-700">
-                  <button
+                  <ToggleButton
                     onClick={() => setRightPanelMode('properties')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                      rightPanelMode === 'properties'
-                        ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
+                    pressed={rightPanelMode === 'properties'}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors"
+                    pressedClassName="text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+                    idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     <Settings className="w-4 h-4" />
                     Properties
                     {selectedNodeId && <span className="w-2 h-2 rounded-full bg-info-500" />}
-                  </button>
-                  <button
+                  </ToggleButton>
+                  <ToggleButton
                     onClick={() => setRightPanelMode('attachments')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                      rightPanelMode === 'attachments'
-                        ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
+                    pressed={rightPanelMode === 'attachments'}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors"
+                    pressedClassName="text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+                    idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     <Paperclip className="w-4 h-4" />
                     Equipment
-                  </button>
+                  </ToggleButton>
                 </div>
                 <div className="flex-1 overflow-hidden">
                   {rightPanelMode === 'attachments' ? (

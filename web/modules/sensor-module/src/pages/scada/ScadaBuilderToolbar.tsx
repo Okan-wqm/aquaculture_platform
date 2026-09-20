@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { useClickOutside, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Spinner, ToggleButton, useClickOutside } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -174,17 +174,16 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
                 No Device
               </Button>
               {devices.map((device) => (
-                <button
+                <ToggleButton
                   key={device.id}
                   onClick={() => {
                     onTargetDeviceChange(device.id);
                     setShowDeviceDropdown(false);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between ${
-                    targetDeviceId === device.id
-                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                      : 'text-gray-700 dark:text-gray-300'
-                  }`}
+                  pressed={targetDeviceId === device.id}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                  idleClassName="text-gray-700 dark:text-gray-300"
                 >
                   <span className="truncate">{device.deviceName}</span>
                   <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
@@ -197,7 +196,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
                       <span className="w-2 h-2 rounded-full bg-gray-300" />
                     )}
                   </span>
-                </button>
+                </ToggleButton>
               ))}
               {devices.length === 0 && (
                 <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
@@ -214,18 +213,17 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
         <UndoRedoToolbar />
         {/* Widget Search */}
         <div className="relative" ref={searchPanelRef}>
-          <button
+          <ToggleButton
             onClick={() => setShowSearch(!showSearch)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              showSearch
-                ? 'text-white bg-info-600 hover:bg-info-700'
-                : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={showSearch}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors"
+            pressedClassName="text-white bg-info-600 hover:bg-info-700"
+            idleClassName="text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
             title="Search Widgets"
           >
             <Search className="w-4 h-4" />
             Search
-          </button>
+          </ToggleButton>
           {showSearch && (
             <div className="absolute right-0 mt-1 z-40">
               <WidgetSearchPanel />
@@ -235,18 +233,17 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
         {/* Widget Templates */}
         <div className="relative" ref={templatePanelRef}>
-          <button
+          <ToggleButton
             onClick={() => setShowTemplates(!showTemplates)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              showTemplates
-                ? 'text-white bg-info-600 hover:bg-info-700'
-                : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={showTemplates}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors"
+            pressedClassName="text-white bg-info-600 hover:bg-info-700"
+            idleClassName="text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
             title="Templates"
           >
             <Bookmark className="w-4 h-4" />
             Templates
-          </button>
+          </ToggleButton>
           {showTemplates && (
             <div className="absolute right-0 mt-1 z-40">
               <WidgetTemplatePanel />

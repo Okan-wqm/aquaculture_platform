@@ -21,20 +21,21 @@ import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSensors } from '../../../hooks/useSensors';
 import {
-  FormField,
-  Modal,
-  DynamicSpecificationForm,
-  SpecificationSchema,
-  validateSpecifications,
-  getDefaultSpecificationValues,
+  AffectedItemGroup,
+  Button,
   DeleteConfirmationDialog,
   DeletePreviewData,
-  AffectedItemGroup,
-  useToast,
-  Spinner,
-  Button,
+  DynamicSpecificationForm,
+  FormField,
+  getDefaultSpecificationValues,
   Input,
+  Modal,
   Select,
+  SpecificationSchema,
+  Spinner,
+  ToggleButton,
+  useToast,
+  validateSpecifications,
   type SelectOption,
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
@@ -826,18 +827,24 @@ export const EquipmentTab: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
-            <button
+            <ToggleButton
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              pressed={viewMode === 'grid'}
+              className="px-3 py-2"
+              pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <LayoutGrid className="w-5 h-5" aria-hidden="true" />
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => setViewMode('table')}
-              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              pressed={viewMode === 'table'}
+              className="px-3 py-2"
+              pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Menu className="w-5 h-5" aria-hidden="true" />
-            </button>
+            </ToggleButton>
           </div>
           <Button
             variant="primary"

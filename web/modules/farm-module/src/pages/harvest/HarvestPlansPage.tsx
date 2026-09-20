@@ -11,14 +11,15 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Modal,
-  formatCurrency as sharedFormatCurrency,
-  DEFAULT_CURRENCY,
-  PageHeader,
   Button,
+  DEFAULT_CURRENCY,
+  formatCurrency as sharedFormatCurrency,
   Input,
+  Modal,
+  PageHeader,
   Select,
   Textarea,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
@@ -1203,19 +1204,18 @@ const HarvestPlanFormModal: React.FC<{
           <div className="w-48 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4">
             <nav className="space-y-1">
               {sections.map((section) => (
-                <button
+                <ToggleButton
                   key={section.id}
                   type="button"
                   onClick={() => setActiveSection(section.id)}
-                  className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors ${
-                    activeSection === section.id
-                      ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
+                  pressed={activeSection === section.id}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors"
+                  pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+                  idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   {section.icon}
                   {section.label}
-                </button>
+                </ToggleButton>
               ))}
             </nav>
           </div>
@@ -2722,13 +2722,12 @@ export const HarvestPlansPage: React.FC = () => {
             description="Manage harvest planning, scheduling, and execution"
             actions={
               <div className="flex items-center space-x-3">
-                <button
+                <ToggleButton
                   onClick={() => setShowFilters(!showFilters)}
-                  className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                    showFilters
-                      ? 'border-info-500 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={showFilters}
+                  className="inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors"
+                  pressedClassName="border-info-500 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <Filter className="w-4 h-4 mr-2" />
                   Filters
@@ -2737,7 +2736,7 @@ export const HarvestPlansPage: React.FC = () => {
                   ) : (
                     <ChevronRight className="w-4 h-4 ml-1" />
                   )}
-                </button>
+                </ToggleButton>
                 <Button
                   variant="primary"
                   leftIcon={<Plus className="w-4 h-4 mr-2" />}
@@ -2849,39 +2848,36 @@ export const HarvestPlansPage: React.FC = () => {
               : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
           </p>
           <div className="flex items-center gap-2">
-            <button
+            <ToggleButton
               onClick={() => setViewMode('cards')}
-              className={`p-2 rounded-md ${
-                viewMode === 'cards'
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
-                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
-              }`}
+              pressed={viewMode === 'cards'}
+              className="p-2 rounded-md"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400"
+              idleClassName="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               title="Card View"
             >
               <Grid className="w-5 h-5" />
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => setViewMode('table')}
-              className={`p-2 rounded-md ${
-                viewMode === 'table'
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
-                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
-              }`}
+              pressed={viewMode === 'table'}
+              className="p-2 rounded-md"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400"
+              idleClassName="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               title="Table View"
             >
               <List className="w-5 h-5" />
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => setViewMode('kanban')}
-              className={`p-2 rounded-md ${
-                viewMode === 'kanban'
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
-                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
-              }`}
+              pressed={viewMode === 'kanban'}
+              className="p-2 rounded-md"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400"
+              idleClassName="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               title="Kanban View"
             >
               <Columns3 className="w-5 h-5" aria-hidden="true" />
-            </button>
+            </ToggleButton>
           </div>
         </div>
 

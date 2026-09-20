@@ -3,7 +3,15 @@
  * Full form for creating new batches with documents and tank allocations
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Spinner,
+  Textarea,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import {
   useGenerateBatchNumber,
   useAvailableTanks,
@@ -372,15 +380,14 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   : false;
 
           return (
-            <button
+            <ToggleButton
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md relative ${
-                activeTab === tab
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={activeTab === tab}
+              className="px-3 py-1.5 text-sm font-medium rounded-md relative"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               {tab === 'basic' && 'Basic Info'}
               {tab === 'documents' && 'Documents'}
@@ -389,7 +396,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               {hasError && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-error-500 rounded-full" />
               )}
-            </button>
+            </ToggleButton>
           );
         })}
       </div>

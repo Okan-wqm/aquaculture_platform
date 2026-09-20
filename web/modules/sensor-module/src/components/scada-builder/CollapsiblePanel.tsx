@@ -11,6 +11,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ToggleButton } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -92,18 +93,13 @@ const IconRail: React.FC<IconRailProps> = ({ icons, side, activeIconId, onIconCl
       const isActive = activeIconId === item.id;
       return (
         <TooltipWrapper key={item.id} label={item.label} side={side}>
-          <button
+          <ToggleButton
             type="button"
             onClick={() => onIconClick?.(item.id)}
-            className={`
-              relative flex items-center justify-center w-8 h-8 rounded-md
-              transition-colors duration-150
-              ${
-                isActive
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
-              }
-            `}
+            pressed={isActive}
+            className="relative flex items-center justify-center w-8 h-8 rounded-md transition-colors duration-150"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100"
             aria-label={item.label}
           >
             {item.icon}
@@ -112,7 +108,7 @@ const IconRail: React.FC<IconRailProps> = ({ icons, side, activeIconId, onIconCl
                 {item.badge}
               </span>
             )}
-          </button>
+          </ToggleButton>
         </TooltipWrapper>
       );
     })}
@@ -120,16 +116,17 @@ const IconRail: React.FC<IconRailProps> = ({ icons, side, activeIconId, onIconCl
 );
 
 /* ------------------------------------------------------------------ */
-/*  Toggle Button                                                      */
+/*  Collapse Toggle                                                    */
 /* ------------------------------------------------------------------ */
 
-interface ToggleButtonProps {
+interface CollapseToggleProps {
   side: 'left' | 'right';
   collapsed: boolean;
   onToggle: () => void;
 }
 
-const ToggleButton: React.FC<ToggleButtonProps> = ({ side, collapsed, onToggle }) => {
+/** The chevron on the panel's edge: a disclosure, so it declares aria-expanded. */
+const CollapseToggle: React.FC<CollapseToggleProps> = ({ side, collapsed, onToggle }) => {
   // When expanded, the toggle sits on the panel's inner edge.
   // Left panel: toggle on right edge. Right panel: toggle on left edge.
   const positionClasses =
@@ -148,6 +145,7 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ side, collapsed, onToggle }
         text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800
         transition-colors duration-150
       `}
+      aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
     >
       <Icon className="w-3.5 h-3.5" />
@@ -209,7 +207,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
       }}
     >
       {/* Toggle button */}
-      <ToggleButton side={side} collapsed={collapsed} onToggle={onToggle} />
+      <CollapseToggle side={side} collapsed={collapsed} onToggle={onToggle} />
 
       {/* Collapsed: icon rail */}
       {collapsed && (

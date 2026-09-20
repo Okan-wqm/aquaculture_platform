@@ -8,11 +8,13 @@ import { SiteFormModal } from '../SiteFormModal';
 
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   // The controls under test are the real shared-ui primitives (FE-HIGH-079);
-  // role and name queries read what Button / Input / Select / Textarea render.
+  // role and name queries read what Button / Input / Select / Textarea /
+  // ToggleButton render — the tab strip's pressed state included.
   Button: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Button,
   Input: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Input,
   Select: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Select,
   Textarea: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Textarea,
+  ToggleButton: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).ToggleButton,
   Modal: ({ isOpen, title, children }: { isOpen: boolean; title?: string; children: ReactNode }) =>
     isOpen ? (
       <section role="dialog" aria-label={title}>

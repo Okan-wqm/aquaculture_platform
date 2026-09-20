@@ -11,11 +11,13 @@ import {
   Button,
   Header,
   Sidebar,
+  SuderraSidebar,
   createTenantInvalidationKey,
   type I18nContextValue,
   type MessageKey,
   type NavigationItem,
   type SidebarTheme,
+  type SuderraNavSection,
   useAuthContext,
   useAuth,
   useI18n,
@@ -272,6 +274,177 @@ const tenantAdminBaseNavigation: NavigationDefinition[] = [
     icon: 'settings',
   },
 ];
+
+/**
+ * Rail icon per nav id, and per module child id.
+ *
+ * WHY a shell-side map rather than icons on the nav definitions: `Sidebar` and
+ * the rail draw the SAME routes with different vocabularies — the rail's
+ * mockup gives `tenant-roles` a shield and `tenant-activity` a pulse where the
+ * legacy column uses its own. Both names resolve through one registry
+ * (`navIcons.ts`), so this only decides WHICH name a rail item asks for; it
+ * invents no icons.
+ */
+const RAIL_ITEM_ICONS: Record<string, string> = {
+  company: 'building',
+  'tenant-dashboard': 'gauge',
+  dashboard: 'gauge',
+  messaging: 'chat',
+  'tenant-users': 'users',
+  'tenant-roles': 'shield',
+  'tenant-activity': 'pulse',
+  'tenant-modules': 'blocks',
+  'tenant-communication': 'comms',
+  'tenant-messages': 'mail',
+  'tenant-support': 'lifebuoy',
+  'tenant-announcements': 'megaphone',
+  'tenant-devices': 'drive',
+  'tenant-database': 'database',
+  'tenant-audit-log': 'scroll',
+  'tenant-billing': 'card',
+  'tenant-settings': 'sliders',
+  'farm-module': 'waves',
+  'sensor-module': 'signal',
+  'hr-module': 'contact',
+  'hydroponics-module': 'wheat',
+  analytics: 'linechart',
+  reports: 'report',
+};
+
+const RAIL_CHILD_ICONS: Record<string, string> = {
+  'sites-environment': 'thermo',
+  'sites-setup': 'wrench',
+  'sites-tanks': 'droplet',
+  'sites-feeding': 'wheat',
+  'sites-water-chemistry': 'ph',
+  'sites-storage': 'warehouse',
+  'sites-tasks': 'checks',
+  'sites-health': 'lifebuoy',
+  'sites-maintenance': 'wrench',
+  'sites-harvest': 'basket',
+  'sites-reports': 'bars',
+  'sites-finance': 'card',
+  'sites-analytics': 'linechart',
+  'sensor-dashboard': 'gauge',
+  'sensor-devices': 'chip',
+  'sensor-readings': 'linechart',
+  'sensor-alerts': 'bell',
+  'sensor-automation': 'workflow',
+  'sensor-water-chemistry': 'ph',
+  'sensor-plc': 'chip',
+  'sensor-plc-connections': 'network',
+  'sensor-plc-feeding': 'wheat',
+  'sensor-plc-alarms': 'bell',
+  'sensor-processes': 'network',
+  'sensor-scada': 'expand',
+  'hr-dashboard': 'gauge',
+  'hr-employees': 'users',
+  'hr-departments': 'contact',
+  'hr-scheduling': 'calendar',
+  'hr-crew': 'users',
+  'hr-attendance': 'clock',
+  'hr-leaves': 'calendar',
+  'hr-training': 'contact',
+  'hr-payroll': 'banknote',
+  'hr-finance': 'card',
+  'hydroponics-setup': 'wrench',
+  'hydroponics-general': 'sliders',
+  'hydroponics-water': 'droplet',
+  'hydroponics-user': 'user',
+  'hydroponics-result': 'linechart',
+  'hydroponics-pid-sim': 'workflow',
+};
+
+const withRailIcons = (items: NavigationItem[]): NavigationItem[] =>
+  items.map((item) => ({
+    ...item,
+    icon: RAIL_ITEM_ICONS[item.id] ?? item.icon,
+    children: item.children?.map((child) => ({
+      ...child,
+      icon: RAIL_CHILD_ICONS[child.id] ?? child.icon,
+    })),
+  }));
+
+/** Edge devices entry (page + route exist; surfaced in the Account section). */
+const EDGE_DEVICES_ITEM: NavigationDefinition = {
+  id: 'tenant-devices',
+  labelKey: 'nav.edgeDevices',
+  path: '/tenant/devices',
+  icon: 'drive',
+};
+
+/**
+ * Compose the grouped rail sections for tenant-side roles (TENANT_ADMIN and
+ * module users). The grouping follows the approved Tenant Console mockup —
+ * Overview / People & access / Modules / Communication / Account — and that is
+ * ALL it decides: every real nav item keeps its route, and items the mockup's
+ * curated subset omitted (Environment, the PLC submenu, Hydroponics…) stay
+ * under their module parent, so nothing a tenant could reach becomes
+ * unreachable by adopting the design.
+ *
+ * Section labels go through `t()` like every other nav label (FE-HIGH-089);
+ * the mockup's English headings are not written into this file.
+ */
+const buildTenantSections = (
+  userRole: string | undefined,
+  moduleNavigationItems: NavigationDefinition[],
+  delegatedItems: NavigationDefinition[],
+  t: I18nContextValue['t'],
+): SuderraNavSection[] => {
+  const base = userRole === 'TENANT_ADMIN' ? tenantAdminBaseNavigation : moduleUserBaseNavigation;
+  const pool: NavigationItem[] = localizeNavigation(
+    [...base, ...delegatedItems.filter((d) => !base.some((b) => b.id === d.id))],
+    t,
+  );
+  const byId = (id: string): NavigationItem | undefined => pool.find((i) => i.id === id);
+  const pick = (ids: string[]): NavigationItem[] =>
+    ids.map(byId).filter((item): item is NavigationItem => !!item);
+
+  const moduleItems = localizeNavigation(
+    moduleNavigationItems.filter((item) => item.id !== 'divider-modules' && item.path !== ''),
+    t,
+  );
+  const comms = byId('tenant-communication');
+
+  const sections: SuderraNavSection[] = [
+    {
+      id: 'sec-overview',
+      label: t('nav.overview'),
+      items: pick(
+        userRole === 'TENANT_ADMIN'
+          ? ['company', 'tenant-dashboard', 'messaging']
+          : ['company', 'dashboard', 'messaging', 'analytics', 'reports'],
+      ),
+    },
+    {
+      id: 'sec-people',
+      label: t('nav.peopleAccess'),
+      items: pick(['tenant-users', 'tenant-roles', 'tenant-activity']),
+    },
+    {
+      id: 'sec-modules',
+      label: t('nav.modules'),
+      items: [...pick(['tenant-modules']), ...moduleItems],
+    },
+    {
+      id: 'sec-comms',
+      label: t('nav.communication'),
+      items: comms?.children ?? pick(['tenant-messages', 'tenant-support', 'tenant-announcements']),
+    },
+    {
+      id: 'sec-account',
+      label: t('nav.account'),
+      items: [
+        ...(userRole === 'TENANT_ADMIN' ? localizeNavigation([EDGE_DEVICES_ITEM], t) : []),
+        ...pick(['tenant-database', 'tenant-audit-log', 'tenant-billing', 'tenant-settings']),
+      ],
+    },
+  ];
+
+  return sections
+    .map((section) => ({ ...section, items: withRailIcons(section.items) }))
+    .filter((section) => section.items.length > 0);
+};
 
 /**
  * Tenant-admin nav items a tenant admin may DELEGATE to a custom role
@@ -534,6 +707,21 @@ const MainLayout: React.FC = () => {
    * Role-based navigation menu with dynamic modules.
    * Depends on primitive userRole string, not function references.
    */
+  /**
+   * Tenant items a non-admin tenant user's custom role delegates to them
+   * (MT-HIGH-060). Lifted out of `navigationItems` because the rail needs the
+   * same set: derived twice it would drift, and the two navs would disagree
+   * about what a delegated user may reach.
+   */
+  const delegatedTenantItems = useMemo(
+    () =>
+      tenantAdminBaseNavigation.filter((item) => {
+        const cap = DELEGATABLE_TENANT_NAV[item.id];
+        return cap !== undefined && hasPermission(cap);
+      }),
+    [hasPermission],
+  );
+
   const navigationItems = useMemo((): NavigationItem[] => {
     if (userRole === 'SUPER_ADMIN') {
       return localizeNavigation(superAdminNavigation, t);
@@ -545,15 +733,19 @@ const MainLayout: React.FC = () => {
     // delegatable panel capability sees just those tenant items (Users/Roles/
     // Settings) appended to their normal module nav. hasPermission bypasses
     // admins (handled above) and is fail-closed for everyone else.
-    const delegatedTenantItems = tenantAdminBaseNavigation.filter((item) => {
-      const cap = DELEGATABLE_TENANT_NAV[item.id];
-      return cap !== undefined && hasPermission(cap);
-    });
     return localizeNavigation(
       [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems],
       t,
     );
-  }, [userRole, moduleNavigationItems, hasPermission, t]);
+  }, [userRole, moduleNavigationItems, delegatedTenantItems, hasPermission, t]);
+
+  /**
+   * The SUDERRA rail's grouped sections, for tenant-side roles only.
+   */
+  const tenantSections = useMemo(
+    () => buildTenantSections(userRole, moduleNavigationItems, delegatedTenantItems, t),
+    [userRole, moduleNavigationItems, delegatedTenantItems, t],
+  );
 
   /**
    * Logo text based on role
@@ -726,19 +918,43 @@ const MainLayout: React.FC = () => {
       <SkipToContent />
       <UserLocaleSync />
       {/* Sidebar */}
-      <Sidebar
-        id={SIDEBAR_ID}
-        items={navigationItems}
-        activePath={location.pathname}
-        collapsed={sidebarCollapsed}
-        mobileOpen={mobileNavOpen}
-        onMobileOpenChange={setMobileNavOpen}
-        onNavigate={handleNavigate}
-        onCollapsedChange={handleSidebarToggle}
-        theme={theme}
-        logo={logoElement}
-        userRoles={userRole ? [userRole] : []}
-      />
+      {/*
+        The tenant console gets the SUDERRA rail; the admin panel and the
+        default layouts keep the legacy column, which is still their SSoT
+        chrome and is not on this design. `theme` already encodes the role
+        split, so the seam is the one that exists rather than a new flag.
+
+        Both take the same `mobileOpen` pair: the rail opens on HOVER, and a
+        phone has none, so below `md` it is an overlay driven by the shell's
+        existing hamburger (FE-HIGH-088) — adopting the design must not cost a
+        tenant their phone navigation.
+      */}
+      {theme === 'tenant' ? (
+        <SuderraSidebar
+          sections={tenantSections}
+          activePath={location.pathname}
+          onNavigate={handleNavigate}
+          mobileOpen={mobileNavOpen}
+          onMobileOpenChange={setMobileNavOpen}
+          brandName={logoText}
+          brandSub={t(userRole === 'TENANT_ADMIN' ? 'nav.tenantConsole' : 'nav.workspace')}
+          userRoles={userRole ? [userRole] : []}
+        />
+      ) : (
+        <Sidebar
+          id={SIDEBAR_ID}
+          items={navigationItems}
+          activePath={location.pathname}
+          collapsed={sidebarCollapsed}
+          mobileOpen={mobileNavOpen}
+          onMobileOpenChange={setMobileNavOpen}
+          onNavigate={handleNavigate}
+          onCollapsedChange={handleSidebarToggle}
+          theme={theme}
+          logo={logoElement}
+          userRoles={userRole ? [userRole] : []}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-screen">

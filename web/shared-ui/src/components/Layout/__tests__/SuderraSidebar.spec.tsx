@@ -14,7 +14,7 @@
  * that had no reason to touch them.
  */
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '../../../i18n';
 import type { NavigationItem } from '../../../types';
@@ -60,6 +60,43 @@ const renderRail = (props: Partial<React.ComponentProps<typeof SuderraSidebar>> 
   );
 
 const rail = (): HTMLElement => screen.getByRole('complementary');
+
+/**
+ * jsdom implements no `matchMedia`, and the overlay subscribes to it to close
+ * itself once the viewport reaches desktop. A real `EventTarget` implementing
+ * the interface, rather than a cast object: the component adds and removes a
+ * `change` listener, so a stub that only looks like one would pass this test
+ * while failing the behaviour it stands for.
+ */
+class FakeMediaQueryList extends EventTarget implements MediaQueryList {
+  readonly media: string;
+  onchange: ((this: MediaQueryList, ev: MediaQueryListEvent) => unknown) | null = null;
+
+  constructor(
+    query: string,
+    public readonly matches: boolean,
+  ) {
+    super();
+    this.media = query;
+  }
+
+  addListener(listener: (ev: MediaQueryListEvent) => unknown): void {
+    this.addEventListener('change', listener as EventListener);
+  }
+
+  removeListener(listener: (ev: MediaQueryListEvent) => unknown): void {
+    this.removeEventListener('change', listener as EventListener);
+  }
+}
+
+/** Installs the stub at one side of the breakpoint; returns the undo. */
+const stubMatchMedia = (desktop: boolean): (() => void) => {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string): MediaQueryList => new FakeMediaQueryList(query, desktop);
+  return () => {
+    window.matchMedia = original;
+  };
+};
 
 describe('SuderraSidebar', () => {
   it('is collapsed until hovered, and the pin keeps it open once the pointer leaves', () => {
@@ -149,5 +186,57 @@ describe('SuderraSidebar', () => {
     renderRail({ statusText: '3 sites online' });
     fireEvent.mouseEnter(rail());
     expect(screen.getByText('3 sites online')).toBeTruthy();
+  });
+  describe('phone-width overlay (FE-HIGH-088)', () => {
+    let restore: () => void = () => {};
+    beforeEach(() => {
+      restore = stubMatchMedia(false);
+    });
+    afterEach(() => restore());
+
+    /**
+     * The rail expands on hover and a touch screen has no hover, so shipping it
+     * desktop-only would strand a tenant on a phone with a 68px icon strip and
+     * no way to open it — the exact defect FE-HIGH-088 fixed for the other nav.
+     * Below `md` it is an overlay instead, on the same contract `Sidebar` takes.
+     */
+    it('shows labels without hover, over a backdrop that closes it', () => {
+      const onMobileOpenChange = vi.fn();
+      renderRail({ mobileOpen: true, onMobileOpenChange });
+
+      // Open without a pointer ever touching it.
+      expect(rail().dataset['open']).toBe('true');
+      expect(screen.getByRole('button', { name: /Farm/ })).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('suderra-rail-backdrop'));
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('offers a close control instead of the pin, which an overlay cannot use', () => {
+      const onMobileOpenChange = vi.fn();
+      renderRail({ mobileOpen: true, onMobileOpenChange });
+
+      expect(screen.queryByRole('button', { name: 'Keep sidebar open' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('closes when a destination is chosen, so the page is not left behind it', () => {
+      const onNavigate = vi.fn();
+      const onMobileOpenChange = vi.fn();
+      renderRail({ mobileOpen: true, onNavigate, onMobileOpenChange });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
+      expect(onNavigate).toHaveBeenCalledWith('/overview');
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('closes itself once the viewport reaches desktop, so nav is not shown twice', () => {
+      restore();
+      restore = stubMatchMedia(true);
+      const onMobileOpenChange = vi.fn();
+      renderRail({ mobileOpen: true, onMobileOpenChange });
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 });

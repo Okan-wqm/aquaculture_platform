@@ -23,14 +23,16 @@
  * `t()` (FE-HIGH-089). Styles are the `sd-rail-*` classes, whose colours are
  * `--color-sd-*` theme tokens rather than the mockup's raw hex.
  */
-import React, { useCallback, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Pin } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Pin, X } from 'lucide-react';
 
 import type { NavigationItem, UserRole } from '../../types';
 import { useI18n } from '../../i18n';
+import { Button } from '../Button';
 import { ToggleButton } from '../ToggleButton';
+import { useDialogBehavior } from '../Modal/useDialogBehavior';
 
-import { resolveNavIcon } from './navIcons';
+import { DESKTOP_MEDIA_QUERY, resolveNavIcon } from './navIcons';
 
 export interface SuderraNavSection {
   id: string;
@@ -57,6 +59,18 @@ export interface SuderraSidebarProps {
   statusText?: string;
   /** Extra content under the nav (above the status footer). */
   footer?: React.ReactNode;
+  /**
+   * Phone-width overlay state, driven by the shell's hamburger — the same
+   * contract `Sidebar` takes (FE-HIGH-088).
+   *
+   * The rail expands on HOVER, and a touch screen has no hover: left as a
+   * desktop-only component it would strand a tenant on a phone with a 68px
+   * icon strip and no way to open it, which is the exact defect FE-HIGH-088
+   * fixed for the other nav. So below `md` the rail is an overlay instead: a
+   * full-width drawer, always expanded, over a backdrop.
+   */
+  mobileOpen?: boolean;
+  onMobileOpenChange?: (open: boolean) => void;
   className?: string;
 }
 
@@ -208,13 +222,50 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
   logoSrc = '/logo4-mark.png',
   statusText,
   footer,
+  mobileOpen = false,
+  onMobileOpenChange,
   className = '',
 }) => {
   const { t } = useI18n();
+  const asideRef = useRef<HTMLElement>(null);
   const [pinned, setPinned] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const open = pinned || hovering;
+  // The overlay always shows labels: it is not a rail, and hover cannot open it.
+  const open = mobileOpen || pinned || hovering;
+
+  const closeOverlay = useCallback(() => onMobileOpenChange?.(false), [onMobileOpenChange]);
+
+  // Escape, focus into the panel, focus back to the opener and the body scroll
+  // lock come from the hook Modal, Drawer and Sidebar share.
+  useDialogBehavior({
+    isOpen: mobileOpen,
+    onClose: closeOverlay,
+    closeOnEscape: true,
+    containerRef: asideRef,
+  });
+
+  // Past `md` the in-flow rail is on screen again, so an open overlay would
+  // show the navigation twice; it closes itself on that crossing.
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const desktop = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const settle = (): void => {
+      if (desktop.matches) closeOverlay();
+    };
+    settle();
+    desktop.addEventListener('change', settle);
+    return () => desktop.removeEventListener('change', settle);
+  }, [mobileOpen, closeOverlay]);
+
+  // Choosing a destination closes the overlay; the desktop rail stays put.
+  const handleNavigate = useCallback(
+    (path: string) => {
+      onNavigate(path);
+      if (mobileOpen) closeOverlay();
+    },
+    [onNavigate, mobileOpen, closeOverlay],
+  );
 
   const isGroupOpen = useCallback(
     (item: NavigationItem): boolean =>
@@ -234,72 +285,101 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
   const pinLabel = pinned ? t('sidebar.unpin') : t('sidebar.pin');
 
   return (
-    <aside
-      aria-label={t('sidebar.mainNavigation')}
-      data-open={open ? 'true' : 'false'}
-      className={`sd-rail${className ? ` ${className}` : ''}`}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
-    >
-      <div className="sd-rail-drawer">
-        <div className="sd-rail-header">
-          <span className="sd-rail-logo">
-            <img src={logoSrc} alt="" />
-          </span>
-          {open && (
-            <>
-              <span className="sd-rail-brand">
-                <span className="sd-rail-brand-name">{brandName}</span>
-                {brandSub && <span className="sd-rail-brand-sub">{brandSub}</span>}
-              </span>
-              <ToggleButton
-                pressed={pinned}
-                onPressedChange={setPinned}
-                title={pinLabel}
-                aria-label={pinLabel}
-                className="sd-rail-pin"
-                pressedClassName="sd-rail-pin--pinned"
-              >
-                <Pin size={15} strokeWidth={1.8} aria-hidden="true" />
-              </ToggleButton>
-            </>
-          )}
+    <>
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={closeOverlay}
+          aria-hidden="true"
+          data-testid="suderra-rail-backdrop"
+        />
+      )}
+      <aside
+        ref={asideRef}
+        tabIndex={-1}
+        aria-label={t('sidebar.mainNavigation')}
+        data-open={open ? 'true' : 'false'}
+        data-overlay={mobileOpen ? 'true' : 'false'}
+        className={`sd-rail${mobileOpen ? ' sd-rail--overlay' : ''}${className ? ` ${className}` : ''}`}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+      >
+        <div className="sd-rail-drawer">
+          <div className="sd-rail-header">
+            <span className="sd-rail-logo">
+              <img src={logoSrc} alt="" />
+            </span>
+            {open && (
+              <>
+                <span className="sd-rail-brand">
+                  <span className="sd-rail-brand-name">{brandName}</span>
+                  {brandSub && <span className="sd-rail-brand-sub">{brandSub}</span>}
+                </span>
+                {mobileOpen ? (
+                  // The overlay cannot be pinned — it is not a rail — so the
+                  // header slot carries the thing it does need: a way out that
+                  // is not the backdrop.
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    type="button"
+                    onClick={closeOverlay}
+                    aria-label={t('sidebar.collapse')}
+                    className="sd-rail-pin"
+                  >
+                    <X size={15} strokeWidth={1.8} aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <ToggleButton
+                    pressed={pinned}
+                    onPressedChange={setPinned}
+                    title={pinLabel}
+                    aria-label={pinLabel}
+                    className="sd-rail-pin"
+                    pressedClassName="sd-rail-pin--pinned"
+                  >
+                    <Pin size={15} strokeWidth={1.8} aria-hidden="true" />
+                  </ToggleButton>
+                )}
+              </>
+            )}
+          </div>
+
+          <nav className="sd-rail-nav" aria-label={brandName}>
+            {visibleSections.map((section) => (
+              <div key={section.id} className="sd-rail-section">
+                {open ? (
+                  <div className="sd-rail-section-label">{section.label}</div>
+                ) : (
+                  <div className="sd-rail-hairline" aria-hidden="true" />
+                )}
+                {section.items.map((item) => (
+                  <RailItem
+                    key={item.id}
+                    item={item}
+                    open={open}
+                    activePath={activePath}
+                    expanded={isGroupOpen(item)}
+                    onToggleGroup={handleToggleGroup}
+                    onNavigate={handleNavigate}
+                    userRoles={userRoles}
+                  />
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          {footer && <div className="sd-rail-footer-slot">{footer}</div>}
+
+          <div className="sd-rail-footer">
+            <span className="sd-rail-status-dot" aria-hidden="true" />
+            {open && (
+              <span className="sd-rail-status-text">{statusText ?? t('sidebar.statusLive')}</span>
+            )}
+          </div>
         </div>
-
-        <nav className="sd-rail-nav" aria-label={brandName}>
-          {visibleSections.map((section) => (
-            <div key={section.id} className="sd-rail-section">
-              {open ? (
-                <div className="sd-rail-section-label">{section.label}</div>
-              ) : (
-                <div className="sd-rail-hairline" aria-hidden="true" />
-              )}
-              {section.items.map((item) => (
-                <RailItem
-                  key={item.id}
-                  item={item}
-                  open={open}
-                  activePath={activePath}
-                  expanded={isGroupOpen(item)}
-                  onToggleGroup={handleToggleGroup}
-                  onNavigate={onNavigate}
-                  userRoles={userRoles}
-                />
-              ))}
-            </div>
-          ))}
-        </nav>
-
-        {footer && <div className="sd-rail-footer-slot">{footer}</div>}
-
-        <div className="sd-rail-footer">
-          <span className="sd-rail-status-dot" aria-hidden="true" />
-          {open && (
-            <span className="sd-rail-status-text">{statusText ?? t('sidebar.statusLive')}</span>
-          )}
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 

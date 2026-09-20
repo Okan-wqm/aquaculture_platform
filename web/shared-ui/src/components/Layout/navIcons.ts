@@ -80,6 +80,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+/**
+ * The width at which a nav stops being an overlay and becomes an in-flow
+ * column. Shared by `Sidebar` and `SuderraSidebar` because two copies of one
+ * breakpoint drift apart at exactly the width where the difference shows.
+ */
+export const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
+
 /** Canonical icon name → the lucide component that draws it. */
 export const NAV_ICONS: Record<string, LucideIcon> = {
   activity: Activity,

@@ -650,6 +650,26 @@
     }
   }
 
+  /* Phone-width overlay (FE-HIGH-088). The rail opens on HOVER, which a touch
+     screen does not have, so below `md` it stops being a rail: a fixed
+     full-height drawer at its expanded width, over the backdrop the component
+     renders. `width` is set on both the outer element and the drawer because
+     the collapsed rail's 68px lives on the outer one. */
+  .sd-rail--overlay {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    width: 264px;
+    transition: none;
+  }
+  @media (min-width: 768px) {
+    .sd-rail--overlay {
+      position: sticky;
+      inset: auto;
+      z-index: auto;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .sd-rail,
     .sd-rail-pin,

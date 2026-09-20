@@ -10,7 +10,7 @@ import { useI18n } from '../../i18n';
 import { useDialogBehavior } from '../Modal/useDialogBehavior';
 import { ChevronDown, ChevronsLeft, X } from 'lucide-react';
 
-import { resolveNavIcon } from './navIcons';
+import { DESKTOP_MEDIA_QUERY, resolveNavIcon } from './navIcons';
 
 // Alias for backward compatibility
 type NavItem = NavigationItem;
@@ -307,7 +307,6 @@ const sidebarThemeStyles = {
 };
 
 /** Tailwind's `md`: above it the sidebar is an in-flow column, below it an off-canvas overlay. */
-const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
 
 export const Sidebar: React.FC<SidebarProps> = ({
   items,

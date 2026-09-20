@@ -1,12 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
 
-import {
-  applyTenantRlsToSchema,
-  ApplyTenantRlsOptions,
-} from './apply-tenant-rls.helper';
+import { applyTenantRlsToSchema, ApplyTenantRlsOptions } from './apply-tenant-rls.helper';
 
 /**
  * RlsSchemaBootstrap
@@ -82,7 +79,10 @@ import {
  * for services that don't have that pipeline (yet).
  */
 
-@Injectable()
+// Built by hand (`new RlsSchemaBootstrap(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class RlsSchemaBootstrap implements OnApplicationBootstrap {
   private readonly logger = new Logger(RlsSchemaBootstrap.name);
 
@@ -119,9 +119,7 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
 
     try {
       await queryRunner.connect();
-      this.logger.log(
-        `Installing tenant RLS policies for service "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Installing tenant RLS policies for service "${this.options.serviceName}"`);
 
       await applyTenantRlsToSchema(queryRunner, {
         excludeTables: this.options.excludeTables,
@@ -131,9 +129,7 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
         logger: this.logger,
       });
 
-      this.logger.log(
-        `Tenant RLS policies installed for "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Tenant RLS policies installed for "${this.options.serviceName}"`);
     } catch (err) {
       // SECURITY-OPS: this is the alerting hook. The literal substring
       // "rls.bootstrap.failed" should be matched in log dashboards / alert

@@ -542,6 +542,22 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     expect(offenders).toEqual([]);
   });
 
+  it('every JetStream user may publish $JS.API.INFO — jetstreamManager() probes it before any stream call', () => {
+    // @nats-io/jetstream's jetstreamManager(nc) issues `$JS.API.INFO`
+    // (getAccountInfo) at construction unless checkAPI is disabled, and the
+    // event bus constructs it on every connect. Enumerated STREAM/CONSUMER
+    // rights without INFO left every service refused at boot the first time
+    // production loaded the SSoT ACL (2026-09-20, main 750db0409f).
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      const usesJetStream = svc.publish.some((s) => s.startsWith('$JS.API.'));
+      if (usesJetStream && !svc.publish.includes('$JS.API.INFO')) {
+        offenders.push(`${svc.name}: publish list enumerates $JS.API.* but not $JS.API.INFO`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {
     // SensorReading/SensorMetricIngested route to AQUACULTURE_TELEMETRY;
     // every identity allowed to publish them on the events root must ALSO

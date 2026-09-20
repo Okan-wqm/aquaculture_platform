@@ -20,14 +20,10 @@ import { FeedingJobRun } from './entities/feeding-job-run.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
-import { ProtocolRateService } from './services/protocol-rate.service';
 import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
-import { ProtocolResolutionService } from './services/protocol-resolution.service';
-import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
-import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
 import { MealFinalizationService } from './services/meal-finalization.service';
 import { DayPlanAdminService } from './services/day-plan-admin.service';
@@ -39,11 +35,12 @@ import { TenantLocalizationProjectionListener } from './listeners/tenant-localiz
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { BatchDomainService } from '../batch/services/batch-domain.service';
-import { BatchLifecyclePolicyService } from '../batch/services/batch-lifecycle-policy.service';
+import { BatchModule } from '../batch/batch.module';
 import { FeedingModule } from '../feeding/feeding.module';
 import { InventoryModule } from '../storage/storage.module';
 import { GrowthModule } from '../growth/growth.module';
+
+import { FeedingProtocolCoreModule } from './feeding-protocol-core.module';
 import {
   ArchiveFeedingProtocolV2Handler,
   CreateFeedingProtocolV2Handler,
@@ -65,6 +62,13 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
 
 @Module({
   imports: [
+    // Band/oran/FCR çözümü ve gün-planı yeniden hesabı: tek örnek, yaprak modül
+    // (feeding-protocol-core.module.ts — neden orada). Buradan da dışa
+    // aktarılır; tüketiciler doğrudan çekirdeği de import edebilir.
+    FeedingProtocolCoreModule,
+    // BatchDomainService (öğün icrası) BatchModule'ün dışa aktardığı TEK
+    // örnektir; BatchModule geriye feeding-protocol'ü import etmez (döngü yok).
+    BatchModule,
     // FeedingLedgerService (P-05 tek yem yazma yolu) FeedingModule'den gelir;
     // ters yönde import YOK (döngü riski yok).
     FeedingModule,
@@ -88,11 +92,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
   ],
   providers: [
     ProtocolValidationService,
-    ProtocolRateService,
     MealPlanGeneratorService,
-    ProtocolResolutionService,
-    BiomassGrowthApplierService,
-    DayPlanRecalcService,
     MealExecutionService,
     // Öğün kapatmanın tek gövdesi — operatör yolu ve 05:30 süpürmesi
     // ikisi de bunu çağırır (FARM-MEDIUM-276).
@@ -112,8 +112,6 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     // Stateless yardımcılar (BatchModule 'stateless pure domain logic' emsali).
     MobileCommandReceiptService,
     SiteAuthorizationService,
-    BatchDomainService,
-    BatchLifecyclePolicyService,
     CreateFeedingProtocolV2Handler,
     UpdateFeedingProtocolV2Handler,
     ArchiveFeedingProtocolV2Handler,
@@ -129,12 +127,11 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     FeedForecastResolver,
   ],
   exports: [
+    // Çekirdeğin dört servisi (ProtocolRate/ProtocolResolution/DayPlanRecalc/
+    // BiomassGrowthApplier) modül yeniden-dışa-aktarımıyla sunulur.
+    FeedingProtocolCoreModule,
     ProtocolValidationService,
-    ProtocolRateService,
     MealPlanGeneratorService,
-    ProtocolResolutionService,
-    BiomassGrowthApplierService,
-    DayPlanRecalcService,
     MealExecutionService,
     ProtocolFeedForecastService,
     // Takvim/saat çözümü domainler arası kullanılır (water-quality, admin).

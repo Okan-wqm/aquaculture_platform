@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { ColorInput, Input, colors } from '@aquaculture/shared-ui';
+import { colors, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -80,11 +80,12 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
       )}
       <div className="flex items-center gap-1.5">
         {/* Color swatch -- opens native color picker */}
-        <ColorInput
-          variant="swatch"
-          aria-label={label ? `${label} color swatch` : 'Color swatch'}
+        <input
+          type="color"
           value={color.length === 7 ? color : colors.black}
           onChange={(e) => handleColorChange(e.target.value)}
+          className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer flex-shrink-0 p-0"
+          aria-label={label ? `${label} color swatch` : 'Color swatch'}
           data-testid="color-swatch"
         />
 

@@ -14,7 +14,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
-import { Button, ColorInput, Input, colors as themeColors, useI18n } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -40,7 +40,6 @@ const INPUT_CLS =
   'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
-  const { t } = useI18n();
   const min = (config.min ?? 0) as number;
   const max = (config.max ?? 100) as number;
   const showLabel = (config.showLabel ?? true) as boolean;
@@ -199,16 +198,28 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           Colors
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <ColorInput
-            label="Background"
-            value={backgroundColor}
-            onChange={(e) => onChange({ backgroundColor: e.target.value })}
-          />
-          <ColorInput
-            label="Fill Color"
-            value={fillColor}
-            onChange={(e) => onChange({ fillColor: e.target.value })}
-          />
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Background
+            </label>
+            <input
+              type="color"
+              value={backgroundColor}
+              onChange={(e) => onChange({ backgroundColor: e.target.value })}
+              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Fill Color
+            </label>
+            <input
+              type="color"
+              value={fillColor}
+              onChange={(e) => onChange({ fillColor: e.target.value })}
+              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+            />
+          </div>
         </div>
       </div>
 
@@ -240,11 +251,11 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
                 onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
                 placeholder="Max %"
               />
-              <ColorInput
-                aria-label={t('scada.color.zone')}
-                variant="swatch"
+              <input
+                type="color"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
+                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
               <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>
                 X

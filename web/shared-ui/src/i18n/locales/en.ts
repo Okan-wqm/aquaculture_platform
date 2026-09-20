@@ -626,13 +626,6 @@ export const en = {
   'nav.users': 'Users',
   'nav.waterAnalysis': 'Water Analysis',
   'nav.waterChemistry': 'Water Chemistry',
-  'scada.color.rule': 'Conditional rule colour',
-  'scada.color.zone': 'Zone colour',
-  'scada.color.slice': 'Slice colour',
-  'scada.color.series': 'Series colour',
-  'scada.color.rangeFill': 'Range fill colour',
-  'scada.color.background': 'Background colour',
-  'channel.color.custom': 'Custom colour',
 } as const;
 
 export type MessageKey = keyof typeof en;

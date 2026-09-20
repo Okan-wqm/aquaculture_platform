@@ -6,7 +6,7 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal, colors, Button, ColorInput, Input, Select } from '@aquaculture/shared-ui';
+import { Modal, colors, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -261,10 +261,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Chart Color */}
         <div>
-          <label
-            htmlFor="chart-color"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Chart Color
           </label>
           <div className="flex items-center space-x-3">
@@ -275,11 +272,15 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
               onChange={handleChange}
               placeholder={colors.info[500]}
             />
-            <ColorInput
-              id="chart-color"
-              variant="swatch"
+            <div
+              className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600"
+              style={{ backgroundColor: formData.chartColor || colors.neutral[300] }}
+            />
+            <input
+              type="color"
               value={formData.chartColor || colors.info[500]}
               onChange={(e) => setFormData((prev) => ({ ...prev, chartColor: e.target.value }))}
+              className="w-8 h-8 p-0 border-0 cursor-pointer"
             />
           </div>
         </div>

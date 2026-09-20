@@ -6,7 +6,6 @@
 
 import { forwardRef, SelectHTMLAttributes, useId } from 'react';
 import type { Size } from '../../types';
-import { fieldLabelClass } from './fieldLabel';
 import { ChevronDown } from 'lucide-react';
 
 // ============================================================================
@@ -130,7 +129,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <div className={`${fullWidth ? 'w-full' : ''} ${className}`}>
         {/* Etiket */}
         {label && (
-          <label htmlFor={selectId} className={fieldLabelClass(size)}>
+          <label
+            htmlFor={selectId}
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
             {label}
             {required && <span className="text-error-500 ml-1">*</span>}
           </label>

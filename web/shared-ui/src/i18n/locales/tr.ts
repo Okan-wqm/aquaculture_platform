@@ -625,11 +625,4 @@ export const tr: Record<MessageKey, string> = {
   'nav.users': 'Kullanıcılar',
   'nav.waterAnalysis': 'Su Analizi',
   'nav.waterChemistry': 'Su Kimyası',
-  'scada.color.rule': 'Koşul kuralı rengi',
-  'scada.color.zone': 'Bölge rengi',
-  'scada.color.slice': 'Dilim rengi',
-  'scada.color.series': 'Seri rengi',
-  'scada.color.rangeFill': 'Aralık dolgu rengi',
-  'scada.color.background': 'Arka plan rengi',
-  'channel.color.custom': 'Özel renk',
 };

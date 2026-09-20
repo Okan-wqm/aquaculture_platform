@@ -24,14 +24,7 @@ import type {
 import { TagBrowser } from '../TagBrowser';
 import { RangeColorMapping } from './RangeColorMapping';
 import { TagValueBus } from '../../../engine/tags/TagValueBus';
-import {
-  Button,
-  ColorInput,
-  Input,
-  Textarea,
-  colors as themeColors,
-  useI18n,
-} from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 /**
  * Animation type options extended with FUXA-parity types.
@@ -80,7 +73,6 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
   deviceId,
   tagBus,
 }) => {
-  const { t } = useI18n();
   const [expandedBitmask, setExpandedBitmask] = useState<Record<string, boolean>>({});
   const [previewActive, setPreviewActive] = useState(false);
   const [previewValue, setPreviewValue] = useState(50);
@@ -406,18 +398,15 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <label
-                    htmlFor={`anim-${anim.id}-fill-a`}
-                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                  >
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     Color A
                   </label>
                   <div className="flex items-center gap-1">
-                    <ColorInput
-                      id={`anim-${anim.id}-fill-a`}
-                      variant="swatch"
+                    <input
+                      type="color"
                       value={anim.options.fillA || themeColors.error[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
+                      className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                     />
                     <Input
                       type="text"
@@ -427,18 +416,15 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label
-                    htmlFor={`anim-${anim.id}-fill-b`}
-                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                  >
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     Color B
                   </label>
                   <div className="flex items-center gap-1">
-                    <ColorInput
-                      id={`anim-${anim.id}-fill-b`}
-                      variant="swatch"
+                    <input
+                      type="color"
                       value={anim.options.fillB || themeColors.success[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
+                      className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                     />
                     <Input
                       type="text"
@@ -496,9 +482,8 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                     }
                     placeholder="Max"
                   />
-                  <ColorInput
-                    aria-label={t('scada.color.rangeFill')}
-                    variant="swatch"
+                  <input
+                    type="color"
                     value={cr.fill}
                     onChange={(e) =>
                       updateColorRange(
@@ -509,6 +494,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                         e.target.value,
                       )
                     }
+                    className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                   />
                   <Button
                     variant="ghost"

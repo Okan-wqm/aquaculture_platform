@@ -1,13 +1,6 @@
 import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
-import {
-  ColorInput,
-  Input,
-  Select,
-  Textarea,
-  colors as themeColors,
-  useI18n,
-} from '@aquaculture/shared-ui';
+import { colors as themeColors, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -22,7 +15,6 @@ const ALIGN_OPTIONS = [
 ] as const;
 
 export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
-  const { t } = useI18n();
   const hasBg = !!config.backgroundColor && config.backgroundColor !== 'transparent';
 
   return (
@@ -119,11 +111,15 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Text Color */}
-      <ColorInput
-        label="Text Color"
-        value={config.color || themeColors.neutral[800]}
-        onChange={(e) => onChange({ color: e.target.value })}
-      />
+      <div>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text Color</label>
+        <input
+          type="color"
+          value={config.color || themeColors.neutral[800]}
+          onChange={(e) => onChange({ color: e.target.value })}
+          className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
+        />
+      </div>
 
       {/* Background Color */}
       <div>
@@ -139,10 +135,11 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           Background
         </label>
         {hasBg && (
-          <ColorInput
-            aria-label={t('scada.color.background')}
+          <input
+            type="color"
             value={config.backgroundColor || themeColors.white}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
+            className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
         )}
       </div>
@@ -162,11 +159,17 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             onChange={(e) => onChange({ borderWidth: Number(e.target.value) })}
           />
         </div>
-        <ColorInput
-          label="Border Color"
-          value={config.borderColor || themeColors.neutral[300]}
-          onChange={(e) => onChange({ borderColor: e.target.value })}
-        />
+        <div>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            Border Color
+          </label>
+          <input
+            type="color"
+            value={config.borderColor || themeColors.neutral[300]}
+            onChange={(e) => onChange({ borderColor: e.target.value })}
+            className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
+          />
+        </div>
       </div>
 
       {/* Padding */}

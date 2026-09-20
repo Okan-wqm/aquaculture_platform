@@ -14,7 +14,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { ColorRange } from '../../../engine/animation/types';
-import { Button, ColorInput, Input, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 export type { ColorRange } from '../../../engine/animation/types';
 
@@ -184,21 +184,23 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               aria-label="Range maximum"
             />
             {/* Fill color */}
-            <ColorInput
-              variant="swatch"
-              aria-label="Fill color"
+            <input
+              type="color"
               value={range.fill}
               onChange={(e) => updateRange(idx, 'fill', e.target.value)}
+              className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               title="Fill color"
+              aria-label="Fill color"
             />
             {/* Stroke color (optional) */}
             {showStroke && (
-              <ColorInput
-                variant="swatch"
-                aria-label="Stroke color"
+              <input
+                type="color"
                 value={range.stroke || DEFAULT_STROKE}
                 onChange={(e) => updateRange(idx, 'stroke', e.target.value)}
+                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                 title="Stroke color"
+                aria-label="Stroke color"
               />
             )}
             {/* Label (optional) */}

@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { ColorInput, Input, colors } from '@aquaculture/shared-ui';
+import { colors, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -31,45 +31,22 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Knob"
-        />
+        <Input fullWidth type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Knob" />
       </div>
 
       {/* Value range */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.min as number) ?? 0}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-          />
+          <Input fullWidth type="number" value={(config.min as number) ?? 0} onChange={(e) => onChange({ min: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.max as number) ?? 100}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-          />
+          <Input fullWidth type="number" value={(config.max as number) ?? 100} onChange={(e) => onChange({ max: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Step</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.step as number) ?? 1}
-            onChange={(e) => onChange({ step: Number(e.target.value) })}
-            min={0.01}
-            step={0.1}
-          />
+          <Input fullWidth type="number" value={(config.step as number) ?? 1} onChange={(e) => onChange({ step: Number(e.target.value) })} min={0.01} step={0.1} />
         </div>
       </div>
 
@@ -77,39 +54,18 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.startAngle as number) ?? 30}
-            onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
-            min={0}
-            max={180}
-          />
+          <Input fullWidth type="number" value={(config.startAngle as number) ?? 30} onChange={(e) => onChange({ startAngle: Number(e.target.value) })} min={0} max={180} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Angle</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.endAngle as number) ?? 330}
-            onChange={(e) => onChange({ endAngle: Number(e.target.value) })}
-            min={180}
-            max={360}
-          />
+          <Input fullWidth type="number" value={(config.endAngle as number) ?? 330} onChange={(e) => onChange({ endAngle: Number(e.target.value) })} min={180} max={360} />
         </div>
       </div>
 
       {/* Tick count */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tick Count</label>
-        <Input
-          fullWidth
-          type="number"
-          value={(config.tickCount as number) ?? 11}
-          onChange={(e) => onChange({ tickCount: Number(e.target.value) })}
-          min={2}
-          max={25}
-        />
+        <Input fullWidth type="number" value={(config.tickCount as number) ?? 11} onChange={(e) => onChange({ tickCount: Number(e.target.value) })} min={2} max={25} />
       </div>
 
       {/* Display toggles */}
@@ -136,25 +92,35 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
 
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
-          Colors
-        </label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          <ColorInput
-            label="Knob"
-            value={(config.knobColor as string) ?? colors.neutral[700]}
-            onChange={(e) => onChange({ knobColor: e.target.value })}
-          />
-          <ColorInput
-            label="Track"
-            value={(config.trackColor as string) ?? colors.neutral[200]}
-            onChange={(e) => onChange({ trackColor: e.target.value })}
-          />
-          <ColorInput
-            label="Indicator"
-            value={(config.indicatorColor as string) ?? colors.primary[400]}
-            onChange={(e) => onChange({ indicatorColor: e.target.value })}
-          />
+          <div>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Knob</label>
+            <input
+              type="color"
+              value={(config.knobColor as string) ?? colors.neutral[700]}
+              onChange={(e) => onChange({ knobColor: e.target.value })}
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Track</label>
+            <input
+              type="color"
+              value={(config.trackColor as string) ?? colors.neutral[200]}
+              onChange={(e) => onChange({ trackColor: e.target.value })}
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Indicator</label>
+            <input
+              type="color"
+              value={(config.indicatorColor as string) ?? colors.primary[400]}
+              onChange={(e) => onChange({ indicatorColor: e.target.value })}
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+            />
+          </div>
         </div>
       </div>
     </div>

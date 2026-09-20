@@ -22,7 +22,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { ColorInput, Input } from '@aquaculture/shared-ui';
+import { Input } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight, Palette, Eye, RotateCw, Settings2 } from 'lucide-react';
 import type {
   FuxaExportVariable,
@@ -137,15 +137,16 @@ const ColorField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => {
 
   return (
     <div className="flex items-center gap-2">
-      <ColorInput
-        variant="swatch"
-        aria-label={variable.label}
+      <input
+        type="color"
         value={shortHex}
         onChange={(e) => {
           // Preserve alpha suffix if original value had 8-digit hex
           const alpha = strVal.length > 7 ? strVal.slice(7) : '';
           onUpdate(variable.id, e.target.value + alpha);
         }}
+        className="w-8 h-8 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
+        aria-label={variable.label}
       />
       <Input
         className="font-mono"

@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Button, ColorInput, Input, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -202,19 +202,15 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Color */}
               <div>
-                <label
-                  htmlFor={`scheduler-entry-${idx}-color`}
-                  className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5"
-                >
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
                   Color
                 </label>
                 <div className="flex items-center gap-2">
-                  <ColorInput
-                    id={`scheduler-entry-${idx}-color`}
-                    variant="swatch"
-                    size="xs"
+                  <input
+                    type="color"
                     value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
+                    className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
                   />
                   <Input
                     type="text"

@@ -14,8 +14,6 @@
 import React, { useId } from 'react';
 
 import { cn } from '../../utils';
-import { fieldLabelClass } from './fieldLabel';
-import type { Size } from '../../types';
 import { CircleAlert } from 'lucide-react';
 
 export interface FormFieldProps {
@@ -26,8 +24,6 @@ export interface FormFieldProps {
   required?: boolean;
   touched?: boolean;
   showErrorOnlyWhenTouched?: boolean;
-  /** Sarmalanan kontrolün boyutu — etiket bu boyutta okunur. */
-  size?: Size;
   className?: string;
   children: React.ReactNode;
 }
@@ -40,7 +36,6 @@ export const FormField: React.FC<FormFieldProps> = ({
   required = false,
   touched = true,
   showErrorOnlyWhenTouched = true,
-  size = 'md',
   className = '',
   children,
 }) => {
@@ -57,7 +52,10 @@ export const FormField: React.FC<FormFieldProps> = ({
   return (
     <div className={cn('mb-4', className)}>
       {label && (
-        <label htmlFor={htmlFor} className={fieldLabelClass(size)}>
+        <label
+          htmlFor={htmlFor}
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
           {label}
           {/* FE-HIGH-018: aria-required communicated visually AND semantically */}
           {required && (

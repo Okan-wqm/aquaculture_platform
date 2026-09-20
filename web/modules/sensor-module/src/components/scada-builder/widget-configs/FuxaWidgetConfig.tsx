@@ -20,7 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
-import { colors as themeColors, Button, ColorInput, Input } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -416,11 +416,11 @@ const VariableInput: React.FC<VariableInputProps> = ({
       case 'color':
         return (
           <div className="flex items-center gap-2">
-            <ColorInput
-              variant="swatch"
-              aria-label={variable.label}
+            <input
+              type="color"
               value={String(value)}
               onChange={(e) => onChange(variable.id, e.target.value)}
+              className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
               data-testid={`fuxa-var-${variable.id}`}
             />
             <input

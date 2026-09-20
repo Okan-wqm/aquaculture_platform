@@ -29,7 +29,7 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
-import { Button, ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -106,12 +106,16 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
             Fill
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <ColorInput
-              label="Fill"
-              aria-label="Fill color"
-              value={(config.fill as string) || themeColors.info[500]}
-              onChange={(e) => onChange({ fill: e.target.value })}
-            />
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill</label>
+              <input
+                type="color"
+                value={(config.fill as string) || themeColors.info[500]}
+                onChange={(e) => onChange({ fill: e.target.value })}
+                className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
+                aria-label="Fill color"
+              />
+            </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                 Fill Opacity

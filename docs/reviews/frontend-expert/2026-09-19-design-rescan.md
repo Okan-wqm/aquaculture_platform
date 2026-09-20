@@ -131,6 +131,43 @@ Three incompatible field conventions live in farm alone; hr keeps private
 `inputClass`/`labelClass` constants; tenant-admin has five badge components.
 Reach: sensor ~181 files, farm ~117, tenant-admin ~38, hr ~36.
 
+### FE-HIGH-151 — the form label has no linkage to its control's size
+
+Raised while converting sensor-module fields for FE-HIGH-079, because it is the
+reason those conversions kept stalling. `Input`, `Textarea`, `Select` and
+`FormField` all hardcode `block text-sm font-medium … mb-1` for the label, with
+no reference to the control's `size`. The control scale does move — `xs` renders
+`text-xs`, `lg` renders `text-base`, `xl` renders `text-lg` — so at those sizes
+the label sits one to two steps off the control beside it.
+
+The consequence is not cosmetic. Every dense surface (filter bar, repeat row,
+properties inspector, modal grid) therefore kept a hand-written
+`<label class="text-xs">` *outside* the primitive, and once the label is outside,
+nothing binds it: `EdgeDeviceDetailPage`'s 23-field I/O tag form had no
+accessible names at all — each a bare `<label>` with no `htmlFor` beside a
+control with no `id`. FE-HIGH-079 could not reach those surfaces while the
+primitive could not express them.
+
+Fix: one `fieldLabelClass(size)` SSoT the four components share, `md`/`sm`
+unchanged at `text-sm` so no existing field moves, and `size` on `FormField`.
+
+### FE-MEDIUM-152 — there is no colour-field primitive
+
+39 call sites build one from a raw `<input type="color">`: 38 in sensor-module
+(all under `components/scada-builder/` plus the channel editor) and 1 in farm.
+Three shapes are in circulation — a `w-full h-8` bar, and `w-8 h-8` / `w-8 h-7` /
+`w-6 h-6` swatches — each with its own border, radius and cursor classes.
+13 had no accessible name; several carried an `aria-label` that contradicted a
+visible label sitting above them unbound, which a screen reader resolves in
+favour of the `aria-label`. farm's water-chemistry config row rendered an inert
+preview div beside the picker: two identical swatches side by side, one of them
+dead. `scada-builder/widget-configs/ColorAlphaInput.tsx` is a private partial
+copy — it composes the missing primitive's swatch half by hand.
+
+Fix: a `ColorInput` primitive with the two shapes those sites actually need
+(`bar`, `swatch`), label bound and swatch sized from `size`, and
+`ColorAlphaInput` composing it rather than re-deriving it.
+
 ### FE-HIGH-080 — operator-screen hazards
 
 A newly raised critical alarm is signalled only visually (no live region); the

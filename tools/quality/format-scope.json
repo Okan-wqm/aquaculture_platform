@@ -42529,6 +42529,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-v3-client.inbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/nats/__tests__/nats-v3-wire-compat.spec.ts",
       "prettier_managed": true
     },

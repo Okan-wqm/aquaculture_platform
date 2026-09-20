@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { Checkbox, Modal, PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
@@ -358,15 +358,15 @@ export const MessagingPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')}
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Threads</option>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Threads' },
+                  { value: 'open', label: 'Open' },
+                  { value: 'closed', label: 'Closed' },
+                ]}
+              />
               <ToggleButton
                 onClick={() => setShowUnreadOnly(!showUnreadOnly)}
                 pressed={showUnreadOnly}
@@ -765,15 +765,11 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
 
       {/* Options */}
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={sendEmail}
-            onChange={(e) => setSendEmail(e.target.checked)}
-            className="w-4 h-4 text-info-600 rounded border-gray-300 dark:border-gray-600 focus:ring-info-500"
-          />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Send email notification</span>
-        </label>
+        <Checkbox
+          label="Send email notification"
+          checked={sendEmail}
+          onChange={(e) => setSendEmail(e.target.checked)}
+        />
       </div>
 
       {/* Preview */}

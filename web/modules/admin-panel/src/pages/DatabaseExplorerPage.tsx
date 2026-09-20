@@ -15,6 +15,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  Select,
   Spinner,
   ToggleButton,
   type DataTableColumn,
@@ -654,17 +655,11 @@ const DatabaseExplorerPage: React.FC = () => {
         description="View and manage database tables"
         actions={
           <div className="mt-4 sm:mt-0 flex gap-2">
-            <select
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
+            <Select
               value={selectedSchema}
               onChange={(e) => handleSchemaSelect(e.target.value)}
-            >
-              {schemas.map((schema) => (
-                <option key={schema} value={schema}>
-                  {schema}
-                </option>
-              ))}
-            </select>
+              options={schemas.map((schema) => ({ value: schema, label: schema }))}
+            />
             {selectedTable && (
               <>
                 {/* Export Dropdown */}

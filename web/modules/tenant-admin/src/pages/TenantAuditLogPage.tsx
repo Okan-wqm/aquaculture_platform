@@ -401,69 +401,49 @@ const TenantAuditLogPage: React.FC = () => {
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Start Date
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={filters.startDate || ''}
-                onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                End Date
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={filters.endDate || ''}
-                onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Action
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                placeholder="e.g. USER_CREATE"
-                value={filters.action || ''}
-                onChange={(e) => updateFilters({ action: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Severity
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All' },
-                  { value: 'info', label: 'Info' },
-                  { value: 'warning', label: 'Warning' },
-                  { value: 'error', label: 'Error' },
-                  { value: 'critical', label: 'Critical' },
-                ]}
-                value={filters.severity || ''}
-                onChange={(e) => updateFilters({ severity: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                User
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                placeholder="Email or ID"
-                value={filters.performedBy || ''}
-                onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-              />
-            </div>
+            <Input
+              label="Start Date"
+              fullWidth
+              type="date"
+              value={filters.startDate || ''}
+              onChange={(e) => updateFilters({ startDate: e.target.value || null })}
+            />
+            <Input
+              label="End Date"
+              fullWidth
+              type="date"
+              value={filters.endDate || ''}
+              onChange={(e) => updateFilters({ endDate: e.target.value || null })}
+            />
+            <Input
+              label="Action"
+              fullWidth
+              type="text"
+              placeholder="e.g. USER_CREATE"
+              value={filters.action || ''}
+              onChange={(e) => updateFilters({ action: e.target.value || null })}
+            />
+            <Select
+              label="Severity"
+              fullWidth
+              options={[
+                { value: '', label: 'All' },
+                { value: 'info', label: 'Info' },
+                { value: 'warning', label: 'Warning' },
+                { value: 'error', label: 'Error' },
+                { value: 'critical', label: 'Critical' },
+              ]}
+              value={filters.severity || ''}
+              onChange={(e) => updateFilters({ severity: e.target.value || null })}
+            />
+            <Input
+              label="User"
+              fullWidth
+              type="text"
+              placeholder="Email or ID"
+              value={filters.performedBy || ''}
+              onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
+            />
           </div>
         </div>
       )}

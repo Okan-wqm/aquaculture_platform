@@ -33,7 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
-import { PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -478,41 +478,41 @@ export const TicketsPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Status</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting_customer">Waiting</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Status' },
+                  { value: 'open', label: 'Open' },
+                  { value: 'in_progress', label: 'In Progress' },
+                  { value: 'waiting_customer', label: 'Waiting' },
+                  { value: 'resolved', label: 'Resolved' },
+                  { value: 'closed', label: 'Closed' },
+                ]}
+              />
+              <Select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value as TicketPriority | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Priority</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Priority' },
+                  { value: 'critical', label: 'Critical' },
+                  { value: 'high', label: 'High' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'low', label: 'Low' },
+                ]}
+              />
+              <Select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Categories</option>
-                <option value="technical">Technical</option>
-                <option value="billing">Billing</option>
-                <option value="feature_request">Feature Request</option>
-                <option value="bug">Bug</option>
-                <option value="general">General</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Categories' },
+                  { value: 'technical', label: 'Technical' },
+                  { value: 'billing', label: 'Billing' },
+                  { value: 'feature_request', label: 'Feature Request' },
+                  { value: 'bug', label: 'Bug' },
+                  { value: 'general', label: 'General' },
+                ]}
+              />
             </div>
           </div>
 
@@ -647,36 +647,36 @@ export const TicketsPage: React.FC = () => {
               {/* Actions */}
               <div className="flex items-center gap-3 mt-4">
                 {/* Status Change */}
-                <select
+                <Select
                   value={selectedTicket.status}
                   onChange={(e) =>
                     handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)
                   }
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="waiting_customer">Waiting for Customer</option>
-                  <option value="resolved">Resolved</option>
-                  <option value="closed">Closed</option>
-                </select>
+                  options={[
+                    { value: 'open', label: 'Open' },
+                    { value: 'in_progress', label: 'In Progress' },
+                    { value: 'waiting_customer', label: 'Waiting for Customer' },
+                    { value: 'resolved', label: 'Resolved' },
+                    { value: 'closed', label: 'Closed' },
+                  ]}
+                />
 
                 {/* Priority Change */}
-                <select
+                <Select
                   value={selectedTicket.priority}
                   onChange={(e) =>
                     handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)
                   }
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
+                  options={[
+                    { value: 'critical', label: 'Critical' },
+                    { value: 'high', label: 'High' },
+                    { value: 'medium', label: 'Medium' },
+                    { value: 'low', label: 'Low' },
+                  ]}
+                />
 
                 {/* Assign */}
-                <select
+                <Select
                   value={selectedTicket.assignedTo || ''}
                   onChange={(e) => {
                     const member = supportTeam.find((m) => m.id === e.target.value);
@@ -684,15 +684,12 @@ export const TicketsPage: React.FC = () => {
                       handleAssign(selectedTicket.id, member.id, member.name);
                     }
                   }}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="">Assign to...</option>
-                  {supportTeam.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} ({member.activeTickets} active)
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Assign to..."
+                  options={supportTeam.map((member) => ({
+                    value: member.id,
+                    label: `${member.name} (${member.activeTickets} active)`,
+                  }))}
+                />
               </div>
 
               {/* SLA Info */}

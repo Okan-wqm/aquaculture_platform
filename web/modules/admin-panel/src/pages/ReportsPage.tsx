@@ -702,38 +702,24 @@ const ReportsPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="report-start-date"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                >
-                  Start Date
-                </label>
-                <Input
-                  id="report-start-date"
-                  type="date"
-                  value={dateRange.startDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange((prev) => ({ ...prev, startDate: event.currentTarget.value }))
-                  }
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="report-end-date"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                >
-                  End Date
-                </label>
-                <Input
-                  id="report-end-date"
-                  type="date"
-                  value={dateRange.endDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange((prev) => ({ ...prev, endDate: event.currentTarget.value }))
-                  }
-                />
-              </div>
+              <Input
+                label="Start Date"
+                id="report-start-date"
+                type="date"
+                value={dateRange.startDate}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setDateRange((prev) => ({ ...prev, startDate: event.currentTarget.value }))
+                }
+              />
+              <Input
+                label="End Date"
+                id="report-end-date"
+                type="date"
+                value={dateRange.endDate}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setDateRange((prev) => ({ ...prev, endDate: event.currentTarget.value }))
+                }
+              />
             </div>
 
             <div>

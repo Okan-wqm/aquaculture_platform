@@ -644,25 +644,19 @@ const AuditLogPage: React.FC = () => {
             options={tenantOptions}
           />
 
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Start Date
-            </label>
-            <Input
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => setFilter('startDate', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Start Date"
+            type="date"
+            value={filters.startDate}
+            onChange={(e) => setFilter('startDate', e.target.value)}
+          />
 
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Date</label>
-            <Input
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => setFilter('endDate', e.target.value)}
-            />
-          </div>
+          <Input
+            label="End Date"
+            type="date"
+            value={filters.endDate}
+            onChange={(e) => setFilter('endDate', e.target.value)}
+          />
         </div>
 
         {hasActiveFilters && (

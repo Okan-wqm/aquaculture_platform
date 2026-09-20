@@ -10,10 +10,12 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Input,
   Modal,
   PageHeader,
   SandboxedHtmlPreview,
+  Select,
   Spinner,
   ToggleButton,
 } from '@aquaculture/shared-ui';
@@ -383,90 +385,62 @@ const EmailTemplatesPage: React.FC = () => {
         >
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Template Code
-                </label>
-                <Input
-                  type="text"
-                  value={selectedTemplate?.code || ''}
-                  onChange={(e) =>
-                    setSelectedTemplate((prev) => (prev ? { ...prev, code: e.target.value } : null))
-                  }
-                  placeholder="welcome_email"
-                  disabled={selectedTemplate?.isSystem}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Template Name
-                </label>
-                <Input
-                  type="text"
-                  value={selectedTemplate?.name || ''}
-                  onChange={(e) =>
-                    setSelectedTemplate((prev) => (prev ? { ...prev, name: e.target.value } : null))
-                  }
-                  placeholder="Welcome Email"
-                />
-              </div>
+              <Input
+                label="Template Code"
+                type="text"
+                value={selectedTemplate?.code || ''}
+                onChange={(e) =>
+                  setSelectedTemplate((prev) => (prev ? { ...prev, code: e.target.value } : null))
+                }
+                placeholder="welcome_email"
+                disabled={selectedTemplate?.isSystem}
+              />
+              <Input
+                label="Template Name"
+                type="text"
+                value={selectedTemplate?.name || ''}
+                onChange={(e) =>
+                  setSelectedTemplate((prev) => (prev ? { ...prev, name: e.target.value } : null))
+                }
+                placeholder="Welcome Email"
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Category
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-                  value={selectedTemplate?.category || 'notification'}
-                  onChange={(e) =>
-                    setSelectedTemplate((prev) =>
-                      prev ? { ...prev, category: e.target.value } : null,
-                    )
-                  }
-                >
-                  {categories
-                    .filter((c) => c !== 'all')
-                    .map((cat) => (
-                      <option key={cat} value={cat}>
-                        {getCategoryLabel(cat)}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Description
-                </label>
-                <Input
-                  type="text"
-                  value={selectedTemplate?.description || ''}
-                  onChange={(e) =>
-                    setSelectedTemplate((prev) =>
-                      prev ? { ...prev, description: e.target.value } : null,
-                    )
-                  }
-                  placeholder="Template description..."
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Email Subject
-              </label>
-              <Input
-                type="text"
-                value={selectedTemplate?.subject || ''}
+              <Select
+                label="Category"
+                value={selectedTemplate?.category || 'notification'}
                 onChange={(e) =>
                   setSelectedTemplate((prev) =>
-                    prev ? { ...prev, subject: e.target.value } : null,
+                    prev ? { ...prev, category: e.target.value } : null,
                   )
                 }
-                placeholder="{{platform_name}} - Welcome!"
+                options={categories
+                  .filter((c) => c !== 'all')
+                  .map((cat) => ({ value: cat, label: getCategoryLabel(cat) }))}
+              />
+              <Input
+                label="Description"
+                type="text"
+                value={selectedTemplate?.description || ''}
+                onChange={(e) =>
+                  setSelectedTemplate((prev) =>
+                    prev ? { ...prev, description: e.target.value } : null,
+                  )
+                }
+                placeholder="Template description..."
               />
             </div>
+
+            <Input
+              label="Email Subject"
+              type="text"
+              value={selectedTemplate?.subject || ''}
+              onChange={(e) =>
+                setSelectedTemplate((prev) => (prev ? { ...prev, subject: e.target.value } : null))
+              }
+              placeholder="{{platform_name}} - Welcome!"
+            />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -534,21 +508,17 @@ const EmailTemplatesPage: React.FC = () => {
                         );
                       }}
                     />
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={variable.required}
-                        onChange={(e) => {
-                          const newVars = [...(selectedTemplate?.variables || [])];
-                          newVars[index] = { ...variable, required: e.target.checked };
-                          setSelectedTemplate((prev) =>
-                            prev ? { ...prev, variables: newVars } : null,
-                          );
-                        }}
-                        className="h-4 w-4 text-info-600 dark:text-info-400 rounded"
-                      />
-                      <span className="ml-1 text-xs">Required</span>
-                    </label>
+                    <Checkbox
+                      label="Required"
+                      checked={variable.required}
+                      onChange={(e) => {
+                        const newVars = [...(selectedTemplate?.variables || [])];
+                        newVars[index] = { ...variable, required: e.target.checked };
+                        setSelectedTemplate((prev) =>
+                          prev ? { ...prev, variables: newVars } : null,
+                        );
+                      }}
+                    />
                     <Button
                       variant="ghost"
                       size="sm"

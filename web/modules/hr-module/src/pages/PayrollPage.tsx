@@ -254,27 +254,20 @@ function CreatePayrollModal({
                 </select>
               </div>
 
-              <div>
-                <label
-                  htmlFor="payroll-currency"
-                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Currency
-                </label>
-                <Select
-                  fullWidth
-                  options={[
-                    { value: 'USD', label: 'USD' },
-                    { value: 'EUR', label: 'EUR' },
-                    { value: 'GBP', label: 'GBP' },
-                    { value: 'TRY', label: 'TRY' },
-                    { value: 'NOK', label: 'NOK' },
-                  ]}
-                  id="payroll-currency"
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                />
-              </div>
+              <Select
+                label="Currency"
+                fullWidth
+                options={[
+                  { value: 'USD', label: 'USD' },
+                  { value: 'EUR', label: 'EUR' },
+                  { value: 'GBP', label: 'GBP' },
+                  { value: 'TRY', label: 'TRY' },
+                  { value: 'NOK', label: 'NOK' },
+                ]}
+                id="payroll-currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+              />
 
               <div>
                 <label
@@ -449,23 +442,16 @@ function CreatePayrollModal({
           </div>
 
           {/* Notes */}
-          <div>
-            <label
-              htmlFor="payroll-notes"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Notes
-            </label>
-            <Textarea
-              fullWidth
-              id="payroll-notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              maxLength={1000}
-              placeholder="Optional notes..."
-            />
-          </div>
+          <Textarea
+            label="Notes"
+            fullWidth
+            id="payroll-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            maxLength={1000}
+            placeholder="Optional notes..."
+          />
         </div>
       </form>
     </Modal>

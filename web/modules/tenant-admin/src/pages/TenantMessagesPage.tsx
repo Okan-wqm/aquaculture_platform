@@ -536,32 +536,24 @@ const NewThreadModal: React.FC<{
         </>
       }
     >
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Subject
-        </label>
-        <Input
-          fullWidth
-          type="text"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Enter subject..."
-        />
-      </div>
+      <Input
+        label="Subject"
+        fullWidth
+        type="text"
+        value={subject}
+        onChange={(e) => setSubject(e.target.value)}
+        placeholder="Enter subject..."
+      />
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Message
-        </label>
-        <Textarea
-          className="resize-none"
-          fullWidth
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          rows={5}
-          placeholder="Describe your question or issue..."
-        />
-      </div>
+      <Textarea
+        label="Message"
+        className="resize-none"
+        fullWidth
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        rows={5}
+        placeholder="Describe your question or issue..."
+      />
       {submitError && (
         <div className="flex items-center gap-2 p-3 bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 rounded-lg text-sm">
           <AlertCircle size={16} className="flex-shrink-0" />

@@ -23,6 +23,7 @@ import {
   DataTable,
   Modal,
   PageHeader,
+  Select,
   ToggleButton,
   type DataTableColumn,
 } from '@aquaculture/shared-ui';
@@ -828,29 +829,29 @@ export const AuditTrailPage: React.FC = () => {
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
                 />
               </div>
-              <select
+              <Select
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Actions</option>
-                <option value="create">Create</option>
-                <option value="read">Read</option>
-                <option value="update">Update</option>
-                <option value="delete">Delete</option>
-                <option value="login">Login</option>
-                <option value="logout">Logout</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Actions' },
+                  { value: 'create', label: 'Create' },
+                  { value: 'read', label: 'Read' },
+                  { value: 'update', label: 'Update' },
+                  { value: 'delete', label: 'Delete' },
+                  { value: 'login', label: 'Login' },
+                  { value: 'logout', label: 'Logout' },
+                ]}
+              />
+              <Select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Severities</option>
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="critical">Critical</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Severities' },
+                  { value: 'info', label: 'Info' },
+                  { value: 'warning', label: 'Warning' },
+                  { value: 'critical', label: 'Critical' },
+                ]}
+              />
             </div>
           </div>
 

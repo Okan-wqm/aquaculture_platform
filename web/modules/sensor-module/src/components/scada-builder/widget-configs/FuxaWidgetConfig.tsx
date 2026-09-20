@@ -507,7 +507,7 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       <Select
         value={rule.state}
         onChange={(e) => onChange(index, 'state', e.target.value)}
-        options={[0, 1, 2, 3, 4, 5].map((s) => ({ value: s, label: `State${s}` }))}
+        options={[0, 1, 2, 3, 4, 5].map((s) => ({ value: s, label: `State ${s}` }))}
       />
 
       {/* Remove */}

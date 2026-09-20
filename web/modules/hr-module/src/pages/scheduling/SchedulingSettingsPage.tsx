@@ -24,6 +24,7 @@ import {
   colors,
   Input,
   PageHeader,
+  Select,
   ToggleButton,
   useI18n,
 } from '@aquaculture/shared-ui';
@@ -319,91 +320,67 @@ export function SchedulingSettingsPage() {
                   </Button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Kod
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      maxLength={10}
-                      value={shiftForm.code}
-                      onChange={(e) =>
-                        setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
-                      }
-                      disabled={!!editingShiftId}
-                      placeholder="S, A, G..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Ad
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={shiftForm.name}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="Sabah, Aksam..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Baslangic
-                    </label>
-                    <Input
-                      fullWidth
-                      type="time"
-                      value={shiftForm.startTime}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, startTime: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Bitis
-                    </label>
-                    <Input
-                      fullWidth
-                      type="time"
-                      value={shiftForm.endTime}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, endTime: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Toplam Dakika
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min={60}
-                      max={1440}
-                      step={30}
-                      value={shiftForm.totalMinutes}
-                      onChange={(e) =>
-                        setShiftForm((p) => ({
-                          ...p,
-                          totalMinutes: parseInt(e.target.value) || 480,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Mola (dk)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min={0}
-                      max={240}
-                      step={15}
-                      value={shiftForm.breakMinutes}
-                      onChange={(e) =>
-                        setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Kod"
+                    fullWidth
+                    type="text"
+                    maxLength={10}
+                    value={shiftForm.code}
+                    onChange={(e) =>
+                      setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+                    }
+                    disabled={!!editingShiftId}
+                    placeholder="S, A, G..."
+                  />
+                  <Input
+                    label="Ad"
+                    fullWidth
+                    type="text"
+                    value={shiftForm.name}
+                    onChange={(e) => setShiftForm((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="Sabah, Aksam..."
+                  />
+                  <Input
+                    label="Baslangic"
+                    fullWidth
+                    type="time"
+                    value={shiftForm.startTime}
+                    onChange={(e) => setShiftForm((p) => ({ ...p, startTime: e.target.value }))}
+                  />
+                  <Input
+                    label="Bitis"
+                    fullWidth
+                    type="time"
+                    value={shiftForm.endTime}
+                    onChange={(e) => setShiftForm((p) => ({ ...p, endTime: e.target.value }))}
+                  />
+                  <Input
+                    label="Toplam Dakika"
+                    fullWidth
+                    type="number"
+                    min={60}
+                    max={1440}
+                    step={30}
+                    value={shiftForm.totalMinutes}
+                    onChange={(e) =>
+                      setShiftForm((p) => ({
+                        ...p,
+                        totalMinutes: parseInt(e.target.value) || 480,
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Mola (dk)"
+                    fullWidth
+                    type="number"
+                    min={0}
+                    max={240}
+                    step={15}
+                    value={shiftForm.breakMinutes}
+                    onChange={(e) =>
+                      setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))
+                    }
+                  />
                 </div>
                 {/* Color Picker */}
                 <div className="mt-4">
@@ -650,40 +627,27 @@ export function SchedulingSettingsPage() {
             </div>
             <div className="p-6 space-y-4">
               {/* Work Week Start Day */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Hafta Baslangic Gunu
-                </label>
-                <select
-                  value={formData.workWeekStartDay || 'monday'}
-                  onChange={(e) => handleChange('workWeekStartDay', e.target.value as WeekDay)}
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  {WEEKDAY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Hafta Baslangic Gunu"
+                value={formData.workWeekStartDay || 'monday'}
+                onChange={(e) => handleChange('workWeekStartDay', e.target.value as WeekDay)}
+                options={WEEKDAY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
 
               {/* Default Shift */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Varsayilan Vardiya
                 </label>
-                <select
+                <Select
                   value={formData.defaultShiftId || ''}
                   onChange={(e) => handleChange('defaultShiftId', e.target.value || undefined)}
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">Secilmedi</option>
-                  {shifts?.map((shift) => (
-                    <option key={shift.id} value={shift.id}>
-                      {shift.code} - {shift.name} ({shift.startTime}-{shift.endTime})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Secilmedi"
+                  options={(shifts ?? []).map((shift) => ({
+                    value: shift.id,
+                    label: `${shift.code} - ${shift.name} (${shift.startTime}-${shift.endTime})`,
+                  }))}
+                />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Yeni plan olusturulurken kullanilacak varsayilan vardiya
                 </p>

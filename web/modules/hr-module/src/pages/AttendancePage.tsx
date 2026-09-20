@@ -272,45 +272,33 @@ export function AttendancePage() {
           {showFilters && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Start Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={filter.startDate || ''}
-                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    End Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={filter.endDate || ''}
-                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: '', label: 'All' },
-                      { value: 'present', label: 'Present' },
-                      { value: 'absent', label: 'Absent' },
-                      { value: 'late', label: 'Late' },
-                      { value: 'on_leave', label: 'On Leave' },
-                    ]}
-                    value={filter.status || ''}
-                    onChange={(e) => handleFilterChange('status', e.target.value)}
-                  />
-                </div>
+                <Input
+                  label="Start Date"
+                  fullWidth
+                  type="date"
+                  value={filter.startDate || ''}
+                  onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                />
+                <Input
+                  label="End Date"
+                  fullWidth
+                  type="date"
+                  value={filter.endDate || ''}
+                  onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                />
+                <Select
+                  label="Status"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'All' },
+                    { value: 'present', label: 'Present' },
+                    { value: 'absent', label: 'Absent' },
+                    { value: 'late', label: 'Late' },
+                    { value: 'on_leave', label: 'On Leave' },
+                  ]}
+                  value={filter.status || ''}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                />
               </div>
               <div className="mt-4 flex justify-end">
                 <Button variant="ghost" onClick={() => setFilter({})}>

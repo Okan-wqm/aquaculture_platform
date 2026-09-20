@@ -399,6 +399,35 @@ None share tokens; these are the surfaces a customer sees first and signs.
 unsaved flag; nothing reaches the scheduling API. Product-truth defect, outside
 the design lane.
 
+### FE-MEDIUM-162 — the select conversion rendered option labels by a rule the compiler does not use
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+Seven option labels reached the branch with their words run together. `{eq.name} ({eq.code})` became
+`${eq.name}(${eq.code})`, so an operator picking equipment in the process editor read
+`Equipment-A(EQ-01)`; `State {s}` became `State${s}`; `[{screen.screenType}] {screen.name}` lost the
+space after the bracket. The same shape hit the SCADA sensor dialog, the edge-device picker, the
+ticket assignee list and the shift picker.
+
+The cause is one line. Moving an `<option>`'s children into a `label:` value rendered each text part
+with `.strip()`, where the compiler renders a text node by a published rule: a line keeps its leading
+spaces only if it opens the node and its trailing spaces only if it closes the node, whitespace-only
+lines vanish, and every surviving line but the last gains one space. Under that rule the space before
+`(` is content and the space after `State` is content; under `.strip()` neither is distinguishable
+from indentation.
+
+Two further defects of the same shape surfaced while repairing it, both in how the option's children
+were read rather than in what they meant. The children were split by a regex treating `{…}` as flat,
+so an option whose label held a template literal — ``{ICONS[t] ? `[${t}] ` : ''}`` — was torn in
+half. And the mapped array was captured with `(.*?)` starting at the leftmost `{`, so an option list
+preceded by a placeholder holding an expression swallowed the markup between them and put `</option>`
+inside an `options` prop. That second one had already been seen once and worked around by excluding
+two files; the exclusion hid it rather than fixing it, and it returned in a third file.
+
+Nothing reached `main`: the damage was confined to `c64c0c379` on the feature branch and to two labels
+in the batch behind it. It was found because a fifth file failed to convert — no gate saw it, and no
+gate can: the ratchet counts raw `<select>`, and a converted one with a wrong label counts as adopted.
+
 ### FE-MEDIUM-161 — the hardcoded-string ratchet cannot see a string in an object literal
 
 **Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30

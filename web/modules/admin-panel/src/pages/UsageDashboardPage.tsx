@@ -18,7 +18,7 @@ import type {
   MeterBreakdown,
 } from '../services/types';
 import { AggregationPeriod, MeterType } from '../services/types';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Select } from '@aquaculture/shared-ui';
 import {
   ChartColumn,
   Database as DatabaseIcon,
@@ -656,28 +656,19 @@ const UsageDashboardPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Usage Trends</h3>
             <div className="flex gap-2">
-              <select
+              <Select
                 value={selectedTrendMeter}
                 onChange={(e) => setSelectedTrendMeter(e.target.value as MeterType)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
-              >
-                {availableTrendMeters.map((mt) => (
-                  <option key={mt} value={mt}>
-                    {METER_DISPLAY_NAMES[mt] || mt}
-                  </option>
-                ))}
-              </select>
-              <select
+                options={availableTrendMeters.map((mt) => ({
+                  value: mt,
+                  label: METER_DISPLAY_NAMES[mt] || mt,
+                }))}
+              />
+              <Select
                 value={trendPeriod}
                 onChange={(e) => setTrendPeriod(e.target.value as AggregationPeriod)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
-              >
-                {PERIOD_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                options={PERIOD_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
             </div>
           </div>
           {trendsLoading ? (
@@ -696,17 +687,14 @@ const UsageDashboardPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Top Tenants by Usage
             </h3>
-            <select
+            <Select
               value={topTenantsMeter}
               onChange={(e) => setTopTenantsMeter(e.target.value as MeterType)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
-            >
-              {TOP_TENANTS_METER_OPTIONS.map((mt) => (
-                <option key={mt} value={mt}>
-                  {METER_DISPLAY_NAMES[mt] || mt}
-                </option>
-              ))}
-            </select>
+              options={TOP_TENANTS_METER_OPTIONS.map((mt) => ({
+                value: mt,
+                label: METER_DISPLAY_NAMES[mt] || mt,
+              }))}
+            />
           </div>
           <div className="space-y-0">
             {topTenantsLoading ? (

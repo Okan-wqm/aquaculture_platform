@@ -212,7 +212,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
               placeholder="Select screen..."
               options={screens.map((screen) => ({
                 value: screen.id,
-                label: `[${screen.screenType}]${screen.name}`,
+                label: `[${screen.screenType}] ${screen.name}`,
               }))}
             />
           )}

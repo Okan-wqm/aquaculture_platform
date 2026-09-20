@@ -526,7 +526,7 @@ export const PropertiesPanel: React.FC = () => {
                   placeholder="Select Equipment..."
                   options={unlinkedEquipment.map((eq) => ({
                     value: eq.id,
-                    label: `${eq.name}(${eq.code})`,
+                    label: `${eq.name} (${eq.code})`,
                   }))}
                 />
                 {unlinkedEquipment.length === 0 && (
@@ -952,7 +952,7 @@ export const PropertiesPanel: React.FC = () => {
                     placeholder="Select Edge Device..."
                     options={edgeDevices.map((device) => ({
                       value: device.id,
-                      label: `${device.deviceName}(${device.deviceCode})${device.isOnline ? ' ●' : ' ○'}`,
+                      label: `${device.deviceName} (${device.deviceCode})${device.isOnline ? ' ●' : ' ○'}`,
                     }))}
                   />
                   {edgeDevices.length === 0 && (

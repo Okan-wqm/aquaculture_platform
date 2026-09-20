@@ -370,81 +370,47 @@ export function LeavesPage() {
       {showFilters && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label
-                htmlFor="leave-filter-status"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Status
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All Statuses' },
-                  { value: 'pending', label: 'Pending' },
-                  { value: 'approved', label: 'Approved' },
-                  { value: 'rejected', label: 'Rejected' },
-                  { value: 'cancelled', label: 'Cancelled' },
-                ]}
-                id="leave-filter-status"
-                value={filter.status || ''}
-                onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)}
-              />
-            </div>
+            <Select
+              label="Status"
+              fullWidth
+              options={[
+                { value: '', label: 'All Statuses' },
+                { value: 'pending', label: 'Pending' },
+                { value: 'approved', label: 'Approved' },
+                { value: 'rejected', label: 'Rejected' },
+                { value: 'cancelled', label: 'Cancelled' },
+              ]}
+              id="leave-filter-status"
+              value={filter.status || ''}
+              onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)}
+            />
 
-            <div>
-              <label
-                htmlFor="leave-filter-leaveType"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Leave Type
-              </label>
-              <select
-                id="leave-filter-leaveType"
-                value={filter.leaveTypeId || ''}
-                onChange={(e) => handleFilterChange('leaveTypeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Types</option>
-                {leaveTypes?.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Leave Type"
+              id="leave-filter-leaveType"
+              value={filter.leaveTypeId || ''}
+              onChange={(e) => handleFilterChange('leaveTypeId', e.target.value)}
+              placeholder="All Types"
+              options={(leaveTypes ?? []).map((type) => ({ value: type.id, label: type.name }))}
+            />
 
-            <div>
-              <label
-                htmlFor="leave-filter-startDate"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Start Date
-              </label>
-              <Input
-                fullWidth
-                id="leave-filter-startDate"
-                type="date"
-                value={filter.startDate || ''}
-                onChange={(e) => handleFilterChange('startDate', e.target.value)}
-              />
-            </div>
+            <Input
+              label="Start Date"
+              fullWidth
+              id="leave-filter-startDate"
+              type="date"
+              value={filter.startDate || ''}
+              onChange={(e) => handleFilterChange('startDate', e.target.value)}
+            />
 
-            <div>
-              <label
-                htmlFor="leave-filter-endDate"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                End Date
-              </label>
-              <Input
-                fullWidth
-                id="leave-filter-endDate"
-                type="date"
-                value={filter.endDate || ''}
-                onChange={(e) => handleFilterChange('endDate', e.target.value)}
-              />
-            </div>
+            <Input
+              label="End Date"
+              fullWidth
+              id="leave-filter-endDate"
+              type="date"
+              value={filter.endDate || ''}
+              onChange={(e) => handleFilterChange('endDate', e.target.value)}
+            />
           </div>
 
           <div className="mt-4 flex justify-end">

@@ -22,22 +22,16 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Screen</label>
-        <select
-          value={config.targetScreenId || ''}
-          onChange={(e) => onChange({ targetScreenId: e.target.value || undefined })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-        >
-          <option value="">Select screen...</option>
-          {screens.map((screen) => (
-            <option key={screen.id} value={screen.id}>
-              {SCREEN_TYPE_ICONS[screen.screenType] ? `[${screen.screenType}] ` : ''}
-              {screen.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Target Screen"
+        value={config.targetScreenId || ''}
+        onChange={(e) => onChange({ targetScreenId: e.target.value || undefined })}
+        placeholder="Select screen..."
+        options={screens.map((screen) => ({
+          value: screen.id,
+          label: `${SCREEN_TYPE_ICONS[screen.screenType] ? `[${screen.screenType}] ` : ''}${screen.name}`,
+        }))}
+      />
       <Input
         label="Label"
         fullWidth

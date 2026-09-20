@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -298,29 +298,29 @@ export const AnnouncementsPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
-          <select
+          <Select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as AnnouncementStatus | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-          >
-            <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="published">Published</option>
-            <option value="expired">Expired</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'draft', label: 'Draft' },
+              { value: 'scheduled', label: 'Scheduled' },
+              { value: 'published', label: 'Published' },
+              { value: 'expired', label: 'Expired' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+          />
+          <Select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-          >
-            <option value="all">All Types</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="critical">Critical</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
+            options={[
+              { value: 'all', label: 'All Types' },
+              { value: 'info', label: 'Info' },
+              { value: 'warning', label: 'Warning' },
+              { value: 'critical', label: 'Critical' },
+              { value: 'maintenance', label: 'Maintenance' },
+            ]}
+          />
         </div>
       </div>
 

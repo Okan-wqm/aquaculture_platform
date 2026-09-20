@@ -35,7 +35,7 @@ import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
-import { PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -377,17 +377,17 @@ export const OnboardingPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <select
+                <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as OnboardingStatus | 'all')}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="all">All Status</option>
-                  <option value="not_started">Not Started</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="skipped">Skipped</option>
-                </select>
+                  options={[
+                    { value: 'all', label: 'All Status' },
+                    { value: 'not_started', label: 'Not Started' },
+                    { value: 'in_progress', label: 'In Progress' },
+                    { value: 'completed', label: 'Completed' },
+                    { value: 'skipped', label: 'Skipped' },
+                  ]}
+                />
                 <ToggleButton
                   onClick={() => setShowNeedingAttention(!showNeedingAttention)}
                   pressed={showNeedingAttention}

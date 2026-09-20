@@ -211,9 +211,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             </ul>
 
             <Checkbox
-              label="I acknowledge that closing this batch while a withdrawal period is still active
-                breaches food-safety policy. Override will be written to the audit log with my user
-                ID."
+              label="I acknowledge that closing this batch while a withdrawal period is still active breaches food-safety policy. Override will be written to the audit log with my user ID."
               checked={acknowledge}
               onChange={(e) => setAcknowledge(e.target.checked)}
             />

@@ -11,6 +11,7 @@ import {
   DataTable,
   Modal,
   PageHeader,
+  Select,
   ToggleButton,
   type DataTableColumn,
 } from '@aquaculture/shared-ui';
@@ -979,17 +980,17 @@ export const SecurityDashboardPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Recent Security Events
               </h3>
-              <select
+              <Select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
-              >
-                <option value="all">All Severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Severities' },
+                  { value: 'critical', label: 'Critical' },
+                  { value: 'high', label: 'High' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'low', label: 'Low' },
+                ]}
+              />
             </div>
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">

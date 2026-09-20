@@ -252,7 +252,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 placeholder="Sensor seçin..."
                 options={unlinkedSensors.map((sensor) => ({
                   value: sensor.id,
-                  label: `${sensor.displayName}(${getSensorTypeLabel(sensor.type)})`,
+                  label: `${sensor.displayName} (${getSensorTypeLabel(sensor.type)})`,
                 }))}
               />
             )}

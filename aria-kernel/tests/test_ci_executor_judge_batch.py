@@ -71,7 +71,7 @@ class JudgeBatchLane(unittest.TestCase):
             ))
         self.request_ids = [str(r["request_id"]) for r in self.requests]
         self.runner_temp = self.root / "runner-temp"
-        self.runner_temp.mkdir()
+        self.runner_temp.mkdir(exist_ok=True)
         self.github_output = self.runner_temp / "github-output.txt"
         self.environment.update({"RUNNER_TEMP": str(self.runner_temp), "GITHUB_OUTPUT": str(self.github_output)})
 

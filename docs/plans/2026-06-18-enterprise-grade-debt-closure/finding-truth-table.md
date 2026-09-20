@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b23a7bebb57841c0618098af4b122d11e89d0daedfc986e0400467c0579ece70`
+Registry tip: `da68ed84e8ba216a785ab81e98a469ff055923033e2bb4fa12855cc815b13dd0`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as

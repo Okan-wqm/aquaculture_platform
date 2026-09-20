@@ -590,3 +590,28 @@ control_or_transport_unavailable`, the envelope written with the verdict, the cl
   through the real executor and the fixture vendor: `ACCEPTED`, one attempt admitted
   `pending_native_submit`, no requeue, one cost row with `plan_id plan-<tail>` (red before the
   fix: the attempt was released and the state stayed PENDING).
+
+## ARIA-HIGH-182 — a successful native dispatch said nothing to the drain
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** executor run 35509466473 (main `f7ae92d48`, 2026-09-20 12:02–14:50Z), the first
+  drain with ARIA-HIGH-180 on main: `results.jsonl` gained 26 accepted adversarial judgments and
+  the state branch published them; `executor_drain_completed` said `attempted 30, succeeded 1,
+failed 26, harness_failed 26, failure_counts {child_without_summary: 26}` and the workflow went
+  red. The Claude CLI path emits its `succeeded` summary inside `invoke_claude_cli`; the native
+  runtimes (`_invoke_native_zai`, `_invoke_native_codex`, `_invoke_native_claude`) return 0 from
+  `_main` after `_reconcile_native_result` with no summary at all, and the native non-zero exit arm
+  releases the claim without one. The drain's rule (B8) is that the summary is the only evidence of
+  success, so the yield the night produced read as the night's failure — the mirror of the
+  false green B8 closed.
+- **Rule:** every terminal path of a dispatch writes its one classified summary, and the summary
+  names the route that ran (the admitted provider and model), never the profile's declared pair.
+- **Fix:** `_main` writes a `succeeded` summary after the native reconcile and a `failed`
+  `harness_unavailable` (retryable) summary on the native non-zero exit arm; both on
+  `_native_route_for_summary` — the admitted route — because the evidence judge declares
+  `anthropic/opus` and is admitted on `zai/glm-5.3`, and the drain keys its circuits by the pair
+  that answered.
+- **Proof:** `tests/test_ci_executor_native_zai.py` — the real executor process against the
+  fixture vendor writes `dispatch-result-<id>.json` with `outcome succeeded`, `provider zai`,
+  `model glm-5.3`, no failure class, and publishes its path on `GITHUB_OUTPUT` (red before the
+  fix: no file; red with the declared route: `anthropic/opus`).

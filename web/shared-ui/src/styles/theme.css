@@ -941,6 +941,36 @@
   }
 
   /* Stat cards */
+  /* The dashboard's two-column body. The mockup expressed this inline
+     (`flex: '2 1 540px'`), which the inlineStyle ratchet forbids and which no
+     other console rule does; as a class it also gets a real phone breakpoint,
+     which the inline version never had. */
+  /* Rows draw their own border-top, so the list is a plain block; the class
+     exists so the markup names the region rather than leaving a bare <div>. */
+  .sd-mod-list-body {
+    display: block;
+  }
+
+  .sd-main-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 1024px) {
+    /* Rows draw their own border-top, so the list is a plain block; the class
+     exists so the markup names the region rather than leaving a bare <div>. */
+    .sd-mod-list-body {
+      display: block;
+    }
+
+    .sd-main-grid {
+      grid-template-columns: 2fr 1fr;
+    }
+    .sd-span-2 {
+      grid-column: span 1;
+    }
+  }
+
   .sd-stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));

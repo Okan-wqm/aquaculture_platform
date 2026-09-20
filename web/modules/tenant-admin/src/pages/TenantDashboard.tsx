@@ -297,7 +297,7 @@ const TenantDashboard: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page">
       {/* Page Header */}
       <PageHeader
         title="Dashboard"
@@ -322,7 +322,7 @@ const TenantDashboard: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+        <div className="sd-banner sd-banner--error">
           <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-error-800 dark:text-error-200">
@@ -408,14 +408,11 @@ const TenantDashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="sd-stat-grid">
         {statsData.map((stat) => {
           const colors = colorClasses[stat.color];
           return (
-            <div
-              key={stat.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
-            >
+            <div key={stat.id} className="sd-card sd-card--dash sd-stat-card">
               <div className="flex items-start justify-between">
                 <div className={`p-3 rounded-xl ${colors.icon}`}>{stat.icon}</div>
                 {stat.change !== undefined && stat.change > 0 && (
@@ -444,10 +441,10 @@ const TenantDashboard: React.FC = () => {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="sd-main-grid">
         {/* Modules Status - Takes 2 columns */}
-        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className="sd-card sd-card--flush sd-span-2">
+          <div className="sd-card-head">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {t('tenantDashboard.moduleStatus')}
@@ -468,7 +465,7 @@ const TenantDashboard: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            <div className="sd-mod-list-body">
               {modules.map((module) => (
                 <div
                   key={module.id}
@@ -502,8 +499,8 @@ const TenantDashboard: React.FC = () => {
         </div>
 
         {/* Recent Activity - Takes 1 column */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className="sd-card sd-card--flush">
+          <div className="sd-card-head">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {t('tenantDashboard.recentActivity')}

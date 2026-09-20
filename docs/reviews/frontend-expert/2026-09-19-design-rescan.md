@@ -628,6 +628,38 @@ Fixed for this page; **FE-HIGH-089 stays open** for the other 41 and the 487 str
 Four of the strings are interpolated, which is the shape that resists a naive sweep because a
 template literal fixes English word order; they go through `t()`'s variable form.
 
+### FE-MEDIUM-170 — the console's landing page wears the platform default
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`TenantDashboard`'s structural wrappers — page, error banner, stat grid, cards, card heads, the
+two-column body — were the platform's default Tailwind surfaces rather than the approved Tenant
+Console ones. The stylesheet defining those surfaces was present; the page simply did not use it.
+
+Fixed by moving the wrappers onto `sd-*` while **keeping** `PageHeader` and `Button`: the mockup's
+own version of this page has no `PageHeader` and 5 raw `<button>`s, and both ceilings are pinned
+exactly, so importing it would have raised two ratchets to apply a skin. **FE-HIGH-167 stays open**
+for the other 11 pages.
+
+### PROC-MEDIUM-038 — the `Closes:` gate checks that a trailer exists, not that it is true
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`commit-msg-validator` requires a `Closes:` trailer on every `fix`/`security`/`feat` commit and
+validates its _shape_. It cannot check whether the commit closes what it names. For incremental work
+against a large OPEN finding — one page of a twelve-page console, one file of forty-two — the
+nearest valid id is the parent, so the gate's own pressure points at a false close.
+
+It happened **twice in one session**: a commit claiming `Closes: FE-HIGH-089` with 41 files still to
+go, and one claiming `Closes: FE-HIGH-167` with 11 pages still to go. Both were caught by re-reading
+before pushing, which is not a control.
+
+A falsely closed parent is worse than a missing trailer: the registry reports the work done, the
+`RESOLVED` row carries a real commit sha, and nothing downstream tells it from a genuine closure —
+the exact audit theatre the traceability rule exists to prevent. Candidate fixes: a finding that
+declares itself a PARENT only a reconcile over its children may close, or a `Progresses:` trailer so
+incremental work has an honest one to use.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

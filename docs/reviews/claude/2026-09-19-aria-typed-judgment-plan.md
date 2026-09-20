@@ -566,3 +566,26 @@ session ID: 10c31c16-…"]`, exit 1 → `provider_nonzero` → claim released
   to both decisions) and `tests/test_managed_claude_sandbox.py` (the store's `projects` bound
   writable at the private config dir after the tmpfs; nothing bound without a store; a store inside
   the workspace refused).
+
+## ARIA-HIGH-181 — a plan minted on the kernel's own output can never be answered
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** `AIR-aria-challenger-planner-2d16fdbb749e` (convergence
+  `plan-cyc-20260918T153436Z-auto`) carries `evidence_refs: ["aria-findings/F-003.json"]` and
+  nothing else. Dispatched in executor run 35485712865 (2026-09-20 03:21–03:28Z, 27 turns, exit 0),
+  the challenger found what the kernel already knows: `aria-findings/` is under
+  `evidence_trust.SELF_OUTPUT_PREFIXES` and gitignored, so the ref resolves at no workspace SHA;
+  it refused in prose, the executor released the claim `plan_content_invalid:plan_content:
+absent_or_not_object` at `requeue_count 2`. The ref came from
+  `plan_synthesizer.convert_candidate_to_plan_content`'s F-finding branch, which fell back to the
+  finding JSON when `_evidence_refs_from_finding_json` extracted no code reference — "so the
+  validator's non-empty-evidence_refs rule still holds": a rule satisfied by a reference the
+  kernel's own trust rule names inadmissible.
+- **Rule:** a plan request is minted only on evidence a planner can resolve; a finding without a
+  code reference is skipped by name and the next ranked candidate is tried.
+- **Fix:** the fallback is removed; `convert_candidate_to_plan_content` returns `None` for an
+  F-finding whose chain yields no code reference (the caller already records
+  `plan_candidate_conversion_skipped` and iterates, as the function's contract says).
+- **Proof:** `tests/test_finding_driven_evidence.py` (empty chain → `None`; missing file →
+  `None`; a converted plan cites nothing under `SELF_OUTPUT_PREFIXES`); the plan-source invariant
+  and the origin contract now convert an F-finding through a real code reference.

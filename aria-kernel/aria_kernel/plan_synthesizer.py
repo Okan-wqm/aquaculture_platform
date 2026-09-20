@@ -1063,14 +1063,24 @@ def convert_candidate_to_plan_content(
         )
         # ORPHAN-312 root fix — ground the plan in the finding's REAL code
         # references (evidence_chain), not the finding JSON file. This is what
-        # a challenger must cite; the JSON path is only a last-resort fallback
-        # so the validator's non-empty-evidence_refs rule still holds.
+        # a challenger must cite.
+        #
+        # ARIA-HIGH-181 — a finding whose chain yields no code reference is
+        # NOT converted. The fallback that once stood here minted the plan on
+        # `aria-findings/<id>.json`: a path under evidence_trust's
+        # SELF_OUTPUT_PREFIXES, gitignored, unresolvable at any workspace
+        # SHA — so the validator's non-empty rule was satisfied by a ref the
+        # kernel's own trust rule names inadmissible. The challenger planner
+        # dispatched on it (AIR-aria-challenger-planner-2d16fdbb749e, run
+        # 35485712865, 27 turns) found exactly that and refused; the refusal
+        # cost a requeue and the request could never be answered. The
+        # candidate is skipped by name (`plan_candidate_conversion_skipped`)
+        # and the next ranked candidate is tried, as the None contract says.
         evidence_refs, affected_surfaces = _evidence_refs_from_finding_json(
             candidate.get("path"),
         )
         if not evidence_refs:
-            evidence_refs = [f"aria-findings/{candidate_id}.json"]
-            affected_surfaces = [f"aria-findings/{candidate_id}.json"]
+            return None
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).

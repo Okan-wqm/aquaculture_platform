@@ -13,6 +13,7 @@ import {
   DataTable,
   Input,
   Select,
+  Slider,
   Modal,
   useConfirm,
   type DataTableColumn,
@@ -606,24 +607,15 @@ export const FeatureTogglesPage: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Rollout Percentage
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.rolloutPercentage}
-                  onChange={(e) =>
-                    setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })
-                  }
-                  className="flex-1"
-                />
-                <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
-              </div>
-            </div>
+            <Slider
+              label="Rollout Percentage"
+              readout="beside-label"
+              unit="%"
+              min={0}
+              max={100}
+              value={formData.rolloutPercentage}
+              onChange={(rolloutPercentage) => setFormData({ ...formData, rolloutPercentage })}
+            />
 
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 cursor-pointer">

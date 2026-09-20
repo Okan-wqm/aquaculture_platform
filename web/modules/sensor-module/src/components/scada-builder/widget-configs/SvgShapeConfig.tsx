@@ -36,7 +36,7 @@ import type {
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
-import { ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
+import { ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -414,22 +414,16 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
     </div>
     {(config.starMode as boolean) && (
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Inner Radius Ratio
-        </label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Inner Radius Ratio"
+          readout="below"
           min={0.1}
           max={0.9}
           step={0.05}
           value={(config.innerRadius as number) ?? 0.5}
-          onChange={(e) => onChange({ innerRadius: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Inner radius ratio"
+          onChange={(innerRadius) => onChange({ innerRadius })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.innerRadius as number) ?? 0.5).toFixed(2)}
-        </span>
       </div>
     )}
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
@@ -624,36 +618,28 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Head Width</label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Head Width"
+          readout="below"
           min={0.3}
           max={1}
           step={0.05}
           value={(config.headWidthRatio as number) ?? 0.6}
-          onChange={(e) => onChange({ headWidthRatio: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Arrow head width ratio"
+          onChange={(headWidthRatio) => onChange({ headWidthRatio })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.headWidthRatio as number) ?? 0.6).toFixed(2)}
-        </span>
       </div>
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Body Width</label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Body Width"
+          readout="below"
           min={0.2}
           max={0.8}
           step={0.05}
           value={(config.bodyWidthRatio as number) ?? 0.5}
-          onChange={(e) => onChange({ bodyWidthRatio: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Arrow body width ratio"
+          onChange={(bodyWidthRatio) => onChange({ bodyWidthRatio })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.bodyWidthRatio as number) ?? 0.5).toFixed(2)}
-        </span>
       </div>
     </div>
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">

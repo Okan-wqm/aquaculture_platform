@@ -14,6 +14,7 @@ import {
   Spinner,
   Button,
   Input,
+  Slider,
   Textarea,
 } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
@@ -741,21 +742,25 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
           {/* Opacity Slider (only shown when process background is selected and in edit mode) */}
           {processBackground.processId && isEditMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Opacity:</span>
-              <input
-                type="range"
-                min="0.1"
-                max="1"
-                step="0.1"
+              <label
+                htmlFor="process-background-opacity"
+                className="text-xs text-gray-500 dark:text-gray-400"
+              >
+                Opacity:
+              </label>
+              <Slider
+                id="process-background-opacity"
+                size="xs"
+                fullWidth={false}
+                className="w-20"
+                min={0.1}
+                max={1}
+                step={0.1}
                 value={processBackground.opacity}
-                onChange={(e) => {
-                  setProcessBackground((prev) => ({
-                    ...prev,
-                    opacity: parseFloat(e.target.value),
-                  }));
+                onChange={(opacity) => {
+                  setProcessBackground((prev) => ({ ...prev, opacity }));
                   setHasUnsavedChanges(true);
                 }}
-                className="w-20 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
               />
               <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
                 {Math.round(processBackground.opacity * 100)}%

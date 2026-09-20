@@ -17,7 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
-import { colors, Button } from '@aquaculture/shared-ui';
+import { colors, Button, Slider } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -155,18 +155,16 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {/* Blur controls */}
           {filter.type === 'blur' && (
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Blur Radius ({filter.blurRadius ?? 4}px)
-              </label>
-              <input
-                type="range"
+              <Slider
+                size="xs"
+                label="Blur Radius"
+                readout="beside-label"
+                unit="px"
                 min={0}
                 max={20}
                 step={0.5}
                 value={filter.blurRadius ?? 4}
-                onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                className="w-full"
-                aria-label="Blur radius"
+                onChange={handleBlurRadius}
                 data-testid="blur-radius"
               />
             </div>
@@ -176,18 +174,16 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {filter.type === 'dropShadow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Blur ({filter.blurRadius ?? 4}px)
-                </label>
-                <input
-                  type="range"
+                <Slider
+                  size="xs"
+                  label="Blur"
+                  readout="beside-label"
+                  unit="px"
                   min={0}
                   max={20}
                   step={0.5}
                   value={filter.blurRadius ?? 4}
-                  onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                  className="w-full"
-                  aria-label="Shadow blur radius"
+                  onChange={handleBlurRadius}
                   data-testid="shadow-blur-radius"
                 />
               </div>
@@ -238,18 +234,16 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {filter.type === 'glow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Intensity ({filter.blurRadius ?? 6}px)
-                </label>
-                <input
-                  type="range"
+                <Slider
+                  size="xs"
+                  label="Intensity"
+                  readout="beside-label"
+                  unit="px"
                   min={0}
                   max={20}
                   step={0.5}
                   value={filter.blurRadius ?? 6}
-                  onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                  className="w-full"
-                  aria-label="Glow intensity"
+                  onChange={handleBlurRadius}
                   data-testid="glow-intensity"
                 />
               </div>

@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Slider } from '@aquaculture/shared-ui';
 import { Upload, Trash2, AlertCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
@@ -178,23 +178,18 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       </div>
 
       {/* Opacity slider -- allows the entire custom SVG to be semi-transparent */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={(config.opacity as number) ?? 1}
-          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-          className="w-full"
-          aria-label="SVG opacity"
-          data-testid="custom-svg-opacity"
-        />
-        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-          {Math.round(((config.opacity as number) ?? 1) * 100)}%
-        </div>
-      </div>
+      <Slider
+        size="xs"
+        label="Opacity"
+        readout="below"
+        formatValue={(v) => `${Math.round(v * 100)}%`}
+        min={0}
+        max={1}
+        step={0.05}
+        value={(config.opacity as number) ?? 1}
+        onChange={(opacity) => onChange({ opacity })}
+        data-testid="custom-svg-opacity"
+      />
 
       {/* Transform section -- rotation, scale, skew for custom SVGs */}
       <TransformConfig

@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Slider } from '@aquaculture/shared-ui';
 import { TransformConfig } from './TransformConfig';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -218,22 +218,17 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       {/* Opacity */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={(config.opacity as number) ?? 1}
-          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Image opacity"
-        />
-        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-          {Math.round(((config.opacity as number) ?? 1) * 100)}%
-        </div>
-      </div>
+      <Slider
+        size="xs"
+        label="Opacity"
+        readout="below"
+        formatValue={(v) => `${Math.round(v * 100)}%`}
+        min={0}
+        max={1}
+        step={0.05}
+        value={(config.opacity as number) ?? 1}
+        onChange={(opacity) => onChange({ opacity })}
+      />
 
       {/* Transform section */}
       <TransformConfig

@@ -30,6 +30,7 @@ import {
   severityClasses,
   Button,
   Input,
+  Slider,
 } from '@aquaculture/shared-ui';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
@@ -173,14 +174,16 @@ const TagRow: React.FC<{
         )}
         {tag.dataHint === 'number' && (
           <div className="flex items-center gap-1">
-            <input
-              type="range"
+            <Slider
+              size="xs"
+              aria-label={tag.tagName}
+              fullWidth={false}
+              className="w-16"
               min={tag.min ?? 0}
               max={tag.max ?? 100}
               step={1}
               value={typeof value === 'number' ? value : 0}
-              onChange={(e) => onChange(tag.tagName, Number(e.target.value))}
-              className="w-16 h-1 accent-info-500"
+              onChange={(next) => onChange(tag.tagName, next)}
             />
             <Input
               className="text-right"

@@ -30,6 +30,7 @@ import {
   Input,
   Textarea,
   colors as themeColors,
+  Slider,
   useI18n,
 } from '@aquaculture/shared-ui';
 
@@ -239,14 +240,15 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
             <span className="text-[10px] text-info-600 dark:text-info-400 min-w-[2rem] text-right">
               {focusedRange.min}
             </span>
-            <input
-              type="range"
+            <Slider
+              size="xs"
+              aria-label={t('scada.animation.preview')}
+              className="flex-1"
               min={focusedRange.min}
               max={focusedRange.max}
               step={(focusedRange.max - focusedRange.min) / 100 || 1}
               value={previewValue}
-              onChange={(e) => handlePreviewSliderChange(Number(e.target.value))}
-              className="flex-1 accent-info-600"
+              onChange={handlePreviewSliderChange}
               data-testid="preview-slider"
             />
             <span className="text-[10px] text-info-600 dark:text-info-400 min-w-[2rem]">

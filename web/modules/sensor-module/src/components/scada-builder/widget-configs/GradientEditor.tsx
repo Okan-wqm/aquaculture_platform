@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback, useId } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Slider } from '@aquaculture/shared-ui';
 import type {
   GradientConfig,
   GradientType,
@@ -357,21 +357,17 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({ gradient, onChan
                   />
 
                   {/* Stop offset */}
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Position ({Math.round(currentStop.offset * 100)}%)
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={currentStop.offset}
-                      onChange={(e) => handleStopOffsetChange(safeSelected, Number(e.target.value))}
-                      className="w-full"
-                      aria-label="Stop position"
-                    />
-                  </div>
+                  <Slider
+                    size="xs"
+                    label="Position"
+                    readout="beside-label"
+                    formatValue={(v) => `${Math.round(v * 100)}%`}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={currentStop.offset}
+                    onChange={(offset) => handleStopOffsetChange(safeSelected, offset)}
+                  />
                 </div>
               )}
 

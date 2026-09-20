@@ -19,7 +19,7 @@ import {
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
-import { ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
+import { ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -145,22 +145,17 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
     </div>
 
     {/* Opacity */}
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={strokeOpacity}
-        onChange={(e) => onChange({ strokeOpacity: Number(e.target.value) })}
-        className="w-full"
-        aria-label="Stroke opacity"
-      />
-      <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-        {Math.round(strokeOpacity * 100)}%
-      </div>
-    </div>
+    <Slider
+      size="xs"
+      label="Opacity"
+      readout="below"
+      formatValue={(v) => `${Math.round(v * 100)}%`}
+      min={0}
+      max={1}
+      step={0.05}
+      value={strokeOpacity}
+      onChange={(strokeOpacity) => onChange({ strokeOpacity })}
+    />
 
     {/* Dash pattern */}
     <div>

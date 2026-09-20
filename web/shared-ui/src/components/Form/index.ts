@@ -9,6 +9,9 @@ export type { InputProps, TextareaProps } from './Input';
 export { ColorInput } from './ColorInput';
 export type { ColorInputProps } from './ColorInput';
 
+export { Slider } from './Slider';
+export type { SliderProps } from './Slider';
+
 export { Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 

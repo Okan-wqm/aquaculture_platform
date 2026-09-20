@@ -29,7 +29,7 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
-import { Button, ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
+import { Button, ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -112,24 +112,17 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
               value={(config.fill as string) || themeColors.info[500]}
               onChange={(e) => onChange({ fill: e.target.value })}
             />
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Fill Opacity
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={(config.fillOpacity as number) ?? 0.3}
-                onChange={(e) => onChange({ fillOpacity: Number(e.target.value) })}
-                className="w-full"
-                aria-label="Fill opacity"
-              />
-              <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-                {Math.round(((config.fillOpacity as number) ?? 0.3) * 100)}%
-              </div>
-            </div>
+            <Slider
+              size="xs"
+              label="Fill Opacity"
+              readout="below"
+              formatValue={(v) => `${Math.round(v * 100)}%`}
+              min={0}
+              max={1}
+              step={0.05}
+              value={(config.fillOpacity as number) ?? 0.3}
+              onChange={(fillOpacity) => onChange({ fillOpacity })}
+            />
           </div>
         </div>
       )}

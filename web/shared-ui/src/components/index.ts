@@ -25,6 +25,9 @@ export { PasswordInput } from './Form/PasswordInput';
 export type { PasswordInputProps } from './Form/PasswordInput';
 export { ColorInput } from './Form/ColorInput';
 export type { ColorInputProps } from './Form/ColorInput';
+
+export { Slider } from './Form/Slider';
+export type { SliderProps } from './Form/Slider';
 export { Select } from './Form/Select';
 export type { SelectProps, SelectOption } from './Form/Select';
 export { Checkbox, Switch, RadioGroup } from './Form/Checkbox';

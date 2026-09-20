@@ -142,7 +142,7 @@ the label sits one to two steps off the control beside it.
 
 The consequence is not cosmetic. Every dense surface (filter bar, repeat row,
 properties inspector, modal grid) therefore kept a hand-written
-`<label class="text-xs">` *outside* the primitive, and once the label is outside,
+`<label class="text-xs">` _outside_ the primitive, and once the label is outside,
 nothing binds it: `EdgeDeviceDetailPage`'s 23-field I/O tag form had no
 accessible names at all — each a bare `<label>` with no `htmlFor` beside a
 control with no `id`. FE-HIGH-079 could not reach those surfaces while the
@@ -167,6 +167,47 @@ copy — it composes the missing primitive's swatch half by hand.
 Fix: a `ColorInput` primitive with the two shapes those sites actually need
 (`bar`, `swatch`), label bound and swatch sized from `size`, and
 `ColorAlphaInput` composing it rather than re-deriving it.
+
+### FE-MEDIUM-157 — there is no range/slider primitive
+
+19 call sites build one from a raw `<input type="range">`: 17 in sensor-module
+(SCADA builder widget configs, the canvas toolbar, the simulation sidebar, the
+slider widget renderer and the dashboard background control), 1 in admin-panel
+and 1 in hydroponics. Three accent hues are in circulation — `accent-info-600`,
+`accent-info-500` and the browser default — and two sites force the element down
+to a 4–6px hit area (`h-1`, `h-1.5`), which on a range input is the pointer
+target, not the track's paint.
+
+`hydroponics-module/.../pid-simulator/components/ControlPanel.tsx` is the
+clearest evidence: it declares a private `Slider` component with exactly the API
+the design system should have shipped (`label`, `value`, `min`, `max`, `step`,
+`unit`, `onChange`, `disabled`) and 11 call sites already use it. A module built
+the primitive itself because shared-ui had none — and the private copy reproduced
+the accessibility gap too, rendering its label as a `<span>` bound to nothing.
+
+The readout is re-derived everywhere it appears, in three placements: beside the
+label (hydroponics, and `Position ({n}%)` folded into the label text in
+GradientEditor), below the track right-aligned (StrokeConfig, RasterImageConfig,
+CustomSvgConfig, SvgPathConfig), and below left-aligned (SvgShapeConfig ×3).
+
+Two further defects the conversion surfaced:
+
+- **The DOM value is parsed by hand at all 19 sites, and not the same way
+  twice** — `parseInt` in admin-panel, `parseFloat` in hydroponics and the
+  dashboard, `Number` everywhere else. On a fractional step `parseInt`
+  truncates silently, so this is a correctness surface, not a formality. A
+  primitive whose `onChange` hands back a number removes it entirely.
+- **Six sites carry an `aria-label` that differs from the visible label beside
+  them** — visible `Opacity` against `Stroke opacity` / `Image opacity` /
+  `SVG opacity` / `Fill opacity`, and visible `Inner Radius Ratio` against
+  `Inner radius ratio`. A screen reader announces only the `aria-label`, so the
+  two names disagree (WCAG 2.5.3). Binding the visible label is both the fix and
+  one fewer copy of the same words.
+
+Fix: a `Slider` primitive carrying the three readout placements those sites
+actually use, a label bound and sized from `size`, an `onChange` that yields a
+number, and no imposed track height — 17 of the 19 never set one, and the two
+that did were shrinking their own hit area.
 
 ### FE-HIGH-080 — operator-screen hazards
 

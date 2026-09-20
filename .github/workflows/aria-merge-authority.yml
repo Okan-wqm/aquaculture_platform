@@ -2,6 +2,9 @@ name: aria-merge-authority
 
 on:
   pull_request:
+  # The merge queue asks for this required check on each group it builds.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:

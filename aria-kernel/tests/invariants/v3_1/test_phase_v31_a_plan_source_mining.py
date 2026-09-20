@@ -66,6 +66,19 @@ class CyclePlanEnvelopeShapeTests(unittest.TestCase):
 class ConvertCandidateToPlanContentTests(unittest.TestCase):
     """Plan ARIA-V3.1-A — candidate-to-envelope conversion."""
 
+    def _finding_with_code_reference(self, finding_id: str) -> str:
+        import json
+        import tempfile
+
+        root = Path(tempfile.mkdtemp(prefix="aria-v31-finding-"))
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        path = root / f"{finding_id}.json"
+        path.write_text(json.dumps({
+            "id": finding_id,
+            "evidence_chain": [{"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"}],
+        }), encoding="utf-8")
+        return str(path)
+
     def test_i_v31_a_02_handles_all_four_source_types(self) -> None:
         """Plan ARIA-V3.1-A-2 — every PlanCandidateSource except
         GIT_DIFF (which goes through V7 fallback) yields a valid
@@ -100,7 +113,10 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
                 "source_type": PlanCandidateSource.F_FINDING.value,
                 "candidate_id": "F-099",
                 "mtime": 1000.0,
-                "path": "/tmp/aria-findings/F-099.json",
+                # ARIA-HIGH-181 — an F-finding converts only on a code reference
+                # from its own evidence chain; the JSON path itself is never
+                # the evidence.
+                "path": self._finding_with_code_reference("F-099"),
                 "title_hint": "Process aging F-finding F-099",
             },
         ]

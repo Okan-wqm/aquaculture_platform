@@ -75,20 +75,38 @@ class FFindingEvidenceTests(unittest.TestCase):
         # Coverage gate compatibility (yesterday's work).
         self.assertEqual(env.content["schema_version"], 2)
 
-    def test_empty_evidence_chain_falls_back_to_finding_json(self) -> None:
+    def test_empty_evidence_chain_is_not_converted(self) -> None:
+        # ARIA-HIGH-181 — no code reference, no plan: the finding JSON is
+        # self-output (evidence_trust.SELF_OUTPUT_PREFIXES) and gitignored,
+        # so a plan minted on it could never be answered.
         path = self._write_finding({"id": "F-101", "evidence_chain": []})
         env = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value,
             "candidate_id": "F-101", "path": path, "title_hint": "x",
         })
-        self.assertEqual(env.content["evidence_refs"], ["aria-findings/F-101.json"])
+        self.assertIsNone(env)
 
-    def test_missing_path_falls_back(self) -> None:
+    def test_missing_path_is_not_converted(self) -> None:
         env = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value,
             "candidate_id": "F-101", "path": "/nonexistent/F-101.json", "title_hint": "x",
         })
-        self.assertEqual(env.content["evidence_refs"], ["aria-findings/F-101.json"])
+        self.assertIsNone(env)
+
+    def test_no_converted_plan_cites_self_output(self) -> None:
+        from aria_kernel.evidence_trust import SELF_OUTPUT_PREFIXES
+
+        path = self._write_finding({
+            "id": "F-101",
+            "evidence_chain": [{"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"}],
+        })
+        env = convert_candidate_to_plan_content({
+            "source_type": PlanCandidateSource.F_FINDING.value,
+            "candidate_id": "F-101", "path": path, "title_hint": "x",
+        })
+        self.assertIsNotNone(env)
+        for ref in env.content["evidence_refs"] + env.content["affected_surfaces"]:
+            self.assertFalse(any(ref.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES), ref)
 
     def test_unsafe_reference_is_skipped(self) -> None:
         path = self._write_finding({

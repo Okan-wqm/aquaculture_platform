@@ -73,6 +73,55 @@ mapping hole, `ARIA_SUITE_FULL=1`, and the gate self-validation clause. `tests/i
 aria-doc-runtime-ssot.spec.ts` and `tests/invariants/git-hook-binding.spec.ts` (32 assertions)
 pass unchanged.
 
+### PROC-MEDIUM-034 — the gate cannot reach any test under `aria-kernel/tests/invariants/**`
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+Found by watching my own push land. The push edited
+`aria-kernel/tests/invariants/v13/test_phase_v13_e_grant_vault_campaign.py` — adding the
+regression test for ARIA-HIGH-180 — and the gate selected 15 modules, none of them that one:
+
+    aria-suite-changed: 3 ARIA-surface file(s) changed since origin/claude/...;
+      running 15 affected test module(s): test_adapter_fixture_evidence_contract.py, ...
+
+Two independent causes, both in the gate's own files:
+
+1. **Selection.** `selectAffectedTests` builds its candidate set with
+   `readdirSync('aria-kernel/tests')`, which is not recursive — 550 top-level modules, no nested
+   ones. A changed file under `aria-kernel/tests/` takes the first branch, computes
+   `name = 'invariants/v13/test_phase_v13_e_grant_vault_campaign.py'`, finds `testTexts.has(name)`
+   false, and `continue`s having selected nothing for itself.
+2. **Execution.** `aria-suite-run.sh` maps each argument with
+   `modules+=("tests.$(basename "${path%.py}")")`. Even if selection were fixed, a nested module
+   would resolve to `tests.test_phase_v13_e_grant_vault_campaign` — a module that does not exist —
+   rather than `tests.invariants.v13.test_phase_v13_e_grant_vault_campaign`.
+
+The safety floor (`kernelCodeChanged && selected.size === 0 → full suite`) did not fire because
+`grant.py` set `kernelCodeChanged` while the token rule had already selected 15 modules for it. The
+floor guards a mapping that returns _nothing_; it cannot see a mapping that returns _the wrong
+things_. The gate's own docblock states the standard it misses here: selection is "deliberately
+over-inclusive, never under-inclusive ... a missed importer costs a red main". A test file the push
+itself edited is the least excusable module to skip.
+
+**Why MEDIUM:** CI's `aria-kernel` lane runs `aria-suite-run.sh` with no arguments, which is
+`unittest discover aria-kernel -p '*test*.py'` — recursive, so nested invariants are covered
+there. The hole is pre-push-only and CI is the backstop. It is not LOW because the pre-push gate
+exists precisely so that a red main is not the first reader, and this is the class of change
+(editing a test) where a developer most reasonably assumes the gate ran it.
+
+**Also recorded here:** the gate self-validation clause is conditioned on `selected.size === 0`, so
+bundling any kernel-code change with a change to the gate skips the full-suite self-validation the
+clause exists to guarantee. That is what happened on this push. It cost nothing in fact — the gate
+code that landed was full-suite validated in the previous push (6 842 tests) and was not touched
+afterwards — but a reader should not have to reconstruct that from two run logs to know the gate
+was verified.
+
+**Not fixed in this cycle,** deliberately. Both causes are one-line-ish changes in files this PR
+already touches, and I could land them. I am not doing so because this PR is a design-system
+change that has already absorbed two ARIA-infrastructure detours (PROC-MEDIUM-033, ARIA-HIGH-180),
+each of which was blocking; this one is not blocking and CI covers the gap. It gets an owner, a
+deadline and this ID instead of a third unrelated commit.
+
 ### ARIA-HIGH-180 — the signing-backend probe propagates instead of answering
 
 **Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31

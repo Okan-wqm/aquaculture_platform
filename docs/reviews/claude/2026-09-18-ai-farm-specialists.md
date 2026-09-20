@@ -8,8 +8,9 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
-ORPHAN-HIGH-828, INFRA-HIGH-176 and INFRA-HIGH-179 (base-branch / platform
-defects found by this branch's gates and work, fixed here); FARM-LOW-330
+ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180 and INFRA-HIGH-181
+(base-branch / platform defects found by this branch's gates and work, fixed
+here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -231,6 +232,30 @@ factory reads the CN out of `NATS_TLS_CERT` and scopes the inbox from it —
 the same identity `verify_and_map` binds the connection to — and the caller's
 name only labels the connection; `nats-connection.factory.inbox.spec.ts`
 drives it with a test certificate and a product-prefixed label.
+
+## INFRA-HIGH-180 — the scoped inbox prefix carried a trailing dot
+
+The first deploy with fresh images (main `750db0409f`) refused every service
+at connect: config-service logged `Permissions Violation for Subscription to
+"_INBOXCONFIG_SERVICE..CP4LF…*"`. nats-core's `createInbox(prefix)` joins the
+prefix and the nuid with its own dot, so the factory's `_INBOX<ID>.` form —
+inherited from the 2026-08-27 rule by the CN-based fix — produced an empty
+token that no `_INBOX<ID>.>` grant matches. The SSoT contract is dot-less
+(`CONFIG_RUNTIME_INBOX_PREFIX = '_INBOXBILLINGCFG'`, and the e2e note
+"createInbox appends `.<nuid>`"). Fix: `scopedInboxPrefix` returns
+`_INBOX<ID>`; the spec now derives the reply subject with nats-core's own
+`createInbox` and asserts it sits under the grant with no `..`.
+
+## INFRA-HIGH-181 — no JetStream user could publish `$JS.API.INFO`
+
+`@nats-io/jetstream`'s `jetstreamManager(nc)` publishes `$JS.API.INFO`
+(account info) at construction unless `checkAPI` is disabled, and the event
+bus constructs it on every connect. services.yaml enumerated
+`$JS.API.STREAM.*` / `CONSUMER.*` rights (Task 2, SENSOR-HIGH-092) but never
+`INFO`, so aqua-nats logged `Publish Violation … "$JS.API.INFO"` for ten
+identities within minutes of the deploy. Fix: `$JS.API.INFO` publish for every
+identity holding a `$JS.API.*` grant (17 services), `nats.conf` regenerated,
+and a nats-invariants case that fails when a JetStream user lacks it.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

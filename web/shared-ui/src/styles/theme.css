@@ -70,6 +70,54 @@
    both ratios. */
 [data-theme='dark'] {
   --color-gray-400: #9ca3af;
+
+  /* ── SUDERRA tenant console, dark ──────────────────────────────────────
+     The console sheet is 1058 lines of rules that read ONLY `--color-sd-*`
+     and carry zero raw hex, so redefining the tokens here gives the whole
+     surface a dark mode. That is what tokenising it bought: without it the
+     console would be the one page in the product that ignores the theme
+     switch, and no ratchet would notice — `darkSurface` counts Tailwind
+     light classes with no `dark:` sibling, and these are plain classes.
+
+     The dark surfaces come from the rail's own gradient rather than a
+     neutral gray, so the page and the rail beside it read as one product.
+     Contrast is asserted by `suderra-console-contrast.spec.ts`; every ink
+     and accent here clears AA on both surfaces, which is stricter than the
+     light theme's own faint/hint tokens (decorative at 1.6–2.5:1). */
+  --color-sd-paper: #0a1c28;
+  --color-sd-parchment: #0f2533;
+  --color-sd-paper-lit: #123040;
+  --color-sd-paper-deep: #071621;
+  --color-sd-white: #0f2533;
+
+  --color-sd-ink: #eaf4f7;
+  --color-sd-ink-body: #cfe3ea;
+  --color-sd-ink-soft: #a8c6d1;
+  --color-sd-ink-muted: #8fb0bd;
+  --color-sd-ink-faint: #6d8d9a;
+  --color-sd-ink-hint: #7e9daa;
+  --color-sd-ink-hint-soft: #6a8794;
+  --color-sd-ink-disabled: #587584;
+
+  /* Accents lighten so they stay legible AS TEXT on a dark surface; the
+     `-ink` tokens are text colours, which is why they invert rather than
+     keeping their light-theme value. */
+  --color-sd-teal: #5cc2d6;
+  --color-sd-teal-deep: #8fd8e4;
+  --color-sd-teal-mid: #7ccbdc;
+  --color-sd-mint-ink: #6ee7c7;
+  --color-sd-mint-deep: #4abba2;
+  --color-sd-danger-ink: #f0a68c;
+  --color-sd-amber-ink: #f0c987;
+  --color-sd-violet-ink: #c3b0e8;
+
+  /* Tinted surfaces invert to the same hue at low alpha over the dark page,
+     so a success or warning panel stays recognisable without becoming a
+     light patch in a dark layout. */
+  --color-sd-mint-paper: #0e2f31;
+  --color-sd-cyan-faint: #0d2a36;
+  --color-sd-amber-surface: #2b2413;
+  --color-sd-rule: rgba(234, 244, 247, 0.12);
 }
 
 @theme {

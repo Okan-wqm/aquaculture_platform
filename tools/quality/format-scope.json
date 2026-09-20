@@ -49239,6 +49239,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/suderra-console-contrast.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/telemetry-architecture-contract.spec.ts",
       "prettier_managed": true
     },

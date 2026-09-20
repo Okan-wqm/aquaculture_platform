@@ -593,6 +593,25 @@ off on is not the surface that ships. It is being restored in parts, each on the
 rather than beside it — wave 34a lands the rail; the remaining ~1060 lines of `sd-components`,
 tenant-admin's 13 pages and AquaMobil's 97 absent files are still open.
 
+### FE-MEDIUM-168 — the tenant console ignores the theme switch
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+The console stylesheet defines its colours from `--color-sd-*` with no `[data-theme='dark']`
+redefinition, so every console surface renders light whatever the user chose. It is the one page in
+the product that ignores the switch, and the surface most likely to be read at night, because it is
+where the alarms are.
+
+The gap is invisible to the ratchets **by construction**: `darkSurface` counts a Tailwind light
+class with no `dark:` sibling, and the console is built from plain CSS classes — so a page can be
+entirely light-only while the counter sits at its ceiling of 0. Same blind-spot class as
+FE-MEDIUM-164: the detector's input shape, not the defect, decides what it can report.
+
+Fixed by redefining 25 tokens under `[data-theme='dark']`, which themes the whole 1058-line sheet at
+once because every rule already reads tokens and carries zero raw hex — the payoff of tokenising it
+before landing it. That leverage is also the risk, so `suderra-console-contrast.spec.ts` reads the
+palette out of `theme.css` and asserts AA for text that carries meaning.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

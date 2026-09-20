@@ -9,8 +9,8 @@ request-reply; user-decided actuation (`confirm_required` cap).
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181,
-INFRA-HIGH-184, INFRA-HIGH-186 and DEPLOY-HIGH-024 (base-branch / platform
-defects found by this branch's gates and work, fixed here); FARM-LOW-330
+INFRA-HIGH-184, INFRA-HIGH-186, DEPLOY-HIGH-024 and DEPLOY-HIGH-025 (base-branch /
+platform defects found by this branch's gates and work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -307,6 +307,20 @@ that fails any `critical` / `required` active droplet entry whose image the
 deploy does not build or pull — `required` on the sidecar now fails the test
 naming the entry. Shipping the sidecar for real (own release tag, pull + start
 in `droplet-up`, health) is the tracked follow-up that lifts it back.
+
+## DEPLOY-HIGH-025 — the boot-signal gate made the same promise the health gate had
+
+With the sidecar at `warning`, run 35529464872 passed the health gate
+(`all critical/required services satisfied`) and then failed the next one:
+`Missing boot signals: [sensor-ingestion] nats_auth_mode_mtls` → rollback,
+ledger `rolled_back phase=boot_signal` (the host stayed on 8c9795f3 and
+healthy). `required-signals.yaml` was derived from every active entry's
+`requiredSignals`, blind to whether the deploy ships the service — the
+contradiction DEPLOY-HIGH-024 removed from one contract lived on in its
+sibling. Fix: the generator keeps only entries `deployShipsImage()` accepts,
+and the parity invariant asserts an un-shipped service is absent from the
+manifest; a signal the deploy cannot observe is not asserted until the image
+ships.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

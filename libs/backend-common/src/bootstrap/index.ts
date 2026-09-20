@@ -21,6 +21,8 @@ export {
 
 export { buildOpenApiConfig, type OpenApiDocumentOptions } from './openapi-config';
 
+export { resolveOptionalProvider } from './optional-provider';
+
 export {
   sanitizeForLogging,
   truncateStack,

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
@@ -30,6 +31,47 @@ from .tool_registry import ensure_tools_dir, utc_now
 SESSIONS_SURFACE = "agent_sessions"
 SESSIONS_RELPATH = ("agent-invocations", "sessions.jsonl")
 POLICY_VERSION = "aria-policy/2026-09-03"
+
+# ARIA-HIGH-179 — where a session's transcript OUTLIVES the spawn that wrote
+# it. The managed sandbox gives every spawn a tmpfs HOME and points
+# CLAUDE_CONFIG_DIR inside it (implementation_safety.SANDBOX_HOME): the CLI
+# writes the conversation under `<config>/projects/<cwd>/<session>.jsonl`
+# and the tmpfs is gone with the process. A resumed session (`--resume`)
+# therefore never found its conversation — the CLI answered
+# `error_during_execution: No conversation found with session ID` in zero
+# turns, the executor released the claim `native_runtime_execution_
+# unavailable`, and the next dispatch resumed the same session again
+# (observed 2026-09-19, AIR-aria-challenger-planner-2d16fdbb749e: the
+# fingerprint matched, the journal showed progress, the transcript did not
+# exist). The store is a directory on the runner outside every checkout,
+# bound writable at `<config>/projects` inside the sandbox, so the next
+# spawn of the same request (same worktree path, hence the same project
+# key) reads what the last one wrote; and `decide_session` resumes only
+# when the transcript is actually there.
+SESSION_STORE_ENV_VAR = "ARIA_SESSION_STORE_DIR"
+SESSION_STORE_PROJECTS_DIRNAME = "projects"
+
+
+def session_store_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """The durable session store: ``$ARIA_SESSION_STORE_DIR`` when the runner
+    sets it, else ``~/.config/aria/sessions`` of the executor's own user."""
+    env = os.environ if environ is None else environ
+    explicit = str(env.get(SESSION_STORE_ENV_VAR) or "").strip()
+    if explicit:
+        return Path(explicit)
+    xdg = str(env.get("XDG_CONFIG_HOME") or "").strip()
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "aria" / "sessions"
+
+
+def transcript_present(session_id: str, *, store_dir: Path | None) -> bool:
+    """True when the store holds the CLI's conversation file for ``session_id``."""
+    if store_dir is None or not session_id:
+        return False
+    projects = Path(store_dir) / SESSION_STORE_PROJECTS_DIRNAME
+    if not projects.is_dir():
+        return False
+    return any(projects.glob(f"*/{session_id}.jsonl"))
 
 
 def mint_session_id() -> str:
@@ -106,19 +148,25 @@ def decide_session(
     claim_id: str,
     fingerprint: str,
     base_dir: str | Path | None = None,
+    store_dir: Path | None = None,
 ) -> tuple[str, bool]:
     """(claude_session_id, resume) for a dispatch about to spawn.
 
     Resume only when the previous session for this request carries the same
-    fingerprint and made progress; otherwise mint a fresh session. The
-    binding row is appended either way so the next dispatch can decide.
+    fingerprint, made progress, AND its transcript is in the durable
+    ``store_dir`` (ARIA-HIGH-179 — a resume the CLI cannot honour is a
+    dispatch that dies in zero turns); otherwise mint a fresh session. The
+    binding row is appended either way so the next dispatch can decide, and
+    it says whether the transcript was there.
     """
     previous = last_session_for(request_id, base_dir=base_dir)
     if previous and previous.get("fingerprint") == fingerprint and int(previous.get("journal_rows") or 0) > 0:
         session_id = str(previous["claude_session_id"])
-        bind_session(request_id=request_id, claim_id=claim_id, claude_session_id=session_id,
-                     fingerprint=fingerprint, resumed_from=str(previous.get("claim_id") or ""), base_dir=base_dir)
-        return session_id, True
+        if transcript_present(session_id, store_dir=store_dir):
+            bind_session(request_id=request_id, claim_id=claim_id, claude_session_id=session_id,
+                         fingerprint=fingerprint, resumed_from=str(previous.get("claim_id") or ""),
+                         base_dir=base_dir)
+            return session_id, True
     session_id = mint_session_id()
     bind_session(request_id=request_id, claim_id=claim_id, claude_session_id=session_id,
                  fingerprint=fingerprint, base_dir=base_dir)
@@ -126,6 +174,7 @@ def decide_session(
 
 
 __all__ = [
-    "POLICY_VERSION", "SESSIONS_RELPATH", "SESSIONS_SURFACE", "bind_session", "decide_session",
-    "last_session_for", "mint_session_id", "session_fingerprint", "sessions_for",
+    "POLICY_VERSION", "SESSIONS_RELPATH", "SESSIONS_SURFACE", "SESSION_STORE_ENV_VAR",
+    "SESSION_STORE_PROJECTS_DIRNAME", "bind_session", "decide_session", "last_session_for",
+    "mint_session_id", "session_fingerprint", "session_store_dir", "sessions_for", "transcript_present",
 ]

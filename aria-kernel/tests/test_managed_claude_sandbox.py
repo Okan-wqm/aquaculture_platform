@@ -131,6 +131,26 @@ class OnlyTheCredentialFileEntersThePrivateHome(_Fixture):
         bound_from_login = [src for src, _ in _pairs(command, "--bind") + _pairs(command, "--ro-bind") if str(self.login) in src]
         self.assertEqual(bound_from_login, [credential[0]])
 
+    def test_the_session_store_projects_dir_is_the_private_config_dirs_projects_writable(self) -> None:
+        # ARIA-HIGH-179 — the tmpfs HOME loses every conversation with the
+        # process; the durable store's `projects` is bound writable where the
+        # CLI writes and reads them, so `--resume` finds its transcript.
+        store = self.root / "sessions"
+        command = self._wrap(session_store_dir=store)
+        private = f"{SANDBOX_HOME}/.claude"
+        projects = (str((store / "projects").resolve()), f"{private}/projects")
+        self.assertIn(projects, _pairs(command, "--bind"))
+        self.assertNotIn(projects, _pairs(command, "--ro-bind"))
+        self.assertTrue((store / "projects").is_dir(), "the store is created for the first spawn")
+        self.assertLess(command.index("--tmpfs"), command.index(projects[0]), "bound after the tmpfs it lives under")
+        # Without a store nothing under the private home is bound but the credential.
+        bare = self._wrap()
+        self.assertNotIn(f"{private}/projects", bare)
+        # A store inside the workspace is refused by name.
+        with self.assertRaises(impl.SandboxUnavailable) as refused:
+            self._wrap(session_store_dir=self.workspace / "sessions")
+        self.assertEqual(str(refused.exception), "session_store_overlaps_workspace")
+
     def test_a_login_without_a_credential_file_binds_nothing(self) -> None:
         (self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME).unlink()
         command = self._wrap()

@@ -638,3 +638,24 @@ absent_or_not_object` at `requeue_count 2`. The ref came from
 - **Proof:** `tests/test_finding_driven_evidence.py` (empty chain → `None`; missing file →
   `None`; a converted plan cites nothing under `SELF_OUTPUT_PREFIXES`); the plan-source invariant
   and the origin contract now convert an F-finding through a real code reference.
+
+## ARIA-HIGH-183 — a promoted finding's evidence was invisible to the plan synthesizer
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** cycle `cyc-20260920T151922Z-auto` (run 35518684705), the first with 26 adversarial
+  judgments on the ledger: 6 `ai_consensus` rows, 5 promotions (`finding_emitted` F-009…F-013),
+  `plan_candidate_source_selected` F-013 — and no plan request. The `aria/finding/v1` shape the
+  promotion writes (`finding.emit_finding`) carries its code references in
+  `evidences[].evidence_envelope` (`canonical_ref`, `line`, `trust_grade: repo_verified`);
+  `plan_synthesizer._evidence_refs_from_finding_json` read only `evidence_chain[].reference`, the
+  adapter-era shape, so every promoted finding converted to an empty chain — and, before
+  ARIA-HIGH-181, would have been minted on `aria-findings/<id>.json`. Ring 5 handed ring 6 nothing
+  it could read.
+- **Rule:** a promoted finding's repo-verified evidence is the ground a plan is minted on; the
+  synthesizer reads every shape the kernel itself writes, and skips self-output and unverified
+  refs by name.
+- **Fix:** the reader takes `evidence_chain[].reference` and `evidences[]` alike — `canonical_ref`
+  joined with `line` when the envelope is `repo_verified` and not self-output.
+- **Proof:** `tests/test_finding_driven_evidence.py` — the promoted shape converts to the two
+  repo-verified `path:line` refs, the self-output envelope is dropped, the surface is the code
+  path (red before the fix: `None`).

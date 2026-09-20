@@ -906,15 +906,43 @@ def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list
         finding = json.loads(Path(finding_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return [], []
+    # Two shapes carry the finding's code references. The adapter-era
+    # ``evidence_chain[].reference`` (a ``path:line`` string), and the
+    # ``aria/finding/v1`` shape the consensus promotion emits
+    # (`finding.emit_finding`): ``evidences[].evidence_envelope`` with
+    # ``canonical_ref`` + ``line`` and a ``trust_grade``. ARIA-HIGH-183 — the
+    # first five findings the live ring promoted (F-009…F-013, 2026-09-20)
+    # carried only the second shape; this reader saw an empty chain, and the
+    # plan candidate the cycle selected from them (F-013) could never become
+    # a plan. A ref that is not ``repo_verified`` or is self-output is not a
+    # ground a challenger can stand on and is skipped.
+    references: list[str] = []
     chain = finding.get("evidence_chain")
-    if not isinstance(chain, list):
+    if isinstance(chain, list):
+        for entry in chain:
+            if isinstance(entry, dict) and isinstance(entry.get("reference"), str):
+                references.append(entry["reference"])
+    evidences = finding.get("evidences")
+    if isinstance(evidences, list):
+        for entry in evidences:
+            if not isinstance(entry, dict):
+                continue
+            envelope = entry.get("evidence_envelope") if isinstance(entry.get("evidence_envelope"), dict) else {}
+            if envelope.get("trust_grade") not in (None, "repo_verified") or envelope.get("self_output_class"):
+                continue
+            canonical = envelope.get("canonical_ref") or entry.get("ref")
+            if not isinstance(canonical, str) or not canonical.strip():
+                continue
+            canonical = canonical.strip()
+            line = envelope.get("line")
+            if isinstance(line, int) and line > 0 and not re.search(r":\d+$", canonical):
+                canonical = f"{canonical}:{line}"
+            references.append(canonical)
+    if not references:
         return [], []
     evidence_refs: list[str] = []
     affected: list[str] = []
-    for entry in chain:
-        if not isinstance(entry, dict):
-            continue
-        ref = entry.get("reference")
+    for ref in references:
         if not isinstance(ref, str) or not ref.strip():
             continue
         ref = ref.strip()

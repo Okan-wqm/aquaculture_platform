@@ -93,6 +93,37 @@ class FFindingEvidenceTests(unittest.TestCase):
         })
         self.assertIsNone(env)
 
+    def test_a_consensus_promoted_finding_converts_on_its_evidences(self) -> None:
+        # ARIA-HIGH-183 — the aria/finding/v1 shape the consensus promotion
+        # emits carries its code references in `evidences[].evidence_envelope`
+        # (canonical_ref + line, trust_grade), not `evidence_chain`: the first
+        # five findings the live ring promoted converted to nothing.
+        path = self._write_finding({
+            "$schema": "aria/finding/v1", "id": "F-013", "claim_type": "wrong_code",
+            "evidences": [
+                {"ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+                 "evidence_envelope": {"canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+                                       "line": 150, "trust_grade": "repo_verified", "self_output_class": None}},
+                {"ref": "aria-findings/F-001.json",
+                 "evidence_envelope": {"canonical_ref": "aria-findings/F-001.json", "line": 1,
+                                       "trust_grade": "self_output", "self_output_class": "finding"}},
+                {"ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+                 "evidence_envelope": {"canonical_ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+                                       "line": 42, "trust_grade": "repo_verified"}},
+            ],
+        })
+        env = convert_candidate_to_plan_content({
+            "source_type": PlanCandidateSource.F_FINDING.value,
+            "candidate_id": "F-013", "path": path, "title_hint": "x",
+        })
+        self.assertIsNotNone(env)
+        self.assertEqual(env.content["evidence_refs"], [
+            "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:150",
+            "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+        ])
+        self.assertNotIn("aria-findings/F-001.json", env.content["evidence_refs"], "self-output is never a ground")
+        self.assertIn("apps/admin-api-service/src/settings/services/tenant-configuration.service.ts", env.content["affected_surfaces"])
+
     def test_no_converted_plan_cites_self_output(self) -> None:
         from aria_kernel.evidence_trust import SELF_OUTPUT_PREFIXES
 

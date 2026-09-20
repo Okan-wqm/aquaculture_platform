@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Response } from 'express';
@@ -17,7 +12,11 @@ import { Response } from 'express';
  *
  * Usage: @UseInterceptors(new DeprecationInterceptor('2026-06-01'))
  */
-@Injectable()
+// Built by hand (`@UseInterceptors(new DeprecationInterceptor('2026-06-01'))`):
+// the sunset date is a plain string Nest has no token for, so this is not a
+// Nest-instantiable class and carries no @Injectable() —
+// tests/invariants/nest-injected-type-only-import.spec.ts bans the decorator
+// on that shape.
 export class DeprecationInterceptor implements NestInterceptor {
   constructor(private readonly sunsetDate: string) {}
 

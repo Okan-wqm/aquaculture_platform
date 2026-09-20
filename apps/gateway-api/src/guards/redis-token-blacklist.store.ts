@@ -17,7 +17,10 @@ export interface GatewayAuthorizationRedisClient {
   mgetScoped(...keys: RedisScopedKey[]): Promise<(string | null)[]>;
 }
 
-@Injectable()
+// Built by hand (`new RedisTokenBlacklistStore(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class RedisTokenBlacklistStore implements TokenBlacklistStore {
   private readonly logger = new Logger(RedisTokenBlacklistStore.name);
 

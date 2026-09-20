@@ -146,9 +146,14 @@ interface NatsTlsOptions {
  */
 export type NatsAuthMode = 'mtls-cert' | 'token' | 'user-pass' | 'none';
 
-/** `_INBOX<IDENTITY>.` — the reply-inbox root services.yaml grants to a NATS user. */
+/**
+ * `_INBOX<IDENTITY>` — the reply-inbox root services.yaml grants to a NATS user
+ * as `_INBOX<IDENTITY>.>`. No trailing dot: nats-core's createInbox() joins
+ * prefix and nuid with its own `.`, so a dotted prefix yields
+ * `_INBOX<IDENTITY>..<nuid>` — an empty token the broker rejects.
+ */
 export function scopedInboxPrefix(identity: string): string {
-  return `_INBOX${identity.toUpperCase().replace(/-/g, '_')}.`;
+  return `_INBOX${identity.toUpperCase().replace(/-/g, '_')}`;
 }
 
 /**

@@ -32,9 +32,8 @@ import {
 } from '../entities/module-price.entity';
 
 import { DEFAULT_MODULE_PRICES } from './default-module-prices';
+import { DiscountCodeService } from './discount-code.service';
 import { priceModule } from './module-quote';
-
-import type { DiscountCodeService } from './discount-code.service';
 
 const VALID_TIERS: readonly BillingPlanTier[] = Object.values(BillingPlanTier);
 

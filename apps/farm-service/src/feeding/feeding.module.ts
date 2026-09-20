@@ -50,9 +50,7 @@ import { FeedingLedgerService } from './services/feeding-ledger.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 // D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
 // FeedingProtocolModule import'u modül döngüsü yaratırdı (BatchModule emsali).
-import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
-import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
-import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
+import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
 
 // Handlers
 import { FeedingCommandHandlers } from './handlers';
@@ -84,6 +82,9 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
 
 @Module({
   imports: [
+    // D-7 / P-31: plan-dışı yem ve gün planı yeniden hesabı çekirdek modülün
+    // TEK örneğini kullanır (feeding-protocol-core.module.ts).
+    FeedingProtocolCoreModule,
     TypeOrmModule.forFeature([
       FeedingTable,
       FeedingRecord,
@@ -118,10 +119,6 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
     // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
     // legacy execution kaydı aynı servise delege eder.
     FeedingLedgerService,
-    // D-7: CreateFeedingRecordHandler plan-dışı yemi aktif gün planına bağlar.
-    ProtocolRateService,
-    DayPlanRecalcService,
-    BiomassGrowthApplierService,
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `54727a7766f9786f4d3b2c6dcd68c5503dfc5d56de1f440a27c9982b8a879e2b`
+Registry tip: `86b1822d8ee8727a1ad5d26f0c09fb4d230dd37ce30d4d57068d3ffbbb94d9f7`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,7 +246,6 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `PLAT-CRITICAL-918`   | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -871,4 +870,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `SEC-CRITICAL-169`: registry state is `RESOLVED` with closing commit
   `0ef5dcea7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `PLAT-CRITICAL-918`: registry state is `RESOLVED` with closing commit
+  `a571ac03b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

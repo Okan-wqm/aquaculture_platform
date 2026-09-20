@@ -1,9 +1,9 @@
 /**
  * ToggleButton — paint and announcement come from one prop (FE-HIGH-159).
  */
+import { render, screen, fireEvent } from '@testing-library/react';
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
 
 import { ToggleButton } from '../ToggleButton';
 

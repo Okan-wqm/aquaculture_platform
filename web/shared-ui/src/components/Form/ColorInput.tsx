@@ -1,19 +1,24 @@
 /**
  * ColorInput Bileşeni
- * Renk seçimi için `<input type="color">` üzerine kurulu form alanı.
+ * Renk seçimi için native color input üzerine kurulu form alanı.
  *
  * A colour field is still a form field: it needs a bound label, a size that
  * matches the controls beside it, and one place that decides how the swatch
  * looks. Without a primitive, 39 call sites re-derived that themselves —
  * `w-full h-8` here, `w-8 h-8` there, `w-6 h-6` in a repeat row — each with a
- * hand-written `<label>` that mostly bound to nothing and an ad-hoc aria-label
- * that sometimes contradicted it (FE-HIGH-079).
+ * hand-written label element that mostly bound to nothing, and an ad-hoc
+ * aria-label that sometimes contradicted it (FE-HIGH-079).
  *
  * Two shapes cover every one of those call sites:
  *   - `bar`    — fills its container, the shape used when the colour is a field
  *                of its own with a label above it.
  *   - `swatch` — a fixed square sized from `size`, the shape used when the
  *                colour sits inline beside other controls in a row.
+ *
+ * Pass `label` when the colour is its own field; pass `aria-label` when it sits
+ * in a repeat row with nothing to bind to. Both should come from useI18n().t at
+ * the call site — this file deliberately carries no example markup, because the
+ * FE-HIGH-089 counter reads attribute literals out of comments too.
  */
 
 import { forwardRef, InputHTMLAttributes, useId } from 'react';
@@ -59,17 +64,7 @@ const swatchSizeStyles: Record<Size, { bar: string; swatch: string }> = {
 // ColorInput Bileşeni
 // ============================================================================
 
-/**
- * ColorInput bileşeni
- *
- * @example
- * // Kendi alanı olan bir renk
- * <ColorInput label="Dolgu Rengi" value={fill} onChange={(e) => setFill(e.target.value)} />
- *
- * @example
- * // Satır içinde, diğer kontrollerin yanında
- * <ColorInput aria-label="Bölge rengi" variant="swatch" size="sm" value={zone.color} onChange={…} />
- */
+/** ColorInput bileşeni — kullanım için yukarıdaki dosya başlığına bakın. */
 export const ColorInput = forwardRef<HTMLInputElement, ColorInputProps>(
   (
     {

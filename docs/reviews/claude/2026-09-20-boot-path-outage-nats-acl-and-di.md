@@ -138,8 +138,30 @@ providers; a child module cannot see the root's providers, so the token was unre
 WebSocketModule.
 
 **Fix.** The limiter is built by a `useFactory` (both socket guards lose their decorative
-`@Injectable()`), and `GatewayTokenBlacklistModule` owns and exports the revocation store, imported by
-AppModule (for the global AuthGuard and JwtMiddleware) and by WebSocketModule.
+`@Injectable()`), and `GatewayTokenBlacklistModule` owns and exports the revocation store, imported
+by AppModule (for the global AuthGuard and JwtMiddleware) and by WebSocketModule.
+
+## PLAT-CRITICAL-918 — durable consumers are created, never updated
+
+**Defect.** With the ACL and the four DI defects fixed, release `ab0f8b203@20260920T111748Z` reached
+JetStream and twelve services died on `Bootstrap failed: consumer already exists` (config-service,
+event-store-service and observability-service, which hold no changed durables, came up healthy).
+`@nats-io/jetstream` 3.x `consumers.add()` sends the server action `create`, which nats-server
+refuses (10148) whenever the durable exists with any other configuration. The `nats` v2 client the
+bus was written against sent the empty create-or-update action; the v3 migration changed that
+silently, and the library's `add()` cannot send the empty action at all (`opts.action || 'create'`).
+The stored consumer `aquaculture-auth-service-events---TenantSubscriptionChanged` carries
+`max_deliver: 3`; the code has sent `-1` since the dead-letter route landed. Nothing before
+production held a previous release's consumers.
+
+**Proof.** Against nats:2.10.24: `add` with a differing updatable field → 10148; `update` by durable
+name → accepted, ack position kept; an identical `add` is idempotent; a non-updatable change
+(`deliver_policy`) → 10012 "deliver policy can not be updated".
+
+**Fix.** The bus creates, and on 10148 updates the durable in place (`consumers.update`); every
+other failure still propagates. `nats-event-bus.durable-consumer.spec.ts` pins the three branches.
+The real-broker gate that would have caught it — a boot against a store holding a previous release's
+consumers — is tracked as PLAT-HIGH-919 (owner claude, deadline 2026-09-27).
 
 ## Why the gates were green
 
@@ -180,4 +202,6 @@ AppModule (for the global AuthGuard and JwtMiddleware) and by WebSocketModule.
 - The droplet's `FRONTEND_URL` (now `https://app.suderra.com`, set by the operator) lives outside
   the repository; nothing here verifies the deploy environment.
 - The DI-graph spec proves the container resolves; it does not run module hooks, so a failure inside
-  `onModuleInit` (a connection, a migration check) is still first seen at boot.
+  `onModuleInit` (a connection, a migration check) is still first seen at boot — PLAT-CRITICAL-918
+  was exactly that, and PLAT-HIGH-919 is the real-broker boot test that closes the gap for the event
+  bus.

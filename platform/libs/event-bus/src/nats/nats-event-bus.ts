@@ -21,6 +21,7 @@ import {
   type JetStreamManager,
   type ConsumerConfig,
   type Consumer,
+  JetStreamApiError,
   type JsMsg,
   type StreamConfig,
 } from '@nats-io/jetstream';
@@ -150,6 +151,18 @@ function isIEvent(value: unknown): value is IEvent {
  * Enterprise-grade event bus with persistence, replay, and exactly-once delivery
  * Designed for 10K+ tenant scale with proper isolation
  */
+/**
+ * nats-server's JSConsumerAlreadyExistsErr: a consumer with this durable name
+ * exists with a DIFFERENT configuration and the request said `create`.
+ * @nats-io/jetstream 3.x names many API codes in JetStreamApiCodes but not
+ * this one, so the number is pinned here.
+ */
+const JS_CONSUMER_ALREADY_EXISTS = 10148;
+
+function isConsumerAlreadyExists(error: unknown): boolean {
+  return error instanceof JetStreamApiError && error.code === JS_CONSUMER_ALREADY_EXISTS;
+}
+
 @Injectable()
 export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsEventBus.name);
@@ -1304,10 +1317,10 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         filter_subject: subject,
       };
 
-      // ARCH-020: Use add() which creates OR updates the durable consumer.
-      // Previous approach deleted and recreated, losing ack position on every restart.
-      // With stable consumer names (SERVICE_NAME-based), the same durable consumer
-      // survives across restarts and scaled replicas share it for load-balanced delivery.
+      // ARCH-020: the durable consumer is created OR updated, never deleted
+      // and recreated — that lost the ack position on every restart. With
+      // stable consumer names (SERVICE_NAME-based) the same durable survives
+      // restarts and scaled replicas share it for load-balanced delivery.
       //
       // Task 2: the durable lives on the stream that OWNS the subject —
       // telemetry.* subscriptions on AQUACULTURE_TELEMETRY, everything else
@@ -1316,7 +1329,33 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         main: this.streamName,
         telemetry: this.telemetryStreamName,
       });
-      await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
+      //
+      // WHY create THEN update: @nats-io/jetstream 3.x `consumers.add()` sends
+      // the server action `create`, which is idempotent for an identical
+      // durable but refused ("consumer already exists", 10148) when the
+      // durable exists with any other configuration. The nats v2 client the
+      // bus was written against sent the empty create-or-update action; the
+      // v3 migration changed that silently, and the library's `add()` cannot
+      // send the empty action at all (`opts.action || 'create'`). Every
+      // release that touches a consumer field (Task 1.6 moved max_deliver
+      // 3 → -1) therefore failed at every subscriber's onModuleInit — the
+      // 2026-09-20 outage's last blocker, seen only in production because
+      // the broker CI runs has no consumers from a previous release.
+      // `update()` keeps the durable and its ack position and applies the
+      // updatable fields; a change to a non-updatable field (deliver_policy,
+      // ack_policy) still fails loudly — that is a new consumer and needs a
+      // new consumerVersion.
+      try {
+        await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
+      } catch (error: unknown) {
+        if (!isConsumerAlreadyExists(error)) {
+          throw error;
+        }
+        this.logger.log(
+          `Durable consumer ${consumerName} exists with a previous configuration — updating in place`,
+        );
+        await this.jetStreamManager.consumers.update(owningStream, consumerName, consumerConfig);
+      }
 
       // Get the consumer and create a pull subscription
       const consumer = await this.jetStream.consumers.get(owningStream, consumerName);

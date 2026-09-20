@@ -5,6 +5,16 @@
 > **v2 güncellemesi (2026-09-20):** main'in ilerlemesi incelendi; aşağıdaki
 > Faz 1 iptal edildi — main'de daha iyi/eşdeğer çözümler zaten merge edilmiş.
 
+## KAPSAM ÇİTİSİ
+
+Bu plan **yalnızca PR #1569'un frontend + AquaMobil içeriğinin main'e
+taşınmasıdır.** Repo'daki ARIA lane'leri, findings kayıtları, gateway/
+infra fix'leri, dependabot ve diğer açık PR'lar (#1604–#1653 arası lane'ler
+dahil) **bu planın kapsamı DIŞINDADIR** — onlara dokunulmaz, merge
+edilmez, değiştirilmez. Ayrıca `infrastructure/docker/nats/nats.conf`
+canlıda elle yamalıdır; ACL değişikliği yalnız generator'dan üretilir
+(bkz. "Dokunma listesi").
+
 ## 0. DURUM ÖZETİ (2026-09-20 itibarıyla)
 
 - **origin/main ilerledi** (`b5e04c653`+); canlı droplet artık main-build

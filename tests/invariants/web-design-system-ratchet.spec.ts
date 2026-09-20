@@ -189,7 +189,11 @@ function* buttonElements(source: string): Generator<{ openTag: string; body: str
 }
 
 /**
- * Does the body put any words on screen? Tags are blanked to a sentinel first,
+ * Does the body put any words on screen? Tags are blanked to a sentinel first.
+ * The sentinel is U+E000, a private-use code point: it cannot occur in TSX
+ * source, so it can never collide with real content, and unlike NUL it is not
+ * a control character — `no-control-regex` rejects those, which is how the
+ * first cut of this failed lint after passing every test.
  * so an icon's own props never read as text. What is left is literal JSX text
  * plus expressions, and an expression is judged by what it can PRODUCE:
  *
@@ -205,12 +209,12 @@ function* buttonElements(source: string): Generator<{ openTag: string; body: str
  * confirm label.
  */
 function rendersText(body: string): boolean {
-  const blanked = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/<[^>]*>/g, '\u0000');
+  const blanked = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/<[^>]*>/g, '\uE000');
   /** An operand that can only yield an element, nothing, or an empty string. */
   const yieldsNoWords = (operand: string): boolean =>
-    /^[\s\u0000]*$/.test(operand) ||
+    /^[\s\uE000]*$/.test(operand) ||
     /^[\s]*(null|undefined|false|''|""|``)[\s]*$/.test(operand) ||
-    /^[\s\u0000()]*$/.test(operand);
+    /^[\s\uE000()]*$/.test(operand);
   for (const expr of blanked.match(/\{[^{}]*\}/g) ?? []) {
     const inner = expr.slice(1, -1).trim();
     if (inner === '') continue;
@@ -227,7 +231,7 @@ function rendersText(body: string): boolean {
     if (yieldsNoWords(inner)) continue;
     return true;
   }
-  return blanked.replace(/\{[^{}]*\}/g, '').replace(/[\s\u0000]/g, '') !== '';
+  return blanked.replace(/\{[^{}]*\}/g, '').replace(/[\s\uE000]/g, '') !== '';
 }
 
 const NAMES_THE_CONTROL = /\baria-label\b|\baria-labelledby\b|\btitle=/;

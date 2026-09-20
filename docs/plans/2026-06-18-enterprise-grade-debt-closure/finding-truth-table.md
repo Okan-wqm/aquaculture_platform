@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `685b39a9c76a7d7a7397b4958be8de28905a6bdd111603901b55d6e96718571f`
+Registry tip: `54727a7766f9786f4d3b2c6dcd68c5503dfc5d56de1f440a27c9982b8a879e2b`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -216,36 +216,37 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                | Registry state | First sprint | Owner                      | Truth bucket              |
-| ---------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`   | OPEN           | 1.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-040`   | IN-PROGRESS    | —            | infra-expert               | blocked                   |
-| `INFRA-CRITICAL-044`   | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-238`    | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-077`   | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
-| `INFRA-CRITICAL-078`   | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
-| `ORPHAN-CRITICAL-419`  | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-420`  | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-506`  | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-513`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-516`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-517`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-009`    | OPEN           | Task 12      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-015`    | OPEN           | Task 19      | platform-autonomy          | real-open                 |
-| `SENSOR-CRITICAL-108`  | OPEN           | 2026-09-03   | zcode                      | real-open                 |
-| `INFRA-CRITICAL-080`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-081`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-083`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-085`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-090`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-093`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-095`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-097`   | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-098`   | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-100`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `ADMIN-CRITICAL-087`   | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `DEPLOY-CRITICAL-017`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `ORPHAN-CRITICAL-810`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| Finding               | Registry state | First sprint | Owner                      | Truth bucket              |
+| --------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`  | OPEN           | 1.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-040`  | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`  | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
+| `INFRA-CRITICAL-080`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-083`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-085`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
+| `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `PLAT-CRITICAL-918`   | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -388,6 +389,12 @@ Allowed truth buckets:
   DI-graph spec, two Nest DI invariants and the boot-path ACL smoke as gates. The rows stay OPEN
   until the post-merge close ceremony records the main-reachable closing commit
   (`docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md`).
+
+- `PLAT-CRITICAL-918` (2026-09-20, the boot-path outage's last blocker): the event bus registered
+  durable consumers with the v3 client's create-only action, so every subscriber died on the first
+  deploy after a consumer field changed; fixed in the cycle that registered it (create, then update
+  in place on "consumer already exists"), unit-pinned and verified against nats:2.10.24. The row
+  stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

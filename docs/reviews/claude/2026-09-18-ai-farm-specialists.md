@@ -8,9 +8,9 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
-ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180 and INFRA-HIGH-181
-(base-branch / platform defects found by this branch's gates and work, fixed
-here); FARM-LOW-330
+ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181 and
+INFRA-HIGH-184 (base-branch / platform defects found by this branch's gates and
+work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -256,6 +256,24 @@ bus constructs it on every connect. services.yaml enumerated
 identities within minutes of the deploy. Fix: `$JS.API.INFO` publish for every
 identity holding a `$JS.API.*` grant (17 services), `nats.conf` regenerated,
 and a nats-invariants case that fails when a JetStream user lacks it.
+
+## INFRA-HIGH-184 — gateway-api died looking for an event bus it never had
+
+`resolveErrorCapturePublisher` (3d609b9c0) wrapped `app.get('EVENT_BUS')` in
+a try/catch so a service without an event bus — gateway-api, by design —
+would get an inert error-capture interceptor. The catch never ran:
+`NestFactory.create` returns the application behind an ExceptionsZone proxy,
+and with the default `abortOnError` the zone logs the
+`UnknownElementException` and calls `process.exit(1)` before control reaches
+the caller. On the ab0f8b203a deploy aqua-gateway restarted sixteen times in
+four minutes on `Nest could not find EVENT_BUS element`, and nginx answered
+502 for the platform after every other boot blocker was gone. Nothing in CI
+boots a service through `NestFactory.create` — `Test.createTestingModule`
+has no zone — so the path first executed in production. Fix:
+`resolveOptionalProvider()` looks the token up through `ModuleRef` (same
+container, no zone) and answers `undefined` on `UnknownElementException`; a
+spec boots a module without `EVENT_BUS` through the real factory and pins
+both the fallback and the exit the old lookup caused.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

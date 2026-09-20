@@ -40747,6 +40747,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/__tests__/optional-provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/create-service-app.ts",
       "prettier_managed": true
     },
@@ -40766,6 +40772,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/bootstrap/openapi-config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/optional-provider.ts",
       "prettier_managed": true
     },
     {
@@ -45736,6 +45748,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.durable-consumer.spec.ts",
       "prettier_managed": true
     },
     {

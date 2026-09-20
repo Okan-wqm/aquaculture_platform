@@ -287,11 +287,19 @@ const TenantUsers: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    // SUDERRA console skin: the page ground and ink come from the design
+    // system's sd-* colour tokens (theme.css @theme → Tailwind utilities),
+    // NOT raw hues — the ratchet counts raw palette spellings only.
+    <div className="min-h-screen bg-sd-paper text-sd-ink space-y-6">
       {/* Page Header */}
       <PageHeader
-        title="Users"
+        title={<span className="font-display tracking-tight">Users</span>}
         description="Manage users and their access to modules and farm sites"
+        eyebrow={
+          <span className="text-[11px] font-bold uppercase tracking-[0.13em] text-sd-teal">
+            People &amp; access
+          </span>
+        }
         actions={
           <div className="flex items-center gap-3">
             <Button

@@ -81,6 +81,17 @@ class Provider:
 
     model_env: str | None = None
     """An operator override of `default_model` for this provider, if any."""
+    confidence_native: bool = False
+    """Whether this provider's transport returns a probability for its answer.
+
+    ARIA-MEDIUM-171 / typed-judgment plan — a judge envelope's
+    ``confidence_source`` is ``provider_reported`` ONLY when the route that
+    ran the call is a provider whose API returned the number (a typed
+    decision transport with probabilities). Every CLI and chat completion in
+    this fleet reports a model's own self-assessment: ``self_reported``. The
+    bridge refuses a ``provider_reported`` stamp for a provider this row does
+    not mark, whatever the executor wrote.
+    """
 
 
 # The fleet, in preference order for mixed assignment (strongest-authoring
@@ -254,6 +265,18 @@ def dispatching_provider_for_model(model: str | None) -> str:
     Unlisted tiers are the managed Anthropic session's.
     """
     return provider_for_model(str(model or "")) or DEFAULT_DISPATCHING_PROVIDER
+
+
+def provider_reports_confidence(model: str | None) -> bool:
+    """True when the provider bound to ``model`` returns confidence natively.
+
+    Fail-closed like ``provider_admits_writes``: an unknown or unset model is
+    nobody's native probability.
+    """
+    provider = provider_for_model(model) if model else None
+    if provider is None:
+        return False
+    return any(entry.key == provider and entry.confidence_native for entry in _FLEET)
 
 
 def provider_admits_writes(provider_key: str) -> bool:

@@ -2468,6 +2468,9 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "provider_quota_unavailable:",
     "executor_uncaught_exit:",
     "human_required_record_unavailable:",
+    # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
+    # every request it served: the vendor's or the host's state.
+    "judge_batch_call_failed:",
 )
 # * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
 #   role's content contract; retrying the same request usually repeats it.
@@ -2480,6 +2483,10 @@ REQUEST_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "plan_content_invalid:",
     "agent_refused:",
     "implementation_delivery_refused:",
+    # Typed-judgment plan Phase 4b — the batch answered and THIS request's
+    # item was refused by name while its siblings folded: the request's
+    # own prompt or evidence, so its requeue budget is charged.
+    "judge_batch_item_unanswered:",
 )
 
 RELEASE_REASON_CLASSES: tuple[str, ...] = ("harness", "request", "unclassified")

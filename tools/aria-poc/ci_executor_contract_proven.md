@@ -36,6 +36,51 @@ ci_executor:
     - ARIA_LEASE_TOKEN
     - CLAUDE_CLI_MOCK
     - CLAUDE_CLI_MOCK_SOURCE
+ci_executor_read_contained:
+  # ARIA-HIGH-162 — the READ shape: profiles judge_opus, judge_glm, arbiter
+  # (claude_runtime.read_contained_profile: pinned id, tools inside Read/Grep/Glob,
+  # no MCP server, not write-capable). Same sandbox as the write shape with the
+  # workspace bound read-only and nothing writable under it; no bypass flag.
+  binary: claude
+  argv:
+    - claude
+    - -p
+    - --output-format
+    - stream-json
+    - --verbose
+    - --model
+    - "<the profile's model; the fleet rung that answered is stamped on the envelope>"
+    - --effort
+    - max
+    - --restricted
+    - --permission-prompts
+    - none
+    - --tools
+    - "<the profile's grant, comma-joined: Read,Grep,Glob for the judges, Read for the arbiter>"
+    - --disallowedTools
+    - "<derived from the agent's kernel runtime profile: ungranted tools + external-write rules + mcp__<server> for servers the profile does not name>"
+    - --strict-mcp-config
+    - --mcp-config
+    - "<per-spawn document: empty — no read profile names an MCP server>"
+  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
+  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+  governance: claude_spawn_read_contained {request_id, subagent_type, profile_id, tools}
+  raw_jsonl_persisted: false
+  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
+ci_executor_judge_batch:
+  # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — K judge requests that share a
+  # role, an agent and an anchor, served by ONE typed model call on a process-less
+  # route (`judgment_pipeline.judge_batch_runtimes`, default ["zai"]; opt-in via
+  # `judge_batch_size` > 1). No binary: the kernel's own HTTP transport.
+  entry: "ci_executor.py --judge-batch <role> <target_agent> <request_id>..."
+  admission: "_admit_native_route once per child; _bind_request_to_route per member"
+  lease_seconds: "batch_worst_case_seconds(K) for every member's claim"
+  call: "run_zai_chat(system=render_batch_system_turn(contract), user=render_batch_user_turn(batch), json_object=true)"
+  per_member: "attempt reservation, typed envelope (build_envelope_from_typed_answer), transcript {batch_id, payload_hash, answer, usage_share}, pre-submit gate, submit-result, reconcile, dispatch summary"
+  cost: "one cost row per call; every runtime_attempt_finished row carries batch_id and usage_apportioned"
+  release_reasons:
+    - "judge_batch_call_failed:<code> (harness-class: transport, auth, credit, input_budget, payload_*, http_<status>, usage_unavailable)"
+    - "judge_batch_item_unanswered:<typed_judgment reason code> (request-class: this member's item refused while siblings folded)"
 worker_executor:
   binary: claude
   argv:

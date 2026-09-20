@@ -94,7 +94,61 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     # read. 32 per role ≈ 3 nights of drain headroom at the measured
     # ~13min/envelope CLI pace.
     "max_pending_per_role": 32,
+    # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — the batch judge child.
+    # `judge_batch_size` 1 keeps every judge on the single-request child (the
+    # opt-in is measured before it is raised); `judge_batch_runtimes` names
+    # the process-less transports a batch may ride; the input budget bounds
+    # K by the rendered prompts, under the vendor's context window.
+    "judge_batch_size": 1,
+    "judge_batch_runtimes": ["zai"],
+    "judge_batch_max_input_tokens": 24000,
+    # Typed-judgment plan Phase 5 (ARIA-HIGH-167/173) — when a judge's
+    # confidence is `calibrated` (judge_calibration.calibration_status).
+    "calibration_min_samples": 100,
+    "provisional_min_samples": 30,
+    "ece_threshold": 0.10,
+    "high_confidence_floor": 0.80,
+    "high_confidence_accuracy_min": 0.75,
+    "calibration_bins": 10,
+    # Typed-judgment plan Phase 6 — `measure_only` keeps the legacy gate and
+    # records what `enforce` would exclude; `enforce` gives closing authority
+    # to calibrated judges of distinct models alone. The cycle downgrades
+    # `enforce` to `measure_only`, on the record, while fewer than two such
+    # judges exist (`effective_calibration_gate`).
+    "calibration_gate": "measure_only",
+    "max_uncalibrated_escalations_per_cycle": 5,
 }
+
+
+def effective_calibration_gate(
+    configured: str, judge_calibration: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The gate the consensus runs under this cycle, and why.
+
+    Typed-judgment plan Phase 6 (review H4) — a downgrade keyed on a row
+    count leaves every judge under its own floor and floods the escalation
+    ledger the day it switches; the criterion is the thing `enforce` needs:
+    two `calibrated` judges of distinct models, read from this cycle's
+    in-memory `score_judges` result (`{judge_id: {"calibration_status",
+    "model"}}` or `{judge_id: status}`).
+    """
+    calibrated: dict[str, str] = {}
+    for judge_id, entry in (judge_calibration or {}).items():
+        status = entry.get("calibration_status") if isinstance(entry, dict) else entry
+        model = str(entry.get("model") or "") if isinstance(entry, dict) else ""
+        if status == "calibrated":
+            calibrated[str(judge_id)] = model
+    distinct_models = {model for model in calibrated.values() if model}
+    row = {
+        "configured": configured,
+        "calibrated_judges": sorted(calibrated),
+        "distinct_models": sorted(distinct_models),
+    }
+    if configured != "enforce":
+        return {**row, "effective": "measure_only", "reason": "configured_measure_only"}
+    if len(calibrated) < 2 or len(distinct_models) < 2:
+        return {**row, "effective": "measure_only", "reason": "fewer_than_two_calibrated_judges_of_distinct_models"}
+    return {**row, "effective": "enforce", "reason": "calibrated_quorum_available"}
 
 
 def judgment_pipeline_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

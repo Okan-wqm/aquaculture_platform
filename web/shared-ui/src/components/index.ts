@@ -23,6 +23,8 @@ export { Input, Textarea } from './Form/Input';
 export type { InputProps, TextareaProps } from './Form/Input';
 export { PasswordInput } from './Form/PasswordInput';
 export type { PasswordInputProps } from './Form/PasswordInput';
+export { ColorInput } from './Form/ColorInput';
+export type { ColorInputProps } from './Form/ColorInput';
 export { Select } from './Form/Select';
 export type { SelectProps, SelectOption } from './Form/Select';
 export { Checkbox, Switch, RadioGroup } from './Form/Checkbox';

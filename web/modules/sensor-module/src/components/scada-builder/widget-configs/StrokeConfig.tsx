@@ -19,7 +19,7 @@ import {
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -103,16 +103,12 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
 
     {/* Color + hex input */}
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
-        <input
-          type="color"
-          value={stroke}
-          onChange={(e) => onChange({ stroke: e.target.value })}
-          className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-          aria-label="Stroke color"
-        />
-      </div>
+      <ColorInput
+        label="Color"
+        aria-label="Stroke color"
+        value={stroke}
+        onChange={(e) => onChange({ stroke: e.target.value })}
+      />
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hex</label>
         <input

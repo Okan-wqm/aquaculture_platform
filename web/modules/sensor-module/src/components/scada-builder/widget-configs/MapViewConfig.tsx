@@ -10,7 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { colors as themeColors, Button } from '@aquaculture/shared-ui';
+import { Button, ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -107,15 +107,18 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
       {/* Background Color */}
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+        <label
+          htmlFor="map-view-bg-color"
+          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+        >
           Background Color
         </label>
         <div className="flex items-center gap-2">
-          <input
-            type="color"
+          <ColorInput
+            id="map-view-bg-color"
+            variant="swatch"
             value={bgColor}
             onChange={(e) => onChange({ bgColor: e.target.value })}
-            className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
           <input
             type="text"

@@ -3,9 +3,11 @@ import {
   Modal,
   colors as themeColors,
   Button,
+  ColorInput,
   Input,
   Select,
   Textarea,
+  useI18n,
   type SelectOption,
 } from '@aquaculture/shared-ui';
 import {
@@ -78,6 +80,7 @@ const COLOR_PRESETS = [
 ];
 
 export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: ChannelEditorModalProps) {
+  const { t } = useI18n();
   // SENSOR-HIGH-063: a channel is new exactly when it has no persisted id. The
   // previous expression was `!channel?.id && !channel?.channelKey?.startsWith('channel_') === false`,
   // where `!` binds tighter than `===`, so it reduced to "no id AND the key starts
@@ -573,11 +576,11 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                     style={{ backgroundColor: color }}
                   />
                 ))}
-                <input
-                  type="color"
+                <ColorInput
+                  variant="swatch"
+                  aria-label={t('channel.color.custom')}
                   value={formData.displaySettings?.color || themeColors.info[500]}
                   onChange={(e) => handleDisplaySettingChange('color', e.target.value)}
-                  className="w-8 h-8 rounded cursor-pointer"
                 />
               </div>
             </div>

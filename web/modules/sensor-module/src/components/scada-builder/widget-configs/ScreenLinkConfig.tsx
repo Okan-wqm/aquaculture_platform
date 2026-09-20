@@ -1,6 +1,6 @@
 import React from 'react';
 import { useScadaPackageStore } from '../../../store/scada';
-import { colors, Input, Select } from '@aquaculture/shared-ui';
+import { ColorInput, Input, Select, colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -62,13 +62,18 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
+        <label
+          htmlFor="screen-link-color"
+          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+        >
+          Color
+        </label>
         <div className="flex items-center gap-2">
-          <input
-            type="color"
+          <ColorInput
+            id="screen-link-color"
+            variant="swatch"
             value={config.color || colors.primary[400]}
             onChange={(e) => onChange({ color: e.target.value })}
-            className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
           <Input
             type="text"

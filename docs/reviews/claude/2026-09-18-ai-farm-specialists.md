@@ -8,9 +8,10 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
-ORPHAN-HIGH-828 and INFRA-HIGH-176 (base-branch / platform defects found by this
-branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
-farm-module maintainer, deadline 2026-10-16).
+ORPHAN-HIGH-828, INFRA-HIGH-176 and INFRA-HIGH-179 (base-branch / platform
+defects found by this branch's gates and work, fixed here); FARM-LOW-330
+(tracked, open — MCP analytics test debt, owner: farm-module maintainer,
+deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -198,6 +199,38 @@ server unhealthy and every deploy dead at the same step. Fix:
 `tests/invariants/nats-jetstream-store-budget.spec.ts`, which reads the three
 `max_bytes` defaults out of `nats-event-bus.ts` and fails the build when
 their sum no longer fits under the conf value.
+
+## Withdrawn: "the registry buildcache shipped stale layers" (was INFRA-CRITICAL-178)
+
+Raised, then withdrawn before it reached main. After the 2ee11ed6 deploy
+failed its health gate, the images running on the droplet lacked the
+`serviceVisibility` gate and the scoped-inbox rule, and the sensor build log
+showed the `COPY dist/apps/<service>` step as `CACHED` — read together as a
+poisoned registry cache. It was not: the deploy's rollback re-tags
+`<service>:<sha>` onto the previous release's image, so the tag inspected
+pointed at the pre-deploy build, while the digest CI actually pushed
+(`sha256:39d58abf…` for sensor-service) carries the run's artifact byte for
+byte. `CACHED` on an unchanged layer is the cache working. The real defect —
+a rollback that recreates the previous images under the new checkout's
+compose environment and `nats.conf` — is filed by the aqua-saas-0a session
+against `droplet-up.sh`; the cache-key rotation this branch briefly carried is
+reverted and the registry row was dropped before merge.
+
+## INFRA-HIGH-179 — the reply inbox followed the caller's label, not the identity
+
+`buildNatsConnectionOptions(name)` derived the scoped reply inbox from
+whatever string the caller passed. The event bus passed its client id
+(`aquaculture-<service>`), the gateway bridges their bridge names, the
+sensor ST-language handler a pid-suffixed label — none equal to the identity
+services.yaml grants (`_INBOXAUTH_SERVICE.>`, `_INBOXGATEWAY_SERVICE.>`).
+Latent since 2026-08-27 and masked by a hand-edited production `nats.conf`
+that still granted `_INBOX.>`; the 2026-09-19 17:35 UTC deploy loaded the SSoT
+ACL and aqua-nats began logging `Subscription Violation … CN=auth_service,
+Subject "_INBOXAQUACULTURE_AUTH_SERVICE.<nuid>.*"`. Fix: under mTLS the
+factory reads the CN out of `NATS_TLS_CERT` and scopes the inbox from it —
+the same identity `verify_and_map` binds the connection to — and the caller's
+name only labels the connection; `nats-connection.factory.inbox.spec.ts`
+drives it with a test certificate and a product-prefixed label.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

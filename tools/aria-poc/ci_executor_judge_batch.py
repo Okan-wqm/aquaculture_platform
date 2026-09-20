@@ -452,7 +452,8 @@ def _run_judge_batch(
         })
     else:
         usage_row = record_cost_attribution(
-            cycle_id=str(live[0].envelope.get("cycle_id") or ""), plan_id=str(live[0].envelope.get("convergence_id") or batch_id),
+            cycle_id=_engine._cost_identity(live[0].envelope, live[0].request_id)[0],
+            plan_id=str(live[0].envelope.get("convergence_id") or batch_id),
             agent_role=role, model=route["model"], input_tokens=input_tokens, output_tokens=output_tokens,
             estimated_usd=price.usd, base_dir=tools_dir,
         )

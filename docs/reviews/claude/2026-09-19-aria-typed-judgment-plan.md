@@ -566,3 +566,27 @@ session ID: 10c31c16-…"]`, exit 1 → `provider_nonzero` → claim released
   to both decisions) and `tests/test_managed_claude_sandbox.py` (the store's `projects` bound
   writable at the private config dir after the tmpfs; nothing bound without a store; a store inside
   the workspace refused).
+
+## ARIA-HIGH-180 — the native paths released a paid verdict over a cost row they could not write
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** executor run 35485712865 (main `0239eecc8`, 2026-09-20 03:29Z), request
+  `AIR-aria-adversarial-judge-8281c4e19fd1`: routed `zai/glm-5.3` (ARIA-HIGH-161 holds),
+  `runtime_attempt_finished` with `exit_code 200` and `result_admission
+control_or_transport_unavailable`, the envelope written with the verdict, the claim requeued
+  `native_runtime_execution_unavailable` at `requeue_count 0`. The request row carries
+  `convergence_id: null`, as every request the judge fan-out mints does. The Z.ai path (and the
+  Codex path beside it) passed `request["convergence_id"]` straight to `record_cost_attribution`,
+  whose `plan_id must be a non-empty string` is a `GovernanceError` the attempt catches as
+  `control_or_transport_unavailable` — after the vendor was paid and the verdict parsed. The
+  Claude path always derived `plan-<request tail>` for the same request. A harness-class release
+  burns no budget, so the request would be judged and discarded on every run.
+- **Rule:** a cost row's identity is derived once, the same way on every runtime path; a request
+  minted without a convergence is attributed to `plan-<request tail>`; a paid verdict is never
+  released over bookkeeping it cannot fail.
+- **Fix:** `ci_executor._cost_identity(request, request_id)` — the Claude path's derivation
+  extracted — used by the Z.ai, Codex and batch paths.
+- **Proof:** `tests/test_ci_executor_native_zai.py` — a judge request minted with no convergence,
+  through the real executor and the fixture vendor: `ACCEPTED`, one attempt admitted
+  `pending_native_submit`, no requeue, one cost row with `plan_id plan-<tail>` (red before the
+  fix: the attempt was released and the state stayed PENDING).

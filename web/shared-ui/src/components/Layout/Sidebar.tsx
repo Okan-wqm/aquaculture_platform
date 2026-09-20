@@ -8,30 +8,9 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { NavigationItem, UserRole } from '../../types';
 import { useI18n } from '../../i18n';
 import { useDialogBehavior } from '../Modal/useDialogBehavior';
-import {
-  Activity,
-  Bell,
-  Building2,
-  Calendar,
-  ChartColumn,
-  ChevronDown,
-  ChevronsLeft,
-  ClipboardList,
-  Cpu,
-  CreditCard,
-  Database,
-  FileChartColumn,
-  House,
-  LayoutTemplate,
-  LifeBuoy,
-  MessageCircle,
-  Settings,
-  ShieldCheck,
-  SlidersVertical,
-  Sprout,
-  Users,
-  X,
-} from 'lucide-react';
+import { ChevronDown, ChevronsLeft, X } from 'lucide-react';
+
+import { resolveNavIcon } from './navIcons';
 
 // Alias for backward compatibility
 type NavItem = NavigationItem;
@@ -96,44 +75,12 @@ export interface SidebarProps {
 // ============================================================================
 
 /**
- * Default icons (keyed by icon name string)
- */
-const defaultIcons: Record<string, React.ReactNode> = {
-  dashboard: <House className="w-5 h-5" aria-hidden="true" />,
-  farm: <Building2 className="w-5 h-5" aria-hidden="true" />,
-  sensor: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
-  alert: <Bell className="w-5 h-5" aria-hidden="true" />,
-  process: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
-  admin: <Settings className="w-5 h-5" aria-hidden="true" />,
-  users: <Users className="w-5 h-5" aria-hidden="true" />,
-  billing: <CreditCard className="w-5 h-5" aria-hidden="true" />,
-  reports: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
-  // Additional icons for Admin Panel
-  analytics: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
-  tenants: <Building2 className="w-5 h-5" aria-hidden="true" />,
-  building: <Building2 className="w-5 h-5" aria-hidden="true" />,
-  support: <LifeBuoy className="w-5 h-5" aria-hidden="true" />,
-  security: <ShieldCheck className="w-5 h-5" aria-hidden="true" />,
-  shield: <ShieldCheck className="w-5 h-5" aria-hidden="true" />,
-  system: <Settings className="w-5 h-5" aria-hidden="true" />,
-  database: <Database className="w-5 h-5" aria-hidden="true" />,
-  modules: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
-  grid: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
-  audit: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
-  clipboard: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
-  settings: <SlidersVertical className="w-5 h-5" aria-hidden="true" />,
-  messages: <MessageCircle className="w-5 h-5" aria-hidden="true" />,
-  sprout: <Sprout className="w-5 h-5" aria-hidden="true" />,
-  activity: <Activity className="w-5 h-5" aria-hidden="true" />,
-  cpu: <Cpu className="w-5 h-5" aria-hidden="true" />,
-  calendar: <Calendar className="w-5 h-5" aria-hidden="true" />,
-};
-
-/**
- * Resolve an icon name string to a React node. A consumer-supplied
- * icon map takes precedence over the built-in `defaultIcons` so
- * admin-panel and similar surfaces can inject their own SVGs without
- * forking the Sidebar component.
+ * Resolve an icon name to a rendered node at this component's size.
+ *
+ * The name→icon table is `navIcons.ts`, shared with the SUDERRA rail; only the
+ * SIZE is Sidebar's, because that is the part that differs between the two
+ * consumers. A consumer-supplied node still takes precedence, so admin-panel
+ * and friends keep injecting their own SVGs without forking this component.
  */
 const resolveIcon = (
   icon: string | undefined,
@@ -143,7 +90,8 @@ const resolveIcon = (
   if (customIcons && icon in customIcons) {
     return customIcons[icon] ?? null;
   }
-  return defaultIcons[icon] || null;
+  const Icon = resolveNavIcon(icon);
+  return Icon ? <Icon className="w-5 h-5" aria-hidden="true" /> : null;
 };
 
 // ============================================================================

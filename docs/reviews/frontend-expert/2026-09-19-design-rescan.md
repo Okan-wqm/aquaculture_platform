@@ -563,6 +563,36 @@ SENSOR-HIGH-128: `GlobalAlarmBanner` rose 3196 → 3198 because `) : alarmStateU
 variable removed the false positive, which is a better shape anyway — but a counter that moves on a
 pure refactor is measuring the wrong thing, and treating that luck as the fix would hide it.
 
+### FE-MEDIUM-166 — the nav icon table could not be reused, so it was copied
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`Sidebar`'s private `defaultIcons` was a `Record` of RENDERED nodes — `<House
+className="w-5 h-5" aria-hidden="true" />` — which pins the size into the table. A second
+consumer drawing nav icons at any other size therefore cannot use it, and has two options: fork the
+component, or transcribe its own table. The SUDERRA rail took the second, arriving with 42 icon
+names × 4 SVG path `d` strings written into the file plus its own alias map — a second icon
+vocabulary that drifts from the first silently, and exactly what the `inlineIconSvg` ratchet exists
+to keep out of `web/`.
+
+The defect is the table's shape, not the copy. A registry that cannot be resized is a registry that
+will be duplicated. It now holds components and each consumer sizes them.
+
+### FE-HIGH-167 — the tenant console lost its approved design
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+The SUDERRA Tenant Console and the AquaMobil v4 surface were designed, approved and running on
+`feat/suderra-session-20260917`; 144 files of that work are absent from main, among them
+`SuderraSidebar.tsx` and the `sd-components` stylesheet the console pages are built on. The
+design-system waves replaced the console's chrome with the generic shell `Sidebar`, so a tenant now
+sees the platform's default layout where an approved product surface used to be.
+
+That is a product-truth regression rather than a styling preference: the surface the customer signed
+off on is not the surface that ships. It is being restored in parts, each on the design system
+rather than beside it — wave 34a lands the rail; the remaining ~1060 lines of `sd-components`,
+tenant-admin's 13 pages and AquaMobil's 97 absent files are still open.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

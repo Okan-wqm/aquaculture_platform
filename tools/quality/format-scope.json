@@ -62766,6 +62766,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/SuderraSidebar.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/DesktopOnlyNotice.tsx",
       "prettier_managed": true
     },
@@ -62784,6 +62790,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/navIcons.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
       "prettier_managed": true
     },
@@ -62791,6 +62803,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/SuderraSidebar.tsx",
       "prettier_managed": true
     },
     {

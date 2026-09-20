@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `e7fce15bb393f930f50a3c155e4b1b0bbb7136bdf73944e82c4cc305748581e9`
+Registry tip: `027fefbdc4b999239911ad3191b444cdb9954ea907de018bda93fc6fe7316ec2`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,6 +246,7 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `FARM-CRITICAL-332`   | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -393,6 +394,12 @@ Allowed truth buckets:
   durable consumers with the v3 client's create-only action, so every subscriber died on the first
   deploy after a consumer field changed; fixed in the cycle that registered it (create, then update
   in place on "consumer already exists"), unit-pinned and verified against nats:2.10.24. The row
+  stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
+
+- `FARM-CRITICAL-332` (2026-09-20, the boot-path outage, sixth blocker): three farm source-schema
+  tables recorded as migrated were missing (cause not established, DATA-HIGH-018), so the drift
+  validator refused farm-service's cold start; two new
+  migrations recreate them idempotently, proven against a Postgres shaped like production. The row
   stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in

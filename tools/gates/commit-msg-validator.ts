@@ -390,6 +390,38 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '49728221', // feat(shared-ui): a form label reads at its control's own size
   'f021154d', // feat(shared-ui): ColorInput primitive; 36 hand-rolled colour pickers adopt it
   'cb735bc7', // fix(shared-ui): ColorInput's doc comment no longer reads as user-visible copy
+  // 2026-09-20, same PR, DIFFERENT root cause — worth reading rather than
+  // pattern-matching to the three entries above. The hook was bound and it
+  // ran: this trailer was VALID when it was written and passed the gate at
+  // commit time. ARIA-HIGH-180 was this branch's finding, and
+  // docs/reviews/infra-expert/2026-09-20-aria-suite-changed-merge-scope.md was
+  // its review file.
+  //
+  // It went stale afterwards. `main` allocated a DIFFERENT ARIA-HIGH-180 in
+  // parallel (the Z.ai/Codex convergence_id finding), and the merge that
+  // brought main in resolved the registry the documented way — take main's
+  // chain, re-append the rows main lacks, `rechain-from` — which silently
+  // dropped this branch's row, because its id was one main had already used.
+  // The finding survived only in the review file and two code comments; the
+  // registry kept main's. The trailer then pointed at a finding whose review
+  // file is someone else's, which is the exact error the gate reported.
+  //
+  // The finding itself is NOT lost: re-allocated as ARIA-HIGH-181, same
+  // content, and the review heading and both code citations moved with it.
+  // The collision is tracked on its own — two branches can be handed the same
+  // id, and the merge recipe loses one of them without saying so.
+  //
+  // Why it cannot be repaired instead of allowlisted: the gate validates
+  // `pull_request.base.sha..head.sha`, so the stale trailer stays in the range
+  // whatever later commits say, and amending a pushed commit needs a
+  // force-push, which CLAUDE.md forbids. Re-pointing the trailer is not
+  // possible without rewriting it.
+  //
+  // Added on the author's own judgement, under the operator's standing grant
+  // to write this file (given earlier in this session when the permission
+  // layer refused it as a CI bypass). The 7bda4ab1 entry explains why that
+  // distinction is recorded rather than glossed.
+  '17547fb7', // fix(aria): the signing-backend probe answers instead of propagating
 ]);
 
 interface Commit {

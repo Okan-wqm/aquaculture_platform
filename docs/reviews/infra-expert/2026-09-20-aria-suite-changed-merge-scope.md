@@ -79,7 +79,7 @@ pass unchanged.
 
 Found by watching my own push land. The push edited
 `aria-kernel/tests/invariants/v13/test_phase_v13_e_grant_vault_campaign.py` — adding the
-regression test for ARIA-HIGH-180 — and the gate selected 15 modules, none of them that one:
+regression test for ARIA-HIGH-181 — and the gate selected 15 modules, none of them that one:
 
     aria-suite-changed: 3 ARIA-surface file(s) changed since origin/claude/...;
       running 15 affected test module(s): test_adapter_fixture_evidence_contract.py, ...
@@ -118,11 +118,18 @@ was verified.
 
 **Not fixed in this cycle,** deliberately. Both causes are one-line-ish changes in files this PR
 already touches, and I could land them. I am not doing so because this PR is a design-system
-change that has already absorbed two ARIA-infrastructure detours (PROC-MEDIUM-033, ARIA-HIGH-180),
+change that has already absorbed two ARIA-infrastructure detours (PROC-MEDIUM-033, ARIA-HIGH-181),
 each of which was blocking; this one is not blocking and CI covers the gap. It gets an owner, a
 deadline and this ID instead of a third unrelated commit.
 
-### ARIA-HIGH-180 — the signing-backend probe propagates instead of answering
+### ARIA-HIGH-181 — the signing-backend probe propagates instead of answering
+
+> Raised as ARIA-HIGH-180 and re-allocated. `main` had allocated a different
+> ARIA-HIGH-180 in parallel (the Z.ai/Codex `convergence_id` finding), and the
+> merge that took main's chain and re-appended this branch's rows dropped this
+> one silently, because the row it would have re-appended carried an id main had
+> already used. The finding itself never changed; only its number did. The
+> collision is itself tracked — see the note at the end of this section.
 
 **Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
 
@@ -173,6 +180,41 @@ import succeeded 5/5 standalone, under the push's hermetic environment and under
 no cgroup limit and no OOM events, so memory pressure is ruled out. Whatever the trigger, this
 finding is about the probe's contract — that is what turned a flaky import into a refused push,
 and it is the part that is fixed.
+
+### PROC-HIGH-035 — two branches can be allocated the same finding id, and a merge loses one silently
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+Observed live while landing this PR. This branch allocated `ARIA-HIGH-180` for
+the signing-backend probe; `main` allocated `ARIA-HIGH-180`, in parallel, for
+the Z.ai/Codex `convergence_id` finding. The allocator is monotonic within a
+chain and has no idea another chain exists.
+
+The merge then lost one of them without a word. The documented resolution for
+`findings.jsonl` — take the base chain, re-append the rows the base lacks, then
+`rechain-from` — compares by **id**. This branch's row carried an id main
+already had, so it was not "lacking", and it was simply never re-appended. The
+registry kept main's finding; this one survived only in a review file and two
+code comments.
+
+Nothing in the registry says a row disappeared. What caught it was
+`validate-closes`, two pushes later, and only by luck of a side effect: commit
+`17547fb7` cites `ARIA-HIGH-180` with this document as the review file, and the
+gate noticed that the id's registered review file was now somebody else's. Had
+the two findings happened to share a review file, the loss would have been
+invisible and the finding would have looked tracked while being gone.
+
+The trailer cannot be repaired — the gate reads the commit range, and the
+force-push ban rules out amending — so `17547fb7` is allowlisted in
+`commit-msg-validator.ts`, with that reasoning recorded there rather than here.
+The finding is re-allocated as **ARIA-HIGH-181**, unchanged in content.
+
+**Fix (not this cycle):** detection is the cheap half. `add` can refuse an id
+already present in `origin/main`'s chain, which turns the collision into a
+failed allocation rather than a silent loss. The merge recipe can diff by
+`(id, content_hash)` instead of id alone, and re-allocate a colliding row
+rather than drop it. Both belong with the registry's owner, not inside a
+design-system PR.
 
 ## Environment notes (not findings against this repository)
 

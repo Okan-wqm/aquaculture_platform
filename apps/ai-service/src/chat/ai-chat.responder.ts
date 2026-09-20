@@ -1,4 +1,5 @@
 import { Controller, Logger } from '@nestjs/common';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
 import {
@@ -184,7 +185,18 @@ export class AiChatResponder {
     };
 
     try {
-      const result = await this.agentRunner.chat(chatRequest);
+      // TENANT EXECUTION CONTEXT (NATS path): HTTP requests get their
+      // AsyncLocalStorage tenant context from RequestContextMiddleware, which
+      // the pg pool's connect hook reads to SET search_path per checkout.
+      // This NATS handler had NO equivalent — conversation writes survived
+      // only because they open their own runInTenant* scopes, while the
+      // cost-ledger append (TenantScopedRepository on the pooled connection)
+      // checked out a context-less client, landed on the SOURCE ai schema and
+      // was rejected by the source-write guard on every turn. Establishing
+      // the context here makes the WHOLE turn tenant-routed by construction.
+      const result = await withTenantContext(payload.tenantId, () =>
+        this.agentRunner.chat(chatRequest),
+      );
       return {
         content: result.message,
         conversationId: result.conversationId,

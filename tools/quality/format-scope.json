@@ -19723,7 +19723,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b181ea292e6da8d72c82490bd6b88776712795d600b7db45c420b69193d7954",
+      "content_sha256": "9b4707514ef77465b927fdf14956d1858b427d821ab706e5c00711db44c86185",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -40001,7 +40001,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3aced715410324c6b57277107df21ad1fbb9efb94aebde935c54c1963584c9a0",
+      "content_sha256": "cafe227f8267e6610f89a5daebd206650ba0cfca3b7b4c45aa89bb00d8d7bff6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -40036,7 +40036,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5e31cac451766382ec2474fc62db7f600beb58abb375e5ba8e2a37ec017a9e9f",
+      "content_sha256": "97a3f3fa9f7072678b0d7618ecd9773664bed5a36199e9abb932b785e412b5da",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -42530,6 +42530,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/nats/__tests__/nats-connection.factory.inbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-v3-client.inbox.spec.ts",
       "prettier_managed": true
     },
     {

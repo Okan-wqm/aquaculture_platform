@@ -556,7 +556,16 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deploymentStatus: 'active',
     deployTarget: 'droplet',
     deployProfiles: ['droplet'],
-    criticality: 'required',
+    // DEPLOY-HIGH-024: 'warning', not 'required', until the deploy ships
+    // the image. rust-sidecar images are excluded from imageBuildTargets()
+    // (they come prebuilt from GHCR under the release workflow's own tag),
+    // the droplet compose references them by the deploy's ${TAG}, and
+    // droplet-up.sh neither pulls nor starts the service — so a 'required'
+    // level asked the health gate for a container that no deploy could
+    // create, and every release ledger since 2026-08-28 read `failed
+    // phase=required_health` with promotion blocked. `deployShipsImage()`
+    // is the rule; the parity invariant enforces it for every entry.
+    criticality: 'warning',
     classification: 'internal-service',
     startupBudgetSeconds: 90,
     privilegeMode: 'none',
@@ -1166,6 +1175,25 @@ export function sharedImageRestartServices(): readonly SharedImageRestartService
         : [],
     )
     .sort((left, right) => left.composeService.localeCompare(right.composeService));
+}
+
+/**
+ * Whether the droplet deploy can put this service's image on the host: the
+ * image is built by the deploy matrix (imageBuildTargets() or the infra
+ * matrix), or the entry has no image of its own (upstream images pinned in
+ * compose). A
+ * `critical` / `required` criticality is a promise the health gate enforces
+ * — it may only be made for a service this predicate accepts, otherwise the
+ * gate demands a container the deploy cannot create (DEPLOY-HIGH-024,
+ * sensor-ingestion: prebuilt rust-sidecar image, never pulled, never
+ * started, `required` — no release ledger could read success).
+ */
+export function deployShipsImage(entry: ServiceCatalogEntry): boolean {
+  return (
+    entry.imageTarget === undefined ||
+    imageBuildTargets().includes(entry.imageTarget) ||
+    infraImageBuildTargets().includes(entry.imageTarget)
+  );
 }
 
 export function imageBuildTargets(): readonly string[] {

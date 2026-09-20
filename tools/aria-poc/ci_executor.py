@@ -45,7 +45,7 @@ from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 _THIS_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _THIS_DIR.parents[1]
@@ -2361,6 +2361,34 @@ def invoke_claude_cli(
     return completed.returncode
 
 
+def _cost_identity(request_envelope: Mapping[str, Any], request_id: str | None) -> tuple[str, str]:
+    """(cycle_id, plan_id) a cost row is attributed to — ONE derivation for
+    every runtime path (ARIA-HIGH-180).
+
+    A judge request is minted by the fan-out with no convergence: the
+    Claude path always fell back to ``plan-<request tail>`` for it, while
+    the Z.ai and Codex paths passed ``request["convergence_id"]`` — ``None``
+    — straight to ``record_cost_attribution``, whose ``GovernanceError`` the
+    attempt caught as ``control_or_transport_unavailable`` AFTER the verdict
+    had been written: the first Z.ai adversarial judgment after the
+    declared-provider fix (run 35485712865, 2026-09-20 03:32Z) was paid,
+    parsed, written to its envelope and then released as a harness fault,
+    with the request requeued to be judged and discarded again.
+    """
+    short_rid = (request_id or "")[-12:] or "unknown"
+    cycle_id = request_envelope.get("cycle_id") or f"cyc-no-id-{short_rid}"
+    plan_id = (
+        request_envelope.get("convergence_id")
+        or request_envelope.get("plan_id")
+        or f"plan-{short_rid}"
+    )
+    if not isinstance(cycle_id, str) or not cycle_id:
+        cycle_id = f"cyc-no-id-{short_rid}"
+    if not isinstance(plan_id, str) or not plan_id:
+        plan_id = f"plan-{short_rid}"
+    return cycle_id, plan_id
+
+
 def _record_claude_cli_usage(
     *,
     raw_stdout: str,
@@ -2419,17 +2447,7 @@ def _record_claude_cli_usage(
     if not isinstance(role, str) or not role.strip():
         return
 
-    short_rid = (request_id or "")[-12:] or "unknown"
-    cycle_id = request_envelope.get("cycle_id") or f"cyc-no-id-{short_rid}"
-    plan_id = (
-        request_envelope.get("convergence_id")
-        or request_envelope.get("plan_id")
-        or f"plan-{short_rid}"
-    )
-    if not isinstance(cycle_id, str) or not cycle_id:
-        cycle_id = f"cyc-no-id-{short_rid}"
-    if not isinstance(plan_id, str) or not plan_id:
-        plan_id = f"plan-{short_rid}"
+    cycle_id, plan_id = _cost_identity(request_envelope, request_id)
 
     pressure_source_type = request_envelope.get("pressure_source_type")
     if not isinstance(pressure_source_type, str):
@@ -3203,8 +3221,9 @@ def _invoke_native_codex(
                 "model": route["model"], "input_tokens": input_tokens, "output_tokens": output_tokens,
             })
         else:
+            cost_cycle_id, cost_plan_id = _cost_identity(request, request_id)
             usage_row = record_cost_attribution(
-                cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
+                cycle_id=cost_cycle_id, plan_id=cost_plan_id,
                 agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
                 output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
                 signer_key_fp=signer_key_fp,
@@ -3324,8 +3343,9 @@ def _invoke_native_zai(
                 "model": route["model"], "input_tokens": input_tokens, "output_tokens": output_tokens,
             })
         else:
+            cost_cycle_id, cost_plan_id = _cost_identity(request, request_id)
             usage_row = record_cost_attribution(
-                cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
+                cycle_id=cost_cycle_id, plan_id=cost_plan_id,
                 agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
                 output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
                 signer_key_fp=signer_key_fp,

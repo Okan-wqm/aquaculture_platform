@@ -163,6 +163,36 @@ other failure still propagates. `nats-event-bus.durable-consumer.spec.ts` pins t
 The real-broker gate that would have caught it — a boot against a store holding a previous release's
 consumers — is tracked as PLAT-HIGH-919 (owner claude, deadline 2026-09-27).
 
+## FARM-CRITICAL-332 — three source-schema tables recorded as migrated no longer exist
+
+**Defect.** Release `e9fd27bf3` brought fifteen of sixteen backend services up — the gateway with
+zero restarts, every durable consumer converged in place — and farm-service refused its cold start:
+`schema.drift.detected` — "entity declares owned table but DB has no such table in any non-tenant
+schema" — for `farm.feeding_record_attribution_quarantine`, `farm.tenant_localization` and
+`farm.feeding_job_runs`. `farm.migrations` records both creating migrations (1808700000000,
+1809100000000, the latter with a passing postCondition); the later migrations' columns are all
+present; the tenant clone of the quarantine table exists. db-migrate had logged
+`absentTables: [feeding_record_attribution_quarantine]` on every run and carried on.
+
+**Cause — not established (DATA-HIGH-018).** An earlier reading of this cycle blamed
+`SourceSchemaBootstrapService` dropping unregistered source tables (DATA-HIGH-017); that is stale
+docblock text, not code — on `main` the service throws on orphans (`assertNoOrphanTables`) and the
+`DROP … CASCADE` was removed in 42695736f (2026-06-08), before either migration existed. What is
+established: both ledger rows exist, the quarantine table exists only in the tenant clone, the two
+clock ledgers exist nowhere, no db-migrate run since 2026-09-17 logged a drop, and the applying
+run's container is gone. Candidates are a source pass executed under a tenant-first `search_path`,
+or a manual drop. Either way the ledger and the schema disagree in a way the ledger cannot see, and
+nothing between db-migrate and service health detects it.
+
+**Fix.** Two new migrations align the schema to the ledger (`schema-drift-response.md`, path a; the
+originals are immutable): `1810400000000` recreates the per-tenant quarantine template unqualified
+and fanned out (the source pass creates the template, the tenant pass is a no-op where the clone
+exists); `1810500000000` recreates the two infrastructure ledgers schema-qualified under
+`@SourceOnlyMigration`. Both are `IF NOT EXISTS`, carry postConditions, and revert nothing (the
+originals own their `down`). Proven on a throwaway Postgres shaped like production: all three
+restored, the tenant clone and its rows untouched, template columns identical to the clone, second
+run idempotent.
+
 ## Why the gates were green
 
 - `nats-invariants.spec.ts` validates `services.yaml` and the generated `nats.conf` as files; the
@@ -205,3 +235,9 @@ consumers — is tracked as PLAT-HIGH-919 (owner claude, deadline 2026-09-27).
   `onModuleInit` (a connection, a migration check) is still first seen at boot — PLAT-CRITICAL-918
   was exactly that, and PLAT-HIGH-919 is the real-broker boot test that closes the gap for the event
   bus.
+- DATA-HIGH-018 (supersedes DATA-HIGH-017, whose cause the code does not support): db-migrate runs
+  no drift check of its own, so a database that no longer matches the entities fails the deploy at a
+  service's cold start twenty minutes after the migration step reported success. The detectable fix
+  — db-migrate runs the SchemaDriftValidator for every service after its migrations and fails the
+  run, and an absent table for a recorded migration is a hard failure rather than a log line — is
+  tracked with owner claude and deadline 2026-10-04.

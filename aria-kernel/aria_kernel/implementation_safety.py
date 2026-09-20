@@ -1247,7 +1247,7 @@ def wrap_managed_claude_in_sandbox(
     argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
     executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
     git: GitContainment | None = None, hook_broker_socket: str | Path | None = None,
-    mcp_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None, session_store_dir: Path | None = None,
 ) -> list[str]:
     """Contain a Claude CLI spawn so that what the attempt names is what runs.
 
@@ -1312,6 +1312,18 @@ def wrap_managed_claude_in_sandbox(
         if credentials.is_file():
             mounts.extend(["--bind", str(credentials.resolve(strict=True)),
                            f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
+    if session_store_dir is not None:
+        # ARIA-HIGH-179 — the CLI's conversation files outlive the tmpfs HOME:
+        # the durable store's `projects` directory IS the private config
+        # dir's `projects`, writable, so a resumed session finds its
+        # transcript and a fresh one leaves its transcript for the next
+        # spawn. The store lives outside every checkout (session_continuity.
+        # session_store_dir) and never overlaps the workspace.
+        projects = Path(session_store_dir) / "projects"
+        if projects.is_relative_to(workspace) or workspace.is_relative_to(projects):
+            raise SandboxUnavailable("session_store_overlaps_workspace")
+        projects.mkdir(parents=True, exist_ok=True, mode=0o700)
+        mounts.extend(["--bind", str(projects.resolve(strict=True)), f"{private_config_dir}/projects"])
     return command[:separator] + mounts + command[separator:]
 
 

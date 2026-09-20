@@ -1708,7 +1708,7 @@ def _decide_session_and_recovery(
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     from aria_kernel.checkpoint import take_checkpoint
     from aria_kernel.recovery import classify_recovery, gh_remote_reader
-    from aria_kernel.session_continuity import decide_session, session_fingerprint
+    from aria_kernel.session_continuity import decide_session, session_fingerprint, session_store_dir
 
     profile = read_agent_runtime_profile(subagent_type, repo_root=_kernel_checkout_root())
     recording = UsageRecording(request_id=request_id, role=str(request_envelope.get("role") or ""),
@@ -1731,7 +1731,10 @@ def _decide_session_and_recovery(
             lease_token=lease_token, reason="recovery_unresolved_external_effect",
         )
         return None, False
-    session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint, base_dir=tools_dir)
+    # ARIA-HIGH-179 — resume only a session whose transcript the durable
+    # store holds; the sandbox binds that store at the private config dir.
+    session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint,
+                                        base_dir=tools_dir, store_dir=session_store_dir())
     if profile.write_capable:
         try:
             take_checkpoint(workspace_root=repo, request_id=request_id, reason=_PRE_SPAWN_CHECKPOINT_REASON, base_dir=tools_dir)

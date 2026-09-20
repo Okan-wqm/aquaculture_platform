@@ -36,7 +36,13 @@ import type {
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
-import { ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -97,18 +103,14 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
           label="Fill Color"
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Corner Radius</label>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          value={(config.cornerRadius as number) ?? 0}
-          onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Corner radius"
-        />
-      </div>
+      <NumberInput
+        label="Corner Radius"
+        min={0}
+        max={100}
+        value={(config.cornerRadius as number) ?? 0}
+        onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
+        aria-label="Corner radius"
+      />
     </div>
 
     {/* Gradient editor -- overrides flat fill when type is not 'none' */}
@@ -129,17 +131,13 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       onChange={(updates) => onChange(updates)}
     />
 
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
 
     {/* SVG filter effects -- blur, shadow, glow */}
     <SvgFilterEditor
@@ -197,17 +195,13 @@ export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       onChange={(updates) => onChange(updates)}
     />
 
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
 
     {/* SVG filter effects */}
     <SvgFilterEditor
@@ -290,30 +284,22 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
       Text
     </div>
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text</label>
-      <input
-        type="text"
-        value={(config.text as string) || ''}
-        onChange={(e) => onChange({ text: e.target.value })}
-        placeholder="Enter text"
-        className={INPUT_CLASS}
-        aria-label="Text content"
-      />
-    </div>
+    <Input
+      label="Text"
+      value={(config.text as string) || ''}
+      onChange={(e) => onChange({ text: e.target.value })}
+      placeholder="Enter text"
+      aria-label="Text content"
+    />
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-        <input
-          type="number"
-          min={8}
-          max={120}
-          value={(config.fontSize as number) ?? 16}
-          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Font size"
-        />
-      </div>
+      <NumberInput
+        label="Font Size"
+        min={8}
+        max={120}
+        value={(config.fontSize as number) ?? 16}
+        onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+        aria-label="Font size"
+      />
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Weight</label>
         <select
@@ -388,18 +374,14 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       Polygon
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sides</label>
-        <input
-          type="number"
-          min={3}
-          max={12}
-          value={(config.sides as number) ?? 6}
-          onChange={(e) => onChange({ sides: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Number of sides"
-        />
-      </div>
+      <NumberInput
+        label="Sides"
+        min={3}
+        max={12}
+        value={(config.sides as number) ?? 6}
+        onChange={(e) => onChange({ sides: Number(e.target.value) })}
+        aria-label="Number of sides"
+      />
       <div>
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-5">
           <input
@@ -449,17 +431,13 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -518,17 +496,13 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -570,17 +544,13 @@ export const SvgDiamondConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -665,17 +635,13 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}

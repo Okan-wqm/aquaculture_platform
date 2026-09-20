@@ -10,7 +10,13 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { Button, ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  Button,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+} from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -94,16 +100,12 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
   return (
     <div className="space-y-3">
       {/* Title */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Site Map"
-          className={INPUT_CLASS}
-        />
-      </div>
+      <Input
+        label="Title"
+        value={title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Site Map"
+      />
 
       {/* Background Color */}
       <div>
@@ -186,59 +188,33 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               </div>
 
               {/* Label */}
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  Label
-                </label>
-                <input
-                  type="text"
-                  value={marker.label}
-                  onChange={(e) => updateMarker(marker.id, 'label', e.target.value)}
-                  placeholder="Device name"
-                  className={SMALL_INPUT_CLASS}
-                />
-              </div>
+              <Input
+                label="Label"
+                value={marker.label}
+                onChange={(e) => updateMarker(marker.id, 'label', e.target.value)}
+                placeholder="Device name"
+              />
 
               {/* X / Y coordinates */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    X (0-100)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={marker.x}
-                    onChange={(e) =>
-                      updateMarker(
-                        marker.id,
-                        'x',
-                        Math.min(100, Math.max(0, Number(e.target.value))),
-                      )
-                    }
-                    className={SMALL_INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Y (0-100)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={marker.y}
-                    onChange={(e) =>
-                      updateMarker(
-                        marker.id,
-                        'y',
-                        Math.min(100, Math.max(0, Number(e.target.value))),
-                      )
-                    }
-                    className={SMALL_INPUT_CLASS}
-                  />
-                </div>
+                <NumberInput
+                  label="X (0-100)"
+                  min={0}
+                  max={100}
+                  value={marker.x}
+                  onChange={(e) =>
+                    updateMarker(marker.id, 'x', Math.min(100, Math.max(0, Number(e.target.value))))
+                  }
+                />
+                <NumberInput
+                  label="Y (0-100)"
+                  min={0}
+                  max={100}
+                  value={marker.y}
+                  onChange={(e) =>
+                    updateMarker(marker.id, 'y', Math.min(100, Math.max(0, Number(e.target.value))))
+                  }
+                />
               </div>
 
               {/* Status */}

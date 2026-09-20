@@ -19,7 +19,13 @@ import {
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
-import { ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -109,40 +115,32 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
         value={stroke}
         onChange={(e) => onChange({ stroke: e.target.value })}
       />
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hex</label>
-        <input
-          type="text"
-          value={stroke}
-          onChange={(e) => {
-            // Accept valid hex color strings only
-            const v = e.target.value;
-            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
-              onChange({ stroke: v });
-            }
-          }}
-          maxLength={7}
-          placeholder={themeColors.black}
-          className={INPUT_CLASS}
-          aria-label="Stroke hex color"
-        />
-      </div>
+      <Input
+        label="Hex"
+        value={stroke}
+        onChange={(e) => {
+          // Accept valid hex color strings only
+          const v = e.target.value;
+          if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
+            onChange({ stroke: v });
+          }
+        }}
+        maxLength={7}
+        placeholder={themeColors.black}
+        aria-label="Stroke hex color"
+      />
     </div>
 
     {/* Width */}
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
-      <input
-        type="number"
-        min={0}
-        max={20}
-        step={0.5}
-        value={strokeWidth}
-        onChange={(e) => onChange({ strokeWidth: Number(e.target.value) })}
-        className={INPUT_CLASS}
-        aria-label="Stroke width"
-      />
-    </div>
+    <NumberInput
+      label="Width"
+      min={0}
+      max={20}
+      step={0.5}
+      value={strokeWidth}
+      onChange={(e) => onChange({ strokeWidth: Number(e.target.value) })}
+      aria-label="Stroke width"
+    />
 
     {/* Opacity */}
     <Slider

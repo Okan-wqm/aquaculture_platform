@@ -17,7 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
-import { colors, Button, Slider } from '@aquaculture/shared-ui';
+import { Button, colors, NumberInput, Slider } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -188,38 +188,26 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Offset X
-                  </label>
-                  <input
-                    type="number"
-                    min={-20}
-                    max={20}
-                    step={1}
-                    value={filter.shadowX ?? 2}
-                    onChange={(e) => handleShadowX(Number(e.target.value))}
-                    className={INPUT_CLASS}
-                    aria-label="Shadow offset X"
-                    data-testid="shadow-x"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Offset Y
-                  </label>
-                  <input
-                    type="number"
-                    min={-20}
-                    max={20}
-                    step={1}
-                    value={filter.shadowY ?? 2}
-                    onChange={(e) => handleShadowY(Number(e.target.value))}
-                    className={INPUT_CLASS}
-                    aria-label="Shadow offset Y"
-                    data-testid="shadow-y"
-                  />
-                </div>
+                <NumberInput
+                  label="Offset X"
+                  min={-20}
+                  max={20}
+                  step={1}
+                  value={filter.shadowX ?? 2}
+                  onChange={(e) => handleShadowX(Number(e.target.value))}
+                  aria-label="Shadow offset X"
+                  data-testid="shadow-x"
+                />
+                <NumberInput
+                  label="Offset Y"
+                  min={-20}
+                  max={20}
+                  step={1}
+                  value={filter.shadowY ?? 2}
+                  onChange={(e) => handleShadowY(Number(e.target.value))}
+                  aria-label="Shadow offset Y"
+                  data-testid="shadow-y"
+                />
               </div>
               <ColorAlphaInput
                 color={filter.shadowColor ?? colors.black}

@@ -14,7 +14,14 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
-import { Button, ColorInput, Input, colors as themeColors, useI18n } from '@aquaculture/shared-ui';
+import {
+  Button,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -91,67 +98,43 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       />
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Progress"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Progress"
+      />
 
       {/* Range */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <input
-            type="number"
-            value={min}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <input
-            type="number"
-            value={max}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
+        <NumberInput
+          label="Min"
+          value={min}
+          onChange={(e) => onChange({ min: Number(e.target.value) })}
+        />
+        <NumberInput
+          label="Max"
+          value={max}
+          onChange={(e) => onChange({ max: Number(e.target.value) })}
+        />
       </div>
 
       {/* Bar dimensions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Bar Height (px)
-          </label>
-          <input
-            type="number"
-            min={8}
-            max={80}
-            value={barHeight}
-            onChange={(e) => onChange({ height: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Border Radius
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={40}
-            value={borderRadius}
-            onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
+        <NumberInput
+          label="Bar Height (px)"
+          min={8}
+          max={80}
+          value={barHeight}
+          onChange={(e) => onChange({ height: Number(e.target.value) })}
+        />
+        <NumberInput
+          label="Border Radius"
+          min={0}
+          max={40}
+          value={borderRadius}
+          onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+        />
       </div>
 
       {/* Label position & toggles */}

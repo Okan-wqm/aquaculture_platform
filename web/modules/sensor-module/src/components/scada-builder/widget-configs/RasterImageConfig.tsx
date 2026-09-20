@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button, Slider } from '@aquaculture/shared-ui';
+import { Button, Input, NumberInput, Slider } from '@aquaculture/shared-ui';
 import { TransformConfig } from './TransformConfig';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -191,31 +191,23 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       {/* Alt text (accessibility) */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alt Text</label>
-        <input
-          type="text"
-          value={(config.altText as string) || (config.alt as string) || ''}
-          onChange={(e) => onChange({ altText: e.target.value, alt: e.target.value })}
-          placeholder="Describe the image for accessibility"
-          className={INPUT_CLASS}
-          aria-label="Image alt text"
-        />
-      </div>
+      <Input
+        label="Alt Text"
+        value={(config.altText as string) || (config.alt as string) || ''}
+        onChange={(e) => onChange({ altText: e.target.value, alt: e.target.value })}
+        placeholder="Describe the image for accessibility"
+        aria-label="Image alt text"
+      />
 
       {/* Border radius */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Radius</label>
-        <input
-          type="number"
-          min={0}
-          max={50}
-          value={(config.borderRadius as number) ?? 0}
-          onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Border radius"
-        />
-      </div>
+      <NumberInput
+        label="Border Radius"
+        min={0}
+        max={50}
+        value={(config.borderRadius as number) ?? 0}
+        onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+        aria-label="Border radius"
+      />
 
       {/* Opacity */}
       <Slider

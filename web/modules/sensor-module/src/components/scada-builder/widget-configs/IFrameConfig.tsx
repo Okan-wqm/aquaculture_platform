@@ -13,6 +13,7 @@
 
 import React, { useMemo } from 'react';
 import { validateIFrameUrl } from '../widget-renderers/IFrameRenderer';
+import { Input, NumberInput } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -57,16 +58,12 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
       </div>
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="External Dashboard"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="External Dashboard"
+      />
 
       {/* Sandbox Permissions */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
@@ -125,19 +122,13 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           Appearance
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Border Radius
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={32}
-              value={borderRadius}
-              onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-              className={INPUT_CLS}
-            />
-          </div>
+          <NumberInput
+            label="Border Radius"
+            min={0}
+            max={32}
+            value={borderRadius}
+            onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+          />
         </div>
         <div className="mt-2">
           <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">

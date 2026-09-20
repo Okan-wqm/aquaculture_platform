@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, NumberInput } from '@aquaculture/shared-ui';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM, clampTransform } from '../../../types/scada-transform.types';
 import { ChevronDown } from 'lucide-react';
@@ -138,67 +138,47 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  X
-                </label>
-                <input
-                  type="number"
-                  min={0.1}
-                  max={10}
-                  step={0.1}
-                  value={transform.scaleX}
-                  onChange={(e) => handleScaleChange('scaleX', Number(e.target.value))}
-                  className={INPUT_CLASS}
-                  aria-label="Scale X"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  Y
-                </label>
-                <input
-                  type="number"
-                  min={0.1}
-                  max={10}
-                  step={0.1}
-                  value={transform.scaleY}
-                  onChange={(e) => handleScaleChange('scaleY', Number(e.target.value))}
-                  className={INPUT_CLASS}
-                  aria-label="Scale Y"
-                />
-              </div>
+              <NumberInput
+                label="X"
+                min={0.1}
+                max={10}
+                step={0.1}
+                value={transform.scaleX}
+                onChange={(e) => handleScaleChange('scaleX', Number(e.target.value))}
+                aria-label="Scale X"
+              />
+              <NumberInput
+                label="Y"
+                min={0.1}
+                max={10}
+                step={0.1}
+                value={transform.scaleY}
+                onChange={(e) => handleScaleChange('scaleY', Number(e.target.value))}
+                aria-label="Scale Y"
+              />
             </div>
           </div>
 
           {/* Skew */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew X</label>
-              <input
-                type="number"
-                min={-89}
-                max={89}
-                step={1}
-                value={transform.skewX}
-                onChange={(e) => handleChange({ skewX: Number(e.target.value) })}
-                className={INPUT_CLASS}
-                aria-label="Skew X"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew Y</label>
-              <input
-                type="number"
-                min={-89}
-                max={89}
-                step={1}
-                value={transform.skewY}
-                onChange={(e) => handleChange({ skewY: Number(e.target.value) })}
-                className={INPUT_CLASS}
-                aria-label="Skew Y"
-              />
-            </div>
+            <NumberInput
+              label="Skew X"
+              min={-89}
+              max={89}
+              step={1}
+              value={transform.skewX}
+              onChange={(e) => handleChange({ skewX: Number(e.target.value) })}
+              aria-label="Skew X"
+            />
+            <NumberInput
+              label="Skew Y"
+              min={-89}
+              max={89}
+              step={1}
+              value={transform.skewY}
+              onChange={(e) => handleChange({ skewY: Number(e.target.value) })}
+              aria-label="Skew Y"
+            />
           </div>
 
           {/* Origin 3x3 grid */}

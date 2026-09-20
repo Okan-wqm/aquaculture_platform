@@ -29,6 +29,7 @@ import {
   ColorInput,
   colors as themeColors,
   Input,
+  NumberInput,
   Slider,
   Textarea,
   ToggleButton,
@@ -301,36 +302,24 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* Range */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Range Min
-              </label>
-              <input
-                type="number"
-                value={anim.range.min}
-                onChange={(e) =>
-                  updateAnimation(anim.id, {
-                    range: { ...anim.range, min: Number(e.target.value) },
-                  })
-                }
-                className={INPUT_CLASS}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Range Max
-              </label>
-              <input
-                type="number"
-                value={anim.range.max}
-                onChange={(e) =>
-                  updateAnimation(anim.id, {
-                    range: { ...anim.range, max: Number(e.target.value) },
-                  })
-                }
-                className={INPUT_CLASS}
-              />
-            </div>
+            <NumberInput
+              label="Range Min"
+              value={anim.range.min}
+              onChange={(e) =>
+                updateAnimation(anim.id, {
+                  range: { ...anim.range, min: Number(e.target.value) },
+                })
+              }
+            />
+            <NumberInput
+              label="Range Max"
+              value={anim.range.max}
+              onChange={(e) =>
+                updateAnimation(anim.id, {
+                  range: { ...anim.range, max: Number(e.target.value) },
+                })
+              }
+            />
           </div>
 
           {/* Type */}
@@ -357,20 +346,14 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* rotate — continuous rotation driven by tag threshold */}
           {anim.type === 'rotate' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Speed (ms)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.rotationSpeed ?? 2000}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { rotationSpeed: Number(e.target.value) })
-                  }
-                  min={100}
-                  className={INPUT_CLASS}
-                />
-              </div>
+              <NumberInput
+                label="Speed (ms)"
+                value={anim.options.rotationSpeed ?? 2000}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { rotationSpeed: Number(e.target.value) })
+                }
+                min={100}
+              />
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                   Direction
@@ -392,20 +375,14 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* blink — alternating colors when tag is in range */}
           {anim.type === 'blink' && (
             <div className="space-y-2">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Interval (ms)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.blinkInterval ?? 1000}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { blinkInterval: Number(e.target.value) })
-                  }
-                  min={100}
-                  className={INPUT_CLASS}
-                />
-              </div>
+              <NumberInput
+                label="Interval (ms)"
+                value={anim.options.blinkInterval ?? 1000}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { blinkInterval: Number(e.target.value) })
+                }
+                min={100}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label
@@ -528,68 +505,44 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {anim.type === 'fillLevel' && (
             <div className="space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Fill Min
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.fillMin ?? 0}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { fillMin: Number(e.target.value) })
-                    }
-                    className={INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Fill Max
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.fillMax ?? 100}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { fillMax: Number(e.target.value) })
-                    }
-                    className={INPUT_CLASS}
-                  />
-                </div>
+                <NumberInput
+                  label="Fill Min"
+                  value={anim.options.fillMin ?? 0}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { fillMin: Number(e.target.value) })
+                  }
+                />
+                <NumberInput
+                  label="Fill Max"
+                  value={anim.options.fillMax ?? 100}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { fillMax: Number(e.target.value) })
+                  }
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Warning %
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.fillWarningThreshold ?? 70}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, {
-                        fillWarningThreshold: Number(e.target.value),
-                      })
-                    }
-                    min={0}
-                    max={100}
-                    className={INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Critical %
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.fillCriticalThreshold ?? 90}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, {
-                        fillCriticalThreshold: Number(e.target.value),
-                      })
-                    }
-                    min={0}
-                    max={100}
-                    className={INPUT_CLASS}
-                  />
-                </div>
+                <NumberInput
+                  label="Warning %"
+                  value={anim.options.fillWarningThreshold ?? 70}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, {
+                      fillWarningThreshold: Number(e.target.value),
+                    })
+                  }
+                  min={0}
+                  max={100}
+                />
+                <NumberInput
+                  label="Critical %"
+                  value={anim.options.fillCriticalThreshold ?? 90}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, {
+                      fillCriticalThreshold: Number(e.target.value),
+                    })
+                  }
+                  min={0}
+                  max={100}
+                />
               </div>
             </div>
           )}
@@ -598,47 +551,25 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {anim.type === 'move' && (
             <div className="space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    To X
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.toX ?? 0}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { toX: Number(e.target.value) })
-                    }
-                    className={INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    To Y
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.toY ?? 0}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { toY: Number(e.target.value) })
-                    }
-                    className={INPUT_CLASS}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Duration (ms)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.duration ?? 1000}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { duration: Number(e.target.value) })
-                  }
-                  min={100}
-                  className={INPUT_CLASS}
+                <NumberInput
+                  label="To X"
+                  value={anim.options.toX ?? 0}
+                  onChange={(e) => updateAnimationOptions(anim.id, { toX: Number(e.target.value) })}
+                />
+                <NumberInput
+                  label="To Y"
+                  value={anim.options.toY ?? 0}
+                  onChange={(e) => updateAnimationOptions(anim.id, { toY: Number(e.target.value) })}
                 />
               </div>
+              <NumberInput
+                label="Duration (ms)"
+                value={anim.options.duration ?? 1000}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { duration: Number(e.target.value) })
+                }
+                min={100}
+              />
             </div>
           )}
 
@@ -646,38 +577,26 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {anim.type === 'valueMappedRotation' && (
             <div className="space-y-2" data-testid="value-mapped-rotation-config">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Min Angle
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.minAngle ?? 0}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { minAngle: Number(e.target.value) })
-                    }
-                    min={-360}
-                    max={360}
-                    className={INPUT_CLASS}
-                    data-testid="min-angle-input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Max Angle
-                  </label>
-                  <input
-                    type="number"
-                    value={anim.options.maxAngle ?? 360}
-                    onChange={(e) =>
-                      updateAnimationOptions(anim.id, { maxAngle: Number(e.target.value) })
-                    }
-                    min={-360}
-                    max={360}
-                    className={INPUT_CLASS}
-                    data-testid="max-angle-input"
-                  />
-                </div>
+                <NumberInput
+                  label="Min Angle"
+                  value={anim.options.minAngle ?? 0}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { minAngle: Number(e.target.value) })
+                  }
+                  min={-360}
+                  max={360}
+                  data-testid="min-angle-input"
+                />
+                <NumberInput
+                  label="Max Angle"
+                  value={anim.options.maxAngle ?? 360}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { maxAngle: Number(e.target.value) })
+                  }
+                  min={-360}
+                  max={360}
+                  data-testid="max-angle-input"
+                />
               </div>
               {/* Visual hint: SVG needle showing rotation range */}
               <div className="flex justify-center py-2">
@@ -718,38 +637,26 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* piston — vertical oscillation for pump/compressor symbols */}
           {anim.type === 'piston' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="piston-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Distance (px)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.pistonDistance ?? 20}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { pistonDistance: Number(e.target.value) })
-                  }
-                  min={5}
-                  max={100}
-                  className={INPUT_CLASS}
-                  data-testid="piston-distance-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Duration (ms)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.pistonDuration ?? 1000}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { pistonDuration: Number(e.target.value) })
-                  }
-                  min={100}
-                  max={5000}
-                  className={INPUT_CLASS}
-                  data-testid="piston-duration-input"
-                />
-              </div>
+              <NumberInput
+                label="Distance (px)"
+                value={anim.options.pistonDistance ?? 20}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { pistonDistance: Number(e.target.value) })
+                }
+                min={5}
+                max={100}
+                data-testid="piston-distance-input"
+              />
+              <NumberInput
+                label="Duration (ms)"
+                value={anim.options.pistonDuration ?? 1000}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { pistonDuration: Number(e.target.value) })
+                }
+                min={100}
+                max={5000}
+                data-testid="piston-duration-input"
+              />
             </div>
           )}
 
@@ -770,43 +677,29 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   data-testid="motion-path-textarea"
                 />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Duration (ms)
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.motionDuration ?? 3000}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { motionDuration: Number(e.target.value) })
-                  }
-                  min={500}
-                  max={30000}
-                  className={INPUT_CLASS}
-                  data-testid="motion-duration-input"
-                />
-              </div>
+              <NumberInput
+                label="Duration (ms)"
+                value={anim.options.motionDuration ?? 3000}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { motionDuration: Number(e.target.value) })
+                }
+                min={500}
+                max={30000}
+                data-testid="motion-duration-input"
+              />
             </div>
           )}
 
           {/* recursiveColor — CSS custom property cascading to all SVG children */}
           {anim.type === 'recursiveColor' && (
             <div className="space-y-2" data-testid="recursive-color-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  CSS Variable Name
-                </label>
-                <input
-                  type="text"
-                  value={anim.options.colorVariable ?? '--scada-fill'}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { colorVariable: e.target.value })
-                  }
-                  placeholder="--scada-fill"
-                  className={INPUT_CLASS}
-                  data-testid="color-variable-input"
-                />
-              </div>
+              <Input
+                label="CSS Variable Name"
+                value={anim.options.colorVariable ?? '--scada-fill'}
+                onChange={(e) => updateAnimationOptions(anim.id, { colorVariable: e.target.value })}
+                placeholder="--scada-fill"
+                data-testid="color-variable-input"
+              />
               <RangeColorMapping
                 ranges={anim.options.ranges ?? []}
                 onChange={(ranges) => updateAnimationOptions(anim.id, { ranges })}
@@ -817,80 +710,56 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* scale — tag value to scale factor mapping */}
           {anim.type === 'scale' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="scale-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Min Scale
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.minScale ?? 0.5}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { minScale: Number(e.target.value) })
-                  }
-                  min={0.1}
-                  max={5}
-                  step={0.1}
-                  className={INPUT_CLASS}
-                  data-testid="min-scale-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Max Scale
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.maxScale ?? 2.0}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { maxScale: Number(e.target.value) })
-                  }
-                  min={0.1}
-                  max={5}
-                  step={0.1}
-                  className={INPUT_CLASS}
-                  data-testid="max-scale-input"
-                />
-              </div>
+              <NumberInput
+                label="Min Scale"
+                value={anim.options.minScale ?? 0.5}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { minScale: Number(e.target.value) })
+                }
+                min={0.1}
+                max={5}
+                step={0.1}
+                data-testid="min-scale-input"
+              />
+              <NumberInput
+                label="Max Scale"
+                value={anim.options.maxScale ?? 2.0}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { maxScale: Number(e.target.value) })
+                }
+                min={0.1}
+                max={5}
+                step={0.1}
+                data-testid="max-scale-input"
+              />
             </div>
           )}
 
           {/* opacity — gradual fade based on tag value range */}
           {anim.type === 'opacity' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="opacity-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Min Opacity
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.minOpacity ?? 0}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { minOpacity: Number(e.target.value) })
-                  }
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  className={INPUT_CLASS}
-                  data-testid="min-opacity-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Max Opacity
-                </label>
-                <input
-                  type="number"
-                  value={anim.options.maxOpacity ?? 1}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { maxOpacity: Number(e.target.value) })
-                  }
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  className={INPUT_CLASS}
-                  data-testid="max-opacity-input"
-                />
-              </div>
+              <NumberInput
+                label="Min Opacity"
+                value={anim.options.minOpacity ?? 0}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { minOpacity: Number(e.target.value) })
+                }
+                min={0}
+                max={1}
+                step={0.05}
+                data-testid="min-opacity-input"
+              />
+              <NumberInput
+                label="Max Opacity"
+                value={anim.options.maxOpacity ?? 1}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { maxOpacity: Number(e.target.value) })
+                }
+                min={0}
+                max={1}
+                step={0.05}
+                data-testid="max-opacity-input"
+              />
             </div>
           )}
 

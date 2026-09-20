@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { Button, ColorInput, Input, colors, useI18n } from '@aquaculture/shared-ui';
+import { Button, ColorInput, colors, Input, NumberInput, useI18n } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -145,32 +145,22 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               </div>
 
               {/* Label */}
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-                <input
-                  type="text"
-                  value={col.label}
-                  onChange={(e) => updateColumn(i, 'label', e.target.value)}
-                  placeholder="Column header..."
-                  className={SMALL_INPUT_CLS}
-                />
-              </div>
+              <Input
+                label="Label"
+                value={col.label}
+                onChange={(e) => updateColumn(i, 'label', e.target.value)}
+                placeholder="Column header..."
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
                 {/* Width */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Width (px)
-                  </label>
-                  <input
-                    type="number"
-                    min={40}
-                    max={600}
-                    value={col.width}
-                    onChange={(e) => updateColumn(i, 'width', Number(e.target.value))}
-                    className={SMALL_INPUT_CLS}
-                  />
-                </div>
+                <NumberInput
+                  label="Width (px)"
+                  min={40}
+                  max={600}
+                  value={col.width}
+                  onChange={(e) => updateColumn(i, 'width', Number(e.target.value))}
+                />
 
                 {/* Format */}
                 <div>
@@ -225,17 +215,13 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-            <input
-              type="number"
-              min={8}
-              max={20}
-              value={fontSize}
-              onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-              className={INPUT_CLS}
-            />
-          </div>
+          <NumberInput
+            label="Font Size"
+            min={8}
+            max={20}
+            value={fontSize}
+            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+          />
         </div>
 
         <div className="mt-2 space-y-2">

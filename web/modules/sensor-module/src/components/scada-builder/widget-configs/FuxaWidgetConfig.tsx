@@ -20,7 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
-import { colors as themeColors, Button, ColorInput, Input } from '@aquaculture/shared-ui';
+import { Button, ColorInput, colors as themeColors, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -228,16 +228,12 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   return (
     <div className="space-y-3">
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="FUXA Widget"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="FUXA Widget"
+      />
 
       {/* SVG Upload */}
       <div>
@@ -317,17 +313,13 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
           State Machine
         </label>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag Name</label>
-          <input
-            type="text"
-            value={tagName}
-            onChange={(e) => onChange({ tagName: e.target.value })}
-            placeholder="sensor.temperature"
-            className={INPUT_CLS}
-            data-testid="fuxa-state-tag"
-          />
-        </div>
+        <Input
+          label="Tag Name"
+          value={tagName}
+          onChange={(e) => onChange({ tagName: e.target.value })}
+          placeholder="sensor.temperature"
+          data-testid="fuxa-state-tag"
+        />
       </div>
 
       {/* State Rules */}

@@ -39,8 +39,10 @@ canlıda elle yamalıdır; ACL değişikliği yalnız generator'dan üretilir
   3. i18n tek-katalog (m.*) + `CONNECTION-STATUS.md` + `validate-e2e.mjs` +
      `ui-walkthrough.js`
   4. TR→EN çeviri geçişleri (main'in kendi i18n mimarisi var — bkz. Faz 2)
-- Kaynak dallar: `feat/suderra-session-20260917` (PR başı, her şey push'lu),
-  `feat/aquamobil-v4-redesign` (v4'ün orijinali, origin'de).
+- Kaynak dallar (hepsi GitHub'da): `feat/suderra-session-20260917` (PR #1569
+  başı — TÜM içerik push'lu) ve `feature/aquamobil-v4-redesign` (v4'ün orijinali).
+  Bu belge yalnız GitHub'dan erişilebilir varlıklara referans verir; sunucudaki
+  iş- çalışma ağaçları referans DEĞİLDİR.
 
 ## 1. main'in design-system mimarisi (uyum ZORUNLU)
 
@@ -92,8 +94,10 @@ davranışsal kalıplar. Uygulama main'in primitifleriyle yeniden yazılır.
 
 - main'in aquamobil'u kendi büyük refaktöründen geçti (Konsta yok,
   Field/Switch/Button/ListRow, PageHeader, BottomSheet, pull-to-refresh).
-- SUDERRA FIELD tasarımı BU sözlüğe taşınır; `feat/aquamobil-v4-merge` dalı
-  referans — birebir kopya DEĞİL.
+- SUDERRA FIELD tasarımı BU sözlüğe taşınır — birebir kopya DEĞİL.
+  GitHub-görünür referanslar: **PR #1569 dalındaki** (`feat/suderra-session-20260917`)
+  aquamobil ağacı (uyarlanmış, testli hali) ve origin'deki
+  `feature/aquamobil-v4-redesign` (v4'ün orijinali).
 - Aynı PR'a: SW-ready 3s timeout (serviceWorker.ready yarışı), tenant-header
   token-claim SSoT, `CONNECTION-STATUS.md`, `scripts/validate-e2e.mjs` +
   `scripts/ui-walkthrough.js`, PWA ikon/manifest.

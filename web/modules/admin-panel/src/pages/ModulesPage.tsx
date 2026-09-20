@@ -185,48 +185,45 @@ const ModulesPage: React.FC = () => {
             >
               All
             </ToggleButton>
-            <button
+            <ToggleButton
               onClick={() => {
                 setIsActiveFilter(true);
                 setIsCoreFilter(undefined);
                 refresh();
               }}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isActiveFilter === true
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={isActiveFilter === true}
+              className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Active
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => {
                 setIsCoreFilter(true);
                 setIsActiveFilter(undefined);
                 refresh();
               }}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isCoreFilter === true
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={isCoreFilter === true}
+              className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Core
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => {
                 setIsActiveFilter(false);
                 setIsCoreFilter(undefined);
                 refresh();
               }}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isActiveFilter === false
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={isActiveFilter === false}
+              className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Inactive
-            </button>
+            </ToggleButton>
           </div>
         </div>
       </div>
@@ -336,6 +333,9 @@ const ModulesPage: React.FC = () => {
                 <button
                   onClick={() => handleToggleModule(module)}
                   disabled={togglingModuleId === module.id}
+                  role="switch"
+                  aria-checked={module.isActive}
+                  aria-label={module.name}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     module.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
                   } ${togglingModuleId === module.id ? 'opacity-50 cursor-not-allowed' : ''}`}

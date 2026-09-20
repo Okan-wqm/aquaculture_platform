@@ -485,6 +485,8 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
         <div className="flex items-center gap-3">
           <button
             type="button"
+            role="checkbox"
+            aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
             onClick={() => !disabled && !readOnly && handleSelectAll(!allSelected)}
             disabled={disabled || readOnly}
             className={`

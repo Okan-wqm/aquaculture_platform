@@ -1327,6 +1327,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       </div>
       <button
         type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
         onClick={() => onChange(!enabled)}
         className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
           enabled ? 'bg-info-600' : 'bg-gray-300'

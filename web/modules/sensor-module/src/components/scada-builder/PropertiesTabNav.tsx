@@ -152,6 +152,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
                 if (!disabled) onTabChange(tab.id);
               }}
               disabled={disabled}
+              aria-pressed={active}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors ${
                 disabled
                   ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'

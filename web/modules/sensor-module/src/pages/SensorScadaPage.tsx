@@ -271,6 +271,7 @@ const SensorScadaPage: React.FC = () => {
           {selectedProcess && (
             <button
               onClick={() => setIsTrendOpen((prev) => !prev)}
+              aria-expanded={isTrendOpen}
               title="Trend Goruntule"
               className={`p-1.5 rounded-md transition-colors ${
                 isTrendOpen

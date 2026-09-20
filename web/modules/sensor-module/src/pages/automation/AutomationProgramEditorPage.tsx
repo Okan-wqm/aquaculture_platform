@@ -205,7 +205,9 @@ const TabButton: React.FC<{
 }> = ({ active, onClick, icon, label, count, disabled, disabledTooltip }) => (
   <div className="relative group">
     <button
-      onClick={disabled ? undefined : onClick}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
       className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
         disabled
           ? 'border-transparent text-gray-500 dark:text-gray-400 cursor-not-allowed'

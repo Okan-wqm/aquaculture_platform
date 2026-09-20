@@ -79,6 +79,8 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
       {/* Trigger button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
         className={`
           flex items-center gap-2 px-4 py-2
           bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg

@@ -364,13 +364,42 @@ function unnamedIconButtons(source: string): number {
  * while its opening tag never declares that state. The selection is visible and
  * inaudible: colour alone, which WCAG 1.4.1 rejects.
  */
+/**
+ * A button whose accessible name branches on the same condition its class does
+ * is not communicating by colour alone — the state is in the name, which is
+ * what a screen reader reads first. `aria-label={isRecording ? 'Stop recording'
+ * : 'Start recording'}` says more than `aria-pressed` would, and adding
+ * aria-pressed beside it makes the control announce its state twice, in two
+ * vocabularies.
+ *
+ * Only `aria-label` and `title` count. An earlier cut also looked at the
+ * element's body and matched 13 buttons, but eight of those were matching a
+ * className ternary on a knob `<span>` or an icon swap — markup, not words.
+ * A detector that reads a switch's translate-x class as an accessible name is
+ * not measuring anything.
+ */
+function nameDeclaresTheSameState(openTag: string): boolean {
+  const className = bracedAttribute(openTag, 'className');
+  if (className === null) return false;
+  const painted = classConditions(className).map(withoutSpaceOrNot);
+  if (painted.length === 0) return false;
+  const spoken = new Set<string>();
+  for (const attribute of ['aria-label', 'title']) {
+    const expression = bracedAttribute(openTag, attribute);
+    if (expression === null) continue;
+    for (const condition of classConditions(expression)) spoken.add(withoutSpaceOrNot(condition));
+  }
+  return spoken.size > 0 && painted.every((condition) => spoken.has(condition));
+}
+
 function silentStateButtons(source: string): number {
   let count = 0;
   for (const { openTag } of buttonElements(source)) {
     if (
       PAINTS_A_STATE.test(openTag) &&
       !DECLARES_ITS_STATE.test(openTag) &&
-      !paintsOnlyTheDisabledLook(openTag)
+      !paintsOnlyTheDisabledLook(openTag) &&
+      !nameDeclaresTheSameState(openTag)
     )
       count += 1;
   }

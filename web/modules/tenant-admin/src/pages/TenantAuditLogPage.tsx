@@ -356,6 +356,7 @@ const TenantAuditLogPage: React.FC = () => {
             </Button>
             <button
               onClick={() => setShowFilters(!showFilters)}
+              aria-expanded={showFilters}
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
                   ? 'text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800'

@@ -674,6 +674,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
           <div className="relative" ref={processDropdownRef}>
             <button
               onClick={() => setShowProcessDropdown(!showProcessDropdown)}
+              aria-expanded={showProcessDropdown}
+              aria-haspopup="listbox"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                 processBackground.processId
                   ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 hover:bg-info-200 dark:hover:bg-info-800/60'

@@ -33,7 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -813,16 +813,15 @@ export const TicketsPage: React.FC = () => {
             {selectedTicket.status !== 'closed' && (
               <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <button
+                  <ToggleButton
                     onClick={() => setIsInternalNote(!isInternalNote)}
-                    className={`text-xs px-2 py-1 rounded ${
-                      isInternalNote
-                        ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                    pressed={isInternalNote}
+                    className="text-xs px-2 py-1 rounded"
+                    pressedClassName="bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700"
+                    idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                   >
                     {isInternalNote ? 'Internal Note' : 'Public Reply'}
-                  </button>
+                  </ToggleButton>
                 </div>
                 <div className="flex items-end gap-3">
                   <textarea

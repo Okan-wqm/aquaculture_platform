@@ -116,16 +116,15 @@ const CategoryTree: React.FC<{
   return (
     <div className="space-y-0.5" data-testid="fuxa-category-tree">
       {/* "All" option */}
-      <button
+      <ToggleButton
         onClick={() => onSelectCategory(null, null)}
-        className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${
-          selectedCategory === null
-            ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
-            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-        }`}
+        pressed={selectedCategory === null}
+        className="w-full text-left px-3 py-1.5 text-xs rounded transition-colors"
+        pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold"
+        idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         All Categories
-      </button>
+      </ToggleButton>
 
       {categories.map((cat) => (
         <div key={cat.name}>

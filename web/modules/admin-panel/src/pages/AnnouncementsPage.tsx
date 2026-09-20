@@ -513,6 +513,21 @@ interface AnnouncementFormModalProps {
   onSave: (data: Partial<Announcement>) => void;
 }
 
+/**
+ * The tint the picker wears when a type is chosen. The severity belongs to the
+ * TYPE, not to the state of the button, so it resolves through a lookup rather
+ * than a four-deep ternary inside the class attribute.
+ */
+const announcementTypeSelected: Record<AnnouncementType, string> = {
+  info: 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300',
+  warning:
+    'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-700 dark:text-warning-300',
+  critical:
+    'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300',
+  maintenance:
+    'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300',
+};
+
 const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   announcement,
   onClose,
@@ -603,28 +618,20 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
         </label>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
-            <button
+            <ToggleButton
               key={t}
-              type="button"
+              pressed={type === t}
               onClick={() => setType(t)}
-              className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                type === t
-                  ? t === 'info'
-                    ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : t === 'warning'
-                      ? 'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-700 dark:text-warning-300'
-                      : t === 'critical'
-                        ? 'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
-                        : 'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors"
+              pressedClassName={announcementTypeSelected[t]}
+              idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {t === 'info' && <Info size={16} />}
               {t === 'warning' && <AlertTriangle size={16} />}
               {t === 'critical' && <AlertCircle size={16} />}
               {t === 'maintenance' && <Wrench size={16} />}
               {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

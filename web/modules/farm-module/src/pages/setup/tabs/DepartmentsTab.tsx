@@ -518,31 +518,23 @@ export const DepartmentsTab: React.FC = () => {
               error={formErrors.siteId}
               options={sites.map((site) => ({ value: site.id, label: site.name }))}
             />
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Capacity
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min="0"
-                value={formData.capacity}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Notes
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.notes}
-                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-              />
-            </div>
+            <Input
+              label="Capacity"
+              fullWidth
+              type="number"
+              min="0"
+              value={formData.capacity}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
+              }
+            />
+            <Textarea
+              label="Notes"
+              fullWidth
+              value={formData.notes}
+              onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+              rows={3}
+            />
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
             <Button

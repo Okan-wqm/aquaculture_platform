@@ -3,7 +3,7 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
-import { Button, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 // WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
@@ -183,15 +183,11 @@ const InputPanel: React.FC<InputPanelProps> = ({
                 options={FISH_SIZES.map((size) => ({ value: size, label: size }))}
               />
             </div>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={inputs.showTarget}
-                onChange={(e) => update('showTarget', e.target.checked)}
-                className="h-3.5 w-3.5 text-info-600 border-gray-300 dark:border-gray-600 rounded"
-              />
-              <span className="text-xs text-gray-700 dark:text-gray-300">Show Target</span>
-            </label>
+            <Checkbox
+              label="Show Target"
+              checked={inputs.showTarget}
+              onChange={(e) => update('showTarget', e.target.checked)}
+            />
           </div>
         )}
 

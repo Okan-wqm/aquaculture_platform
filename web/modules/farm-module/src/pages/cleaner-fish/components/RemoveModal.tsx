@@ -224,41 +224,27 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
         )}
 
         {/* Removal Date */}
-        <div>
-          <label
-            htmlFor="removedAt"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Removal Date
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            id="removedAt"
-            value={removedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setRemovedAt(e.target.value)}
-          />
-        </div>
+        <Input
+          label="Removal Date"
+          fullWidth
+          type="date"
+          id="removedAt"
+          value={removedAt}
+          max={new Date().toISOString().split('T')[0]}
+          onChange={(e) => setRemovedAt(e.target.value)}
+        />
 
         {/* Notes */}
-        <div>
-          <label
-            htmlFor="notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes about this removal..."
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          id="notes"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes about this removal..."
+        />
 
         {/* Validation Error */}
         {quantity > maxQuantity && (

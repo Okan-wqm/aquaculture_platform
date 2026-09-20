@@ -7,6 +7,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Button,
+  Checkbox,
   DataTable,
   Modal,
   Select,
@@ -361,20 +362,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
               {/* Alert toggle */}
               <div className="flex items-end">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={addForm.alertEnabled}
-                    onChange={(e) =>
-                      setAddForm((prev) => ({
-                        ...prev,
-                        alertEnabled: e.target.checked,
-                      }))
-                    }
-                    className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Enable Alerts</span>
-                </label>
+                <Checkbox
+                  label="Enable Alerts"
+                  checked={addForm.alertEnabled}
+                  onChange={(e) =>
+                    setAddForm((prev) => ({
+                      ...prev,
+                      alertEnabled: e.target.checked,
+                    }))
+                  }
+                />
               </div>
             </div>
 

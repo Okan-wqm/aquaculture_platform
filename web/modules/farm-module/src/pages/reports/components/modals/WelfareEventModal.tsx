@@ -539,21 +539,19 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
             </div>
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Period</label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '1_day', label: '1 Day' },
-                  { value: '3_day', label: '3 Days' },
-                  { value: '7_day', label: '7 Days' },
-                ]}
-                value={formData.mortalityPeriod}
-                onChange={(e) =>
-                  handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
-                }
-              />
-            </div>
+            <Select
+              label="Period"
+              fullWidth
+              options={[
+                { value: '1_day', label: '1 Day' },
+                { value: '3_day', label: '3 Days' },
+                { value: '7_day', label: '7 Days' },
+              ]}
+              value={formData.mortalityPeriod}
+              onChange={(e) =>
+                handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
+              }
+            />
 
             {/* Threshold comparison */}
             {thresholdComparison && (
@@ -724,43 +722,31 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Injured Fish
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={formData.injuredFishCount}
-                  onChange={(e) => handleChange('injuredFishCount', e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Mortality Count
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={formData.mortalityCount}
-                  onChange={(e) => handleChange('mortalityCount', e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                Description
-              </label>
-              <Textarea
+              <Input
+                label="Injured Fish"
                 fullWidth
-                value={formData.description}
-                onChange={(e) => handleChange('description', e.target.value)}
-                rows={2}
-                placeholder="Describe the equipment failure and its impact..."
+                type="number"
+                value={formData.injuredFishCount}
+                onChange={(e) => handleChange('injuredFishCount', e.target.value)}
+                placeholder="0"
+              />
+              <Input
+                label="Mortality Count"
+                fullWidth
+                type="number"
+                value={formData.mortalityCount}
+                onChange={(e) => handleChange('mortalityCount', e.target.value)}
+                placeholder="0"
               />
             </div>
+            <Textarea
+              label="Description"
+              fullWidth
+              value={formData.description}
+              onChange={(e) => handleChange('description', e.target.value)}
+              rows={2}
+              placeholder="Describe the equipment failure and its impact..."
+            />
           </div>
         )}
 
@@ -812,19 +798,15 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Affected Percentage (%)
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="0.1"
-                  value={formData.affectedPercentage}
-                  onChange={(e) => handleChange('affectedPercentage', e.target.value)}
-                  placeholder="e.g., 15"
-                />
-              </div>
+              <Input
+                label="Affected Percentage (%)"
+                fullWidth
+                type="number"
+                step="0.1"
+                value={formData.affectedPercentage}
+                onChange={(e) => handleChange('affectedPercentage', e.target.value)}
+                placeholder="e.g., 15"
+              />
             </div>
 
             {/* Water Quality Context */}

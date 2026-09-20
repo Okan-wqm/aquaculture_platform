@@ -423,22 +423,15 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           />
 
           {/* Date */}
-          <div>
-            <label
-              htmlFor="transferredAt"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Transfer Date
-            </label>
-            <Input
-              fullWidth
-              type="date"
-              id="transferredAt"
-              value={transferredAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setTransferredAt(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Transfer Date"
+            fullWidth
+            type="date"
+            id="transferredAt"
+            value={transferredAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setTransferredAt(e.target.value)}
+          />
 
           {/* Notes */}
           <div>

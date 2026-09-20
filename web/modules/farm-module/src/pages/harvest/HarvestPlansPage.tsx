@@ -12,6 +12,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Button,
+  Checkbox,
   DEFAULT_CURRENCY,
   formatCurrency as sharedFormatCurrency,
   Input,
@@ -1096,51 +1097,35 @@ const FilterPanel: React.FC<{
         </div>
 
         {/* Date From */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Planned From
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            value={filters.plannedDateFrom}
-            onChange={(e) => onFilterChange({ ...filters, plannedDateFrom: e.target.value })}
-          />
-        </div>
+        <Input
+          label="Planned From"
+          fullWidth
+          type="date"
+          value={filters.plannedDateFrom}
+          onChange={(e) => onFilterChange({ ...filters, plannedDateFrom: e.target.value })}
+        />
 
         {/* Date To */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Planned To
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            value={filters.plannedDateTo}
-            onChange={(e) => onFilterChange({ ...filters, plannedDateTo: e.target.value })}
-          />
-        </div>
+        <Input
+          label="Planned To"
+          fullWidth
+          type="date"
+          value={filters.plannedDateTo}
+          onChange={(e) => onFilterChange({ ...filters, plannedDateTo: e.target.value })}
+        />
 
         {/* Quick Filters */}
         <div className="lg:col-span-2 flex items-end gap-4">
-          <label className="inline-flex items-center">
-            <input
-              type="checkbox"
-              checked={filters.activeOnly}
-              onChange={(e) => onFilterChange({ ...filters, activeOnly: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Active Only</span>
-          </label>
-          <label className="inline-flex items-center">
-            <input
-              type="checkbox"
-              checked={filters.overdueOnly}
-              onChange={(e) => onFilterChange({ ...filters, overdueOnly: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Overdue Only</span>
-          </label>
+          <Checkbox
+            label="Active Only"
+            checked={filters.activeOnly}
+            onChange={(e) => onFilterChange({ ...filters, activeOnly: e.target.checked })}
+          />
+          <Checkbox
+            label="Overdue Only"
+            checked={filters.overdueOnly}
+            onChange={(e) => onFilterChange({ ...filters, overdueOnly: e.target.checked })}
+          />
         </div>
       </div>
     </div>
@@ -1229,32 +1214,24 @@ const HarvestPlanFormModal: React.FC<{
                   Basic Information
                 </h3>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Plan Name *
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    required
-                    value={formData.name || ''}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Full Harvest - Sea Bass Batch A"
-                  />
-                </div>
+                <Input
+                  label="Plan Name"
+                  fullWidth
+                  type="text"
+                  required
+                  value={formData.name || ''}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Full Harvest - Sea Bass Batch A"
+                />
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Description
-                  </label>
-                  <Textarea
-                    fullWidth
-                    value={formData.description || ''}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    placeholder="Describe the harvest plan..."
-                  />
-                </div>
+                <Textarea
+                  label="Description"
+                  fullWidth
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={3}
+                  placeholder="Describe the harvest plan..."
+                />
 
                 <div>
                   <Select
@@ -1332,46 +1309,32 @@ const HarvestPlanFormModal: React.FC<{
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Planned Date *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      required
-                      value={formData.plannedDate || ''}
-                      onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
-                    />
-                  </div>
+                  <Input
+                    label="Planned Date"
+                    fullWidth
+                    type="date"
+                    required
+                    value={formData.plannedDate || ''}
+                    onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Window Start
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      value={formData.windowStartDate || ''}
-                      onChange={(e) =>
-                        setFormData({ ...formData, windowStartDate: e.target.value })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Window Start"
+                    fullWidth
+                    type="date"
+                    value={formData.windowStartDate || ''}
+                    onChange={(e) => setFormData({ ...formData, windowStartDate: e.target.value })}
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Window End
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      value={formData.windowEndDate || ''}
-                      onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })}
-                    />
-                  </div>
+                  <Input
+                    label="Window End"
+                    fullWidth
+                    type="date"
+                    value={formData.windowEndDate || ''}
+                    onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })}
+                  />
                 </div>
               </div>
             )}
@@ -1388,102 +1351,86 @@ const HarvestPlanFormModal: React.FC<{
                     Target Weight (grams)
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Minimum
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.min || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                min: Number(e.target.value),
-                              },
+                    <Input
+                      label="Minimum"
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={formData.criteria?.targetWeight.min || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          criteria: {
+                            ...formData.criteria!,
+                            targetWeight: {
+                              ...formData.criteria!.targetWeight,
+                              min: Number(e.target.value),
                             },
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Target
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.target || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                target: Number(e.target.value),
-                              },
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      label="Target"
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={formData.criteria?.targetWeight.target || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          criteria: {
+                            ...formData.criteria!,
+                            targetWeight: {
+                              ...formData.criteria!.targetWeight,
+                              target: Number(e.target.value),
                             },
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Maximum
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.max || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                max: Number(e.target.value),
-                              },
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      label="Maximum"
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={formData.criteria?.targetWeight.max || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          criteria: {
+                            ...formData.criteria!,
+                            targetWeight: {
+                              ...formData.criteria!.targetWeight,
+                              max: Number(e.target.value),
                             },
-                          })
-                        }
-                      />
-                    </div>
+                          },
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Quality Grade
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: '', label: 'Not specified' },
-                      { value: 'A', label: 'Grade A' },
-                      { value: 'B', label: 'Grade B' },
-                      { value: 'C', label: 'Grade C' },
-                    ]}
-                    value={formData.criteria?.qualityGrade || ''}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        criteria: {
-                          ...formData.criteria!,
-                          qualityGrade: e.target.value || undefined,
-                        },
-                      })
-                    }
-                  />
-                </div>
+                <Select
+                  label="Quality Grade"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'Not specified' },
+                    { value: 'A', label: 'Grade A' },
+                    { value: 'B', label: 'Grade B' },
+                    { value: 'C', label: 'Grade C' },
+                  ]}
+                  value={formData.criteria?.qualityGrade || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      criteria: {
+                        ...formData.criteria!,
+                        qualityGrade: e.target.value || undefined,
+                      },
+                    })
+                  }
+                />
               </div>
             )}
 
@@ -1495,119 +1442,99 @@ const HarvestPlanFormModal: React.FC<{
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Quantity *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.estimates?.estimatedQuantity || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedQuantity: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Biomass (kg) *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      required
-                      min="0"
-                      step="0.1"
-                      value={formData.estimates?.estimatedBiomass || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedBiomass: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Avg Weight (g) *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.estimates?.estimatedAvgWeight || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedAvgWeight: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Yield (%)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={formData.estimates?.estimatedYield || 85}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedYield: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Confidence Level
-                  </label>
-                  <Select
+                  <Input
+                    label="Estimated Quantity"
                     fullWidth
-                    options={[
-                      { value: 'low', label: 'Low' },
-                      { value: 'medium', label: 'Medium' },
-                      { value: 'high', label: 'High' },
-                    ]}
-                    value={formData.estimates?.confidenceLevel || 'medium'}
+                    type="number"
+                    required
+                    min="0"
+                    value={formData.estimates?.estimatedQuantity || 0}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
                         estimates: {
                           ...formData.estimates!,
-                          confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
+                          estimatedQuantity: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+
+                  <Input
+                    label="Estimated Biomass (kg)"
+                    fullWidth
+                    type="number"
+                    required
+                    min="0"
+                    step="0.1"
+                    value={formData.estimates?.estimatedBiomass || 0}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        estimates: {
+                          ...formData.estimates!,
+                          estimatedBiomass: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+
+                  <Input
+                    label="Estimated Avg Weight (g)"
+                    fullWidth
+                    type="number"
+                    required
+                    min="0"
+                    value={formData.estimates?.estimatedAvgWeight || 0}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        estimates: {
+                          ...formData.estimates!,
+                          estimatedAvgWeight: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+
+                  <Input
+                    label="Estimated Yield (%)"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={formData.estimates?.estimatedYield || 85}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        estimates: {
+                          ...formData.estimates!,
+                          estimatedYield: Number(e.target.value),
                         },
                       })
                     }
                   />
                 </div>
+
+                <Select
+                  label="Confidence Level"
+                  fullWidth
+                  options={[
+                    { value: 'low', label: 'Low' },
+                    { value: 'medium', label: 'Medium' },
+                    { value: 'high', label: 'High' },
+                  ]}
+                  value={formData.estimates?.confidenceLevel || 'medium'}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      estimates: {
+                        ...formData.estimates!,
+                        confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
+                      },
+                    })
+                  }
+                />
               </div>
             )}
 
@@ -1619,126 +1546,106 @@ const HarvestPlanFormModal: React.FC<{
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Price
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedPrice || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection,
-                            estimatedPrice: Number(e.target.value),
-                            priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
-                            estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
-                            estimatedCost: formData.financialProjection?.estimatedCost || 0,
-                            estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
-                            margin: formData.financialProjection?.margin || 0,
-                            currency: formData.financialProjection?.currency || 'EUR',
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Estimated Price"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.financialProjection?.estimatedPrice || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        financialProjection: {
+                          ...formData.financialProjection,
+                          estimatedPrice: Number(e.target.value),
+                          priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
+                          estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
+                          estimatedCost: formData.financialProjection?.estimatedCost || 0,
+                          estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
+                          margin: formData.financialProjection?.margin || 0,
+                          currency: formData.financialProjection?.currency || 'EUR',
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Price Unit
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: 'per_kg', label: 'Per Kilogram' },
-                        { value: 'per_piece', label: 'Per Piece' },
-                      ]}
-                      value={formData.financialProjection?.priceUnit || 'per_kg'}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            priceUnit: e.target.value as 'per_kg' | 'per_piece',
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Select
+                    label="Price Unit"
+                    fullWidth
+                    options={[
+                      { value: 'per_kg', label: 'Per Kilogram' },
+                      { value: 'per_piece', label: 'Per Piece' },
+                    ]}
+                    value={formData.financialProjection?.priceUnit || 'per_kg'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        financialProjection: {
+                          ...formData.financialProjection!,
+                          priceUnit: e.target.value as 'per_kg' | 'per_piece',
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Revenue
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedRevenue || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            estimatedRevenue: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Estimated Revenue"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.financialProjection?.estimatedRevenue || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        financialProjection: {
+                          ...formData.financialProjection!,
+                          estimatedRevenue: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Estimated Cost
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedCost || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            estimatedCost: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Estimated Cost"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.financialProjection?.estimatedCost || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        financialProjection: {
+                          ...formData.financialProjection!,
+                          estimatedCost: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Currency
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: 'EUR', label: 'EUR' },
-                        { value: 'USD', label: 'USD' },
-                        { value: 'TRY', label: 'TRY' },
-                        { value: 'GBP', label: 'GBP' },
-                        { value: 'NOK', label: 'NOK' },
-                      ]}
-                      value={formData.financialProjection?.currency || 'EUR'}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            currency: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Select
+                    label="Currency"
+                    fullWidth
+                    options={[
+                      { value: 'EUR', label: 'EUR' },
+                      { value: 'USD', label: 'USD' },
+                      { value: 'TRY', label: 'TRY' },
+                      { value: 'GBP', label: 'GBP' },
+                      { value: 'NOK', label: 'NOK' },
+                    ]}
+                    value={formData.financialProjection?.currency || 'EUR'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        financialProjection: {
+                          ...formData.financialProjection!,
+                          currency: e.target.value,
+                        },
+                      })
+                    }
+                  />
                 </div>
               </div>
             )}
@@ -1751,168 +1658,138 @@ const HarvestPlanFormModal: React.FC<{
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Harvest Start Time
-                    </label>
-                    <Input
-                      fullWidth
-                      type="time"
-                      value={formData.logistics?.harvestStartTime || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            harvestStartTime: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Expected Duration (hours)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={formData.logistics?.expectedDuration || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            expectedDuration: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Required Personnel
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      value={formData.logistics?.requiredPersonnel || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            requiredPersonnel: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Transport Type
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: '', label: 'Select type' },
-                        { value: 'truck', label: 'Truck' },
-                        { value: 'boat', label: 'Boat' },
-                        { value: 'container', label: 'Container' },
-                      ]}
-                      value={formData.logistics?.transportType || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            transportType:
-                              (e.target.value as 'truck' | 'boat' | 'container') || undefined,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Destination Type
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: '', label: 'Select destination' },
-                        { value: 'processing', label: 'Processing Plant' },
-                        { value: 'market', label: 'Market' },
-                        { value: 'direct_sale', label: 'Direct Sale' },
-                        { value: 'export', label: 'Export' },
-                      ]}
-                      value={formData.logistics?.destinationType || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            destinationType:
-                              (e.target.value as
-                                | 'processing'
-                                | 'market'
-                                | 'direct_sale'
-                                | 'export') || undefined,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="inline-flex items-center mt-6">
-                      <input
-                        type="checkbox"
-                        checked={formData.logistics?.coldChainRequired || false}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            logistics: {
-                              ...formData.logistics,
-                              coldChainRequired: e.target.checked,
-                            },
-                          })
-                        }
-                        className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                        Cold Chain Required
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Destination Address
-                  </label>
-                  <Textarea
+                  <Input
+                    label="Harvest Start Time"
                     fullWidth
-                    value={formData.logistics?.destinationAddress || ''}
+                    type="time"
+                    value={formData.logistics?.harvestStartTime || ''}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
                         logistics: {
                           ...formData.logistics,
-                          destinationAddress: e.target.value,
+                          harvestStartTime: e.target.value,
                         },
                       })
                     }
-                    rows={2}
                   />
+
+                  <Input
+                    label="Expected Duration (hours)"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={formData.logistics?.expectedDuration || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        logistics: {
+                          ...formData.logistics,
+                          expectedDuration: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+
+                  <Input
+                    label="Required Personnel"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={formData.logistics?.requiredPersonnel || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        logistics: {
+                          ...formData.logistics,
+                          requiredPersonnel: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+
+                  <Select
+                    label="Transport Type"
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Select type' },
+                      { value: 'truck', label: 'Truck' },
+                      { value: 'boat', label: 'Boat' },
+                      { value: 'container', label: 'Container' },
+                    ]}
+                    value={formData.logistics?.transportType || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        logistics: {
+                          ...formData.logistics,
+                          transportType:
+                            (e.target.value as 'truck' | 'boat' | 'container') || undefined,
+                        },
+                      })
+                    }
+                  />
+
+                  <Select
+                    label="Destination Type"
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Select destination' },
+                      { value: 'processing', label: 'Processing Plant' },
+                      { value: 'market', label: 'Market' },
+                      { value: 'direct_sale', label: 'Direct Sale' },
+                      { value: 'export', label: 'Export' },
+                    ]}
+                    value={formData.logistics?.destinationType || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        logistics: {
+                          ...formData.logistics,
+                          destinationType:
+                            (e.target.value as
+                              | 'processing'
+                              | 'market'
+                              | 'direct_sale'
+                              | 'export') || undefined,
+                        },
+                      })
+                    }
+                  />
+
+                  <div>
+                    <Checkbox
+                      label="Cold Chain Required"
+                      checked={formData.logistics?.coldChainRequired || false}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            coldChainRequired: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                  </div>
                 </div>
+
+                <Textarea
+                  label="Destination Address"
+                  fullWidth
+                  value={formData.logistics?.destinationAddress || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      logistics: {
+                        ...formData.logistics,
+                        destinationAddress: e.target.value,
+                      },
+                    })
+                  }
+                  rows={2}
+                />
               </div>
             )}
 
@@ -1924,133 +1801,109 @@ const HarvestPlanFormModal: React.FC<{
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Customer Name
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.customerOrder?.customerName || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            customerName: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Customer Name"
+                    fullWidth
+                    type="text"
+                    value={formData.customerOrder?.customerName || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          customerName: e.target.value,
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Order ID
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.customerOrder?.orderId || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderId: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Order ID"
+                    fullWidth
+                    type="text"
+                    value={formData.customerOrder?.orderId || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          orderId: e.target.value,
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Order Quantity
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      value={formData.customerOrder?.orderQuantity || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderQuantity: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Order Quantity"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={formData.customerOrder?.orderQuantity || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          orderQuantity: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Order Unit
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: '', label: 'Select unit' },
-                        { value: 'kg', label: 'Kilograms' },
-                        { value: 'pieces', label: 'Pieces' },
-                        { value: 'tons', label: 'Tons' },
-                      ]}
-                      value={formData.customerOrder?.orderUnit || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderUnit: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Select
+                    label="Order Unit"
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Select unit' },
+                      { value: 'kg', label: 'Kilograms' },
+                      { value: 'pieces', label: 'Pieces' },
+                      { value: 'tons', label: 'Tons' },
+                    ]}
+                    value={formData.customerOrder?.orderUnit || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          orderUnit: e.target.value,
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Delivery Date
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      value={formData.customerOrder?.deliveryDate || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            deliveryDate: e.target.value,
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Delivery Date"
+                    fullWidth
+                    type="date"
+                    value={formData.customerOrder?.deliveryDate || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          deliveryDate: e.target.value,
+                        },
+                      })
+                    }
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Contract Price
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.customerOrder?.contractPrice || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            contractPrice: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Contract Price"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.customerOrder?.contractPrice || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerOrder: {
+                          ...formData.customerOrder,
+                          contractPrice: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
                 </div>
               </div>
             )}

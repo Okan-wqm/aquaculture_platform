@@ -10,12 +10,13 @@
  */
 import React, { useState } from 'react';
 import {
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  Checkbox,
+  DataTable,
   Input,
+  Modal,
+  Spinner,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -253,20 +254,16 @@ export const SlaughterFacilitiesTab: React.FC = () => {
           )}
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Name *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                required
-                maxLength={150}
-                value={formData.name}
-                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g., Nordfjord Slakteri AS"
-              />
-            </div>
+            <Input
+              label="Name"
+              fullWidth
+              type="text"
+              required
+              maxLength={150}
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="e.g., Nordfjord Slakteri AS"
+            />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -293,30 +290,20 @@ export const SlaughterFacilitiesTab: React.FC = () => {
               </p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Address
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                maxLength={255}
-                value={formData.address}
-                onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-              />
-            </div>
+            <Input
+              label="Address"
+              fullWidth
+              type="text"
+              maxLength={255}
+              value={formData.address}
+              onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+            />
 
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={formData.isDefault}
-                onChange={(e) => setFormData((prev) => ({ ...prev, isDefault: e.target.checked }))}
-                className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Use as the default facility for slaughter reports
-              </span>
-            </label>
+            <Checkbox
+              label="Use as the default facility for slaughter reports"
+              checked={formData.isDefault}
+              onChange={(e) => setFormData((prev) => ({ ...prev, isDefault: e.target.checked }))}
+            />
           </div>
 
           <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">

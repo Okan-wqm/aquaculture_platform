@@ -715,54 +715,40 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('basic')}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Common Name *
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    required
-                    value={formData.commonName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, commonName: e.target.value }))
-                    }
-                    placeholder="e.g., European Seabass"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Scientific Name *
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    required
-                    value={formData.scientificName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
-                    }
-                    placeholder="e.g., Dicentrarchus labrax"
-                  />
-                </div>
+                <Input
+                  label="Common Name"
+                  fullWidth
+                  type="text"
+                  required
+                  value={formData.commonName}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, commonName: e.target.value }))}
+                  placeholder="e.g., European Seabass"
+                />
+                <Input
+                  label="Scientific Name"
+                  fullWidth
+                  type="text"
+                  required
+                  value={formData.scientificName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
+                  }
+                  placeholder="e.g., Dicentrarchus labrax"
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Code *
-                  </label>
-                  <Input
-                    className="uppercase"
-                    fullWidth
-                    type="text"
-                    required
-                    value={formData.code}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
-                    }
-                    placeholder="e.g., SEABASS"
-                  />
-                </div>
+                <Input
+                  label="Code"
+                  className="uppercase"
+                  fullWidth
+                  type="text"
+                  required
+                  value={formData.code}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
+                  }
+                  placeholder="e.g., SEABASS"
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
@@ -785,35 +771,24 @@ export const SpeciesTab: React.FC = () => {
                     Required for Norwegian regulatory reports — submissions fail closed without it.
                   </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Local Name
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.localName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, localName: e.target.value }))
-                    }
-                    placeholder="e.g., Levrek"
-                  />
-                </div>
-              </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Description
-                </label>
-                <Textarea
+                <Input
+                  label="Local Name"
                   fullWidth
-                  value={formData.description}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  rows={2}
-                  placeholder="Brief description of the species..."
+                  type="text"
+                  value={formData.localName}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, localName: e.target.value }))}
+                  placeholder="e.g., Levrek"
                 />
               </div>
+              <Textarea
+                label="Description"
+                className="mt-4"
+                fullWidth
+                value={formData.description}
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                rows={2}
+                placeholder="Brief description of the species..."
+              />
             </CollapsibleSection>
 
             {/* Section: Tags */}
@@ -941,30 +916,22 @@ export const SpeciesTab: React.FC = () => {
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Family
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.family}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
-                    placeholder="e.g., Moronidae"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Genus
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.genus}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
-                    placeholder="e.g., Dicentrarchus"
-                  />
-                </div>
+                <Input
+                  label="Family"
+                  fullWidth
+                  type="text"
+                  value={formData.family}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
+                  placeholder="e.g., Moronidae"
+                />
+                <Input
+                  label="Genus"
+                  fullWidth
+                  type="text"
+                  value={formData.genus}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
+                  placeholder="e.g., Dicentrarchus"
+                />
               </div>
             </CollapsibleSection>
 
@@ -998,56 +965,48 @@ export const SpeciesTab: React.FC = () => {
                   Temperature (°C)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      value={formData.tempMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="18"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      value={formData.tempMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="28"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">
-                      Optimal
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      value={formData.tempOptimal}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="24"
-                    />
-                  </div>
+                  <Input
+                    label="Min"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.tempMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        tempMin: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="18"
+                  />
+                  <Input
+                    label="Max"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.tempMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        tempMax: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="28"
+                  />
+                  <Input
+                    label="Optimal"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.tempOptimal}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="24"
+                  />
                 </div>
               </div>
 
@@ -1057,42 +1016,38 @@ export const SpeciesTab: React.FC = () => {
                   pH
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="14"
-                      value={formData.phMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          phMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="7.0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="14"
-                      value={formData.phMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          phMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="8.5"
-                    />
-                  </div>
+                  <Input
+                    label="Min"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="14"
+                    value={formData.phMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        phMin: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="7.0"
+                  />
+                  <Input
+                    label="Max"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="14"
+                    value={formData.phMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        phMax: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="8.5"
+                  />
                 </div>
               </div>
 
@@ -1102,42 +1057,36 @@ export const SpeciesTab: React.FC = () => {
                   Dissolved Oxygen (mg/L)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.oxygenMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="5.0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">
-                      Optimal
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.oxygenOptimal}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="7.0"
-                    />
-                  </div>
+                  <Input
+                    label="Min"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={formData.oxygenMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="5.0"
+                  />
+                  <Input
+                    label="Optimal"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={formData.oxygenOptimal}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="7.0"
+                  />
                 </div>
               </div>
 
@@ -1147,25 +1096,21 @@ export const SpeciesTab: React.FC = () => {
                   Ammonia (mg/L)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">
-                      Max Tolerable
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.ammoniaMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="0.02"
-                    />
-                  </div>
+                  <Input
+                    label="Max Tolerable"
+                    fullWidth
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.ammoniaMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="0.02"
+                  />
                 </div>
               </div>
 
@@ -1175,40 +1120,36 @@ export const SpeciesTab: React.FC = () => {
                   CO2 (mg/L)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.co2Min}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          co2Min: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.co2Max}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          co2Max: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="20"
-                    />
-                  </div>
+                  <Input
+                    label="Min"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={formData.co2Min}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        co2Min: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="0"
+                  />
+                  <Input
+                    label="Max"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={formData.co2Max}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        co2Max: e.target.value === '' ? '' : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="20"
+                  />
                 </div>
               </div>
 
@@ -1218,44 +1159,36 @@ export const SpeciesTab: React.FC = () => {
                   Light Regime (hours/day)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">
-                      Light Hours
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="24"
-                      value={formData.lightHours}
-                      onChange={(e) => {
-                        const light = e.target.value === '' ? '' : Number(e.target.value);
-                        const dark = light !== '' ? 24 - light : '';
-                        setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
-                      }}
-                      placeholder="14"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">
-                      Dark Hours
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="24"
-                      value={formData.darkHours}
-                      onChange={(e) => {
-                        const dark = e.target.value === '' ? '' : Number(e.target.value);
-                        const light = dark !== '' ? 24 - dark : '';
-                        setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
-                      }}
-                      placeholder="10"
-                    />
-                  </div>
+                  <Input
+                    label="Light Hours"
+                    fullWidth
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="24"
+                    value={formData.lightHours}
+                    onChange={(e) => {
+                      const light = e.target.value === '' ? '' : Number(e.target.value);
+                      const dark = light !== '' ? 24 - light : '';
+                      setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
+                    }}
+                    placeholder="14"
+                  />
+                  <Input
+                    label="Dark Hours"
+                    fullWidth
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="24"
+                    value={formData.darkHours}
+                    onChange={(e) => {
+                      const dark = e.target.value === '' ? '' : Number(e.target.value);
+                      const light = dark !== '' ? 24 - dark : '';
+                      setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
+                    }}
+                    placeholder="10"
+                  />
                 </div>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Light + Dark hours should equal 24
@@ -1329,18 +1262,15 @@ export const SpeciesTab: React.FC = () => {
                   }))}
                 />
               </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Notes
-                </label>
-                <Textarea
-                  fullWidth
-                  value={formData.notes}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  rows={3}
-                  placeholder="Additional notes about this species..."
-                />
-              </div>
+              <Textarea
+                label="Notes"
+                className="mt-4"
+                fullWidth
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Additional notes about this species..."
+              />
             </CollapsibleSection>
           </div>
 

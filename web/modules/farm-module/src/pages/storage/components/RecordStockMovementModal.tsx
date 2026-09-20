@@ -422,20 +422,16 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           />
 
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Quantity *
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
+          <Input
+            label="Quantity *"
+            fullWidth
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="0.00"
+          />
 
           {/* Location fields — shown/hidden based on movement type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -492,33 +488,25 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
           {isReasonRequired && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Reason *
-              </label>
-              <Textarea
-                fullWidth
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Document the reason for this movement (audit trail)"
-              />
-            </div>
+            <Textarea
+              label="Reason *"
+              fullWidth
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Document the reason for this movement (audit trail)"
+            />
           )}
 
           {/* Reference — optional link to external documents (delivery note, PO number) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Reference
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="PO number, delivery note, etc. (optional)"
-            />
-          </div>
+          <Input
+            label="Reference"
+            fullWidth
+            type="text"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="PO number, delivery note, etc. (optional)"
+          />
         </div>
 
         {/* Footer with cancel/submit actions */}

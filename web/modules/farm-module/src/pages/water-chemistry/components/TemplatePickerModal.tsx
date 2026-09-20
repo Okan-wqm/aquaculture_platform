@@ -6,7 +6,7 @@
  * Includes an overwrite checkbox to control whether existing params are replaced.
  */
 import React, { useState } from 'react';
-import { Button, Modal, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Modal, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { useParameterTemplates, ParameterTemplate } from '../../../hooks/useParameterConfigs';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
 
@@ -128,17 +128,11 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
 
       {/* Overwrite Checkbox */}
       <div className="mb-4">
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={overwrite}
-            onChange={(e) => setOverwrite(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          <span className="text-sm text-gray-700 dark:text-gray-300">
-            Replace existing parameters
-          </span>
-        </label>
+        <Checkbox
+          label="Replace existing parameters"
+          checked={overwrite}
+          onChange={(e) => setOverwrite(e.target.checked)}
+        />
       </div>
 
       {/* Footer */}

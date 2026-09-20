@@ -248,20 +248,16 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           />
 
           {/* Quantity — minimum 0.01 enforced client-side */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Quantity *
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
+          <Input
+            label="Quantity *"
+            fullWidth
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="0.00"
+          />
 
           {/* From Location — source of the stock being transferred */}
           <Select
@@ -290,32 +286,24 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           />
 
           {/* Lot Number — optional for transfers (traceability already established at receipt) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Lot Number
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={lotNumber}
-              onChange={(e) => setLotNumber(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
+          <Input
+            label="Lot Number"
+            fullWidth
+            type="text"
+            value={lotNumber}
+            onChange={(e) => setLotNumber(e.target.value)}
+            placeholder="Optional"
+          />
 
           {/* Reason — optional for transfers (e.g., "Moving to pond-side dispenser") */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Reason
-            </label>
-            <Textarea
-              fullWidth
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Optional — e.g., Moving feed closer to pond area"
-            />
-          </div>
+          <Textarea
+            label="Reason"
+            fullWidth
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Optional — e.g., Moving feed closer to pond area"
+          />
         </div>
 
         {/* Footer with cancel/submit actions */}

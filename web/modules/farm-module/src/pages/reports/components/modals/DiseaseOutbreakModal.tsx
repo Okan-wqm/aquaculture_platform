@@ -5,7 +5,7 @@
  * Contact: varsling.akva@mattilsynet.no
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Modal, Select, Spinner, Textarea } from '@aquaculture/shared-ui';
 import { DiseaseOutbreakReport, AffectedBatch } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../../utils/thresholds';
 import { useTanksList, Tank } from '../../../../hooks/useTanks';
@@ -709,19 +709,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               </p>
             )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Percentage (%)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              step="0.1"
-              value={formData.affectedPercentage}
-              onChange={(e) => handleChange('affectedPercentage', e.target.value)}
-              placeholder="e.g., 5"
-            />
-          </div>
+          <Input
+            label="Percentage (%)"
+            fullWidth
+            type="number"
+            step="0.1"
+            value={formData.affectedPercentage}
+            onChange={(e) => handleChange('affectedPercentage', e.target.value)}
+            placeholder="e.g., 5"
+          />
         </div>
 
         {/* Clinical Signs */}
@@ -951,84 +947,57 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label
-                        htmlFor={`disease-lab-sample-type-${idx}`}
-                        className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
-                      >
-                        Sample Type
-                      </label>
-                      <Select
-                        id={`disease-lab-sample-type-${idx}`}
-                        size="sm"
-                        value={lr.sampleType}
-                        onChange={(e) => updateLabResult(idx, 'sampleType', e.target.value)}
-                        options={['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => ({
-                          value: t,
-                          label: t,
-                        }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                        Sample Date
-                      </label>
-                      <Input
-                        fullWidth
-                        type="date"
-                        value={lr.sampleDate}
-                        onChange={(e) => updateLabResult(idx, 'sampleDate', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                        Lab Name
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={lr.labName}
-                        onChange={(e) => updateLabResult(idx, 'labName', e.target.value)}
-                        placeholder="e.g., PatoGen AS"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                        Test Type
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={lr.testType}
-                        onChange={(e) => updateLabResult(idx, 'testType', e.target.value)}
-                        placeholder="e.g., PCR, Histopathology"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      Result
-                    </label>
+                    <Select
+                      label="Sample Type"
+                      id={`disease-lab-sample-type-${idx}`}
+                      size="sm"
+                      value={lr.sampleType}
+                      onChange={(e) => updateLabResult(idx, 'sampleType', e.target.value)}
+                      options={['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => ({
+                        value: t,
+                        label: t,
+                      }))}
+                    />
                     <Input
+                      label="Sample Date"
+                      fullWidth
+                      type="date"
+                      value={lr.sampleDate}
+                      onChange={(e) => updateLabResult(idx, 'sampleDate', e.target.value)}
+                    />
+                    <Input
+                      label="Lab Name"
                       fullWidth
                       type="text"
-                      value={lr.result}
-                      onChange={(e) => updateLabResult(idx, 'result', e.target.value)}
-                      placeholder="e.g., Positive for ISA virus"
+                      value={lr.labName}
+                      onChange={(e) => updateLabResult(idx, 'labName', e.target.value)}
+                      placeholder="e.g., PatoGen AS"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      Conclusion
-                    </label>
-                    <Textarea
+                    <Input
+                      label="Test Type"
                       fullWidth
-                      value={lr.conclusion}
-                      onChange={(e) => updateLabResult(idx, 'conclusion', e.target.value)}
-                      rows={2}
-                      placeholder="Lab conclusion or interpretation..."
+                      type="text"
+                      value={lr.testType}
+                      onChange={(e) => updateLabResult(idx, 'testType', e.target.value)}
+                      placeholder="e.g., PCR, Histopathology"
                     />
                   </div>
+                  <Input
+                    label="Result"
+                    fullWidth
+                    type="text"
+                    value={lr.result}
+                    onChange={(e) => updateLabResult(idx, 'result', e.target.value)}
+                    placeholder="e.g., Positive for ISA virus"
+                  />
+                  <Textarea
+                    label="Conclusion"
+                    fullWidth
+                    value={lr.conclusion}
+                    onChange={(e) => updateLabResult(idx, 'conclusion', e.target.value)}
+                    rows={2}
+                    placeholder="Lab conclusion or interpretation..."
+                  />
                 </div>
               ))}
               <button
@@ -1045,17 +1014,11 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
         {/* Veterinarian */}
         <div className="space-y-3 p-4 bg-info-50 dark:bg-info-900/20 rounded-md border border-info-200 dark:border-info-800">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={formData.veterinarianNotified}
-              onChange={(e) => handleChange('veterinarianNotified', e.target.checked)}
-              className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
-            />
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Veterinarian Notified
-            </span>
-          </label>
+          <Checkbox
+            label="Veterinarian Notified"
+            checked={formData.veterinarianNotified}
+            onChange={(e) => handleChange('veterinarianNotified', e.target.checked)}
+          />
           {formData.veterinarianNotified && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -1079,18 +1042,14 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Contact
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.veterinarianContact}
-                  onChange={(e) => handleChange('veterinarianContact', e.target.value)}
-                  placeholder="+47 XXX XX XXX"
-                />
-              </div>
+              <Input
+                label="Contact"
+                fullWidth
+                type="text"
+                value={formData.veterinarianContact}
+                onChange={(e) => handleChange('veterinarianContact', e.target.value)}
+                placeholder="+47 XXX XX XXX"
+              />
             </div>
           )}
         </div>

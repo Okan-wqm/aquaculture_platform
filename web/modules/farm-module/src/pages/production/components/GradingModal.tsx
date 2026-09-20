@@ -323,23 +323,17 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
                   />
                 </div>
 
-                <div className="col-span-2">
-                  <label
-                    htmlFor={`grading-sizeclass-${index}`}
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    Size Class
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    id={`grading-sizeclass-${index}`}
-                    maxLength={64}
-                    value={row.sizeClass}
-                    onChange={(e) => updateRow(index, { sizeClass: e.target.value })}
-                    placeholder="e.g. Small / Medium / Large or >250g"
-                  />
-                </div>
+                <Input
+                  label="Size Class"
+                  className="col-span-2"
+                  fullWidth
+                  type="text"
+                  id={`grading-sizeclass-${index}`}
+                  maxLength={64}
+                  value={row.sizeClass}
+                  onChange={(e) => updateRow(index, { sizeClass: e.target.value })}
+                  placeholder="e.g. Small / Medium / Large or >250g"
+                />
               </div>
 
               {row.quantity > 0 && row.avgWeightG > 0 && (
@@ -353,39 +347,25 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
 
         {/* Date + Notes */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label
-              htmlFor="gradedAt"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Grading Date
-            </label>
-            <Input
-              fullWidth
-              type="date"
-              id="gradedAt"
-              value={gradedAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setGradedAt(e.target.value)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="gradingNotes"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Notes
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              id="gradingNotes"
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional operation notes"
-            />
-          </div>
+          <Input
+            label="Grading Date"
+            fullWidth
+            type="date"
+            id="gradedAt"
+            value={gradedAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setGradedAt(e.target.value)}
+          />
+          <Input
+            label="Notes"
+            fullWidth
+            type="text"
+            id="gradingNotes"
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional operation notes"
+          />
         </div>
 
         {/* Totals summary */}

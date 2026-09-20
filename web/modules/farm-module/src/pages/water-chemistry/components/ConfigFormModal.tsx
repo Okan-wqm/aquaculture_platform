@@ -6,7 +6,7 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal, colors, Button, ColorInput, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Checkbox, ColorInput, colors, Input, Modal, Select } from '@aquaculture/shared-ui';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -80,28 +80,24 @@ const RangeFieldset: React.FC<{
   <fieldset className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
     <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 px-1">{legend}</legend>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-        <Input
-          fullWidth
-          type="number"
-          name={minName}
-          value={minValue}
-          onChange={onChange}
-          step="any"
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-        <Input
-          fullWidth
-          type="number"
-          name={maxName}
-          value={maxValue}
-          onChange={onChange}
-          step="any"
-        />
-      </div>
+      <Input
+        label="Min"
+        fullWidth
+        type="number"
+        name={minName}
+        value={minValue}
+        onChange={onChange}
+        step="any"
+      />
+      <Input
+        label="Max"
+        fullWidth
+        type="number"
+        name={maxName}
+        value={maxValue}
+        onChange={onChange}
+        step="any"
+      />
     </div>
   </fieldset>
 );
@@ -149,51 +145,39 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Code */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Code *
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            name="code"
-            value={formData.code}
-            onChange={handleChange}
-            required
-            disabled={mode === 'edit'}
-            placeholder="e.g., dissolved_oxygen"
-          />
-        </div>
+        <Input
+          label="Code"
+          fullWidth
+          type="text"
+          name="code"
+          value={formData.code}
+          onChange={handleChange}
+          required
+          disabled={mode === 'edit'}
+          placeholder="e.g., dissolved_oxygen"
+        />
 
         {/* Name + Unit */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Name *
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Unit *
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              name="unit"
-              value={formData.unit}
-              onChange={handleChange}
-              required
-              placeholder="e.g., mg/L"
-            />
-          </div>
+          <Input
+            label="Name"
+            fullWidth
+            type="text"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            required
+          />
+          <Input
+            label="Unit"
+            fullWidth
+            type="text"
+            name="unit"
+            value={formData.unit}
+            onChange={handleChange}
+            required
+            placeholder="e.g., mg/L"
+          />
         </div>
 
         {/* Data Type + Group */}
@@ -219,19 +203,15 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         </div>
 
         {/* Precision */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Precision (0-6)
-          </label>
-          <Input
-            type="number"
-            name="precision"
-            value={formData.precision}
-            onChange={handleChange}
-            min={0}
-            max={6}
-          />
-        </div>
+        <Input
+          label="Precision (0-6)"
+          type="number"
+          name="precision"
+          value={formData.precision}
+          onChange={handleChange}
+          min={0}
+          max={6}
+        />
 
         {/* Range Fieldsets */}
         <RangeFieldset
@@ -317,26 +297,18 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Checkboxes */}
         <div className="flex items-center space-x-6">
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              name="isVisible"
-              checked={formData.isVisible}
-              onChange={handleChange}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            <span className="text-sm text-gray-700 dark:text-gray-300">Visible</span>
-          </label>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              name="isRequired"
-              checked={formData.isRequired}
-              onChange={handleChange}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            <span className="text-sm text-gray-700 dark:text-gray-300">Required</span>
-          </label>
+          <Checkbox
+            label="Visible"
+            name="isVisible"
+            checked={formData.isVisible}
+            onChange={handleChange}
+          />
+          <Checkbox
+            label="Required"
+            name="isRequired"
+            checked={formData.isRequired}
+            onChange={handleChange}
+          />
         </div>
 
         {/* Actions */}

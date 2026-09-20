@@ -598,32 +598,24 @@ export const HistoryTab: React.FC = () => {
           {/* Custom Date Inputs */}
           {customRange && (
             <div className="flex items-center space-x-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  From
-                </label>
-                <Input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => {
-                    setCustomFrom(e.target.value);
-                    setPage(1);
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  To
-                </label>
-                <Input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => {
-                    setCustomTo(e.target.value);
-                    setPage(1);
-                  }}
-                />
-              </div>
+              <Input
+                label="From"
+                type="date"
+                value={customFrom}
+                onChange={(e) => {
+                  setCustomFrom(e.target.value);
+                  setPage(1);
+                }}
+              />
+              <Input
+                label="To"
+                type="date"
+                value={customTo}
+                onChange={(e) => {
+                  setCustomTo(e.target.value);
+                  setPage(1);
+                }}
+              />
             </div>
           )}
 

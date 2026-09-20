@@ -392,42 +392,26 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     </p>
                   )}
                 </div>
-                <div>
-                  <label
-                    htmlFor="site-organisation-override"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Organisation Number Override
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-organisation-override"
-                    type="text"
-                    value={formData.organisationNumberOverride}
-                    onChange={(e) =>
-                      handleInputChange('organisationNumberOverride', e.target.value)
-                    }
-                    placeholder="9-digit Norwegian organisation number"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="site-description"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                >
-                  Description
-                </label>
-                <Textarea
+                <Input
+                  label="Organisation Number Override"
                   fullWidth
-                  id="site-description"
-                  value={formData.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
-                  rows={3}
-                  placeholder="Brief description of the site..."
+                  id="site-organisation-override"
+                  type="text"
+                  value={formData.organisationNumberOverride}
+                  onChange={(e) => handleInputChange('organisationNumberOverride', e.target.value)}
+                  placeholder="9-digit Norwegian organisation number"
                 />
               </div>
+
+              <Textarea
+                label="Description"
+                fullWidth
+                id="site-description"
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                rows={3}
+                placeholder="Brief description of the site..."
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select
@@ -453,27 +437,17 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="site-total-area"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Total Area (m²)
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-total-area"
-                    type="number"
-                    value={formData.totalArea}
-                    onChange={(e) =>
-                      handleInputChange(
-                        'totalArea',
-                        e.target.value ? parseFloat(e.target.value) : '',
-                      )
-                    }
-                    placeholder="e.g., 50000"
-                  />
-                </div>
+                <Input
+                  label="Total Area (m²)"
+                  fullWidth
+                  id="site-total-area"
+                  type="number"
+                  value={formData.totalArea}
+                  onChange={(e) =>
+                    handleInputChange('totalArea', e.target.value ? parseFloat(e.target.value) : '')
+                  }
+                  placeholder="e.g., 50000"
+                />
               </div>
 
               <Select
@@ -493,123 +467,81 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
           {activeTab === 'location' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="site-country"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Country
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-country"
-                    type="text"
-                    value={formData.country}
-                    onChange={(e) => handleInputChange('country', e.target.value)}
-                    placeholder="e.g., Norway"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="site-region"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Region
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-region"
-                    type="text"
-                    value={formData.region}
-                    onChange={(e) => handleInputChange('region', e.target.value)}
-                    placeholder="e.g., Hordaland"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="site-street"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                >
-                  Street Address
-                </label>
                 <Input
+                  label="Country"
                   fullWidth
-                  id="site-street"
+                  id="site-country"
                   type="text"
-                  value={formData.address.street}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      address: { ...prev.address, street: e.target.value },
-                    }))
-                  }
-                  placeholder="Street address..."
+                  value={formData.country}
+                  onChange={(e) => handleInputChange('country', e.target.value)}
+                  placeholder="e.g., Norway"
+                />
+                <Input
+                  label="Region"
+                  fullWidth
+                  id="site-region"
+                  type="text"
+                  value={formData.region}
+                  onChange={(e) => handleInputChange('region', e.target.value)}
+                  placeholder="e.g., Hordaland"
                 />
               </div>
 
+              <Input
+                label="Street Address"
+                fullWidth
+                id="site-street"
+                type="text"
+                value={formData.address.street}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    address: { ...prev.address, street: e.target.value },
+                  }))
+                }
+                placeholder="Street address..."
+              />
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <label
-                    htmlFor="site-city"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    City
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-city"
-                    type="text"
-                    value={formData.address.city}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        address: { ...prev.address, city: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="site-state"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    State
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-state"
-                    type="text"
-                    value={formData.address.state}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        address: { ...prev.address, state: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="site-postal-code"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Postal Code
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-postal-code"
-                    type="text"
-                    value={formData.address.postalCode}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        address: { ...prev.address, postalCode: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="City"
+                  fullWidth
+                  id="site-city"
+                  type="text"
+                  value={formData.address.city}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, city: e.target.value },
+                    }))
+                  }
+                />
+                <Input
+                  label="State"
+                  fullWidth
+                  id="site-state"
+                  type="text"
+                  value={formData.address.state}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, state: e.target.value },
+                    }))
+                  }
+                />
+                <Input
+                  label="Postal Code"
+                  fullWidth
+                  id="site-postal-code"
+                  type="text"
+                  value={formData.address.postalCode}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, postalCode: e.target.value },
+                    }))
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -775,22 +707,15 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
           {/* Contact Tab */}
           {activeTab === 'contact' && (
             <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="site-manager"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                >
-                  Site Manager
-                </label>
-                <Input
-                  fullWidth
-                  id="site-manager"
-                  type="text"
-                  value={formData.siteManager}
-                  onChange={(e) => handleInputChange('siteManager', e.target.value)}
-                  placeholder="Full name of site manager"
-                />
-              </div>
+              <Input
+                label="Site Manager"
+                fullWidth
+                id="site-manager"
+                type="text"
+                value={formData.siteManager}
+                onChange={(e) => handleInputChange('siteManager', e.target.value)}
+                placeholder="Full name of site manager"
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -816,22 +741,15 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     <p className="mt-1 text-sm text-error-500">{errors.contactEmail}</p>
                   )}
                 </div>
-                <div>
-                  <label
-                    htmlFor="site-contact-phone"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Contact Phone
-                  </label>
-                  <Input
-                    fullWidth
-                    id="site-contact-phone"
-                    type="tel"
-                    value={formData.contactPhone}
-                    onChange={(e) => handleInputChange('contactPhone', e.target.value)}
-                    placeholder="+47 XXX XX XXX"
-                  />
-                </div>
+                <Input
+                  label="Contact Phone"
+                  fullWidth
+                  id="site-contact-phone"
+                  type="tel"
+                  value={formData.contactPhone}
+                  onChange={(e) => handleInputChange('contactPhone', e.target.value)}
+                  placeholder="+47 XXX XX XXX"
+                />
               </div>
 
               {/*

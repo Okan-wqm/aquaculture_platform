@@ -409,18 +409,14 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Name (optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Batch Name
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
-                    placeholder="Optional display name"
-                  />
-                </div>
+                <Input
+                  label="Batch Name"
+                  fullWidth
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="Optional display name"
+                />
 
                 {/* Input Date */}
                 <div>
@@ -598,45 +594,33 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Strain */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Strain
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.strain}
-                    onChange={(e) => handleInputChange('strain', e.target.value)}
-                    placeholder="e.g., AquaGen"
-                  />
-                </div>
+                <Input
+                  label="Strain"
+                  fullWidth
+                  type="text"
+                  value={formData.strain}
+                  onChange={(e) => handleInputChange('strain', e.target.value)}
+                  placeholder="e.g., AquaGen"
+                />
 
                 {/* Supplier Batch Number */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Supplier Batch #
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.supplierBatchNumber}
-                    onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
-                    placeholder="e.g., HTC-2024-001"
-                  />
-                </div>
+                <Input
+                  label="Supplier Batch #"
+                  fullWidth
+                  type="text"
+                  value={formData.supplierBatchNumber}
+                  onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
+                  placeholder="e.g., HTC-2024-001"
+                />
 
                 {/* Expected Harvest Date */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Expected Harvest
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={formData.expectedHarvestDate}
-                    onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
-                  />
-                </div>
+                <Input
+                  label="Expected Harvest"
+                  fullWidth
+                  type="date"
+                  value={formData.expectedHarvestDate}
+                  onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -733,19 +717,15 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
           {/* Notes Tab */}
           {activeTab === 'notes' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Notes
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.notes}
-                onChange={(e) => handleInputChange('notes', e.target.value)}
-                rows={8}
-                maxLength={5000}
-                placeholder="Additional notes about this batch..."
-              />
-            </div>
+            <Textarea
+              label="Notes"
+              fullWidth
+              value={formData.notes}
+              onChange={(e) => handleInputChange('notes', e.target.value)}
+              rows={8}
+              maxLength={5000}
+              placeholder="Additional notes about this batch..."
+            />
           )}
         </div>
 

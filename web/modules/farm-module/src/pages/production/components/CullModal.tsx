@@ -253,22 +253,15 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
           />
 
           {/* Date */}
-          <div>
-            <label
-              htmlFor="culledAt"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Cull Date
-            </label>
-            <Input
-              fullWidth
-              type="date"
-              id="culledAt"
-              value={culledAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setCulledAt(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Cull Date"
+            fullWidth
+            type="date"
+            id="culledAt"
+            value={culledAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setCulledAt(e.target.value)}
+          />
 
           {/* Notes */}
           <div>

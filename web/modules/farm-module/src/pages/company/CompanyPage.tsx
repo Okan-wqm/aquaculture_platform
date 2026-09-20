@@ -183,30 +183,22 @@ export const CompanyPage: React.FC = () => {
               Company Details
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Company Name
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  placeholder="Your Company AS"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Organisation Number
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.organisationNumber}
-                  onChange={(e) => setFormData({ ...formData, organisationNumber: e.target.value })}
-                  placeholder="123456789"
-                />
-              </div>
+              <Input
+                label="Company Name"
+                fullWidth
+                type="text"
+                value={formData.companyName}
+                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                placeholder="Your Company AS"
+              />
+              <Input
+                label="Organisation Number"
+                fullWidth
+                type="text"
+                value={formData.organisationNumber}
+                onChange={(e) => setFormData({ ...formData, organisationNumber: e.target.value })}
+                placeholder="123456789"
+              />
             </div>
           </div>
 
@@ -216,54 +208,39 @@ export const CompanyPage: React.FC = () => {
               Company Address
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Street Address
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.street}
-                  onChange={(e) => setFormData({ ...formData, street: e.target.value })}
-                  placeholder="Storgata 1"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Postal Code
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.postalCode}
-                  onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
-                  placeholder="0123"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  City
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  placeholder="Oslo"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Country
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.country}
-                  onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  placeholder="Norway"
-                />
-              </div>
+              <Input
+                label="Street Address"
+                className="md:col-span-2"
+                fullWidth
+                type="text"
+                value={formData.street}
+                onChange={(e) => setFormData({ ...formData, street: e.target.value })}
+                placeholder="Storgata 1"
+              />
+              <Input
+                label="Postal Code"
+                fullWidth
+                type="text"
+                value={formData.postalCode}
+                onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                placeholder="0123"
+              />
+              <Input
+                label="City"
+                fullWidth
+                type="text"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                placeholder="Oslo"
+              />
+              <Input
+                label="Country"
+                fullWidth
+                type="text"
+                value={formData.country}
+                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                placeholder="Norway"
+              />
             </div>
           </div>
 

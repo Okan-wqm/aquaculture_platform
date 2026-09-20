@@ -23,6 +23,7 @@ import { useSensors } from '../../../hooks/useSensors';
 import {
   AffectedItemGroup,
   Button,
+  Checkbox,
   DeleteConfirmationDialog,
   DeletePreviewData,
   DynamicSpecificationForm,
@@ -817,15 +818,11 @@ export const EquipmentTab: React.FC = () => {
               ...grouped(TANK_STATUS_OPTIONS, 'Tank / Pond / Cage'),
             ]}
           />
-          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
-            <input
-              type="checkbox"
-              checked={showOrphanedOnly}
-              onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Orphaned only
-          </label>
+          <Checkbox
+            label="Orphaned only"
+            checked={showOrphanedOnly}
+            onChange={(e) => setShowOrphanedOnly(e.target.checked)}
+          />
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
@@ -1064,30 +1061,22 @@ export const EquipmentTab: React.FC = () => {
                   General Information
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Name *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Code *
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      required
-                      value={formData.code}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                    />
-                  </div>
+                  <Input
+                    label="Name"
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  />
+                  <Input
+                    label="Code"
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                  />
                 </div>
 
                 {/* Two-stage type selection */}
@@ -1316,71 +1305,51 @@ export const EquipmentTab: React.FC = () => {
                   Details
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Manufacturer
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.manufacturer}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Model
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.model}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Serial Number
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.serialNumber}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Manufacturer"
+                    fullWidth
+                    type="text"
+                    value={formData.manufacturer}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
+                    }
+                  />
+                  <Input
+                    label="Model"
+                    fullWidth
+                    type="text"
+                    value={formData.model}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
+                  />
+                  <Input
+                    label="Serial Number"
+                    fullWidth
+                    type="text"
+                    value={formData.serialNumber}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
+                    }
+                  />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Purchase Date
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      value={formData.purchaseDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Warranty Expiry
-                    </label>
-                    <Input
-                      fullWidth
-                      type="date"
-                      value={formData.warrantyEndDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Purchase Date"
+                    fullWidth
+                    type="date"
+                    value={formData.purchaseDate}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
+                    }
+                  />
+                  <Input
+                    label="Warranty Expiry"
+                    fullWidth
+                    type="date"
+                    value={formData.warrantyEndDate}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
 

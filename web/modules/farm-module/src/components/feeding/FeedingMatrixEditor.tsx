@@ -473,32 +473,24 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           Interpolation Calculator (Test your matrix)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
-              Temperature (°C)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              step="0.1"
-              value={testTemp}
-              onChange={(e) => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 13"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
-              Fish Weight (g)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              step="0.1"
-              value={testWeight}
-              onChange={(e) => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 7"
-            />
-          </div>
+          <Input
+            label="Temperature (°C)"
+            fullWidth
+            type="number"
+            step="0.1"
+            value={testTemp}
+            onChange={(e) => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
+            placeholder="e.g. 13"
+          />
+          <Input
+            label="Fish Weight (g)"
+            fullWidth
+            type="number"
+            step="0.1"
+            value={testWeight}
+            onChange={(e) => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
+            placeholder="e.g. 7"
+          />
           <div>
             <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
               Feeding Rate
@@ -546,18 +538,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       </div>
 
       {/* Notes */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Matrix Notes
-        </label>
-        <Textarea
-          fullWidth
-          rows={2}
-          placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
-          value={matrix.notes || ''}
-          onChange={(e) => onChange({ ...matrix, notes: e.target.value })}
-        />
-      </div>
+      <Textarea
+        label="Matrix Notes"
+        fullWidth
+        rows={2}
+        placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
+        value={matrix.notes || ''}
+        onChange={(e) => onChange({ ...matrix, notes: e.target.value })}
+      />
     </div>
   );
 };

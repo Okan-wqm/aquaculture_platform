@@ -450,20 +450,14 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Key ID (kid)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.maskinportenKeyId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenKeyId: e.target.value })
-                    }
-                    placeholder="optional-key-id"
-                  />
-                </div>
+                <Input
+                  label="Key ID (kid)"
+                  fullWidth
+                  type="text"
+                  value={formData.maskinportenKeyId}
+                  onChange={(e) => setFormData({ ...formData, maskinportenKeyId: e.target.value })}
+                  placeholder="optional-key-id"
+                />
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Private Key (PEM){' '}
@@ -480,23 +474,19 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Environment
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: 'TEST', label: 'Test (test.maskinporten.no)' },
-                      { value: 'PRODUCTION', label: 'Production (maskinporten.no)' },
-                      { value: 'VER2', label: 'Ver2 (ver2.maskinporten.no)' },
-                    ]}
-                    value={formData.maskinportenEnvironment}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenEnvironment: e.target.value })
-                    }
-                  />
-                </div>
+                <Select
+                  label="Environment"
+                  fullWidth
+                  options={[
+                    { value: 'TEST', label: 'Test (test.maskinporten.no)' },
+                    { value: 'PRODUCTION', label: 'Production (maskinporten.no)' },
+                    { value: 'VER2', label: 'Ver2 (ver2.maskinporten.no)' },
+                  ]}
+                  value={formData.maskinportenEnvironment}
+                  onChange={(e) =>
+                    setFormData({ ...formData, maskinportenEnvironment: e.target.value })
+                  }
+                />
                 <div className="flex items-end">
                   <button
                     type="button"
@@ -537,48 +527,34 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                 submitted to Mattilsynet.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Name
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.defaultContactName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactName: e.target.value })
-                    }
-                    placeholder="Ola Nordmann"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Email
-                  </label>
-                  <Input
-                    fullWidth
-                    type="email"
-                    value={formData.defaultContactEmail}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactEmail: e.target.value })
-                    }
-                    placeholder="ola@example.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Phone
-                  </label>
-                  <Input
-                    fullWidth
-                    type="tel"
-                    value={formData.defaultContactPhone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactPhone: e.target.value })
-                    }
-                    placeholder="+47 123 45 678"
-                  />
-                </div>
+                <Input
+                  label="Name"
+                  fullWidth
+                  type="text"
+                  value={formData.defaultContactName}
+                  onChange={(e) => setFormData({ ...formData, defaultContactName: e.target.value })}
+                  placeholder="Ola Nordmann"
+                />
+                <Input
+                  label="Email"
+                  fullWidth
+                  type="email"
+                  value={formData.defaultContactEmail}
+                  onChange={(e) =>
+                    setFormData({ ...formData, defaultContactEmail: e.target.value })
+                  }
+                  placeholder="ola@example.com"
+                />
+                <Input
+                  label="Phone"
+                  fullWidth
+                  type="tel"
+                  value={formData.defaultContactPhone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, defaultContactPhone: e.target.value })
+                  }
+                  placeholder="+47 123 45 678"
+                />
               </div>
             </div>
 

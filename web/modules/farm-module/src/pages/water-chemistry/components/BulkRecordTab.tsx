@@ -401,34 +401,26 @@ export const BulkRecordTab: React.FC = () => {
             ]}
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Ölçüm Tarihi/Saati
-          </label>
-          <Input
-            fullWidth
-            type="datetime-local"
-            value={measuredAtLocal}
-            onChange={(e) => setMeasuredAtLocal(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Kaynak
-          </label>
-          <Select
-            fullWidth
-            options={[
-              { value: 'MANUAL', label: 'Manuel' },
-              { value: 'LAB_ANALYSIS', label: 'Laboratuvar' },
-              { value: 'SENSOR_AUTOMATIC', label: 'Sensör (otomatik)' },
-              { value: 'SENSOR_TRIGGERED', label: 'Sensör (tetikli)' },
-              { value: 'CALIBRATION', label: 'Kalibrasyon' },
-            ]}
-            value={source}
-            onChange={(e) => setSource(e.target.value as MeasurementSource)}
-          />
-        </div>
+        <Input
+          label="Ölçüm Tarihi/Saati"
+          fullWidth
+          type="datetime-local"
+          value={measuredAtLocal}
+          onChange={(e) => setMeasuredAtLocal(e.target.value)}
+        />
+        <Select
+          label="Kaynak"
+          fullWidth
+          options={[
+            { value: 'MANUAL', label: 'Manuel' },
+            { value: 'LAB_ANALYSIS', label: 'Laboratuvar' },
+            { value: 'SENSOR_AUTOMATIC', label: 'Sensör (otomatik)' },
+            { value: 'SENSOR_TRIGGERED', label: 'Sensör (tetikli)' },
+            { value: 'CALIBRATION', label: 'Kalibrasyon' },
+          ]}
+          value={source}
+          onChange={(e) => setSource(e.target.value as MeasurementSource)}
+        />
       </section>
 
       {/* Equipment picker */}

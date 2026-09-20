@@ -283,45 +283,30 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Site
-        </label>
-        <Input fullWidth type="text" value={siteName} disabled />
-      </div>
+      <Input label="Site" fullWidth type="text" value={siteName} disabled />
 
       {/* Week / Year Selection */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Week Number
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            min={1}
-            max={52}
-            value={formData.weekNumber}
-            onChange={(e) =>
-              onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Year
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            min={2020}
-            max={2030}
-            value={formData.year}
-            onChange={(e) =>
-              onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
-            }
-          />
-        </div>
+        <Input
+          label="Week Number"
+          fullWidth
+          type="number"
+          min={1}
+          max={52}
+          value={formData.weekNumber}
+          onChange={(e) =>
+            onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
+          }
+        />
+        <Input
+          label="Year"
+          fullWidth
+          type="number"
+          min={2020}
+          max={2030}
+          value={formData.year}
+          onChange={(e) => onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })}
+        />
       </div>
       <div className="px-3 py-2 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-md">
         <span className="text-sm text-info-700 dark:text-info-300 font-medium">{weekLabel}</span>
@@ -447,71 +432,51 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
           These will be populated from Setup &gt; Regulatory Settings
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Organization Number (organisasjonsnummer)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.regulatory.organisasjonsnummer}
-              onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })}
-              placeholder="123456789"
-              maxLength={9}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Site Number (lokalitetsnummer)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              value={formData.regulatory.lokalitetsnummer}
-              onChange={(e) =>
-                updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
-              }
-              placeholder="31234"
-            />
-          </div>
+          <Input
+            label="Organization Number (organisasjonsnummer)"
+            fullWidth
+            type="text"
+            value={formData.regulatory.organisasjonsnummer}
+            onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })}
+            placeholder="123456789"
+            maxLength={9}
+          />
+          <Input
+            label="Site Number (lokalitetsnummer)"
+            fullWidth
+            type="number"
+            value={formData.regulatory.lokalitetsnummer}
+            onChange={(e) =>
+              updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
+            }
+            placeholder="31234"
+          />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Contact Person (navn)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.regulatory.kontaktperson.navn}
-              onChange={(e) => updateKontakt({ navn: e.target.value })}
-              placeholder="Erik Hansen"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Email (epost)
-            </label>
-            <Input
-              fullWidth
-              type="email"
-              value={formData.regulatory.kontaktperson.epost}
-              onChange={(e) => updateKontakt({ epost: e.target.value })}
-              placeholder="erik@example.no"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Phone (telefonnummer)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.regulatory.kontaktperson.telefonnummer}
-              onChange={(e) => updateKontakt({ telefonnummer: e.target.value })}
-              placeholder="+47 123 45 678"
-            />
-          </div>
+          <Input
+            label="Contact Person (navn)"
+            fullWidth
+            type="text"
+            value={formData.regulatory.kontaktperson.navn}
+            onChange={(e) => updateKontakt({ navn: e.target.value })}
+            placeholder="Erik Hansen"
+          />
+          <Input
+            label="Email (epost)"
+            fullWidth
+            type="email"
+            value={formData.regulatory.kontaktperson.epost}
+            onChange={(e) => updateKontakt({ epost: e.target.value })}
+            placeholder="erik@example.no"
+          />
+          <Input
+            label="Phone (telefonnummer)"
+            fullWidth
+            type="text"
+            value={formData.regulatory.kontaktperson.telefonnummer}
+            onChange={(e) => updateKontakt({ telefonnummer: e.target.value })}
+            placeholder="+47 123 45 678"
+          />
         </div>
       </div>
 
@@ -743,25 +708,19 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div className="md:col-span-2">
-                      <label
-                        htmlFor={`slaughter-planned-batch-${entry.originalIndex}`}
-                        className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                      >
-                        Batch
-                      </label>
-                      <Select
-                        id={`slaughter-planned-batch-${entry.originalIndex}`}
-                        size="sm"
-                        placeholder="Select batch..."
-                        value={entry.batchId}
-                        onChange={(e) => handleBatchSelect(entry.originalIndex, e.target.value)}
-                        options={batchOptions.map((b) => ({
-                          value: b.batchId,
-                          label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${b.tankName})`,
-                        }))}
-                      />
-                    </div>
+                    <Select
+                      label="Batch"
+                      className="md:col-span-2"
+                      id={`slaughter-planned-batch-${entry.originalIndex}`}
+                      size="sm"
+                      placeholder="Select batch..."
+                      value={entry.batchId}
+                      onChange={(e) => handleBatchSelect(entry.originalIndex, e.target.value)}
+                      options={batchOptions.map((b) => ({
+                        value: b.batchId,
+                        label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${b.tankName})`,
+                      }))}
+                    />
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Species (artskode: {entry.artskode || '-'})
@@ -776,40 +735,32 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                         placeholder="Auto from batch"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Quantity (antall)
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        min="0"
-                        value={entry.quantity || ''}
-                        onChange={(e) =>
-                          updateDayPlan(entry.originalIndex, {
-                            quantity: parseInt(e.target.value) || 0,
-                          })
-                        }
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Biomass kg (mengdeKg)
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        min="0"
-                        value={entry.biomassKg || ''}
-                        onChange={(e) =>
-                          updateDayPlan(entry.originalIndex, {
-                            biomassKg: parseFloat(e.target.value) || 0,
-                          })
-                        }
-                        placeholder="0"
-                      />
-                    </div>
+                    <Input
+                      label="Quantity (antall)"
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={entry.quantity || ''}
+                      onChange={(e) =>
+                        updateDayPlan(entry.originalIndex, {
+                          quantity: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="0"
+                    />
+                    <Input
+                      label="Biomass kg (mengdeKg)"
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={entry.biomassKg || ''}
+                      onChange={(e) =>
+                        updateDayPlan(entry.originalIndex, {
+                          biomassKg: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               ))}
@@ -973,98 +924,73 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Batch Selection Dropdown */}
-                <div className="md:col-span-2">
-                  <label
-                    htmlFor={`slaughter-completed-batch-${index}`}
-                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                  >
-                    Batch (select to auto-fill)
-                  </label>
-                  <Select
-                    id={`slaughter-completed-batch-${index}`}
-                    size="sm"
-                    placeholder="Select batch..."
-                    value={record.batchId}
-                    onChange={(e) => handleBatchSelectCompleted(index, e.target.value)}
-                    options={batchOptions.map((b) => ({
-                      value: b.batchId,
-                      label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${formatWeight(b.biomassKg)}, ${b.tankName})`,
-                    }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Species
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={record.speciesName || ''}
-                    onChange={(e) => updateCompleted(index, { speciesName: e.target.value })}
-                    placeholder="Auto from batch"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Harvest Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={record.harvestDate.toISOString().split('T')[0]}
-                    onChange={(e) =>
-                      updateCompleted(index, { harvestDate: new Date(e.target.value) })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Actual Quantity
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={record.actualQuantity || ''}
-                    onChange={(e) =>
-                      updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Actual Biomass (kg)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={record.actualBiomassKg || ''}
-                    onChange={(e) =>
-                      updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Avg Weight (kg)
-                  </label>
-                  <Input fullWidth type="text" value={record.avgWeightKg.toFixed(2)} disabled />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Lot Number
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={record.lotNumber || ''}
-                    onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })}
-                    placeholder="LOT-2026-001"
-                  />
-                </div>
+                <Select
+                  label="Batch (select to auto-fill)"
+                  className="md:col-span-2"
+                  id={`slaughter-completed-batch-${index}`}
+                  size="sm"
+                  placeholder="Select batch..."
+                  value={record.batchId}
+                  onChange={(e) => handleBatchSelectCompleted(index, e.target.value)}
+                  options={batchOptions.map((b) => ({
+                    value: b.batchId,
+                    label: `${b.batchNumber} - ${b.species} (${formatNumber(b.quantity)} pcs, ${formatWeight(b.biomassKg)}, ${b.tankName})`,
+                  }))}
+                />
+                <Input
+                  label="Species"
+                  fullWidth
+                  type="text"
+                  value={record.speciesName || ''}
+                  onChange={(e) => updateCompleted(index, { speciesName: e.target.value })}
+                  placeholder="Auto from batch"
+                />
+                <Input
+                  label="Harvest Date"
+                  fullWidth
+                  type="date"
+                  value={record.harvestDate.toISOString().split('T')[0]}
+                  onChange={(e) =>
+                    updateCompleted(index, { harvestDate: new Date(e.target.value) })
+                  }
+                />
+                <Input
+                  label="Actual Quantity"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={record.actualQuantity || ''}
+                  onChange={(e) =>
+                    updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
+                <Input
+                  label="Actual Biomass (kg)"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={record.actualBiomassKg || ''}
+                  onChange={(e) =>
+                    updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
+                <Input
+                  label="Avg Weight (kg)"
+                  fullWidth
+                  type="text"
+                  value={record.avgWeightKg.toFixed(2)}
+                  disabled
+                />
+                <Input
+                  label="Lot Number"
+                  fullWidth
+                  type="text"
+                  value={record.lotNumber || ''}
+                  onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })}
+                  placeholder="LOT-2026-001"
+                />
               </div>
             </div>
           ))}

@@ -29,16 +29,19 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
-import { Button, ColorInput, Slider, colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Default triangle path used when resetting to defaults */
 const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
@@ -76,16 +79,12 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
       {/* Closed path toggle */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={closed}
-            onChange={(e) => onChange({ closed: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            aria-label="Close path"
-          />
-          Closed path (connects last point to first)
-        </label>
+        <Checkbox
+          label="Closed path (connects last point to first)"
+          checked={closed}
+          onChange={(e) => onChange({ closed: e.target.checked })}
+          aria-label="Close path"
+        />
       </div>
 
       {/* Point count (read-only) */}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import {
+  Checkbox,
   ColorInput,
   colors as themeColors,
   Input,
@@ -118,17 +119,13 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Background Color */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
-          <input
-            type="checkbox"
-            checked={hasBg}
-            onChange={(e) =>
-              onChange({ backgroundColor: e.target.checked ? themeColors.white : 'transparent' })
-            }
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Background
-        </label>
+        <Checkbox
+          label="Background"
+          checked={hasBg}
+          onChange={(e) =>
+            onChange({ backgroundColor: e.target.checked ? themeColors.white : 'transparent' })
+          }
+        />
         {hasBg && (
           <ColorInput
             aria-label={t('scada.color.background')}

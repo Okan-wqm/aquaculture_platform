@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Button, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import {
@@ -338,17 +338,13 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Alarm Seviyeleri
                 </h4>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={config.alarmsEnabled ?? true}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, alarmsEnabled: e.target.checked }))
-                    }
-                    className="w-4 h-4 text-success-600 border-gray-300 dark:border-gray-600 rounded focus:ring-success-500"
-                  />
-                  <span className="text-gray-600 dark:text-gray-400">Etkin</span>
-                </label>
+                <Checkbox
+                  label="Etkin"
+                  checked={config.alarmsEnabled ?? true}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, alarmsEnabled: e.target.checked }))
+                  }
+                />
               </div>
 
               {config.alarmsEnabled && (

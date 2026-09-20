@@ -6,7 +6,14 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Button, colors as themeColors, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  colors as themeColors,
+  Input,
+  Modal,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -603,15 +610,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     Y-Axis Configuration
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={yAxisEnabled}
-                      onChange={(e) => setYAxisEnabled(e.target.checked)}
-                      className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-                    />
-                    <span className="text-gray-600 dark:text-gray-400">Custom Range</span>
-                  </label>
+                  <Checkbox
+                    label="Custom Range"
+                    checked={yAxisEnabled}
+                    onChange={(e) => setYAxisEnabled(e.target.checked)}
+                  />
                 </div>
 
                 {yAxisEnabled && (

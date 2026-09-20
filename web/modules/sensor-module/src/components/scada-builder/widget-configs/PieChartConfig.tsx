@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { Button, ColorInput, Input, colors, useI18n } from '@aquaculture/shared-ui';
+import { Button, Checkbox, ColorInput, colors, Input, useI18n } from '@aquaculture/shared-ui';
 
 interface PieSource {
   tagName: string;
@@ -94,42 +94,26 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
 
       {/* Display toggles */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showLabels as boolean) ?? true}
-            onChange={(e) => onChange({ showLabels: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Percentage Labels
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showLegend as boolean) ?? true}
-            onChange={(e) => onChange({ showLegend: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Legend
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showValues as boolean) ?? false}
-            onChange={(e) => onChange({ showValues: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Values
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.animate as boolean) ?? true}
-            onChange={(e) => onChange({ animate: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Animate
-        </label>
+        <Checkbox
+          label="Show Percentage Labels"
+          checked={(config.showLabels as boolean) ?? true}
+          onChange={(e) => onChange({ showLabels: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Legend"
+          checked={(config.showLegend as boolean) ?? true}
+          onChange={(e) => onChange({ showLegend: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Values"
+          checked={(config.showValues as boolean) ?? false}
+          onChange={(e) => onChange({ showValues: e.target.checked })}
+        />
+        <Checkbox
+          label="Animate"
+          checked={(config.animate as boolean) ?? true}
+          onChange={(e) => onChange({ animate: e.target.checked })}
+        />
       </div>
 
       {/* Data sources */}

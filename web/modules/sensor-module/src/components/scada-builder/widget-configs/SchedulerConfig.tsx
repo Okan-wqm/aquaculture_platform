@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Button, ColorInput, Input, colors as themeColors } from '@aquaculture/shared-ui';
+import { Button, Checkbox, ColorInput, colors as themeColors, Input } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -90,15 +90,11 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
       />
 
       {/* Show Hour Labels */}
-      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={showHourLabels}
-          onChange={(e) => onChange({ showHourLabels: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show hour labels
-      </label>
+      <Checkbox
+        label="Show hour labels"
+        checked={showHourLabels}
+        onChange={(e) => onChange({ showHourLabels: e.target.checked })}
+      />
 
       {/* Entries */}
       <div>

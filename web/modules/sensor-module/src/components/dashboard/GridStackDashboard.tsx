@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   Button,
+  Checkbox,
   Input,
   Modal,
   Slider,
@@ -195,15 +196,11 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
           rows={2}
         />
 
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={setAsDefault}
-            onChange={(e) => setSetAsDefault(e.target.checked)}
-            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-          />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Set as default</span>
-        </label>
+        <Checkbox
+          label="Set as default"
+          checked={setAsDefault}
+          onChange={(e) => setSetAsDefault(e.target.checked)}
+        />
       </div>
     </Modal>
   );

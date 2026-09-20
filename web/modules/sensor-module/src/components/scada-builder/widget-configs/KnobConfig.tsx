@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { ColorInput, Input, colors } from '@aquaculture/shared-ui';
+import { Checkbox, ColorInput, colors, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -100,24 +100,16 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
 
       {/* Display toggles */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showValue as boolean) ?? true}
-            onChange={(e) => onChange({ showValue: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Value
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showTicks as boolean) ?? true}
-            onChange={(e) => onChange({ showTicks: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Ticks
-        </label>
+        <Checkbox
+          label="Show Value"
+          checked={(config.showValue as boolean) ?? true}
+          onChange={(e) => onChange({ showValue: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Ticks"
+          checked={(config.showTicks as boolean) ?? true}
+          onChange={(e) => onChange({ showTicks: e.target.checked })}
+        />
       </div>
 
       {/* Colors */}

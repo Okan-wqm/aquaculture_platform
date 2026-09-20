@@ -37,6 +37,7 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import {
+  Checkbox,
   ColorInput,
   colors as themeColors,
   Input,
@@ -50,9 +51,6 @@ interface WidgetConfigProps {
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Helper to extract transform from config with defaults */
 function getTransform(config: Record<string, unknown>): SvgTransform {
@@ -335,15 +333,11 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       />
     </div>
     <div>
-      <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-        <input
-          type="checkbox"
-          checked={(config.showValue as boolean) ?? false}
-          onChange={(e) => onChange({ showValue: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show live tag value
-      </label>
+      <Checkbox
+        label="Show live tag value"
+        checked={(config.showValue as boolean) ?? false}
+        onChange={(e) => onChange({ showValue: e.target.checked })}
+      />
     </div>
 
     {/* Stroke -- optional for text outlines */}
@@ -384,15 +378,11 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         aria-label="Number of sides"
       />
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-5">
-          <input
-            type="checkbox"
-            checked={(config.starMode as boolean) ?? false}
-            onChange={(e) => onChange({ starMode: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Star Mode
-        </label>
+        <Checkbox
+          label="Star Mode"
+          checked={(config.starMode as boolean) ?? false}
+          onChange={(e) => onChange({ starMode: e.target.checked })}
+        />
       </div>
     </div>
     {(config.starMode as boolean) && (

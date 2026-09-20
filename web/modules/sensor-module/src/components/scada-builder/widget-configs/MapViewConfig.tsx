@@ -12,6 +12,7 @@ import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import {
   Button,
+  Checkbox,
   ColorInput,
   colors as themeColors,
   Input,
@@ -132,15 +133,11 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
       </div>
 
       {/* Show Grid */}
-      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={showGrid}
-          onChange={(e) => onChange({ showGrid: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show grid lines
-      </label>
+      <Checkbox
+        label="Show grid lines"
+        checked={showGrid}
+        onChange={(e) => onChange({ showGrid: e.target.checked })}
+      />
 
       {/* Markers */}
       <div>

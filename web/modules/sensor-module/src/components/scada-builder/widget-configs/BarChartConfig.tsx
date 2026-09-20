@@ -6,7 +6,15 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { Button, ColorInput, Input, Select, colors, useI18n } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors,
+  Input,
+  Select,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface BarSource {
   tagName: string;
@@ -84,15 +92,11 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
 
       {/* Y Axis range */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
-          <input
-            type="checkbox"
-            checked={(config.autoScale as boolean) ?? true}
-            onChange={(e) => onChange({ autoScale: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Auto-scale Y Axis
-        </label>
+        <Checkbox
+          label="Auto-scale Y Axis"
+          checked={(config.autoScale as boolean) ?? true}
+          onChange={(e) => onChange({ autoScale: e.target.checked })}
+        />
       </div>
 
       {!config.autoScale && (
@@ -116,42 +120,26 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
 
       {/* Display toggles */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showGrid as boolean) ?? true}
-            onChange={(e) => onChange({ showGrid: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Grid
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showLabels as boolean) ?? true}
-            onChange={(e) => onChange({ showLabels: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Labels
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showValues as boolean) ?? true}
-            onChange={(e) => onChange({ showValues: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Values
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.animate as boolean) ?? true}
-            onChange={(e) => onChange({ animate: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Animate
-        </label>
+        <Checkbox
+          label="Show Grid"
+          checked={(config.showGrid as boolean) ?? true}
+          onChange={(e) => onChange({ showGrid: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Labels"
+          checked={(config.showLabels as boolean) ?? true}
+          onChange={(e) => onChange({ showLabels: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Values"
+          checked={(config.showValues as boolean) ?? true}
+          onChange={(e) => onChange({ showValues: e.target.checked })}
+        />
+        <Checkbox
+          label="Animate"
+          checked={(config.animate as boolean) ?? true}
+          onChange={(e) => onChange({ animate: e.target.checked })}
+        />
       </div>
 
       {/* Bar spacing */}

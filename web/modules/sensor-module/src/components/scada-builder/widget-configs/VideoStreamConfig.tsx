@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Checkbox, Input } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -75,15 +75,11 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Show Controls (HLS mode only) */}
       {streamMode === 'hls' && (
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showControls}
-            onChange={(e) => onChange({ showControls: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show video controls
-        </label>
+        <Checkbox
+          label="Show video controls"
+          checked={showControls}
+          onChange={(e) => onChange({ showControls: e.target.checked })}
+        />
       )}
 
       {/* HLS info note */}

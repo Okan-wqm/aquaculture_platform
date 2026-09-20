@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, colors, Button, Input, Select, type SelectOption } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  colors,
+  Input,
+  Modal,
+  Select,
+  type SelectOption,
+} from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
@@ -37,24 +45,6 @@ const SENSOR_TYPE_OPTIONS: { value: SensorType; label: string }[] = [
   { value: SensorType.CO2, label: 'CO2' },
   { value: SensorType.CHLORINE, label: 'Chlorine' },
   { value: SensorType.MULTI_PARAMETER, label: 'Other / Multi-parameter' },
-];
-
-const WIDGET_TYPES = [
-  { value: 'gauge', label: 'Gauge' },
-  { value: 'sparkline', label: 'Sparkline' },
-  { value: 'number', label: 'Number' },
-  { value: 'status', label: 'Status' },
-];
-
-const COLORS = [
-  { value: colors.info[500], label: 'Blue' },
-  { value: colors.success[500], label: 'Green' },
-  { value: colors.warning[500], label: 'Orange' },
-  { value: colors.error[500], label: 'Red' },
-  { value: colors.primary[700], label: 'Purple' },
-  { value: colors.accent[500], label: 'Pink' },
-  { value: colors.primary[400], label: 'Cyan' },
-  { value: colors.gray[400], label: 'Gray' },
 ];
 
 export function ChildSensorFormModal({
@@ -326,17 +316,11 @@ export function ChildSensorFormModal({
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Calibration</h3>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.calibrationEnabled}
-                  onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
-                  Enable calibration
-                </span>
-              </label>
+              <Checkbox
+                label="Enable calibration"
+                checked={formData.calibrationEnabled}
+                onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
+              />
             </div>
 
             {formData.calibrationEnabled && (

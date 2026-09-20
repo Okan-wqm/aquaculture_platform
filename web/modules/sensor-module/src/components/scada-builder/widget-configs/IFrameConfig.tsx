@@ -13,7 +13,7 @@
 
 import React, { useMemo } from 'react';
 import { validateIFrameUrl } from '../widget-renderers/IFrameRenderer';
-import { Input, NumberInput } from '@aquaculture/shared-ui';
+import { Checkbox, Input, NumberInput } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -74,33 +74,21 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           The iframe is sandboxed by default. Enable permissions only when needed.
         </p>
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowScripts}
-              onChange={(e) => onChange({ allowScripts: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Scripts
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowForms}
-              onChange={(e) => onChange({ allowForms: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Forms
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowPopups}
-              onChange={(e) => onChange({ allowPopups: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Popups
-          </label>
+          <Checkbox
+            label="Allow Scripts"
+            checked={allowScripts}
+            onChange={(e) => onChange({ allowScripts: e.target.checked })}
+          />
+          <Checkbox
+            label="Allow Forms"
+            checked={allowForms}
+            onChange={(e) => onChange({ allowForms: e.target.checked })}
+          />
+          <Checkbox
+            label="Allow Popups"
+            checked={allowPopups}
+            onChange={(e) => onChange({ allowPopups: e.target.checked })}
+          />
           <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
@@ -131,15 +119,11 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           />
         </div>
         <div className="mt-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showBorder}
-              onChange={(e) => onChange({ showBorder: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Border
-          </label>
+          <Checkbox
+            label="Show Border"
+            checked={showBorder}
+            onChange={(e) => onChange({ showBorder: e.target.checked })}
+          />
         </div>
       </div>
     </div>

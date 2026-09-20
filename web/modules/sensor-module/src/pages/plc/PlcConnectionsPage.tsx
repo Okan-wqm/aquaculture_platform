@@ -11,17 +11,18 @@
 
 import React, { useState, useCallback, useRef } from 'react';
 import {
-  ConfirmModal,
-  Modal,
-  useClickOutside,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
   Button,
+  Checkbox,
+  ConfirmModal,
+  DataTable,
   Input,
+  Modal,
+  PageHeader,
   Select,
+  Spinner,
   Textarea,
+  useClickOutside,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -609,17 +610,11 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
                   Yeniden Bağlantı
                 </h4>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.autoReconnect}
-                      onChange={(e) => updateField('autoReconnect', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Otomatik Yeniden Baglan
-                    </span>
-                  </label>
+                  <Checkbox
+                    label="Otomatik Yeniden Baglan"
+                    checked={form.autoReconnect}
+                    onChange={(e) => updateField('autoReconnect', e.target.checked)}
+                  />
                   {form.autoReconnect && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <Input

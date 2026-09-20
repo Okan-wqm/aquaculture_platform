@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { Button, ColorInput, Input, colors } from '@aquaculture/shared-ui';
+import { Button, Checkbox, ColorInput, colors, Input } from '@aquaculture/shared-ui';
 
 interface DropdownOption {
   label: string;
@@ -84,15 +84,11 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({
 
       {/* Show label toggle */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={(config.showLabel as boolean) ?? true}
-            onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600"
-          />
-          Show Label
-        </label>
+        <Checkbox
+          label="Show Label"
+          checked={(config.showLabel as boolean) ?? true}
+          onChange={(e) => onChange({ showLabel: e.target.checked })}
+        />
       </div>
 
       {/* Font size */}

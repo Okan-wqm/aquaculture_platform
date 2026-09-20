@@ -16,6 +16,7 @@ import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
 import {
   Button,
+  Checkbox,
   ColorInput,
   colors as themeColors,
   Input,
@@ -156,24 +157,16 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       <div className="space-y-2">
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showLabel}
-            onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show Label
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showPercentage}
-            onChange={(e) => onChange({ showPercentage: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show Percentage
-        </label>
+        <Checkbox
+          label="Show Label"
+          checked={showLabel}
+          onChange={(e) => onChange({ showLabel: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Percentage"
+          checked={showPercentage}
+          onChange={(e) => onChange({ showPercentage: e.target.checked })}
+        />
       </div>
 
       {/* Colors */}

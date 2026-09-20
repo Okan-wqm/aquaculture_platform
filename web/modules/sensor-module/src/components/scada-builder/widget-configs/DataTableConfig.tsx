@@ -9,7 +9,15 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { Button, ColorInput, colors, Input, NumberInput, useI18n } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors,
+  Input,
+  NumberInput,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -182,15 +190,11 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
                 {/* Sortable */}
                 <div className="flex items-end pb-1">
-                  <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={col.sortable}
-                      onChange={(e) => updateColumn(i, 'sortable', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                    />
-                    Sort
-                  </label>
+                  <Checkbox
+                    label="Sort"
+                    checked={col.sortable}
+                    onChange={(e) => updateColumn(i, 'sortable', e.target.checked)}
+                  />
                 </div>
               </div>
             </div>
@@ -225,24 +229,16 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
         </div>
 
         <div className="mt-2 space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPagination}
-              onChange={(e) => onChange({ showPagination: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Pagination
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showHeader}
-              onChange={(e) => onChange({ showHeader: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Header
-          </label>
+          <Checkbox
+            label="Show Pagination"
+            checked={showPagination}
+            onChange={(e) => onChange({ showPagination: e.target.checked })}
+          />
+          <Checkbox
+            label="Show Header"
+            checked={showHeader}
+            onChange={(e) => onChange({ showHeader: e.target.checked })}
+          />
         </div>
       </div>
 

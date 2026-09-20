@@ -10,7 +10,7 @@
 
 import React, { useCallback } from 'react';
 import type { ScreenWidget } from '../../../types/scada-package.types';
-import { Input, NumberInput } from '@aquaculture/shared-ui';
+import { Checkbox, Input, NumberInput } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -179,26 +179,18 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
 
       {/* Locked + Visible toggles in a single row */}
       <div className="flex items-center gap-4">
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={locked}
-            onChange={handleLockedChange}
-            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
-            data-testid="widget-locked-checkbox"
-          />
-          <span className="text-xs text-gray-600 dark:text-gray-400">Locked</span>
-        </label>
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={visible}
-            onChange={handleVisibleChange}
-            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
-            data-testid="widget-visible-checkbox"
-          />
-          <span className="text-xs text-gray-600 dark:text-gray-400">Visible</span>
-        </label>
+        <Checkbox
+          label="Locked"
+          checked={locked}
+          onChange={handleLockedChange}
+          data-testid="widget-locked-checkbox"
+        />
+        <Checkbox
+          label="Visible"
+          checked={visible}
+          onChange={handleVisibleChange}
+          data-testid="widget-visible-checkbox"
+        />
       </div>
     </div>
   );

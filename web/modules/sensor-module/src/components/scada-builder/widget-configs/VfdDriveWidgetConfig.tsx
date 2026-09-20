@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Input, NumberInput, Select } from '@aquaculture/shared-ui';
+import { Checkbox, Input, NumberInput, Select } from '@aquaculture/shared-ui';
 import { VfdBrand, VFD_BRAND_NAMES } from '../../../types/vfd.types';
 
 /* ------------------------------------------------------------------ */
@@ -61,8 +61,6 @@ const DEMO_STATES: Array<{ value: string; label: string }> = [
 /*  Shared input class                                                 */
 /* ------------------------------------------------------------------ */
 
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 const SECTION_CLS = 'pt-2 border-t border-gray-100 dark:border-gray-700';
 
 /* ------------------------------------------------------------------ */
@@ -189,15 +187,11 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
 
       {/* Quick Actions Toggle */}
       <div className={SECTION_CLS}>
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.showQuickActions !== false}
-            onChange={handleCheckbox('showQuickActions')}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-500 focus:ring-info-500"
-          />
-          Show Quick Actions (Start/Stop/Program)
-        </label>
+        <Checkbox
+          label="Show Quick Actions (Start/Stop/Program)"
+          checked={config.showQuickActions !== false}
+          onChange={handleCheckbox('showQuickActions')}
+        />
       </div>
 
       {/* Demo State (for builder preview) */}

@@ -60648,6 +60648,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useScadaConnectionState.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts",
       "prettier_managed": true
     },
@@ -61177,6 +61183,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.heartbeat.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.shared-ownership.test.ts",
       "prettier_managed": true
     },
     {

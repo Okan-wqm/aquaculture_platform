@@ -652,5 +652,6 @@ export const tr: Record<MessageKey, string> = {
   'scada.color.series': 'Seri rengi',
   'scada.color.rangeFill': 'Aralık dolgu rengi',
   'scada.color.background': 'Arka plan rengi',
+  'scada.comms.lost': 'Bağlantı yok — alarm durumu bilinmiyor',
   'channel.color.custom': 'Özel renk',
 };

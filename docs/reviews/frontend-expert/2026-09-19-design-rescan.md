@@ -399,6 +399,33 @@ None share tokens; these are the surfaces a customer sees first and signs.
 unsaved flag; nothing reaches the scheduling API. Product-truth defect, outside
 the design lane.
 
+### SENSOR-HIGH-128 — a SCADA data feed dies silently
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+Two defects that compound into the worst shape a process display can take. `HybridDataProvider` and
+`LiveDeviceDataProvider` each call `connect()` on the `getScadaSocketService()` singleton and never
+disconnect; `OperatorBootstrap`'s effect cleanup called `disconnect()` unconditionally. Unmounting
+the bootstrap therefore tore the socket out from under whichever provider was still reading. And the
+disconnect was unobservable: `_connectionState` was private with a getter and no subscription, so
+both providers read it during render — a value that changes outside React's knowledge — and
+`GlobalAlarmBanner` contained no reference to the connection at all.
+
+An operator saw readings frozen at their last value with nothing saying the link was down. On a
+process display "no alarms" and "no link" look identical, and only one of them is safe to imply.
+
+Fixed by refcounting ownership and adding a subscription surface. The operator route's own banner is
+**SENSOR-MEDIUM-129**, separately, because `OperatorShell` is the alarm panel and early-returns when
+closed — a banner there would vanish at exactly the moment it is needed.
+
+### SENSOR-MEDIUM-129 — the operator route still shows nothing when its link drops
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+`useScadaConnectionState` makes the transition observable and the builder route reports it, but the
+operator station — where a frozen reading matters most — has no banner. Blocked on where in the
+operator chrome it belongs, which is a product call rather than a code one.
+
 ### FE-MEDIUM-162 — the select conversion rendered option labels by a rule the compiler does not use
 
 **Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30

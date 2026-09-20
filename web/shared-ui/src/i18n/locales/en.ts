@@ -653,6 +653,7 @@ export const en = {
   'scada.color.series': 'Series colour',
   'scada.color.rangeFill': 'Range fill colour',
   'scada.color.background': 'Background colour',
+  'scada.comms.lost': 'Link down — alarm state unknown',
   'channel.color.custom': 'Custom colour',
 } as const;
 

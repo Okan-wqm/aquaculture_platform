@@ -15,14 +15,7 @@
  *  - Full cleanup on unmount (listeners, timers, subscriptions).
  */
 
-import React, {
-  useMemo,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import React, { useMemo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import { ScadaSocketService } from '../services/ScadaSocketService';
 import {
@@ -91,10 +84,9 @@ export function LiveDeviceDataProviderInner({
 
   // ── Connection state ──────────────────────────────────────────────────────
 
-  const [connectionState, setConnectionState] =
-    useState<DataProviderConnectionState>(
-      () => socketRef.current.connectionState,
-    );
+  const [connectionState, setConnectionState] = useState<DataProviderConnectionState>(
+    () => socketRef.current.connectionState,
+  );
 
   // ── Pending DAQ queries ───────────────────────────────────────────────────
 
@@ -117,6 +109,12 @@ export function LiveDeviceDataProviderInner({
 
     // Ensure the socket is connected.
     socket.connect();
+
+    // Claim shared ownership of the singleton connection. The operator
+    // bootstrap owns it too; whichever unmounts first must not tear the socket
+    // down under the other, so release() disconnects only when the LAST owner
+    // lets go.
+    socket.acquire();
 
     // --- TAG_VALUES handler ---
     const handleTagValues: ScadaEventPayloadMap[ScadaSocketEvent.TAG_VALUES] extends infer P
@@ -197,7 +195,7 @@ export function LiveDeviceDataProviderInner({
     // expose a generic state-change callback, so we hook the same socket
     // events that the service itself uses internally, mapping them to our
     // local state setter.
-    const rawSocket = (socket as unknown as { socket: { on: (event: string, cb: () => void) => void; off: (event: string, cb: () => void) => void } }).socket;
+    const rawSocket = socket.rawSocket;
     if (rawSocket) {
       rawSocket.on('connect', handleConnect);
       rawSocket.on('disconnect', handleDisconnect);
@@ -211,6 +209,10 @@ export function LiveDeviceDataProviderInner({
 
     // ── Cleanup ─────────────────────────────────────────────────────────────
     return () => {
+      // Drop shared ownership. The socket stays up while another owner still
+      // holds it, and disconnects when this was the last one.
+      socket.release();
+
       socket.off(ScadaSocketEvent.TAG_VALUES, handleTagValues);
       socket.off(ScadaSocketEvent.TAG_WRITE_ACK, handleWriteAck);
       socket.off(ScadaSocketEvent.DAQ_RESULT, handleDaqResult);
@@ -244,7 +246,6 @@ export function LiveDeviceDataProviderInner({
       // Clear tag cache.
       tagCacheRef.current.clear();
     };
-   
   }, []); // Run once on mount; refs are stable.
 
   // ── Effect: tenant-isolation cache purge ──────────────────────────────────
@@ -281,36 +282,33 @@ export function LiveDeviceDataProviderInner({
     subManagerRef.current!.unsubscribe(componentId);
   }, []);
 
-  const writeTagValue = useCallback(
-    (tagId: string, value: unknown): Promise<void> => {
-      return new Promise<void>((resolve, reject) => {
-        const socket = socketRef.current;
+  const writeTagValue = useCallback((tagId: string, value: unknown): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+      const socket = socketRef.current;
 
-        if (!socket.isConnected) {
-          reject(new Error(`Cannot write ${tagId}: socket not connected`));
-          return;
-        }
+      if (!socket.isConnected) {
+        reject(new Error(`Cannot write ${tagId}: socket not connected`));
+        return;
+      }
 
-        // Replace any in-flight write for the same tag.
-        const existing = pendingWritesRef.current.get(tagId);
-        if (existing) {
-          clearTimeout(existing.handle);
-          existing.reject(new Error(`Write to ${tagId} superseded`));
-        }
+      // Replace any in-flight write for the same tag.
+      const existing = pendingWritesRef.current.get(tagId);
+      if (existing) {
+        clearTimeout(existing.handle);
+        existing.reject(new Error(`Write to ${tagId} superseded`));
+      }
 
-        const handle = setTimeout(() => {
-          pendingWritesRef.current.delete(tagId);
-          reject(new Error(`Write to ${tagId} timed out`));
-        }, WRITE_ACK_TIMEOUT_MS);
+      const handle = setTimeout(() => {
+        pendingWritesRef.current.delete(tagId);
+        reject(new Error(`Write to ${tagId} timed out`));
+      }, WRITE_ACK_TIMEOUT_MS);
 
-        pendingWritesRef.current.set(tagId, { resolve, reject, handle });
+      pendingWritesRef.current.set(tagId, { resolve, reject, handle });
 
-        const payload: TagWritePayload = { tagId, value, function: 'set' };
-        socket.emit(ScadaSocketEvent.TAG_WRITE, payload);
-      });
-    },
-    [],
-  );
+      const payload: TagWritePayload = { tagId, value, function: 'set' };
+      socket.emit(ScadaSocketEvent.TAG_WRITE, payload);
+    });
+  }, []);
 
   const getTagValue = useCallback((tagId: string): TagValueChange | null => {
     return tagCacheRef.current.get(tagId) ?? null;
@@ -390,11 +388,7 @@ export function LiveDeviceDataProviderInner({
     ],
   );
 
-  return (
-    <DataProviderContext.Provider value={provider}>
-      {children}
-    </DataProviderContext.Provider>
-  );
+  return <DataProviderContext.Provider value={provider}>{children}</DataProviderContext.Provider>;
 }
 
 export default LiveDeviceDataProviderInner;

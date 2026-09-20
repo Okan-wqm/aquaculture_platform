@@ -30,20 +30,22 @@
  *
  * Phase 6.2.3 of the "Farm modülü kalan kör noktalar" plan.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { Logger } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
 import { Chemical, ChemicalDocument } from '../../chemical/entities/chemical.entity';
 import { FileReferenceProvider } from './file-reference-provider';
 
-@Injectable()
+// Built by hand in file-cleanup.module.ts (a useFactory passes the repository
+// and the bucket name): the bucket is a plain string Nest has no token for, so
+// this is not a Nest-instantiable class and carries no @Injectable() —
+// tests/invariants/nest-injected-type-only-import.spec.ts bans the decorator
+// on that shape.
 export class ChemicalDocumentPathProvider implements FileReferenceProvider {
   private readonly logger = new Logger(ChemicalDocumentPathProvider.name);
   readonly name = 'Chemical.documents[].url';
 
   constructor(
-    @InjectRepository(Chemical)
     private readonly repo: Repository<Chemical>,
     /**
      * Bucket name injected by the caller (farm-service passes the

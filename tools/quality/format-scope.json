@@ -1124,6 +1124,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/security/sliding-window.spec.ts",
       "prettier_managed": true
     },
@@ -3304,6 +3310,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/__tests__/outbox-entity-registration.architecture.spec.ts",
       "prettier_managed": true
     },
@@ -4821,6 +4833,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/__tests__/support/alert-rule-query-builder.mock.ts",
       "prettier_managed": true
     },
@@ -5424,6 +5442,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -7048,6 +7072,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -8066,6 +8096,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -8670,6 +8706,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/event-store-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/event-store-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -9052,6 +9094,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -13257,6 +13305,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/entities/tenant-localization.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/feeding-protocol-core.module.ts",
       "prettier_managed": true
     },
     {
@@ -19574,6 +19628,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/__tests__/e2e/supergraph-composition.spec.ts",
       "prettier_managed": true
     },
@@ -19778,6 +19838,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/guards/tenant-isolation.guard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/guards/token-blacklist.module.ts",
       "prettier_managed": true
     },
     {
@@ -20252,6 +20318,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23324,6 +23396,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hydroponics-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hydroponics-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -23486,6 +23564,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25142,6 +25226,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -25518,6 +25608,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/observability-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/observability-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -25874,6 +25970,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45083,6 +45185,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/nest/preview-graph.ts",
       "prettier_managed": true
     },
     {

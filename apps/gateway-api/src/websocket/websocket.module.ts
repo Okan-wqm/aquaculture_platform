@@ -16,11 +16,15 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
 import { AiChatGateway } from './ai-chat.gateway';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
+import { TokenBlacklistModule } from '../guards/token-blacklist.module';
 
 @Module({
   imports: [
     ConfigModule,
     JwtModule,
+    // WsTokenRevalidator re-checks live sockets against the gateway's ONE
+    // revocation store; the module that owns it is imported, not re-provided.
+    TokenBlacklistModule,
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
@@ -34,9 +38,14 @@ import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-toke
     DeviceOwnershipService,
     // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18): shared socket guards —
     // per-tenant connection ceiling + periodic jti/user-epoch revalidation.
+    // Built by hand: the limiter's constructor takes a plain options object
+    // (an interface, erased at compile time), so `useClass` left Nest with no
+    // token for it and gateway-api could not boot ("Nest can't resolve
+    // dependencies of the TenantConnectionLimiter (?)", 2026-09-20 outage).
+    // The default ceiling (50 sockets per tenant) is the SCADA runtime ceiling.
     {
       provide: TenantConnectionLimiter,
-      useClass: TenantConnectionLimiter,
+      useFactory: (): TenantConnectionLimiter => new TenantConnectionLimiter(),
     },
     {
       provide: WsTokenRevalidator,

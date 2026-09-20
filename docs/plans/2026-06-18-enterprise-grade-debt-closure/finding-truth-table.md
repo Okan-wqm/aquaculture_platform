@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `e076997d3ced982c263f17eb275c25ae6ff12ab27d6a67221774e83456fe646d`
+Registry tip: `7ae5bcfe39b46f55af72ddfb51144148721566224a357d3ce89c5a67b444a9fb`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -248,6 +248,8 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-810`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `SENSOR-CRITICAL-127`  | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 | `BILLING-CRITICAL-019` | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
+| `FARM-CRITICAL-331`    | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
+| `SEC-CRITICAL-169`     | OPEN           | 2026-09-20   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -382,11 +384,14 @@ Allowed truth buckets:
   work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
 
-- `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019` (2026-09-20, the boot-path outage): a re-provided
-  sensor MQTT auth service and a type-only import of an injected billing service each kept a service
-  from booting; both are fixed in the cycle that registered them, with two Nest DI invariants and the
-  boot-path ACL smoke as gates. The rows stay OPEN until the post-merge close ceremony records the
-  main-reachable closing commit (`docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md`).
+- `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
+  the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected
+  billing service, farm-service's re-provided day-plan recalculation plus a `Pick<>`-typed handler
+  dependency, and gateway-api's `useClass` limiter plus a root-scoped revocation store each kept a
+  service from booting; all four are fixed in the cycle that registered them, with a per-service
+  DI-graph spec, two Nest DI invariants and the boot-path ACL smoke as gates. The rows stay OPEN
+  until the post-merge close ceremony records the main-reachable closing commit
+  (`docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md`).
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

@@ -17,9 +17,16 @@
  * registers — and had it resolved, the erasure hook would have invalidated
  * the cache of an instance no request ever read.
  *
- * RULE: import the module that exports the class. A pre-existing duplicate is
- * carried in KNOWN_DUPLICATES with its tracked finding until it is removed;
- * the list only shrinks (a stale entry fails the spec too).
+ * The twelve duplicates the first scan found (ProtocolRateService ×5,
+ * DayPlanRecalcService ×4, BiomassGrowthApplierService, BatchDomainService
+ * in farm-service; AuthTenantProvisioningClientService in admin-api-service)
+ * were not benign either: FeedingModule's copy of DayPlanRecalcService could
+ * not resolve ProtocolResolutionService and farm-service did not boot. They
+ * are gone (FeedingProtocolCoreModule is the leaf every consumer imports;
+ * SystemModulesModule imports TenantManagementModule), so this rule carries
+ * no baseline.
+ *
+ * RULE: import the module that exports the class.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -44,26 +51,6 @@ interface Duplicate {
   readonly exportedBy: readonly string[];
   readonly file: string;
 }
-
-/**
- * Duplicates that predate this gate. Each is a second instance of a class its
- * exporting module already serves; ORPHAN-MEDIUM-833 owns their removal.
- * Key: `<app>:<module>:<provider>`.
- */
-const KNOWN_DUPLICATES: ReadonlySet<string> = new Set([
-  'admin-api-service:SystemModulesModule:AuthTenantProvisioningClientService',
-  'farm-service:BatchModule:ProtocolRateService',
-  'farm-service:BatchModule:DayPlanRecalcService',
-  'farm-service:FeedingProtocolModule:BatchDomainService',
-  'farm-service:FeedingModule:ProtocolRateService',
-  'farm-service:FeedingModule:DayPlanRecalcService',
-  'farm-service:FeedingModule:BiomassGrowthApplierService',
-  'farm-service:GrowthModule:ProtocolRateService',
-  'farm-service:HarvestModule:ProtocolRateService',
-  'farm-service:HarvestModule:DayPlanRecalcService',
-  'farm-service:WaterQualityModule:ProtocolRateService',
-  'farm-service:WaterQualityModule:DayPlanRecalcService',
-]);
 
 function listModuleFiles(): readonly string[] {
   const output = execFileSync('git', ['ls-files', '-z', '--', 'apps/*/src/**/*.module.ts'], {
@@ -178,24 +165,16 @@ describe('Nest modules import an exported provider instead of re-providing it', 
     expect(findDuplicates([...a, ...b])).toEqual([]);
   });
 
-  it('holds across apps/*/src, and the known-duplicate list only shrinks', () => {
+  it('holds across apps/*/src', () => {
     const modules = listModuleFiles().flatMap((file) =>
       parseModules(file, readFileSync(resolve(REPO_ROOT, file), 'utf-8')),
     );
-    const duplicates = findDuplicates(modules);
-    const found = new Set(duplicates.map(keyOf));
-
-    const fresh = duplicates
-      .filter((duplicate) => !KNOWN_DUPLICATES.has(keyOf(duplicate)))
-      .map(
-        (duplicate) =>
-          `${duplicate.file}: ${duplicate.module} re-provides ${duplicate.provider}, which ` +
-          `${duplicate.exportedBy.join(', ')} already provides and exports — import that module instead; ` +
-          'a second instance resolves its dependencies where the copy lives and splits its state.',
-      );
-    expect(fresh).toEqual([]);
-
-    const stale = [...KNOWN_DUPLICATES].filter((key) => !found.has(key));
-    expect(stale).toEqual([]);
+    const report = findDuplicates(modules).map(
+      (duplicate) =>
+        `${duplicate.file}: ${duplicate.module} re-provides ${duplicate.provider}, which ` +
+        `${duplicate.exportedBy.join(', ')} already provides and exports — import that module instead; ` +
+        'a second instance resolves its dependencies where the copy lives and splits its state.',
+    );
+    expect(report).toEqual([]);
   });
 });

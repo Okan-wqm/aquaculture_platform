@@ -10,11 +10,12 @@ and the gateway `Created`; `https://app.suderra.com` answered 502 and nobody cou
 deploy of `750db0409` at 06:49Z failed at `service_recreate` for the same reasons and rolled back to
 images that could not boot under `main`'s compose either.
 
-**Findings:** SENSOR-CRITICAL-127 and BILLING-CRITICAL-019 (fixed here); ORPHAN-MEDIUM-833
-(baselined by the new invariant); ORPHAN-HIGH-834 (the class-level gate, tracked with owner and
-deadline). The two NATS defects are INFRA-HIGH-180 and INFRA-HIGH-181, registered and fixed by PR
-#1637 (012bc5f3a) while this cycle was diagnosing the same outage; this document keeps their live
-evidence and adds the gate that proves them.
+**Findings:** SENSOR-CRITICAL-127, BILLING-CRITICAL-019, FARM-CRITICAL-331 and SEC-CRITICAL-169
+(fixed here); ORPHAN-MEDIUM-833 (the twelve re-provided farm/admin services, removed here);
+ORPHAN-HIGH-834 (no gate compiled any service's dependency graph — the per-service DI-graph spec
+lands here). The two NATS defects are INFRA-HIGH-180 and INFRA-HIGH-181, registered and fixed by
+pull request 1637 (012bc5f3a) while this cycle was diagnosing the same outage; this document keeps
+their live evidence and adds the gate that proves them.
 
 ## What the live system said
 
@@ -26,7 +27,9 @@ Bootstrap failed: Permissions Violation for Subscription to
 ```
 
 and `aqua-nats` logged, per identity, a `Subscription Violation` for `_INBOX<CN>..<nuid>.*` followed
-by a `Publish Violation` for `$JS.API.INFO`. Two services failed before reaching NATS:
+by a `Publish Violation` for `$JS.API.INFO`. Four services failed before reaching NATS — two in the
+first crash loop, two more (farm-service, gateway-api) once they were started by hand, since their
+`depends_on` had kept them `Created` behind the unhealthy auth-service:
 
 ```text
 sensor-service:  Nest can't resolve dependencies of the MqttAuthService
@@ -35,20 +38,25 @@ sensor-service:  Nest can't resolve dependencies of the MqttAuthService
 billing-service: Nest can't resolve dependencies of the ModulePricingService
                  (ModulePriceRepository, DataSource, ?).
                  … argument Function at index [2] … in the BillingModule
+farm-service:    Nest can't resolve dependencies of the DayPlanRecalcService
+                 (OutboxPublisher, ?). … ProtocolResolutionService at index [1]
+                 … in the FeedingModule
+gateway-api:     Nest can't resolve dependencies of the TenantConnectionLimiter (?).
+                 … argument at index [0] … appears to be undefined at runtime
 ```
 
 auth-service additionally refused its environment (`FRONTEND_URL must use https in production`; the
 droplet's `.env` carried `http://89.38.97.90`). That is an operator setting, not a repository
 defect; the operator set it to `https://app.suderra.com` during this cycle.
 
-None of the four defects is new. The inbox prefix dates from 0afecd4f3 (2026-08-27), the JetStream
-probe from the SSoT ACL's enumeration of JetStream rights, the sensor module from 65753cb90
-(2026-08-26), the billing import from 3352ceda6 (2026-09-07). Production ran older images on a
-hand-edited `nats.conf` until the 2026-09-19 deploys re-materialised the repository's configuration;
-the first containers built from `main` were the first thing to resolve these modules and to open a
-connection under the generated ACL.
+None of the defects is new. The inbox prefix dates from 0afecd4f3 (2026-08-27), the JetStream probe
+from the SSoT ACL's enumeration of JetStream rights, the sensor module from 65753cb90 (2026-08-26),
+the billing import from 3352ceda6 (2026-09-07), the gateway guards from a77b0f74f (2026-08-27).
+Production ran older images on a hand-edited `nats.conf` until the 2026-09-19 deploys
+re-materialised the repository's configuration; the first containers built from `main` were the
+first thing to resolve these modules and to open a connection under the generated ACL.
 
-## INFRA-HIGH-180 — the scoped inbox prefix ends in a dot (fixed by #1637)
+## INFRA-HIGH-180 — the scoped inbox prefix ends in a dot (fixed by pull request 1637)
 
 **Defect.** `scopedInboxPrefix` returned `_INBOX<CN>.`; `@nats-io/nats-core`'s `createInbox` returns
 `${prefix}.${nuid}`, so the request/reply mux subscription was `_INBOX<CN>..<nuid>.*`. A subject
@@ -61,10 +69,10 @@ past the subscription; with the trailing dot it reproduces the live error verbat
 now derives the inbox through `createInbox` and checks every token against the grant; with the dot
 restored, four of its five cases fail.
 
-**Fix (#1637).** No trailing dot — the same convention the two fixed prefixes in
+**Fix (pull request 1637).** No trailing dot — the same convention the two fixed prefixes in
 `@platform/event-contracts` (`_INBOXBILLINGCFG`, `_INBOXFARMMARINECFG`) already follow.
 
-## INFRA-HIGH-181 — the JetStream manager probes `$JS.API.INFO` (fixed by #1637)
+## INFRA-HIGH-181 — the JetStream manager probes `$JS.API.INFO` (fixed by pull request 1637)
 
 **Defect.** With the inbox fixed, the same probe failed on the next step:
 `Permissions Violation for Publish to "$JS.API.INFO"`. `jetstreamManager(connection)` checks
@@ -73,11 +81,11 @@ service's JetStream rights as `$JS.API.STREAM.{INFO,CREATE,UPDATE}.>` and `$JS.A
 (SENSOR-HIGH-092), and no identity is granted `$JS.API.INFO`. The invariant that bans bare
 `$JS.API.>` grants is right; the client had to fit inside the enumeration and did not.
 
-**Fix (#1637).** `$JS.API.INFO` is granted to every JetStream identity in `services.yaml` and the
-broker configuration is regenerated; a `nats-invariants` case pins the grant. The alternative —
-`jetstreamManager(connection, { checkAPI: false })`, since `setupStream`'s `STREAM.INFO` fails just
-as loudly when JetStream is off — was not taken, so the boot-path smoke below runs the manager with
-its default probe, exactly as the bus does.
+**Fix (pull request 1637).** `$JS.API.INFO` is granted to every JetStream identity in
+`services.yaml` and the broker configuration is regenerated; a `nats-invariants` case pins the
+grant. The alternative — `jetstreamManager(connection, { checkAPI: false })`, since `setupStream`'s
+`STREAM.INFO` fails just as loudly when JetStream is off — was not taken, so the boot-path smoke
+below runs the manager with its default probe, exactly as the bus does.
 
 ## SENSOR-CRITICAL-127 — SensorErasureModule re-provides MqttAuthService
 
@@ -102,14 +110,45 @@ boot notices.
 in backend-common, a hand-built class (its second parameter is a plain options object) wearing a
 decorative `@Injectable()`; the decorator is removed rather than the import changed.
 
+## FARM-CRITICAL-331 — a re-provided recalculation service and a `Pick<>`-typed dependency
+
+**Defect.** FeedingModule, BatchModule, GrowthModule, HarvestModule and WaterQualityModule each
+listed ProtocolRateService / DayPlanRecalcService / BiomassGrowthApplierService under their own
+`providers` because FeedingProtocolModule imports FeedingModule and GrowthModule, so none of them
+could import it back without a cycle. Each copy resolves its dependencies where it lives; when
+DayPlanRecalcService gained a ProtocolResolutionService dependency, FeedingModule's copy had nowhere
+to find it. Behind that, TenantOnboardingEventHandler typed its readiness checker as
+`Pick<FeedingReadinessCheckerService, 'check'>` — for test convenience — which leaves `Object` in
+the metadata.
+
+**Fix.** `FeedingProtocolCoreModule`, a leaf module providing and exporting the four shared protocol
+services (they depend only on each other and on `@Global` providers); every consumer imports it and
+FeedingProtocolModule re-exports it. FeedingProtocolModule likewise imports BatchModule for
+BatchDomainService instead of re-providing it, and admin-api's SystemModulesModule imports
+TenantManagementModule for AuthTenantProvisioningClientService. The handler's parameter is the
+class; its spec passes a typed collaborator double. That removes all twelve duplicates the
+duplication invariant first baselined (ORPHAN-MEDIUM-833), so it now carries no baseline.
+
+## SEC-CRITICAL-169 — a `useClass` limiter and a root-scoped revocation store
+
+**Defect.** WebSocketModule registered TenantConnectionLimiter with `useClass`, but the class takes
+a plain options object (an interface) — the same erasure as BILLING-CRITICAL-019. Behind it, the
+WsTokenRevalidator factory injects `TOKEN_BLACKLIST_STORE`, which AppModule declared among its own
+providers; a child module cannot see the root's providers, so the token was unresolvable in
+WebSocketModule.
+
+**Fix.** The limiter is built by a `useFactory` (both socket guards lose their decorative
+`@Injectable()`), and `TokenBlacklistModule` owns and exports the revocation store, imported by
+AppModule (for the global AuthGuard and JwtMiddleware) and by WebSocketModule.
+
 ## Why the gates were green
 
 - `nats-invariants.spec.ts` validates `services.yaml` and the generated `nats.conf` as files; the
   factory and the bus are unit-tested against mocks; CI's broker runs without the generated
   configuration. Nothing ever put a real certificate identity through the real boot path under the
   real ACL.
-- No job compiles a service's NestJS dependency graph. Two services sat unbootable on `main` behind
-  green CI for 13 and 25 days.
+- No job compiled a service's NestJS dependency graph. Four services sat unbootable on `main` behind
+  green CI, two of them for 13 and 25 days.
 
 ## Gates added
 
@@ -120,26 +159,25 @@ decorative `@Injectable()`; the decorator is removed rather than the import chan
   create-or-update of the three streams). Wired into `nats-invariants.yml`; the workflow now also
   triggers on `libs/backend-common/src/nats/**`. With the trailing dot restored in the factory, or
   the `$JS.API.INFO` grant removed from `services.yaml`, all fifteen identities fail.
+- `apps/<service>/src/__tests__/di-graph.spec.ts` in all fifteen NestJS applications, through
+  `assertNestGraphResolves` in `@platform/testing`: Nest's own container is built from AppModule in
+  preview mode — every module, provider, controller and resolver resolved, nothing instantiated, no
+  database, broker or cache. It reproduces each of the four DI errors above verbatim in under a
+  second and runs with the application's unit suite on every affected change. This closes
+  ORPHAN-HIGH-834. (GraphQLModule is on Nest's preview allowlist and its factory injects
+  ConfigService, so the helper allowlists the config modules too; nothing else is instantiated.)
 - `tests/invariants/nest-injected-type-only-import.spec.ts`: in every `@Injectable`/`@Controller`/
-  `@Resolver` class, a constructor parameter without an explicit `@Inject*` token whose type is a
-  type-only import is a violation.
+  `@Resolver` class, a constructor parameter without an explicit `@Inject*` token (and not
+  `@Optional()`) must be a plain reference to a value-level class — not a type-only import, a
+  same-file interface or type alias, a utility type such as `Pick<>`, a union, a literal or a
+  primitive. The repository-wide sweep found nine hand-built classes wearing a decorative
+  `@Injectable()`; the decorators are removed, the classes unchanged.
 - `tests/invariants/nest-module-provider-duplication.spec.ts`: a module that lists a class another
-  module of the same application provides and exports is a violation. Twelve pre-existing duplicates
-  in farm-service and admin-api-service are baselined under ORPHAN-MEDIUM-833; the list only
-  shrinks.
-
-## ORPHAN-HIGH-834 — the class-level gap
-
-The two invariants above catch the two shapes seen. An unresolvable token of any other origin — a
-missing module import, a provider in the wrong scope, a circular `forwardRef` — still reaches
-production first. The fix is a per-service dependency-graph check that builds the container from
-`AppModule` metadata without instantiating providers and verifies every constructor token against
-the module's providers, its imports' exports and the global modules; it needs no database or broker
-and belongs in `ci-affected` for each affected application. Owner: claude. Deadline: 2026-10-04.
+  module of the same application provides and exports is a violation. No baseline.
 
 ## Not done in this cycle
 
 - The droplet's `FRONTEND_URL` (now `https://app.suderra.com`, set by the operator) lives outside
   the repository; nothing here verifies the deploy environment.
-- ORPHAN-MEDIUM-833 (the twelve baselined duplicates) and ORPHAN-HIGH-834 (the dependency-graph
-  gate) are tracked with owner and deadline above.
+- The DI-graph spec proves the container resolves; it does not run module hooks, so a failure inside
+  `onModuleInit` (a connection, a migration check) is still first seen at boot.

@@ -20,6 +20,7 @@ services:
   - events.platform.schema-migration.>
   - events.security.events.>
   - request.farm.validateSiteAssignment
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -135,6 +136,7 @@ services:
   - events.platform.schema-migration.>
   - events.security.events.>
   - request.farm.validateSiteAssignment
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -228,6 +230,7 @@ services:
   - st.language.>
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -253,6 +256,7 @@ services:
   - events.*.SensorReading
   - telemetry.*.SensorReading
   - sensor.lookup.by-topic
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -358,6 +362,7 @@ services:
   - policy.ingest_backend.changed
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -390,6 +395,7 @@ services:
   - request.ai.chat
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -417,6 +423,7 @@ services:
   - events.*.NotificationServiceTenantErasureBlocked
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -448,6 +455,7 @@ services:
   - request.farm.getWaterQualityOverview
   - request.farm.getHarvestOverview
   - request.farm.getFeedingOverview
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -534,6 +542,7 @@ services:
   - events.security.events.>
   - config.runtime.get
   - config.runtime.get_secret
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -564,6 +573,7 @@ services:
   - events.*.AlertEngineTenantErasureBlocked
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -610,6 +620,7 @@ services:
   - commands.notification.sendEmail
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -669,6 +680,7 @@ services:
   - request.farm.getTankRegistry
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -710,6 +722,7 @@ services:
   - events.*.HydroponicsServiceTenantErasureBlocked
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -730,6 +743,7 @@ services:
   publish:
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -758,6 +772,7 @@ services:
   - _INBOXFARMMARINECFG.>
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -785,6 +800,7 @@ services:
   - events.*.EventStoreServiceTenantErasureBlocked
   - events.platform.schema-migration.>
   - events.security.events.>
+  - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -804,6 +820,7 @@ services:
   description: Operator replay tool — republishes dead-lettered TELEMETRY envelopes under their original identity (domain-root replays are refused; a separate admin flow owns those)
   publish:
   - telemetry.>
+  - $JS.API.INFO
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - $JS.ACK.>

@@ -12,6 +12,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createInbox } from '@nats-io/nats-core';
+
 import {
   buildNatsConnectionOptions,
   certificateCommonName,
@@ -73,8 +75,8 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
 
   it('reads the identity out of the client certificate CN', () => {
     expect(certificateCommonName(FIXTURE_CERT_PEM, '<inline>')).toBe('sensor_service');
-    expect(scopedInboxPrefix('sensor_service')).toBe('_INBOXSENSOR_SERVICE.');
-    expect(scopedInboxPrefix('auth-service')).toBe('_INBOXAUTH_SERVICE.');
+    expect(scopedInboxPrefix('sensor_service')).toBe('_INBOXSENSOR_SERVICE');
+    expect(scopedInboxPrefix('auth-service')).toBe('_INBOXAUTH_SERVICE');
   });
 
   it('under mTLS the inbox prefix follows the certificate CN, not the caller label', () => {
@@ -91,7 +93,7 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
 
     expect(options.authMode).toBe('mtls-cert');
     expect(options.name).toBe('aquaculture-sensor-service');
-    expect(options.inboxPrefix).toBe('_INBOXSENSOR_SERVICE.');
+    expect(options.inboxPrefix).toBe('_INBOXSENSOR_SERVICE');
   });
 
   it('without a client certificate the caller name still scopes the inbox (dev / CI)', () => {
@@ -104,7 +106,15 @@ describe('buildNatsConnectionOptions — scoped reply inbox', () => {
     process.env['NATS_AUTH_USER'] = 'dev';
     process.env['NATS_AUTH_PASS'] = 'dev';
 
-    expect(buildNatsConnectionOptions('sensor-service').inboxPrefix).toBe('_INBOXSENSOR_SERVICE.');
+    expect(buildNatsConnectionOptions('sensor-service').inboxPrefix).toBe('_INBOXSENSOR_SERVICE');
+  });
+
+  it('the reply subject nats-core derives from the prefix sits under the SSoT grant', () => {
+    // createInbox(prefix) => `${prefix}.${nuid}`; the grant is `_INBOX<ID>.>`,
+    // which never matches an empty token, so the prefix must carry no dot.
+    const inbox = createInbox(scopedInboxPrefix('config_service'));
+    expect(inbox).toMatch(/^_INBOXCONFIG_SERVICE\.[A-Za-z0-9]+$/);
+    expect(inbox).not.toContain('..');
   });
 
   it('refuses a client certificate without a CN', () => {

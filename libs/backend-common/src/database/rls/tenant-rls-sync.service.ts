@@ -1,11 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
-import {
-  applyTenantRlsToSchema,
-  ApplyTenantRlsOptions,
-} from './apply-tenant-rls.helper';
+
+import { applyTenantRlsToSchema, ApplyTenantRlsOptions } from './apply-tenant-rls.helper';
 
 /**
  * TenantRlsSyncService
@@ -110,7 +108,10 @@ import {
  *   Don't register this service for those.
  */
 
-@Injectable()
+// Built by hand (`new TenantRlsSyncService(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class TenantRlsSyncService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TenantRlsSyncService.name);
 

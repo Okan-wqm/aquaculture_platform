@@ -172,6 +172,7 @@
     "smoke:nats-messaging-acl:static": "node scripts/nats/messaging-acl-smoke.mjs --mode static",
     "smoke:nats-messaging-acl:external": "node scripts/nats/messaging-acl-smoke.mjs --mode live",
     "smoke:nats-messaging-acl": "bash scripts/nats/messaging-acl-smoke-harness.sh",
+    "smoke:nats-boot-path-acl": "bash scripts/nats/boot-path-acl-smoke-harness.sh",
     "gates:all": "npm run toolchain:check && npm run service-catalog:check && npm run gates:tools-typecheck && npm run gates:csp-render && npm run gates:geospatial-browser-bundle && npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec && npm run gates:schema-drift-registration && npm run gates:signals-manifest && npm run gates:criticality-manifest && npm run gates:required-status-checks && npm run gates:root-ssot-stabilization",
     "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts",
     "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools cycle run --workspace-root .. --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",

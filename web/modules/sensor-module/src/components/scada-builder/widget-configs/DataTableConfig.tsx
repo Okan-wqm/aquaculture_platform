@@ -9,7 +9,16 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors,
+  Input,
+  NumberInput,
+  Select,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -44,12 +53,8 @@ const FORMAT_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
-const SMALL_INPUT_CLS =
-  'w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded';
-
 export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+  const { t } = useI18n();
   const columns = (config.columns ?? []) as ColumnDef[];
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
@@ -144,62 +149,38 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               </div>
 
               {/* Label */}
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-                <input
-                  type="text"
-                  value={col.label}
-                  onChange={(e) => updateColumn(i, 'label', e.target.value)}
-                  placeholder="Column header..."
-                  className={SMALL_INPUT_CLS}
-                />
-              </div>
+              <Input
+                label="Label"
+                value={col.label}
+                onChange={(e) => updateColumn(i, 'label', e.target.value)}
+                placeholder="Column header..."
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
                 {/* Width */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Width (px)
-                  </label>
-                  <input
-                    type="number"
-                    min={40}
-                    max={600}
-                    value={col.width}
-                    onChange={(e) => updateColumn(i, 'width', Number(e.target.value))}
-                    className={SMALL_INPUT_CLS}
-                  />
-                </div>
+                <NumberInput
+                  label="Width (px)"
+                  min={40}
+                  max={600}
+                  value={col.width}
+                  onChange={(e) => updateColumn(i, 'width', Number(e.target.value))}
+                />
 
                 {/* Format */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Format
-                  </label>
-                  <select
-                    value={col.format}
-                    onChange={(e) => updateColumn(i, 'format', e.target.value)}
-                    className={SMALL_INPUT_CLS}
-                  >
-                    {FORMAT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Format"
+                  value={col.format}
+                  onChange={(e) => updateColumn(i, 'format', e.target.value)}
+                  options={FORMAT_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+                />
 
                 {/* Sortable */}
                 <div className="flex items-end pb-1">
-                  <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={col.sortable}
-                      onChange={(e) => updateColumn(i, 'sortable', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                    />
-                    Sort
-                  </label>
+                  <Checkbox
+                    label="Sort"
+                    checked={col.sortable}
+                    onChange={(e) => updateColumn(i, 'sortable', e.target.checked)}
+                  />
                 </div>
               </div>
             </div>
@@ -210,52 +191,32 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Pagination */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Page Size</label>
-            <select
-              value={pageSize}
-              onChange={(e) => onChange({ pageSize: Number(e.target.value) })}
-              className={INPUT_CLS}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-            <input
-              type="number"
-              min={8}
-              max={20}
-              value={fontSize}
-              onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-              className={INPUT_CLS}
-            />
-          </div>
+          <Select
+            label="Page Size"
+            value={pageSize}
+            onChange={(e) => onChange({ pageSize: Number(e.target.value) })}
+            options={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, label: String(size) }))}
+          />
+          <NumberInput
+            label="Font Size"
+            min={8}
+            max={20}
+            value={fontSize}
+            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+          />
         </div>
 
         <div className="mt-2 space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPagination}
-              onChange={(e) => onChange({ showPagination: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Pagination
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showHeader}
-              onChange={(e) => onChange({ showHeader: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Header
-          </label>
+          <Checkbox
+            label="Show Pagination"
+            checked={showPagination}
+            onChange={(e) => onChange({ showPagination: e.target.checked })}
+          />
+          <Checkbox
+            label="Show Header"
+            checked={showHeader}
+            onChange={(e) => onChange({ showHeader: e.target.checked })}
+          />
         </div>
       </div>
 
@@ -265,44 +226,26 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           Colors
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Header BG</label>
-            <input
-              type="color"
-              value={headerBgColor}
-              onChange={(e) => onChange({ headerBgColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Header Text
-            </label>
-            <input
-              type="color"
-              value={headerTextColor}
-              onChange={(e) => onChange({ headerTextColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Row BG</label>
-            <input
-              type="color"
-              value={rowBgColor}
-              onChange={(e) => onChange({ rowBgColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alt Row</label>
-            <input
-              type="color"
-              value={alternateRowColor}
-              onChange={(e) => onChange({ alternateRowColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
+          <ColorInput
+            label="Header BG"
+            value={headerBgColor}
+            onChange={(e) => onChange({ headerBgColor: e.target.value })}
+          />
+          <ColorInput
+            label="Header Text"
+            value={headerTextColor}
+            onChange={(e) => onChange({ headerTextColor: e.target.value })}
+          />
+          <ColorInput
+            label="Row BG"
+            value={rowBgColor}
+            onChange={(e) => onChange({ rowBgColor: e.target.value })}
+          />
+          <ColorInput
+            label="Alt Row"
+            value={alternateRowColor}
+            onChange={(e) => onChange({ alternateRowColor: e.target.value })}
+          />
         </div>
       </div>
 
@@ -337,11 +280,11 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                 onChange={(e) => updateRule(i, 'max', Number(e.target.value))}
                 placeholder="Max"
               />
-              <input
-                type="color"
+              <ColorInput
+                aria-label={t('scada.color.rule')}
+                variant="swatch"
                 value={rule.color}
                 onChange={(e) => updateRule(i, 'color', e.target.value)}
-                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
               <Button variant="ghost" size="xs" onClick={() => removeRule(i)}>
                 X

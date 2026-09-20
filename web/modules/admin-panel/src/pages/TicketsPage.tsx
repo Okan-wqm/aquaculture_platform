@@ -33,7 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -386,6 +386,7 @@ export const TicketsPage: React.FC = () => {
           description="Manage and resolve customer support requests"
           actions={
             <button
+              aria-label="Refresh tickets"
               onClick={() => {
                 fetchTickets();
                 fetchStats();
@@ -477,41 +478,41 @@ export const TicketsPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Status</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting_customer">Waiting</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Status' },
+                  { value: 'open', label: 'Open' },
+                  { value: 'in_progress', label: 'In Progress' },
+                  { value: 'waiting_customer', label: 'Waiting' },
+                  { value: 'resolved', label: 'Resolved' },
+                  { value: 'closed', label: 'Closed' },
+                ]}
+              />
+              <Select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value as TicketPriority | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Priority</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Priority' },
+                  { value: 'critical', label: 'Critical' },
+                  { value: 'high', label: 'High' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'low', label: 'Low' },
+                ]}
+              />
+              <Select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Categories</option>
-                <option value="technical">Technical</option>
-                <option value="billing">Billing</option>
-                <option value="feature_request">Feature Request</option>
-                <option value="bug">Bug</option>
-                <option value="general">General</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Categories' },
+                  { value: 'technical', label: 'Technical' },
+                  { value: 'billing', label: 'Billing' },
+                  { value: 'feature_request', label: 'Feature Request' },
+                  { value: 'bug', label: 'Bug' },
+                  { value: 'general', label: 'General' },
+                ]}
+              />
             </div>
           </div>
 
@@ -635,6 +636,7 @@ export const TicketsPage: React.FC = () => {
                   </div>
                 </div>
                 <button
+                  aria-label="Close ticket details"
                   onClick={() => setSelectedTicket(null)}
                   className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
@@ -645,36 +647,36 @@ export const TicketsPage: React.FC = () => {
               {/* Actions */}
               <div className="flex items-center gap-3 mt-4">
                 {/* Status Change */}
-                <select
+                <Select
                   value={selectedTicket.status}
                   onChange={(e) =>
                     handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)
                   }
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="waiting_customer">Waiting for Customer</option>
-                  <option value="resolved">Resolved</option>
-                  <option value="closed">Closed</option>
-                </select>
+                  options={[
+                    { value: 'open', label: 'Open' },
+                    { value: 'in_progress', label: 'In Progress' },
+                    { value: 'waiting_customer', label: 'Waiting for Customer' },
+                    { value: 'resolved', label: 'Resolved' },
+                    { value: 'closed', label: 'Closed' },
+                  ]}
+                />
 
                 {/* Priority Change */}
-                <select
+                <Select
                   value={selectedTicket.priority}
                   onChange={(e) =>
                     handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)
                   }
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
+                  options={[
+                    { value: 'critical', label: 'Critical' },
+                    { value: 'high', label: 'High' },
+                    { value: 'medium', label: 'Medium' },
+                    { value: 'low', label: 'Low' },
+                  ]}
+                />
 
                 {/* Assign */}
-                <select
+                <Select
                   value={selectedTicket.assignedTo || ''}
                   onChange={(e) => {
                     const member = supportTeam.find((m) => m.id === e.target.value);
@@ -682,15 +684,12 @@ export const TicketsPage: React.FC = () => {
                       handleAssign(selectedTicket.id, member.id, member.name);
                     }
                   }}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="">Assign to...</option>
-                  {supportTeam.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} ({member.activeTickets} active)
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Assign to..."
+                  options={supportTeam.map((member) => ({
+                    value: member.id,
+                    label: `${member.name} (${member.activeTickets} active)`,
+                  }))}
+                />
               </div>
 
               {/* SLA Info */}
@@ -813,16 +812,15 @@ export const TicketsPage: React.FC = () => {
             {selectedTicket.status !== 'closed' && (
               <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <button
+                  <ToggleButton
                     onClick={() => setIsInternalNote(!isInternalNote)}
-                    className={`text-xs px-2 py-1 rounded ${
-                      isInternalNote
-                        ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                    pressed={isInternalNote}
+                    className="text-xs px-2 py-1 rounded"
+                    pressedClassName="bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700"
+                    idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                   >
                     {isInternalNote ? 'Internal Note' : 'Public Reply'}
-                  </button>
+                  </ToggleButton>
                 </div>
                 <div className="flex items-end gap-3">
                   <textarea
@@ -833,10 +831,8 @@ export const TicketsPage: React.FC = () => {
                     className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                      <Paperclip size={20} />
-                    </button>
                     <button
+                      aria-label="Add comment"
                       onClick={handleAddComment}
                       disabled={!newComment.trim()}
                       className="p-3 bg-info-600 text-white rounded-lg hover:bg-info-700 disabled:opacity-50 disabled:cursor-not-allowed"

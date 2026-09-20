@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Modal } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 import type { ChartVisibility } from './TankChartsSection';
 
@@ -282,20 +282,14 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
           {/* Select All */}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-[250px] overflow-y-auto">
             <div className="p-3 bg-gray-50 dark:bg-gray-800 sticky top-0">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someSelected;
-                  }}
-                  onChange={handleSelectAll}
-                  className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
-                />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Select All
-                </span>
-              </label>
+              <Checkbox
+                label="Select All"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                onChange={handleSelectAll}
+              />
             </div>
 
             {/* Grouped by category */}

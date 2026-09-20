@@ -12,7 +12,7 @@
  */
 
 import React, { useState } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Select } from '@aquaculture/shared-ui';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type {
   WidgetEventDef,
@@ -186,94 +186,65 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
           </div>
 
           {/* Trigger */}
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Trigger</label>
-            <select
-              value={ev.trigger}
-              onChange={(e) => updateEvent(ev.id, { trigger: e.target.value as EventTrigger })}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-            >
-              {TRIGGERS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Trigger"
+            value={ev.trigger}
+            onChange={(e) => updateEvent(ev.id, { trigger: e.target.value as EventTrigger })}
+            options={TRIGGERS.map((t) => ({ value: t, label: t }))}
+          />
 
           {/* Action */}
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Action</label>
-            <select
-              value={ev.action}
-              onChange={(e) => handleActionChange(ev.id, e.target.value as EventAction)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-            >
-              {ACTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {ACTION_LABELS[a]}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Action"
+            value={ev.action}
+            onChange={(e) => handleActionChange(ev.id, e.target.value as EventAction)}
+            options={ACTIONS.map((a) => ({ value: a, label: ACTION_LABELS[a] }))}
+          />
 
           {/* Conditional fields based on action */}
           {(ev.action === 'navigate' || ev.action === 'openCard' || ev.action === 'openDialog') && (
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Target Screen
-              </label>
-              <select
-                value={(ev.params.targetScreenId as string) || ''}
-                onChange={(e) =>
-                  updateEventParams(ev.id, { targetScreenId: e.target.value || undefined })
-                }
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-              >
-                <option value="">Select screen...</option>
-                {screens.map((screen) => (
-                  <option key={screen.id} value={screen.id}>
-                    [{screen.screenType}] {screen.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Target Screen"
+              value={(ev.params.targetScreenId as string) || ''}
+              onChange={(e) =>
+                updateEventParams(ev.id, { targetScreenId: e.target.value || undefined })
+              }
+              placeholder="Select screen..."
+              options={screens.map((screen) => ({
+                value: screen.id,
+                label: `[${screen.screenType}] ${screen.name}`,
+              }))}
+            />
           )}
 
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={(ev.params.width as number) ?? ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, {
-                      width: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  placeholder="px"
-                  min={100}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Height
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={(ev.params.height as number) ?? ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, {
-                      height: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  placeholder="px"
-                  min={100}
-                />
-              </div>
+              <Input
+                label="Width"
+                fullWidth
+                type="number"
+                value={(ev.params.width as number) ?? ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, {
+                    width: e.target.value === '' ? undefined : Number(e.target.value),
+                  })
+                }
+                placeholder="px"
+                min={100}
+              />
+              <Input
+                label="Height"
+                fullWidth
+                type="number"
+                value={(ev.params.height as number) ?? ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, {
+                    height: e.target.value === '' ? undefined : Number(e.target.value),
+                  })
+                }
+                placeholder="px"
+                min={100}
+              />
             </div>
           )}
 
@@ -355,16 +326,14 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
                   placeholder="Select target tag..."
                 />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={ev.params.value != null ? String(ev.params.value) : ''}
-                  onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
-                  placeholder="Value to set"
-                />
-              </div>
+              <Input
+                label="Value"
+                fullWidth
+                type="text"
+                value={ev.params.value != null ? String(ev.params.value) : ''}
+                onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
+                placeholder="Value to set"
+              />
             </>
           )}
 
@@ -388,23 +357,17 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
             <div data-testid="runscript-config">
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Script</label>
               {scripts.length > 0 ? (
-                <select
+                <Select
                   value={(ev.params.scriptId as string) || ''}
                   onChange={(e) =>
                     updateEventParams(ev.id, { scriptId: e.target.value || undefined })
                   }
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   data-testid="runscript-select"
-                >
-                  <option value="">Select script...</option>
-                  {scripts
+                  placeholder="Select script..."
+                  options={scripts
                     .filter((s) => s.enabled)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                </select>
+                    .map((s) => ({ value: s.id, label: s.name }))}
+                />
               ) : (
                 <p className="text-[10px] text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-2 py-1.5 rounded-lg">
                   No scripts defined. Add scripts in the Scripts tab first.
@@ -427,57 +390,47 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
              Enables interactive patterns like: click button -> change color. */}
           {ev.action === 'setProperty' && (
             <div className="space-y-2" data-testid="setproperty-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Target Widget ID
-                </label>
-                <Input
-                  className="font-mono"
-                  fullWidth
-                  type="text"
-                  value={(ev.params.targetWidgetId as string) || ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })
-                  }
-                  placeholder="widget-uuid-here"
-                  data-testid="target-widget-id-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Property Path
-                </label>
-                <Input
-                  className="font-mono"
-                  fullWidth
-                  type="text"
-                  value={(ev.params.propertyPath as string) || ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, { propertyPath: e.target.value || undefined })
-                  }
-                  placeholder="fill, config.opacity, etc."
-                  data-testid="property-path-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    // Auto-detect type: boolean, number, or string
-                    let parsed: string | number | boolean = raw;
-                    if (raw === 'true') parsed = true;
-                    else if (raw === 'false') parsed = false;
-                    else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
-                    updateEventParams(ev.id, { propertyValue: parsed });
-                  }}
-                  placeholder="Value (auto-detects type)"
-                  data-testid="property-value-input"
-                />
-              </div>
+              <Input
+                label="Target Widget ID"
+                className="font-mono"
+                fullWidth
+                type="text"
+                value={(ev.params.targetWidgetId as string) || ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })
+                }
+                placeholder="widget-uuid-here"
+                data-testid="target-widget-id-input"
+              />
+              <Input
+                label="Property Path"
+                className="font-mono"
+                fullWidth
+                type="text"
+                value={(ev.params.propertyPath as string) || ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, { propertyPath: e.target.value || undefined })
+                }
+                placeholder="fill, config.opacity, etc."
+                data-testid="property-path-input"
+              />
+              <Input
+                label="Value"
+                fullWidth
+                type="text"
+                value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  // Auto-detect type: boolean, number, or string
+                  let parsed: string | number | boolean = raw;
+                  if (raw === 'true') parsed = true;
+                  else if (raw === 'false') parsed = false;
+                  else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
+                  updateEventParams(ev.id, { propertyValue: parsed });
+                }}
+                placeholder="Value (auto-detects type)"
+                data-testid="property-value-input"
+              />
             </div>
           )}
 

@@ -150,46 +150,34 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Key Ad\u0131 (opsiyonel)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer"
-            />
-          </div>
+          <Input
+            label="Key Ad\u0131 (opsiyonel)"
+            fullWidth
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer"
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Max Cihaz
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={maxDevices}
-                onChange={(e) => setMaxDevices(e.target.value)}
-                placeholder="S\u0131n\u0131rs\u0131z"
-                min="1"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Ge\u00E7erlilik (g\u00FCn)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={expiresInDays}
-                onChange={(e) => setExpiresInDays(e.target.value)}
-                placeholder="S\u00FCresiz"
-                min="1"
-              />
-            </div>
+            <Input
+              label="Max Cihaz"
+              fullWidth
+              type="number"
+              value={maxDevices}
+              onChange={(e) => setMaxDevices(e.target.value)}
+              placeholder="S\u0131n\u0131rs\u0131z"
+              min="1"
+            />
+            <Input
+              label="Ge\u00E7erlilik (g\u00FCn)"
+              fullWidth
+              type="number"
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(e.target.value)}
+              placeholder="S\u00FCresiz"
+              min="1"
+            />
           </div>
 
           <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">

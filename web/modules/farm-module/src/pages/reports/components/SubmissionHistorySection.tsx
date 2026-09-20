@@ -11,7 +11,7 @@
  * an expandable payload view of exactly what was submitted.
  */
 import React, { useMemo, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton } from '@aquaculture/shared-ui';
 import {
   useRegulatoryReport,
   useRegulatoryReports,
@@ -184,18 +184,17 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
       <div className="flex items-center gap-2">
         <span className="text-sm text-gray-500 dark:text-gray-400">Filter:</span>
         {(['all', 'SUBMITTED', 'QUEUED', 'FAILED', 'PENDING'] as const).map((status) => (
-          <button
+          <ToggleButton
             key={status}
             type="button"
             onClick={() => setStatusFilter(status)}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              statusFilter === status
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+            pressed={statusFilter === status}
+            className="px-3 py-1.5 text-sm rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             {status === 'all' ? 'All' : STATUS_LABELS[status]}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 

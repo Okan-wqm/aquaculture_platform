@@ -60,6 +60,7 @@ import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useSendMessage } from '@/hooks/useSendMessage';
+import { useI18n } from '@/i18n';
 import type { Message } from '@/types/messaging';
 import { runAsyncAction } from '@/utils/async-action';
 import { getDateLabel } from '@/utils/messaging-helpers';
@@ -280,6 +281,7 @@ function AiChannelHeader({
 
 /** Banner showing AI has farm data access. */
 function AiContextBanner(): JSX.Element | null {
+  const { t } = useI18n();
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
@@ -291,6 +293,7 @@ function AiContextBanner(): JSX.Element | null {
         AI has access to your farm data to provide personalized insights.
       </span>
       <button
+        aria-label={t('a11y.dismiss')}
         onClick={() => setDismissed(true)}
         className="text-purple-400 hover:text-purple-600 p-1"
       >

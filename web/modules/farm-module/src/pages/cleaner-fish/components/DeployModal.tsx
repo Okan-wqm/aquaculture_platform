@@ -182,24 +182,17 @@ export const DeployModal: React.FC<DeployModalProps> = ({
               Max: {maxQuantity.toLocaleString()}
             </p>
           </div>
-          <div>
-            <label
-              htmlFor="avgWeight"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Avg Weight (g)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              id="avgWeight"
-              min="0.1"
-              step="0.1"
-              value={avgWeightG || ''}
-              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
-              placeholder="Optional"
-            />
-          </div>
+          <Input
+            label="Avg Weight (g)"
+            fullWidth
+            type="number"
+            id="avgWeight"
+            min="0.1"
+            step="0.1"
+            value={avgWeightG || ''}
+            onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
+            placeholder="Optional"
+          />
         </div>
 
         {/* Calculated Biomass */}
@@ -217,41 +210,27 @@ export const DeployModal: React.FC<DeployModalProps> = ({
         )}
 
         {/* Date */}
-        <div>
-          <label
-            htmlFor="deployedAt"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Deployment Date
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            id="deployedAt"
-            value={deployedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setDeployedAt(e.target.value)}
-          />
-        </div>
+        <Input
+          label="Deployment Date"
+          fullWidth
+          type="date"
+          id="deployedAt"
+          value={deployedAt}
+          max={new Date().toISOString().split('T')[0]}
+          onChange={(e) => setDeployedAt(e.target.value)}
+        />
 
         {/* Notes */}
-        <div>
-          <label
-            htmlFor="notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes..."
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          id="notes"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes..."
+        />
 
         {/* Validation Error */}
         {quantity > maxQuantity && (

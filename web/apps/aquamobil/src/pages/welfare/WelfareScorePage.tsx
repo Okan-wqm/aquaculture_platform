@@ -7,7 +7,6 @@
  * ledger (a welfare assessment is a plain insert — several per tank/day are
  * legitimate, so there is no natural upsert key).
  */
-import { clsx } from 'clsx';
 import { ChevronRight, HeartPulse } from 'lucide-react';
 import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -24,6 +23,7 @@ import {
 } from '../_shared/RecordEntityPage';
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
 
@@ -56,24 +56,24 @@ function ScoreDial(props: {
   const { label, value, onChange } = props;
   return (
     <div className="px-4 mt-4">
-      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+        {label}
+      </h3>
       <div className="grid grid-cols-4 gap-2">
         {SCORE_LABELS.map((scoreLabel, score) => {
           const selected = value === score;
           return (
-            <button
+            <ToggleButton
               key={scoreLabel}
               type="button"
               onClick={() => onChange(score)}
-              className={clsx(
-                'py-3 rounded-2xl border-2 text-sm font-bold transition-all touch-feedback bg-white dark:bg-gray-900',
-                selected
-                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 scale-[1.02]'
-                  : 'border-gray-100 dark:border-gray-800 text-gray-500',
-              )}
+              pressed={selected}
+              className="py-3 rounded-2xl border-2 text-sm font-bold transition-all touch-feedback bg-white dark:bg-gray-900"
+              pressedClassName="border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 scale-[1.02]"
+              idleClassName="border-gray-100 dark:border-gray-800 text-gray-500"
             >
               {scoreLabel}
-            </button>
+            </ToggleButton>
           );
         })}
       </div>

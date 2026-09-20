@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { RefreshCw, UserMinus, ShieldCheck } from 'lucide-react';
-import { ConfirmModal } from '@aquaculture/shared-ui';
+import { ConfirmModal, Select } from '@aquaculture/shared-ui';
 
 import type { TenantRole } from '../../lib/types';
 import type { BulkAssignRoleResult } from '../../lib/types';
@@ -108,20 +108,14 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           {canAssignRoles && (
             <>
-              <select
+              <Select
                 aria-label="Role to assign"
                 value={selectedRoleId}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
                 disabled={isAssigningRole}
-                className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-success-500 disabled:opacity-50"
-              >
-                <option value="">Select role...</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select role..."
+                options={roles.map((role) => ({ value: role.id, label: role.name }))}
+              />
               <button
                 onClick={() => setIsAssignConfirmOpen(true)}
                 disabled={!selectedRoleId || isAssigningRole}

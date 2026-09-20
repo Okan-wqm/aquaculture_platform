@@ -6,7 +6,15 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button, chartChrome, colors, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Card,
+  chartChrome,
+  colors,
+  PageHeader,
+  Spinner,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -514,17 +522,16 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               {(['7d', '30d', '90d', '1y'] as const).map((period) => (
-                <button
+                <ToggleButton
                   key={period}
                   onClick={() => setSelectedPeriod(period)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    selectedPeriod === period
-                      ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
+                  pressed={selectedPeriod === period}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                  pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow"
+                  idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
                 >
                   {period}
-                </button>
+                </ToggleButton>
               ))}
             </div>
             <Button

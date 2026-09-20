@@ -9,13 +9,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
 import { PullToRefreshIndicator } from '@/components/ui/PullToRefreshIndicator';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
-
 
 interface MobileLayoutProps {
   children: ReactNode;
@@ -81,30 +81,72 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
    */
   const allTabs: TabItem[] = [
     {
-      id: 'home', icon: Home, label: 'Home', path: '/',
-      activeColor: 'text-ocean-600', activeBg: 'bg-ocean-50 dark:bg-ocean-900/30',
+      id: 'home',
+      icon: Home,
+      label: 'Home',
+      path: '/',
+      activeColor: 'text-ocean-600',
+      activeBg: 'bg-ocean-50 dark:bg-ocean-900/30',
     },
     {
-      id: 'operations', icon: ClipboardList, label: 'Operations', path: '/operations',
-      activeColor: 'text-orange-600', activeBg: 'bg-orange-50 dark:bg-orange-900/30',
-      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality', 'storage', 'attendance', 'leave', 'schedule'],
+      id: 'operations',
+      icon: ClipboardList,
+      label: 'Operations',
+      path: '/operations',
+      activeColor: 'text-orange-600',
+      activeBg: 'bg-orange-50 dark:bg-orange-900/30',
+      features: [
+        'feeding',
+        'mortality',
+        'cull',
+        'harvest',
+        'transfer',
+        'waterQuality',
+        'storage',
+        'attendance',
+        'leave',
+        'schedule',
+      ],
       // Child paths that should highlight the Operations tab even though they
       // don't start with /operations. This includes all operation sub-routes
       // and the hub pages they navigate to.
-      childPaths: ['/feeding', '/mortality', '/cull', '/harvest', '/transfer', '/water-quality', '/storage', '/attendance', '/leave', '/schedule'],
+      childPaths: [
+        '/feeding',
+        '/mortality',
+        '/cull',
+        '/harvest',
+        '/transfer',
+        '/water-quality',
+        '/storage',
+        '/attendance',
+        '/leave',
+        '/schedule',
+      ],
     },
     {
-      id: 'tasks', icon: CheckSquare, label: 'Tasks', path: '/tasks',
-      activeColor: 'text-green-600', activeBg: 'bg-green-50 dark:bg-green-900/30',
+      id: 'tasks',
+      icon: CheckSquare,
+      label: 'Tasks',
+      path: '/tasks',
+      activeColor: 'text-green-600',
+      activeBg: 'bg-green-50 dark:bg-green-900/30',
       features: ['tasks'],
     },
     {
-      id: 'messages', icon: MessageSquare, label: 'Messages', path: '/messages',
-      activeColor: 'text-indigo-600', activeBg: 'bg-indigo-50 dark:bg-indigo-900/30',
+      id: 'messages',
+      icon: MessageSquare,
+      label: 'Messages',
+      path: '/messages',
+      activeColor: 'text-indigo-600',
+      activeBg: 'bg-indigo-50 dark:bg-indigo-900/30',
     },
     {
-      id: 'account', icon: User, label: 'Account', path: '/account',
-      activeColor: 'text-gray-600 dark:text-gray-400', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
+      id: 'account',
+      icon: User,
+      label: 'Account',
+      path: '/account',
+      activeColor: 'text-gray-600 dark:text-gray-400',
+      activeBg: 'bg-gray-100 dark:bg-gray-800/30',
     },
   ];
 
@@ -121,7 +163,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const isActive = (tab: TabItem): boolean => {
     if (tab.path === '/' && location.pathname === '/') return true;
     if (tab.path !== '/' && location.pathname.startsWith(tab.path)) return true;
-    if (tab.childPaths?.some(cp => location.pathname.startsWith(cp))) return true;
+    if (tab.childPaths?.some((cp) => location.pathname.startsWith(cp))) return true;
     return false;
   };
 
@@ -171,7 +213,11 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
           bar (no page carries a spacer); the touch handlers are the app's
           pull-to-refresh. */}
       <div className="flex-1 overflow-auto overscroll-contain pb-nav-gap" {...pull.handlers}>
-        <PullToRefreshIndicator pullDistance={pull.pullDistance} armed={pull.armed} isRefreshing={pull.isRefreshing} />
+        <PullToRefreshIndicator
+          pullDistance={pull.pullDistance}
+          armed={pull.armed}
+          isRefreshing={pull.isRefreshing}
+        />
         {children}
       </div>
 
@@ -185,13 +231,13 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
             const badge = getBadge(tab.id);
 
             return (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => navigate(tab.path)}
-                className={clsx(
-                  'flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-all duration-150 ease-out touch-feedback relative',
-                  active ? tab.activeColor : 'text-gray-400 dark:text-gray-500',
-                )}
+                pressed={active}
+                className="flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-all duration-150 ease-out touch-feedback relative"
+                pressedClassName={tab.activeColor}
+                idleClassName="text-gray-400 dark:text-gray-500"
               >
                 {/* WHY: Active indicator bar on top of the icon — follows iOS Human Interface Guidelines
                     for selected tab state, more subtle than a full background fill. */}
@@ -199,10 +245,12 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
                   {active && (
                     <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-current transition-all duration-200" />
                   )}
-                  <div className={clsx(
-                    'p-1 rounded-xl transition-all duration-150',
-                    active ? tab.activeBg : 'bg-transparent',
-                  )}>
+                  <div
+                    className={clsx(
+                      'p-1 rounded-xl transition-all duration-150',
+                      active ? tab.activeBg : 'bg-transparent',
+                    )}
+                  >
                     <Icon
                       size={21}
                       strokeWidth={active ? 2.5 : 1.8}
@@ -217,13 +265,15 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
                     </span>
                   )}
                 </div>
-                <span className={clsx(
-                  'text-[10px] font-semibold transition-all duration-150',
-                  active ? 'opacity-100' : 'opacity-60',
-                )}>
+                <span
+                  className={clsx(
+                    'text-[10px] font-semibold transition-all duration-150',
+                    active ? 'opacity-100' : 'opacity-60',
+                  )}
+                >
                   {tab.label}
                 </span>
-              </button>
+              </ToggleButton>
             );
           })}
         </div>

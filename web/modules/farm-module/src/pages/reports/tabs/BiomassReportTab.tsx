@@ -317,23 +317,14 @@ interface BasicInfoStepProps {
 const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteName }) => (
   <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Site
-        </label>
-        <Input fullWidth type="text" value={siteName} disabled />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Report Period
-        </label>
-        <Input
-          fullWidth
-          type="text"
-          value={getMonthLabel(formData.month, formData.year)}
-          disabled
-        />
-      </div>
+      <Input label="Site" fullWidth type="text" value={siteName} disabled />
+      <Input
+        label="Report Period"
+        fullWidth
+        type="text"
+        value={getMonthLabel(formData.month, formData.year)}
+        disabled
+      />
     </div>
     <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
       <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Contents</h4>
@@ -589,12 +580,13 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                     placeholder="0"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Avg Weight (g)
-                  </label>
-                  <Input fullWidth type="text" value={species.avgWeightG.toFixed(0)} disabled />
-                </div>
+                <Input
+                  label="Avg Weight (g)"
+                  fullWidth
+                  type="text"
+                  value={species.avgWeightG.toFixed(0)}
+                  disabled
+                />
               </div>
             </div>
           ))}
@@ -701,84 +693,60 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={record.date}
-                    onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Species
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={record.speciesName}
-                    onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
-                    placeholder="e.g., Atlantic Salmon"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Quantity
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={record.quantity || ''}
-                    onChange={(e) =>
-                      updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Avg Weight (g)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={record.avgWeightG || ''}
-                    onChange={(e) =>
-                      updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Supplier
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={record.supplier}
-                    onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
-                    placeholder="e.g., SalmoBreed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Batch Number
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={record.batchNumber}
-                    onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
-                    placeholder="e.g., B-2024-001"
-                  />
-                </div>
+                <Input
+                  label="Date"
+                  fullWidth
+                  type="date"
+                  value={record.date}
+                  onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
+                />
+                <Input
+                  label="Species"
+                  fullWidth
+                  type="text"
+                  value={record.speciesName}
+                  onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
+                  placeholder="e.g., Atlantic Salmon"
+                />
+                <Input
+                  label="Quantity"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={record.quantity || ''}
+                  onChange={(e) =>
+                    updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
+                <Input
+                  label="Avg Weight (g)"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={record.avgWeightG || ''}
+                  onChange={(e) =>
+                    updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
+                <Input
+                  label="Supplier"
+                  fullWidth
+                  type="text"
+                  value={record.supplier}
+                  onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
+                  placeholder="e.g., SalmoBreed"
+                />
+                <Input
+                  label="Batch Number"
+                  fullWidth
+                  type="text"
+                  value={record.batchNumber}
+                  onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
+                  placeholder="e.g., B-2024-001"
+                />
               </div>
             </div>
           ))}
@@ -1272,77 +1240,57 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Direction
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: 'incoming', label: 'Incoming' },
-                      { value: 'outgoing', label: 'Outgoing' },
-                    ]}
-                    value={transfer.direction}
-                    onChange={(e) =>
-                      updateTransfer(index, {
-                        direction: e.target.value as 'incoming' | 'outgoing',
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={transfer.date}
-                    onChange={(e) => updateTransfer(index, { date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Species
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={transfer.speciesName}
-                    onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
-                    placeholder="e.g., Atlantic Salmon"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Quantity
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={transfer.quantity || ''}
-                    onChange={(e) =>
-                      updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Biomass (kg)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={transfer.biomassKg || ''}
-                    onChange={(e) =>
-                      updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
+                <Select
+                  label="Direction"
+                  fullWidth
+                  options={[
+                    { value: 'incoming', label: 'Incoming' },
+                    { value: 'outgoing', label: 'Outgoing' },
+                  ]}
+                  value={transfer.direction}
+                  onChange={(e) =>
+                    updateTransfer(index, {
+                      direction: e.target.value as 'incoming' | 'outgoing',
+                    })
+                  }
+                />
+                <Input
+                  label="Date"
+                  fullWidth
+                  type="date"
+                  value={transfer.date}
+                  onChange={(e) => updateTransfer(index, { date: e.target.value })}
+                />
+                <Input
+                  label="Species"
+                  fullWidth
+                  type="text"
+                  value={transfer.speciesName}
+                  onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
+                  placeholder="e.g., Atlantic Salmon"
+                />
+                <Input
+                  label="Quantity"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={transfer.quantity || ''}
+                  onChange={(e) =>
+                    updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
+                <Input
+                  label="Biomass (kg)"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={transfer.biomassKg || ''}
+                  onChange={(e) =>
+                    updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     {transfer.direction === 'incoming' ? 'From Site' : 'To Site'}
@@ -1355,30 +1303,22 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                     placeholder="Site name"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Batch Number
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={transfer.batchNumber}
-                    onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
-                    placeholder="e.g., B-2024-001"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Reason
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={transfer.reason}
-                    onChange={(e) => updateTransfer(index, { reason: e.target.value })}
-                    placeholder="e.g., Production move"
-                  />
-                </div>
+                <Input
+                  label="Batch Number"
+                  fullWidth
+                  type="text"
+                  value={transfer.batchNumber}
+                  onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
+                  placeholder="e.g., B-2024-001"
+                />
+                <Input
+                  label="Reason"
+                  fullWidth
+                  type="text"
+                  value={transfer.reason}
+                  onChange={(e) => updateTransfer(index, { reason: e.target.value })}
+                  placeholder="e.g., Production move"
+                />
               </div>
             </div>
           ))}

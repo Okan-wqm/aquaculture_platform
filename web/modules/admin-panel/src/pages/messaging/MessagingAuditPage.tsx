@@ -10,12 +10,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
-  type DataTableColumn,
   PageHeader,
+  Select,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
@@ -261,22 +262,12 @@ const MessagingAuditPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Action
-              </label>
-              <select
-                value={filters.action}
-                onChange={(e) => handleFilterChange('action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
-              >
-                {ACTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Action"
+              value={filters.action}
+              onChange={(e) => handleFilterChange('action', e.target.value)}
+              options={ACTION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
                 Start Date

@@ -15,13 +15,14 @@
  */
 import React, { useMemo, useState } from 'react';
 import {
-  Modal,
   Button,
-  useToast,
-  useConfirm,
+  Checkbox,
+  Modal,
   parseGraphQLError,
   Select,
   Textarea,
+  useConfirm,
+  useToast,
 } from '@aquaculture/shared-ui';
 
 import { ActiveTreatmentInfo, BatchCloseReason, useCloseBatch } from '../../../hooks/useBatches';
@@ -173,23 +174,16 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             options={REASON_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
           />
 
-          <div>
-            <label
-              htmlFor="close-notes"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Notes (optional)
-            </label>
-            <Textarea
-              fullWidth
-              id="close-notes"
-              rows={3}
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Contextual notes (written to the audit log)"
-            />
-          </div>
+          <Textarea
+            label="Notes (optional)"
+            fullWidth
+            id="close-notes"
+            rows={3}
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Contextual notes (written to the audit log)"
+          />
         </div>
 
         {blocker && (
@@ -216,19 +210,11 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
               ))}
             </ul>
 
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={acknowledge}
-                onChange={(e) => setAcknowledge(e.target.checked)}
-                className="mt-0.5 rounded border-error-400 text-error-600 dark:text-error-400 focus:ring-error-500"
-              />
-              <span className="text-sm text-error-900 dark:text-error-100">
-                I acknowledge that closing this batch while a withdrawal period is still active
-                breaches food-safety policy. Override will be written to the audit log with my user
-                ID.
-              </span>
-            </label>
+            <Checkbox
+              label="I acknowledge that closing this batch while a withdrawal period is still active breaches food-safety policy. Override will be written to the audit log with my user ID."
+              checked={acknowledge}
+              onChange={(e) => setAcknowledge(e.target.checked)}
+            />
           </div>
         )}
 

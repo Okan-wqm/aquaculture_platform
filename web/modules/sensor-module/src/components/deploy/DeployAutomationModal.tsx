@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Select } from '@aquaculture/shared-ui';
 import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
 import { graphqlFetch } from '../../config/api';
@@ -146,59 +146,41 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
         )}
 
         {/* Program selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Automation Program
-          </label>
-          {loading ? (
-            <div className="flex items-center gap-2 py-2 text-gray-500 dark:text-gray-400">
-              <Spinner size="sm" color="inherit" />
-              <span className="text-sm">Loading programs...</span>
-            </div>
-          ) : (
-            <select
-              value={selectedProgramId}
-              onChange={(e) => setSelectedProgramId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="">Select program...</option>
-              {programs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.programName} ({p.programCode})
-                </option>
-              ))}
-            </select>
-          )}
-          {!loading && programs.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              No approved programs found. Create and approve a program first.
-            </p>
-          )}
-        </div>
+        <Select
+          id="deploy-automation-program"
+          label="Automation Program"
+          value={selectedProgramId}
+          onChange={(e) => setSelectedProgramId(e.target.value)}
+          disabled={loading}
+          placeholder={loading ? 'Loading programs...' : 'Select program...'}
+          helperText={
+            !loading && programs.length === 0
+              ? 'No approved programs found. Create and approve a program first.'
+              : undefined
+          }
+          options={programs.map((p) => ({
+            value: p.id,
+            label: `${p.programName} (${p.programCode})`,
+          }))}
+        />
 
         {/* Target device selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Target Device
-          </label>
-          <select
-            value={selectedDeviceId}
-            onChange={(e) => setSelectedDeviceId(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          >
-            <option value="">Select device...</option>
-            {boundDevices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name || d.code} ({d.code})
-              </option>
-            ))}
-          </select>
-          {boundDevices.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              No devices bound to this process. Bind edge devices to equipment nodes first.
-            </p>
-          )}
-        </div>
+        <Select
+          id="deploy-target-device"
+          label="Target Device"
+          value={selectedDeviceId}
+          onChange={(e) => setSelectedDeviceId(e.target.value)}
+          placeholder="Select device..."
+          helperText={
+            boundDevices.length === 0
+              ? 'No devices bound to this process. Bind edge devices to equipment nodes first.'
+              : undefined
+          }
+          options={boundDevices.map((d) => ({
+            value: d.id,
+            label: `${d.name || d.code} (${d.code})`,
+          }))}
+        />
       </div>
 
       {/* Footer */}

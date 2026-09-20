@@ -29,7 +29,14 @@ import {
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
-import { Modal, useAuthContext, PageHeader, Button, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Modal,
+  PageHeader,
+  Textarea,
+  ToggleButton,
+  useAuthContext,
+} from '@aquaculture/shared-ui';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -316,19 +323,18 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex gap-6">
             {tabs.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => {
                   setActiveTab(tab.id);
                 }}
-                className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-                }`}
+                pressed={activeTab === tab.id}
+                className="pb-3 text-sm font-medium border-b-2 transition-colors"
+                pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+                idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </nav>
         </div>

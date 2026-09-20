@@ -35,7 +35,14 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import type { Edge } from '@xyflow/react';
-import { useAuth, Spinner, Button, Input, DesktopOnlyNotice } from '@aquaculture/shared-ui';
+import {
+  Button,
+  DesktopOnlyNotice,
+  Input,
+  Spinner,
+  ToggleButton,
+  useAuth,
+} from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
@@ -642,29 +649,27 @@ const ProcessEditorPage: React.FC = () => {
         <div className="w-80 flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
           {/* Panel Tabs */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
-            <button
+            <ToggleButton
               onClick={() => setRightPanelMode('properties')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                rightPanelMode === 'properties'
-                  ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={rightPanelMode === 'properties'}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors"
+              pressedClassName="text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Settings className="w-4 h-4" />
               Properties
               {selectedNodeId && <span className="w-2 h-2 rounded-full bg-info-500" />}
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               onClick={() => setRightPanelMode('attachments')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                rightPanelMode === 'attachments'
-                  ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={rightPanelMode === 'attachments'}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors"
+              pressedClassName="text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Paperclip className="w-4 h-4" />
               Equipment
-            </button>
+            </ToggleButton>
           </div>
 
           {/* Panel Content */}

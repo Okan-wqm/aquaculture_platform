@@ -23,6 +23,11 @@ export { Input, Textarea } from './Form/Input';
 export type { InputProps, TextareaProps } from './Form/Input';
 export { PasswordInput } from './Form/PasswordInput';
 export type { PasswordInputProps } from './Form/PasswordInput';
+export { ColorInput } from './Form/ColorInput';
+export type { ColorInputProps } from './Form/ColorInput';
+
+export { Slider } from './Form/Slider';
+export type { SliderProps } from './Form/Slider';
 export { Select } from './Form/Select';
 export type { SelectProps, SelectOption } from './Form/Select';
 export { Checkbox, Switch, RadioGroup } from './Form/Checkbox';
@@ -57,6 +62,9 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
+export { SuderraSidebar } from './Layout/SuderraSidebar';
+export type { SuderraSidebarProps, SuderraNavSection } from './Layout/SuderraSidebar';
+export { NAV_ICONS, NAV_ICON_ALIASES, resolveNavIcon } from './Layout/navIcons';
 export { PageHeader } from './Layout/PageHeader';
 export type { PageHeaderProps } from './Layout/PageHeader';
 export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
@@ -82,6 +90,10 @@ export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
 // Tabs
 export { Tabs, TabPanel, tabId, panelId } from './Tabs';
 export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
+
+// ToggleButton
+export { ToggleButton } from './ToggleButton';
+export type { ToggleButtonProps } from './ToggleButton';
 
 // Severity + tag quality — one vocabulary, one palette
 export {

@@ -209,23 +209,14 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
 }) => (
   <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Site
-        </label>
-        <Input fullWidth type="text" value={siteName} disabled />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Report Period
-        </label>
-        <Input
-          fullWidth
-          type="text"
-          value={getWeekLabel(formData.weekNumber, formData.year)}
-          disabled
-        />
-      </div>
+      <Input label="Site" fullWidth type="text" value={siteName} disabled />
+      <Input
+        label="Report Period"
+        fullWidth
+        type="text"
+        value={getWeekLabel(formData.weekNumber, formData.year)}
+        disabled
+      />
     </div>
     <div>
       {temperatureMeta ? (
@@ -490,17 +481,13 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               placeholder="0.00"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Total Avg/Fish
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.siteCounts.averagePerFish.toFixed(2)}
-              disabled
-            />
-          </div>
+          <Input
+            label="Total Avg/Fish"
+            fullWidth
+            type="text"
+            value={formData.siteCounts.averagePerFish.toFixed(2)}
+            disabled
+          />
         </div>
       </div>
 
@@ -590,69 +577,53 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                           />
                         )}
                       </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          Adult Female
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.adultFemale || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { adultFemale: parseFloat(e.target.value) || 0 })
-                          }
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          Mobile
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.mobile || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { mobile: parseFloat(e.target.value) || 0 })
-                          }
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          Attached
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.attached || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { attached: parseFloat(e.target.value) || 0 })
-                          }
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          Fish Sampled
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          min="1"
-                          value={cage.fishSampled || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { fishSampled: parseInt(e.target.value) || 0 })
-                          }
-                          placeholder="20"
-                        />
-                      </div>
+                      <Input
+                        label="Adult Female"
+                        fullWidth
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={cage.adultFemale || ''}
+                        onChange={(e) =>
+                          updateCageCount(index, { adultFemale: parseFloat(e.target.value) || 0 })
+                        }
+                        placeholder="0.00"
+                      />
+                      <Input
+                        label="Mobile"
+                        fullWidth
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={cage.mobile || ''}
+                        onChange={(e) =>
+                          updateCageCount(index, { mobile: parseFloat(e.target.value) || 0 })
+                        }
+                        placeholder="0.00"
+                      />
+                      <Input
+                        label="Attached"
+                        fullWidth
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={cage.attached || ''}
+                        onChange={(e) =>
+                          updateCageCount(index, { attached: parseFloat(e.target.value) || 0 })
+                        }
+                        placeholder="0.00"
+                      />
+                      <Input
+                        label="Fish Sampled"
+                        fullWidth
+                        type="number"
+                        min="1"
+                        value={cage.fishSampled || ''}
+                        onChange={(e) =>
+                          updateCageCount(index, { fishSampled: parseInt(e.target.value) || 0 })
+                        }
+                        placeholder="20"
+                      />
                     </div>
                   </div>
                 ))}
@@ -802,48 +773,32 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Non-medicated type selection */}
                 {treatment.category === 'non_medicated' && (
-                  <div>
-                    <label
-                      htmlFor={`sea-lice-non-medicated-type-${index}`}
-                      className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                    >
-                      Type
-                    </label>
-                    <Select
-                      id={`sea-lice-non-medicated-type-${index}`}
-                      size="sm"
-                      placeholder="Select type..."
-                      value={treatment.nonMedicatedType || ''}
-                      onChange={(e) => updateTreatment(index, { nonMedicatedType: e.target.value })}
-                      options={NON_MEDICATED_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-                    />
-                  </div>
+                  <Select
+                    label="Type"
+                    id={`sea-lice-non-medicated-type-${index}`}
+                    size="sm"
+                    placeholder="Select type..."
+                    value={treatment.nonMedicatedType || ''}
+                    onChange={(e) => updateTreatment(index, { nonMedicatedType: e.target.value })}
+                    options={NON_MEDICATED_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                  />
                 )}
 
                 {/* Medicated fields */}
                 {treatment.category === 'medicated' && (
                   <>
-                    <div>
-                      <label
-                        htmlFor={`sea-lice-active-ingredient-${index}`}
-                        className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                      >
-                        Active Ingredient
-                      </label>
-                      <Select
-                        id={`sea-lice-active-ingredient-${index}`}
-                        size="sm"
-                        placeholder="Select ingredient..."
-                        value={treatment.activeIngredient || ''}
-                        onChange={(e) =>
-                          updateTreatment(index, { activeIngredient: e.target.value })
-                        }
-                        options={ACTIVE_INGREDIENTS.map((ai) => ({
-                          value: ai.value,
-                          label: ai.label,
-                        }))}
-                      />
-                    </div>
+                    <Select
+                      label="Active Ingredient"
+                      id={`sea-lice-active-ingredient-${index}`}
+                      size="sm"
+                      placeholder="Select ingredient..."
+                      value={treatment.activeIngredient || ''}
+                      onChange={(e) => updateTreatment(index, { activeIngredient: e.target.value })}
+                      options={ACTIVE_INGREDIENTS.map((ai) => ({
+                        value: ai.value,
+                        label: ai.label,
+                      }))}
+                    />
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -862,37 +817,27 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           placeholder="Amount"
                         />
                       </div>
-                      <div className="w-24">
-                        <label
-                          htmlFor={`sea-lice-dosage-unit-${index}`}
-                          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                        >
-                          Unit
-                        </label>
-                        <Select
-                          id={`sea-lice-dosage-unit-${index}`}
-                          size="sm"
-                          value={treatment.dosageUnit || 'mg/L'}
-                          onChange={(e) => updateTreatment(index, { dosageUnit: e.target.value })}
-                          options={DOSAGE_UNITS.map((u) => ({ value: u.value, label: u.label }))}
-                        />
-                      </div>
+                      <Select
+                        label="Unit"
+                        className="w-24"
+                        id={`sea-lice-dosage-unit-${index}`}
+                        size="sm"
+                        value={treatment.dosageUnit || 'mg/L'}
+                        onChange={(e) => updateTreatment(index, { dosageUnit: e.target.value })}
+                        options={DOSAGE_UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                      />
                     </div>
                   </>
                 )}
 
                 {/* Date */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={treatment.date}
-                    onChange={(e) => updateTreatment(index, { date: e.target.value })}
-                  />
-                </div>
+                <Input
+                  label="Date"
+                  fullWidth
+                  type="date"
+                  value={treatment.date}
+                  onChange={(e) => updateTreatment(index, { date: e.target.value })}
+                />
 
                 {/* Mattilsynet-specific fields */}
                 <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
@@ -935,38 +880,31 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
 
                 {/* Number of cages treated (if not whole site) */}
                 {!treatment.wholeSite && (
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Number of cages treated
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="1"
-                      value={treatment.cagesTreated || ''}
-                      onChange={(e) =>
-                        updateTreatment(index, {
-                          cagesTreated: parseInt(e.target.value) || undefined,
-                        })
-                      }
-                      placeholder="Number of cages"
-                    />
-                  </div>
+                  <Input
+                    label="Number of cages treated"
+                    fullWidth
+                    type="number"
+                    min="1"
+                    value={treatment.cagesTreated || ''}
+                    onChange={(e) =>
+                      updateTreatment(index, {
+                        cagesTreated: parseInt(e.target.value) || undefined,
+                      })
+                    }
+                    placeholder="Number of cages"
+                  />
                 )}
 
                 {/* Notes */}
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Notes
-                  </label>
-                  <Textarea
-                    fullWidth
-                    value={treatment.notes}
-                    onChange={(e) => updateTreatment(index, { notes: e.target.value })}
-                    rows={2}
-                    placeholder="Treatment details..."
-                  />
-                </div>
+                <Textarea
+                  label="Notes"
+                  className="col-span-2"
+                  fullWidth
+                  value={treatment.notes}
+                  onChange={(e) => updateTreatment(index, { notes: e.target.value })}
+                  rows={2}
+                  placeholder="Treatment details..."
+                />
               </div>
             </div>
           ))}
@@ -1021,18 +959,14 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
         </div>
 
         {formData.resistanceSuspicion && (
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Describe the resistance suspicion
-            </label>
-            <Textarea
-              fullWidth
-              value={formData.resistanceDetails}
-              onChange={(e) => onChange({ resistanceDetails: e.target.value })}
-              rows={3}
-              placeholder="Describe observations suggesting resistance (e.g., reduced treatment efficacy, repeat treatments needed)..."
-            />
-          </div>
+          <Textarea
+            label="Describe the resistance suspicion"
+            fullWidth
+            value={formData.resistanceDetails}
+            onChange={(e) => onChange({ resistanceDetails: e.target.value })}
+            rows={3}
+            placeholder="Describe observations suggesting resistance (e.g., reduced treatment efficacy, repeat treatments needed)..."
+          />
         )}
       </div>
 
@@ -1063,61 +997,44 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
 
         {formData.sensitivityTest.performed && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Laboratory Name
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.sensitivityTest.labName}
-                onChange={(e) => updateSensitivityTest({ labName: e.target.value })}
-                placeholder="e.g., PatoGen"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Test Date
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={formData.sensitivityTest.testDate}
-                onChange={(e) => updateSensitivityTest({ testDate: e.target.value })}
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="sea-lice-sensitivity-ingredient"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                Active Ingredient Tested
-              </label>
-              <Select
-                id="sea-lice-sensitivity-ingredient"
-                size="sm"
-                placeholder="Select ingredient..."
-                value={formData.sensitivityTest.ingredientTested}
-                onChange={(e) => updateSensitivityTest({ ingredientTested: e.target.value })}
-                options={ACTIVE_INGREDIENTS.map((ai) => ({ value: ai.value, label: ai.label }))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Result</label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'Select result...' },
-                  { value: 'sensitive', label: 'Sensitive (Folsom)' },
-                  { value: 'reduced', label: 'Reduced Sensitivity (Nedsatt folsomhet)' },
-                  { value: 'resistant', label: 'Resistant (Resistent)' },
-                ]}
-                value={formData.sensitivityTest.result}
-                onChange={(e) =>
-                  updateSensitivityTest({ result: e.target.value as SensitivityTestData['result'] })
-                }
-              />
-            </div>
+            <Input
+              label="Laboratory Name"
+              fullWidth
+              type="text"
+              value={formData.sensitivityTest.labName}
+              onChange={(e) => updateSensitivityTest({ labName: e.target.value })}
+              placeholder="e.g., PatoGen"
+            />
+            <Input
+              label="Test Date"
+              fullWidth
+              type="date"
+              value={formData.sensitivityTest.testDate}
+              onChange={(e) => updateSensitivityTest({ testDate: e.target.value })}
+            />
+            <Select
+              label="Active Ingredient Tested"
+              id="sea-lice-sensitivity-ingredient"
+              size="sm"
+              placeholder="Select ingredient..."
+              value={formData.sensitivityTest.ingredientTested}
+              onChange={(e) => updateSensitivityTest({ ingredientTested: e.target.value })}
+              options={ACTIVE_INGREDIENTS.map((ai) => ({ value: ai.value, label: ai.label }))}
+            />
+            <Select
+              label="Result"
+              fullWidth
+              options={[
+                { value: '', label: 'Select result...' },
+                { value: 'sensitive', label: 'Sensitive (Folsom)' },
+                { value: 'reduced', label: 'Reduced Sensitivity (Nedsatt folsomhet)' },
+                { value: 'resistant', label: 'Resistant (Resistent)' },
+              ]}
+              value={formData.sensitivityTest.result}
+              onChange={(e) =>
+                updateSensitivityTest({ result: e.target.value as SensitivityTestData['result'] })
+              }
+            />
           </div>
         )}
       </div>

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, ToggleButton, useI18n } from '@aquaculture/shared-ui';
 import {
   X,
   Settings,
@@ -54,6 +54,7 @@ import { EquipmentLinkDialog } from '../dialogs/EquipmentLinkDialog';
 import { SensorConfigDialog } from '../dialogs/SensorConfigDialog';
 
 export const PropertiesPanel: React.FC = () => {
+  const { t } = useI18n();
   const {
     selectedNode,
     selectedEdge,
@@ -516,21 +517,18 @@ export const PropertiesPanel: React.FC = () => {
                     Select equipment below
                   </span>
                 </div>
-                <select
+                <Select
                   onChange={(e) => {
                     const eq = unlinkedEquipment.find((eq) => eq.id === e.target.value);
                     if (eq) handleEquipmentSelect(eq);
                   }}
                   value=""
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
-                >
-                  <option value="">Select Equipment...</option>
-                  {unlinkedEquipment.map((eq) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} ({eq.code})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Select Equipment..."
+                  options={unlinkedEquipment.map((eq) => ({
+                    value: eq.id,
+                    label: `${eq.name} (${eq.code})`,
+                  }))}
+                />
                 {unlinkedEquipment.length === 0 && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     No linkable equipment found. Enable "Show in Sensor Module" in equipment
@@ -550,26 +548,22 @@ export const PropertiesPanel: React.FC = () => {
               </h5>
               <div className="space-y-3">
                 {/* Data Mode */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Data Mode
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: '', label: 'Static (manual)' },
-                      { value: 'push', label: 'MQTT Push (WebSocket)' },
-                      { value: 'poll', label: 'HTTP Poll (Interval)' },
-                      { value: 'onChange', label: 'HTTP onChange (ETag)' },
-                    ]}
-                    value={(selectedNode.data as SensorWidgetNodeData).mode || ''}
-                    onChange={(e) =>
-                      updateNodeData(selectedNode.id, {
-                        mode: e.target.value as 'push' | 'poll' | 'onChange' | undefined,
-                      })
-                    }
-                  />
-                </div>
+                <Select
+                  label="Data Mode"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'Static (manual)' },
+                    { value: 'push', label: 'MQTT Push (WebSocket)' },
+                    { value: 'poll', label: 'HTTP Poll (Interval)' },
+                    { value: 'onChange', label: 'HTTP onChange (ETag)' },
+                  ]}
+                  value={(selectedNode.data as SensorWidgetNodeData).mode || ''}
+                  onChange={(e) =>
+                    updateNodeData(selectedNode.id, {
+                      mode: e.target.value as 'push' | 'poll' | 'onChange' | undefined,
+                    })
+                  }
+                />
 
                 {/* MQTT Settings */}
                 {(selectedNode.data as SensorWidgetNodeData).mode === 'push' && (
@@ -589,20 +583,16 @@ export const PropertiesPanel: React.FC = () => {
                         }
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        MQTT Topic
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        placeholder="sensors/temperature"
-                        value={(selectedNode.data as SensorWidgetNodeData).mqttTopic || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, { mqttTopic: e.target.value })
-                        }
-                      />
-                    </div>
+                    <Input
+                      label="MQTT Topic"
+                      fullWidth
+                      type="text"
+                      placeholder="sensors/temperature"
+                      value={(selectedNode.data as SensorWidgetNodeData).mqttTopic || ''}
+                      onChange={(e) =>
+                        updateNodeData(selectedNode.id, { mqttTopic: e.target.value })
+                      }
+                    />
                   </>
                 )}
 
@@ -610,20 +600,14 @@ export const PropertiesPanel: React.FC = () => {
                 {((selectedNode.data as SensorWidgetNodeData).mode === 'poll' ||
                   (selectedNode.data as SensorWidgetNodeData).mode === 'onChange') && (
                   <>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        HTTP URL
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        placeholder="https://api.example.com/sensor/1"
-                        value={(selectedNode.data as SensorWidgetNodeData).httpUrl || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, { httpUrl: e.target.value })
-                        }
-                      />
-                    </div>
+                    <Input
+                      label="HTTP URL"
+                      fullWidth
+                      type="text"
+                      placeholder="https://api.example.com/sensor/1"
+                      value={(selectedNode.data as SensorWidgetNodeData).httpUrl || ''}
+                      onChange={(e) => updateNodeData(selectedNode.id, { httpUrl: e.target.value })}
+                    />
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <RotateCcw className="w-3 h-3 inline mr-1" />
@@ -650,116 +634,93 @@ export const PropertiesPanel: React.FC = () => {
                 )}
 
                 {/* Display Settings */}
-                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Widget Name
-                  </label>
+                <Input
+                  label="Widget Name"
+                  className="pt-2 border-t border-gray-100 dark:border-gray-700"
+                  fullWidth
+                  type="text"
+                  placeholder="Temperature"
+                  value={
+                    (selectedNode.data as SensorWidgetNodeData).widgetName ||
+                    (selectedNode.data as SensorWidgetNodeData).label ||
+                    ''
+                  }
+                  onChange={(e) =>
+                    updateNodeData(selectedNode.id, {
+                      widgetName: e.target.value,
+                      label: e.target.value,
+                    })
+                  }
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input
+                    label="Unit"
                     fullWidth
                     type="text"
-                    placeholder="Temperature"
-                    value={
-                      (selectedNode.data as SensorWidgetNodeData).widgetName ||
-                      (selectedNode.data as SensorWidgetNodeData).label ||
-                      ''
-                    }
+                    placeholder="°C"
+                    value={(selectedNode.data as SensorWidgetNodeData).unit || ''}
+                    onChange={(e) => updateNodeData(selectedNode.id, { unit: e.target.value })}
+                  />
+                  <Input
+                    label="Scale Max"
+                    fullWidth
+                    type="number"
+                    placeholder="100"
+                    value={(selectedNode.data as SensorWidgetNodeData).scaleMax || ''}
                     onChange={(e) =>
                       updateNodeData(selectedNode.id, {
-                        widgetName: e.target.value,
-                        label: e.target.value,
+                        scaleMax: e.target.value ? Number(e.target.value) : undefined,
                       })
                     }
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Unit
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      placeholder="°C"
-                      value={(selectedNode.data as SensorWidgetNodeData).unit || ''}
-                      onChange={(e) => updateNodeData(selectedNode.id, { unit: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Scale Max
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      placeholder="100"
-                      value={(selectedNode.data as SensorWidgetNodeData).scaleMax || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          scaleMax: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Low Threshold (%)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="25"
-                      value={(selectedNode.data as SensorWidgetNodeData).lowThreshold || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          lowThreshold: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      High Threshold (%)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="75"
-                      value={(selectedNode.data as SensorWidgetNodeData).highThreshold || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          highThreshold: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Low Threshold (%)"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    max="100"
+                    placeholder="25"
+                    value={(selectedNode.data as SensorWidgetNodeData).lowThreshold || ''}
+                    onChange={(e) =>
+                      updateNodeData(selectedNode.id, {
+                        lowThreshold: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                  <Input
+                    label="High Threshold (%)"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    max="100"
+                    placeholder="75"
+                    value={(selectedNode.data as SensorWidgetNodeData).highThreshold || ''}
+                    onChange={(e) =>
+                      updateNodeData(selectedNode.id, {
+                        highThreshold: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
                 </div>
 
                 {/* Manual Value (for static mode) */}
                 {!(selectedNode.data as SensorWidgetNodeData).mode && (
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Static Value
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      placeholder="0"
-                      value={(selectedNode.data as SensorWidgetNodeData).value || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          value: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Static Value"
+                    fullWidth
+                    type="number"
+                    placeholder="0"
+                    value={(selectedNode.data as SensorWidgetNodeData).value || ''}
+                    onChange={(e) =>
+                      updateNodeData(selectedNode.id, {
+                        value: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
                 )}
               </div>
             </div>
@@ -795,6 +756,7 @@ export const PropertiesPanel: React.FC = () => {
                       Edit
                     </Button>
                     <button
+                      aria-label={t('a11y.unlinkSensor')}
                       onClick={handleSensorUnlink}
                       className="text-xs text-error-600 dark:text-error-400 hover:text-error-700 dark:hover:text-error-200 flex items-center gap-1 px-2 py-1 hover:bg-error-50 dark:hover:bg-error-900/30 rounded transition-colors"
                     >
@@ -982,20 +944,17 @@ export const PropertiesPanel: React.FC = () => {
                 <p className="text-xs text-error-500">Failed to load devices</p>
               ) : (
                 <>
-                  <select
+                  <Select
                     onChange={(e) => {
                       if (e.target.value) handleEdgeDeviceSelect(e.target.value);
                     }}
                     value=""
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-900"
-                  >
-                    <option value="">Select Edge Device...</option>
-                    {edgeDevices.map((device) => (
-                      <option key={device.id} value={device.id}>
-                        {device.deviceName} ({device.deviceCode}){device.isOnline ? ' ●' : ' ○'}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Select Edge Device..."
+                    options={edgeDevices.map((device) => ({
+                      value: device.id,
+                      label: `${device.deviceName} (${device.deviceCode})${device.isOnline ? ' ●' : ' ○'}`,
+                    }))}
+                  />
                   {edgeDevices.length === 0 && (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       No edge devices registered. Add devices in Edge Device Management.
@@ -1248,14 +1207,13 @@ export const PropertiesPanel: React.FC = () => {
             </label>
             <div className="space-y-1.5 max-h-64 overflow-y-auto">
               {CONNECTION_TYPES.map((type) => (
-                <button
+                <ToggleButton
                   key={type.id}
                   onClick={() => updateEdgeData(selectedEdge.id, { connectionType: type.id })}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
-                    currentConnectionType === type.id
-                      ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={currentConnectionType === type.id}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors"
+                  pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                  idleClassName="border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {/* SVG Line Preview */}
                   <svg width="32" height="12" className="flex-shrink-0">
@@ -1275,7 +1233,7 @@ export const PropertiesPanel: React.FC = () => {
                       {type.label}
                     </span>
                   </div>
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>

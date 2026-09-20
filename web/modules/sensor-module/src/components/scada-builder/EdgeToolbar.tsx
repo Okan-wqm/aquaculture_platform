@@ -4,7 +4,7 @@
  */
 
 import React, { type JSX, useState, useRef } from 'react';
-import { useClickOutside, Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton, useClickOutside } from '@aquaculture/shared-ui';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 
@@ -103,19 +103,18 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
         </span>
         <div className="flex items-center gap-0.5">
           {EDGE_TYPE_OPTIONS.map((opt) => (
-            <button
+            <ToggleButton
               key={opt.type}
               onClick={() => onEdgeTypeChange(opt.type)}
-              className={`flex items-center gap-1 px-2 py-1 rounded transition-colors text-[10px] font-medium ${
-                selectedEdgeType === opt.type
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={selectedEdgeType === opt.type}
+              className="flex items-center gap-1 px-2 py-1 rounded transition-colors text-[10px] font-medium"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100"
               title={opt.label}
             >
               {opt.icon}
               <span>{opt.label}</span>
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>
@@ -166,17 +165,16 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               </span>
             </div>
             {processLines.map((ct) => (
-              <button
+              <ToggleButton
                 key={ct.id}
                 onClick={() => {
                   onConnectionTypeChange(ct.id);
                   setShowConnectionTypes(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors ${
-                  selectedConnectionType === ct.id
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={selectedConnectionType === ct.id}
+                className="w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <svg width="32" height="12" viewBox="0 0 32 12">
                   <line
@@ -190,7 +188,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
                   />
                 </svg>
                 <span className="flex-1 text-left">{ct.label}</span>
-              </button>
+              </ToggleButton>
             ))}
 
             {/* Signal Lines */}
@@ -200,17 +198,16 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               </span>
             </div>
             {signalLines.map((ct) => (
-              <button
+              <ToggleButton
                 key={ct.id}
                 onClick={() => {
                   onConnectionTypeChange(ct.id);
                   setShowConnectionTypes(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors ${
-                  selectedConnectionType === ct.id
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={selectedConnectionType === ct.id}
+                className="w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <svg width="32" height="12" viewBox="0 0 32 12">
                   <line
@@ -224,7 +221,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
                   />
                 </svg>
                 <span className="flex-1 text-left">{ct.label}</span>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}

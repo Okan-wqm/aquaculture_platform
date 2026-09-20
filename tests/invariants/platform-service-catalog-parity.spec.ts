@@ -186,8 +186,15 @@ describe('platform service catalog parity', () => {
       if (entry.requiredSignals.length === 0) {
         continue;
       }
+      if (!deployShipsImage(entry)) {
+        // DEPLOY-HIGH-025: a signal the deploy cannot observe is not asserted
+        // — the entry stays out of the manifest until its image ships.
+        expect(signalsByService.has(entry.serviceId)).toBe(false);
+        continue;
+      }
       expect(signalsByService.get(entry.serviceId)).toEqual([...entry.requiredSignals]);
     }
+    expect(signalsByService.has('sensor-ingestion')).toBe(false);
   });
 
   it('keeps generated catalog deploy image targets in sync with the source catalog', () => {

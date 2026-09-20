@@ -12,7 +12,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Alert, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Alert,
+  Button,
+  Card,
+  Input,
+  PageHeader,
+  Select,
+  Spinner,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { usePlatformSettings, useSavePlatformSettings } from '../hooks/usePlatformConfiguration';
 import {
@@ -652,18 +661,17 @@ const SystemSettingsPage: React.FC = () => {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex space-x-4 overflow-x-auto">
           {TABS.map((tab) => (
-            <button
+            <ToggleButton
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-info-600 text-info-600 dark:text-info-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-              }`}
+              pressed={activeTab === tab.id}
+              className="flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
+              pressedClassName="border-info-600 text-info-600 dark:text-info-400"
+              idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
             >
               <TabIcon name={tab.icon} className="w-4 h-4 mr-2" />
               {tab.label}
-            </button>
+            </ToggleButton>
           ))}
         </nav>
       </div>

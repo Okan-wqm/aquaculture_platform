@@ -17,7 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
-import { colors, Button } from '@aquaculture/shared-ui';
+import { Button, colors, NumberInput, Select, Slider } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -32,9 +32,6 @@ interface SvgFilterEditorProps {
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Human-readable labels for filter types */
 const FILTER_LABELS: Record<SvgFilterType, string> = {
@@ -137,36 +134,28 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {/* Filter type selector */}
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Effect</label>
-            <select
+            <Select
               value={filter.type}
               onChange={(e) => handleTypeChange(e.target.value as SvgFilterType)}
-              className={INPUT_CLASS}
               aria-label="Filter type"
               data-testid="filter-type-select"
-            >
-              {SVG_FILTER_TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {FILTER_LABELS[t]}
-                </option>
-              ))}
-            </select>
+              options={SVG_FILTER_TYPE_OPTIONS.map((t) => ({ value: t, label: FILTER_LABELS[t] }))}
+            />
           </div>
 
           {/* Blur controls */}
           {filter.type === 'blur' && (
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Blur Radius ({filter.blurRadius ?? 4}px)
-              </label>
-              <input
-                type="range"
+              <Slider
+                size="xs"
+                label="Blur Radius"
+                readout="beside-label"
+                unit="px"
                 min={0}
                 max={20}
                 step={0.5}
                 value={filter.blurRadius ?? 4}
-                onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                className="w-full"
-                aria-label="Blur radius"
+                onChange={handleBlurRadius}
                 data-testid="blur-radius"
               />
             </div>
@@ -176,54 +165,40 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {filter.type === 'dropShadow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Blur ({filter.blurRadius ?? 4}px)
-                </label>
-                <input
-                  type="range"
+                <Slider
+                  size="xs"
+                  label="Blur"
+                  readout="beside-label"
+                  unit="px"
                   min={0}
                   max={20}
                   step={0.5}
                   value={filter.blurRadius ?? 4}
-                  onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                  className="w-full"
-                  aria-label="Shadow blur radius"
+                  onChange={handleBlurRadius}
                   data-testid="shadow-blur-radius"
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Offset X
-                  </label>
-                  <input
-                    type="number"
-                    min={-20}
-                    max={20}
-                    step={1}
-                    value={filter.shadowX ?? 2}
-                    onChange={(e) => handleShadowX(Number(e.target.value))}
-                    className={INPUT_CLASS}
-                    aria-label="Shadow offset X"
-                    data-testid="shadow-x"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Offset Y
-                  </label>
-                  <input
-                    type="number"
-                    min={-20}
-                    max={20}
-                    step={1}
-                    value={filter.shadowY ?? 2}
-                    onChange={(e) => handleShadowY(Number(e.target.value))}
-                    className={INPUT_CLASS}
-                    aria-label="Shadow offset Y"
-                    data-testid="shadow-y"
-                  />
-                </div>
+                <NumberInput
+                  label="Offset X"
+                  min={-20}
+                  max={20}
+                  step={1}
+                  value={filter.shadowX ?? 2}
+                  onChange={(e) => handleShadowX(Number(e.target.value))}
+                  aria-label="Shadow offset X"
+                  data-testid="shadow-x"
+                />
+                <NumberInput
+                  label="Offset Y"
+                  min={-20}
+                  max={20}
+                  step={1}
+                  value={filter.shadowY ?? 2}
+                  onChange={(e) => handleShadowY(Number(e.target.value))}
+                  aria-label="Shadow offset Y"
+                  data-testid="shadow-y"
+                />
               </div>
               <ColorAlphaInput
                 color={filter.shadowColor ?? colors.black}
@@ -238,18 +213,16 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {filter.type === 'glow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Intensity ({filter.blurRadius ?? 6}px)
-                </label>
-                <input
-                  type="range"
+                <Slider
+                  size="xs"
+                  label="Intensity"
+                  readout="beside-label"
+                  unit="px"
                   min={0}
                   max={20}
                   step={0.5}
                   value={filter.blurRadius ?? 6}
-                  onChange={(e) => handleBlurRadius(Number(e.target.value))}
-                  className="w-full"
-                  aria-label="Glow intensity"
+                  onChange={handleBlurRadius}
                   data-testid="glow-intensity"
                 />
               </div>

@@ -51,11 +51,12 @@ import {
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
 import {
-  DataTable,
-  type DataTableColumn,
-  PageHeader,
   Button,
+  DataTable,
+  PageHeader,
   Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   ArrowLeftRight,
@@ -1218,32 +1219,30 @@ export const TanksPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('production')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'production'
-              ? 'border-info-500 text-info-600 dark:text-info-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
+          pressed={activeTab === 'production'}
+          className="px-6 py-3 font-medium text-sm border-b-2 transition-colors"
+          pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
         >
           Production Batches
           <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
             {filteredData.filter((t) => t.batchNumber).length}
           </span>
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('cleanerFish')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'cleanerFish'
-              ? 'border-success-500 text-success-600 dark:text-success-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
+          pressed={activeTab === 'cleanerFish'}
+          className="px-6 py-3 font-medium text-sm border-b-2 transition-colors"
+          pressedClassName="border-success-500 text-success-600 dark:text-success-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
         >
           Cleaner Fish
           <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             {filteredData.filter((t) => t.hasCleanerFish).length}
           </span>
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Data Table - Production Tab */}

@@ -30,7 +30,10 @@ import { NatsV3RequestSerializer, NatsV3ResponseDeserializer } from './nats-v3-c
 
 /**
  * Client options. `serviceName` selects the mTLS client cert through
- * {@link buildNatsConnectionOptions} (ADR-015); `inboxPrefix` scopes the reply inbox.
+ * {@link buildNatsConnectionOptions} (ADR-015). `inboxPrefix` is an explicit
+ * override for a reply channel the broker grants separately from the identity's
+ * own inbox (`_INBOXBILLINGCFG` — config replies to billing_service); left
+ * unset, the reply inbox is the one the connection was built with.
  */
 export interface NatsV3ClientOptions {
   serviceName?: string;
@@ -40,6 +43,17 @@ export interface NatsV3ClientOptions {
 export class NatsV3Client extends ClientProxy {
   private natsConnection: NatsConnection | null = null;
   private connectionPromise: Promise<NatsConnection> | null = null;
+  /**
+   * The prefix every request's reply inbox is created under. Decided at
+   * connect(): the registration override, else the prefix the factory put on
+   * the connection — under mTLS the certificate CN's `_INBOX<CN>` (ADR-015),
+   * the only inbox root services.yaml grants that identity. INFRA-HIGH-187:
+   * publish() used to read the registration option alone, so every client
+   * without an override asked nats-core for the default `_INBOX.<nuid>` and
+   * the broker refused the subscription — no ClientProxy request/reply on the
+   * platform ever received its answer under the scoped grants.
+   */
+  private inboxPrefix: string | undefined;
 
   constructor(private readonly options: NatsV3ClientOptions = {}) {
     super();
@@ -54,6 +68,7 @@ export class NatsV3Client extends ClientProxy {
     // ADR-015: factory yields fully-formed ConnectionOptions; spread whole (authMode
     // is an excess field connect() ignores), mirroring the PR-A event-bus pattern.
     const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
+    this.inboxPrefix = this.options.inboxPrefix ?? factoryOptions.inboxPrefix;
     const connectionOptions: ConnectionOptions = { ...factoryOptions };
     this.connectionPromise = connect(connectionOptions);
     try {
@@ -93,7 +108,7 @@ export class NatsV3Client extends ClientProxy {
       const packet = this.assignPacketId(partialPacket);
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
-      const inbox = createInbox(this.options.inboxPrefix);
+      const inbox = createInbox(this.inboxPrefix);
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
       // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned

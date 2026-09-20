@@ -9,22 +9,23 @@
  */
 
 import {
-  useAuthContext,
-  Button,
-  Input,
   Alert,
+  Button,
   Card,
-  Modal,
-  useToast,
-  graphqlClient,
-  Spinner,
-  PageHeader,
-  Tabs,
-  TabPanel,
-  SUPPORTED_LOCALES,
-  type SupportedLocale,
-  useI18n,
   formatErrorForToast,
+  graphqlClient,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  Spinner,
+  SUPPORTED_LOCALES,
+  TabPanel,
+  Tabs,
+  useAuthContext,
+  useI18n,
+  useToast,
+  type SupportedLocale,
 } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -1327,6 +1328,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       </div>
       <button
         type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
         onClick={() => onChange(!enabled)}
         className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
           enabled ? 'bg-info-600' : 'bg-gray-300'
@@ -1558,28 +1562,21 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     />
                   </div>
-                  <div>
-                    <label
-                      htmlFor="quiet-hours-timezone"
-                      className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
-                    >
-                      Timezone
-                    </label>
-                    <select
-                      id="quiet-hours-timezone"
-                      value={notifPrefs.quietHoursTimezone}
-                      onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                    >
-                      <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
-                      <option value="UTC">UTC</option>
-                      <option value="America/New_York">New York (UTC-5)</option>
-                      <option value="America/Los_Angeles">Los Angeles (UTC-8)</option>
-                      <option value="Europe/London">London (UTC+0/+1)</option>
-                      <option value="Europe/Berlin">Berlin (UTC+1/+2)</option>
-                      <option value="Asia/Tokyo">Tokyo (UTC+9)</option>
-                    </select>
-                  </div>
+                  <Select
+                    label="Timezone"
+                    id="quiet-hours-timezone"
+                    value={notifPrefs.quietHoursTimezone}
+                    onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
+                    options={[
+                      { value: 'Europe/Istanbul', label: 'Istanbul (UTC+3)' },
+                      { value: 'UTC', label: 'UTC' },
+                      { value: 'America/New_York', label: 'New York (UTC-5)' },
+                      { value: 'America/Los_Angeles', label: 'Los Angeles (UTC-8)' },
+                      { value: 'Europe/London', label: 'London (UTC+0/+1)' },
+                      { value: 'Europe/Berlin', label: 'Berlin (UTC+1/+2)' },
+                      { value: 'Asia/Tokyo', label: 'Tokyo (UTC+9)' },
+                    ]}
+                  />
                 </div>
               </div>
 

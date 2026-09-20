@@ -6,6 +6,7 @@
 
 import React, { forwardRef, InputHTMLAttributes, useId } from 'react';
 import type { Size } from '../../types';
+import { fieldLabelClass, fieldLabelTextSize } from './fieldLabel';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -134,7 +135,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className={`block text-sm font-medium mb-1 ${
+            className={`block ${fieldLabelTextSize[size]} font-medium mb-1 ${
               isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700 dark:text-gray-300'
             }`}
           >
@@ -256,10 +257,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     return (
       <div className={`${fullWidth ? 'w-full' : ''} ${className}`}>
         {label && (
-          <label
-            htmlFor={textareaId}
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
+          <label htmlFor={textareaId} className={fieldLabelClass(size)}>
             {label}
             {required && <span className="text-error-500 ml-1">*</span>}
           </label>

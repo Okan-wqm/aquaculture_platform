@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Input, NumberInput, Select, Slider } from '@aquaculture/shared-ui';
 import { TransformConfig } from './TransformConfig';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -22,9 +22,6 @@ interface WidgetConfigProps {
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Allowed MIME types for raster image upload */
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -176,64 +173,45 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Object fit */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Object Fit</label>
-        <select
+        <Select
           value={(config.objectFit as string) || 'contain'}
           onChange={(e) => onChange({ objectFit: e.target.value })}
-          className={INPUT_CLASS}
           aria-label="Object fit mode"
-        >
-          {OBJECT_FIT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          options={OBJECT_FIT_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
       </div>
 
       {/* Alt text (accessibility) */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alt Text</label>
-        <input
-          type="text"
-          value={(config.altText as string) || (config.alt as string) || ''}
-          onChange={(e) => onChange({ altText: e.target.value, alt: e.target.value })}
-          placeholder="Describe the image for accessibility"
-          className={INPUT_CLASS}
-          aria-label="Image alt text"
-        />
-      </div>
+      <Input
+        label="Alt Text"
+        value={(config.altText as string) || (config.alt as string) || ''}
+        onChange={(e) => onChange({ altText: e.target.value, alt: e.target.value })}
+        placeholder="Describe the image for accessibility"
+        aria-label="Image alt text"
+      />
 
       {/* Border radius */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Radius</label>
-        <input
-          type="number"
-          min={0}
-          max={50}
-          value={(config.borderRadius as number) ?? 0}
-          onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Border radius"
-        />
-      </div>
+      <NumberInput
+        label="Border Radius"
+        min={0}
+        max={50}
+        value={(config.borderRadius as number) ?? 0}
+        onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+        aria-label="Border radius"
+      />
 
       {/* Opacity */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={(config.opacity as number) ?? 1}
-          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Image opacity"
-        />
-        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-          {Math.round(((config.opacity as number) ?? 1) * 100)}%
-        </div>
-      </div>
+      <Slider
+        size="xs"
+        label="Opacity"
+        readout="below"
+        formatValue={(v) => `${Math.round(v * 100)}%`}
+        min={0}
+        max={1}
+        step={0.05}
+        value={(config.opacity as number) ?? 1}
+        onChange={(opacity) => onChange({ opacity })}
+      />
 
       {/* Transform section */}
       <TransformConfig

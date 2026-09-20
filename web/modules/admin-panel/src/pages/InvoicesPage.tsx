@@ -5,7 +5,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  PageHeader,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
@@ -583,17 +589,16 @@ const InvoicesPage: React.FC = () => {
           </div>
           <div className="flex gap-2 flex-wrap">
             {['all', 'paid', 'pending', 'overdue', 'void'].map((status) => (
-              <button
+              <ToggleButton
                 key={status}
                 onClick={() => handleStatusFilterChange(status)}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
-                  statusFilter === status
-                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                pressed={statusFilter === status}
+                className="px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize"
+                pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+                idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 {status}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>

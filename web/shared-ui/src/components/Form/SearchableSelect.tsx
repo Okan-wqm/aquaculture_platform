@@ -6,6 +6,7 @@
  * Zero external dependencies — React primitives only.
  */
 
+import { useI18n } from '../../i18n';
 import React, { useState, useRef, useEffect, useId, useMemo } from 'react';
 import type { Size } from '../../types';
 import type { SelectOption } from './Select';
@@ -54,6 +55,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   noResultsText = 'No results found',
   maxDisplayOptions = 50,
 }) => {
+  const { t } = useI18n();
   const generatedId = useId();
   const labelId = `${generatedId}-label`;
   const listboxId = `${generatedId}-listbox`;
@@ -177,6 +179,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               <button
                 type="button"
                 onClick={handleClear}
+                aria-label={t('a11y.clearSelection')}
                 className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 tabIndex={-1}
               >

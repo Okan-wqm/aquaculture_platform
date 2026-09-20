@@ -9,7 +9,7 @@ import {
   ChevronRight,
   Lock,
 } from 'lucide-react';
-import { useAuthContext, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, ToggleButton, useAuthContext } from '@aquaculture/shared-ui';
 import {
   GeneralSettings,
   NotificationSettings,
@@ -136,14 +136,13 @@ const TenantSettings: React.FC = () => {
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <nav className="divide-y divide-gray-100 dark:divide-gray-700">
               {visibleSections.map((section) => (
-                <button
+                <ToggleButton
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                    activeSection === section.id
-                      ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={activeSection === section.id}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
+                  pressedClassName="bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300"
+                  idleClassName="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <span
                     className={`flex-shrink-0 ${
@@ -167,7 +166,7 @@ const TenantSettings: React.FC = () => {
                         : 'text-gray-500 dark:text-gray-400'
                     }`}
                   />
-                </button>
+                </ToggleButton>
               ))}
             </nav>
           </div>

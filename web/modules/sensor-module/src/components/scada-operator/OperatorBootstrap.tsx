@@ -87,7 +87,14 @@ class OperatorErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
           }}
         >
           <strong className="text-xl">Operator HMI error</strong>
-          <pre style={{ fontSize: '0.8rem', color: colors.error[100], maxWidth: '600px', whiteSpace: 'pre-wrap' }}>
+          <pre
+            style={{
+              fontSize: '0.8rem',
+              color: colors.error[100],
+              maxWidth: '600px',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
             {this.state.error?.message ?? 'Unknown error'}
           </pre>
         </div>
@@ -180,16 +187,22 @@ function OperatorBootstrapInner({
 }: OperatorBootstrapProps): React.ReactElement {
   // ── Slice actions ──────────────────────────────────────────────────
   const updateAlarmStatus = useScadaPackageStore((s) => s.updateAlarmStatus);
-  const addConsoleOutput   = useScadaPackageStore((s) => s.addConsoleOutput);
-  const setActiveScreen    = useScadaPackageStore((s) => s.setActiveScreen);
-  const openOverlay        = useOperatorStore((s) => s.openOverlay);
+  const addConsoleOutput = useScadaPackageStore((s) => s.addConsoleOutput);
+  const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
+  const openOverlay = useOperatorStore((s) => s.openOverlay);
 
   // ── Socket service (singleton) ─────────────────────────────────────
   const initSocket = useCallback((): (() => void) => {
     const socket = getScadaSocketService();
 
     // Connect (no-op if already connected)
-    socket.connect();
+    // An operator station must keep retrying through a full gateway outage and
+    // self-heal, so it owns the connection persistently; a builder preview
+    // keeps the bounded default.
+    socket.connect({ persistent: true });
+    // Claim shared ownership; the cleanup releases it rather than tearing the
+    // socket down under the live data providers that also hold it.
+    socket.acquire();
 
     // --- ALARM_STATUS → alarmRuntimeSlice.updateAlarmStatus -----------
     // ALARM_STATUS is not in ScadaEventPayloadMap, so we cast to reach
@@ -247,21 +260,19 @@ function OperatorBootstrapInner({
     socket.on(ScadaSocketEvent.COMMAND_OPEN_CARD, onOpenCard);
     socket.on(ScadaSocketEvent.COMMAND_TOAST, onToast);
 
-    // Cleanup: remove listeners and disconnect socket
+    // Cleanup: remove listeners and release shared socket ownership
     return () => {
       socketAny.off(ScadaSocketEvent.ALARM_STATUS, onAlarmStatus as (p: unknown) => void);
       socketAny.off(ScadaSocketEvent.SCRIPT_CONSOLE, onScriptConsole as (p: unknown) => void);
       socket.off(ScadaSocketEvent.COMMAND_SET_VIEW, onSetView);
       socket.off(ScadaSocketEvent.COMMAND_OPEN_CARD, onOpenCard);
       socket.off(ScadaSocketEvent.COMMAND_TOAST, onToast);
-      socket.disconnect();
+      // Release shared ownership instead of disconnecting outright: this
+      // cleanup used to kill the socket while a data provider was still
+      // reading through it, freezing an operator screen on its last values.
+      socket.release();
     };
-  }, [
-    updateAlarmStatus,
-    addConsoleOutput,
-    setActiveScreen,
-    openOverlay,
-  ]);
+  }, [updateAlarmStatus, addConsoleOutput, setActiveScreen, openOverlay]);
 
   // Only connect the live socket when not in simulation mode
   useEffect(() => {
@@ -303,10 +314,10 @@ export const OperatorBootstrap: React.FC<OperatorBootstrapProps> = ({
   const [ready, setReady] = useState(false);
 
   // Store actions for package loading
-  const storePackageId  = useScadaPackageStore((s) => s.packageId);
+  const storePackageId = useScadaPackageStore((s) => s.packageId);
   const setStorePackageId = useScadaPackageStore((s) => s.setPackageId);
   const setOperatorLayout = useScadaPackageStore((s) => s.setOperatorLayout);
-  const operatorLayout    = useScadaPackageStore((s) => s.operatorLayout);
+  const operatorLayout = useScadaPackageStore((s) => s.operatorLayout);
 
   // Use a ref to capture the layout at the time of initialization,
   // preventing the re-render loop caused by operatorLayout being both
@@ -349,10 +360,7 @@ export const OperatorBootstrap: React.FC<OperatorBootstrapProps> = ({
 
   return (
     <OperatorErrorBoundary>
-      <OperatorBootstrapInner
-        packageId={packageId}
-        dataProviderType={dataProviderType}
-      >
+      <OperatorBootstrapInner packageId={packageId} dataProviderType={dataProviderType}>
         {children}
       </OperatorBootstrapInner>
     </OperatorErrorBoundary>

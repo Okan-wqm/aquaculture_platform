@@ -50,28 +50,56 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
   return (
     <div className="space-y-3">
       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Settings</h4>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Retention Period (days)</label>
-        <Input fullWidth type="number" min={1} value={trendConfig.retentionDays} onChange={(e) => onTrendConfigChange?.({ ...trendConfig, retentionDays: Number(e.target.value) })} />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sampling Interval (sec)</label>
-        <Input fullWidth type="number" min={1} value={trendConfig.sampleIntervalSec} onChange={(e) => onTrendConfigChange?.({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })} />
-      </div>
+      <Input
+        label="Retention Period (days)"
+        fullWidth
+        type="number"
+        min={1}
+        value={trendConfig.retentionDays}
+        onChange={(e) =>
+          onTrendConfigChange?.({ ...trendConfig, retentionDays: Number(e.target.value) })
+        }
+      />
+      <Input
+        label="Sampling Interval (sec)"
+        fullWidth
+        type="number"
+        min={1}
+        value={trendConfig.sampleIntervalSec}
+        onChange={(e) =>
+          onTrendConfigChange?.({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
+        }
+      />
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs text-gray-500 dark:text-gray-400">Tags</label>
-          <Button variant="ghost" size="xs" onClick={addTrendTag}>+ Add Tag</Button>
+          <Button variant="ghost" size="xs" onClick={addTrendTag}>
+            + Add Tag
+          </Button>
         </div>
         <div className="space-y-1">
           {tags.map((tag, i) => (
             <div key={i} className="flex items-center gap-1">
-              <Input type="text" value={tag} onChange={(e) => updateTrendTag(i, e.target.value)} placeholder="sensor.temperature" />
-              <Button variant="ghost" size="xs" onClick={() => removeTrendTag(i)} aria-label="Remove trend tag">X</Button>
+              <Input
+                type="text"
+                value={tag}
+                onChange={(e) => updateTrendTag(i, e.target.value)}
+                placeholder="sensor.temperature"
+              />
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => removeTrendTag(i)}
+                aria-label="Remove trend tag"
+              >
+                X
+              </Button>
             </div>
           ))}
           {tags.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">No tags added yet</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">
+              No tags added yet
+            </p>
           )}
         </div>
       </div>

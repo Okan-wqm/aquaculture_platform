@@ -14,7 +14,7 @@
  *   100              [1.1]  [1.2]  [1.3]  [1.4]
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { colors, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, colors, Input, Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import { TriangleAlert } from 'lucide-react';
 
 export interface FeedingMatrix2D {
@@ -288,28 +288,26 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
         <div className="flex items-center gap-4 mb-4">
           <span className="text-sm text-gray-600 dark:text-gray-400">Edit:</span>
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
-            <button
+            <ToggleButton
               type="button"
               onClick={() => setEditMode('rates')}
-              className={`px-4 py-2 text-sm font-medium ${
-                editMode === 'rates'
-                  ? 'bg-info-600 text-white'
-                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={editMode === 'rates'}
+              className="px-4 py-2 text-sm font-medium"
+              pressedClassName="bg-info-600 text-white"
+              idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Feeding Rate (%)
-            </button>
-            <button
+            </ToggleButton>
+            <ToggleButton
               type="button"
               onClick={() => setEditMode('fcr')}
-              className={`px-4 py-2 text-sm font-medium ${
-                editMode === 'fcr'
-                  ? 'bg-info-600 text-white'
-                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={editMode === 'fcr'}
+              className="px-4 py-2 text-sm font-medium"
+              pressedClassName="bg-info-600 text-white"
+              idleClassName="bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               FCR
-            </button>
+            </ToggleButton>
           </div>
         </div>
       )}
@@ -475,32 +473,24 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           Interpolation Calculator (Test your matrix)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
-              Temperature (°C)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              step="0.1"
-              value={testTemp}
-              onChange={(e) => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 13"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
-              Fish Weight (g)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              step="0.1"
-              value={testWeight}
-              onChange={(e) => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 7"
-            />
-          </div>
+          <Input
+            label="Temperature (°C)"
+            fullWidth
+            type="number"
+            step="0.1"
+            value={testTemp}
+            onChange={(e) => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
+            placeholder="e.g. 13"
+          />
+          <Input
+            label="Fish Weight (g)"
+            fullWidth
+            type="number"
+            step="0.1"
+            value={testWeight}
+            onChange={(e) => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
+            placeholder="e.g. 7"
+          />
           <div>
             <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
               Feeding Rate
@@ -548,18 +538,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       </div>
 
       {/* Notes */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Matrix Notes
-        </label>
-        <Textarea
-          fullWidth
-          rows={2}
-          placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
-          value={matrix.notes || ''}
-          onChange={(e) => onChange({ ...matrix, notes: e.target.value })}
-        />
-      </div>
+      <Textarea
+        label="Matrix Notes"
+        fullWidth
+        rows={2}
+        placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
+        value={matrix.notes || ''}
+        onChange={(e) => onChange({ ...matrix, notes: e.target.value })}
+      />
     </div>
   );
 };

@@ -205,22 +205,15 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
             options={ALLOCATION_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
           />
 
-          <div>
-            <label
-              htmlFor="alloc-notes"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Notes (optional)
-            </label>
-            <Textarea
-              fullWidth
-              id="alloc-notes"
-              rows={2}
-              maxLength={500}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
+          <Textarea
+            label="Notes (optional)"
+            fullWidth
+            id="alloc-notes"
+            rows={2}
+            maxLength={500}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </div>
 
         {projectedBiomassKg > 0 && (

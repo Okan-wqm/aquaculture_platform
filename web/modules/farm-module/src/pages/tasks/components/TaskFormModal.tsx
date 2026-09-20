@@ -114,31 +114,23 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Görev Adı *
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
-              required
-            />
-          </div>
+          <Input
+            label="Görev Adı"
+            fullWidth
+            type="text"
+            value={formData.title}
+            onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
+            required
+          />
 
           {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Textarea
-              fullWidth
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              rows={3}
-            />
-          </div>
+          <Textarea
+            label="Açıklama"
+            fullWidth
+            value={formData.description}
+            onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+            rows={3}
+          />
 
           {/* Category + Priority */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -178,62 +170,46 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           {/* Due Date + Time */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Bitiş Tarihi *
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={formData.dueDate}
-                onChange={(e) => setFormData((prev) => ({ ...prev, dueDate: e.target.value }))}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Saat
-              </label>
-              <Input
-                fullWidth
-                type="time"
-                value={formData.dueTime}
-                onChange={(e) => setFormData((prev) => ({ ...prev, dueTime: e.target.value }))}
-              />
-            </div>
+            <Input
+              label="Bitiş Tarihi"
+              fullWidth
+              type="date"
+              value={formData.dueDate}
+              onChange={(e) => setFormData((prev) => ({ ...prev, dueDate: e.target.value }))}
+              required
+            />
+            <Input
+              label="Saat"
+              fullWidth
+              type="time"
+              value={formData.dueTime}
+              onChange={(e) => setFormData((prev) => ({ ...prev, dueTime: e.target.value }))}
+            />
           </div>
 
           {/* Location + Estimated Minutes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Konum
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
-                placeholder="Kafes 1, Tank 2..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Tahmini Süre (dk)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={formData.estimatedMinutes}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    estimatedMinutes: parseInt(e.target.value) || 0,
-                  }))
-                }
-                min={0}
-              />
-            </div>
+            <Input
+              label="Konum"
+              fullWidth
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+              placeholder="Kafes 1, Tank 2..."
+            />
+            <Input
+              label="Tahmini Süre (dk)"
+              fullWidth
+              type="number"
+              value={formData.estimatedMinutes}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  estimatedMinutes: parseInt(e.target.value) || 0,
+                }))
+              }
+              min={0}
+            />
           </div>
 
           {/* Checklist */}

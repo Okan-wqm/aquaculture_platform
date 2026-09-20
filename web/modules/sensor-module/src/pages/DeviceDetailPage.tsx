@@ -5,7 +5,14 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useConfirm, useToast, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
+import {
+  Button,
+  PageHeader,
+  Spinner,
+  ToggleButton,
+  useConfirm,
+  useToast,
+} from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
@@ -423,28 +430,26 @@ const DeviceDetailPage: React.FC = () => {
 
       {/* Tab Bar (L1: Turkish labels) */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('overview')}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'overview'
-              ? 'text-info-600 dark:text-info-400 border-info-600'
-              : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
+          pressed={activeTab === 'overview'}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors"
+          pressedClassName="text-info-600 dark:text-info-400 border-info-600"
+          idleClassName="text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
         >
           <Activity className="w-4 h-4" />
           Genel Bakış
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('channels')}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'channels'
-              ? 'text-info-600 dark:text-info-400 border-info-600'
-              : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
+          pressed={activeTab === 'channels'}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors"
+          pressedClassName="text-info-600 dark:text-info-400 border-info-600"
+          idleClassName="text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
         >
           <Layers className="w-4 h-4" />
           Kanallar
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Tab Content */}

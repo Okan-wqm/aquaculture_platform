@@ -52,6 +52,28 @@ vi.mock('@aquaculture/shared-ui', () => ({
       {children}
     </button>
   ),
+  // The severity chips are ToggleButtons: `pressed` paints AND announces, so
+  // the stub composes the class the same way the primitive does and keeps
+  // aria-pressed, which is what the selected-state assertions read.
+  ToggleButton: ({
+    children,
+    pressed,
+    className,
+    pressedClassName,
+    idleClassName,
+    onClick,
+    ...props
+  }: any) => (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      className={[className, pressed ? pressedClassName : idleClassName].filter(Boolean).join(' ')}
+      onClick={onClick}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
   formatRelativeTime: (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();

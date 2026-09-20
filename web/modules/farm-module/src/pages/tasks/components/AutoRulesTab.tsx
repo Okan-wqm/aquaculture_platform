@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton } from '@aquaculture/shared-ui';
 import { AutoRule, CATEGORY_CONFIG, PRIORITY_CONFIG, TRIGGER_CONFIG } from '../types/task.types';
 import { ArrowRight } from 'lucide-react';
 
@@ -112,18 +112,20 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                   </div>
 
                   {/* Toggle */}
-                  <button
+                  <ToggleButton
+                    aria-label={rule.name}
                     onClick={() => onToggleActive(rule.id)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${
-                      rule.isActive ? 'bg-success-500' : 'bg-gray-300'
-                    }`}
+                    pressed={rule.isActive}
+                    className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0"
+                    pressedClassName="bg-success-500"
+                    idleClassName="bg-gray-300"
                   >
                     <span
                       className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                         rule.isActive ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
-                  </button>
+                  </ToggleButton>
                 </div>
               </div>
             );

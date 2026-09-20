@@ -338,6 +338,7 @@ export function SensorRegistrationWizard({
               <button
                 onClick={() => index < currentStep && goToStep(index)}
                 disabled={index > currentStep}
+                aria-current={index === currentStep ? 'step' : undefined}
                 className={`flex items-center ${
                   index < currentStep ? 'cursor-pointer' : 'cursor-default'
                 }`}

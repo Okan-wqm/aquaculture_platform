@@ -9,11 +9,12 @@ import React, { useState, useMemo } from 'react';
 import { ChevronDown, AlertTriangle, History, Filter } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
 import {
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  DataTable,
+  Select,
   SeverityBadge,
+  Spinner,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -109,19 +110,13 @@ export function VfdAuditLogViewer({
       {/* Filter bar */}
       <div className="mb-4 flex items-center gap-3">
         <Filter className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-        <select
+        <Select
           value={paramFilter}
           onChange={(e) => handleFilterChange(e.target.value)}
-          className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
           aria-label="Filter by parameter"
-        >
-          <option value="">All Parameters</option>
-          {availableParameters.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+          placeholder="All Parameters"
+          options={availableParameters.map((p) => ({ value: p, label: p }))}
+        />
         <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
           {logs.length} log entr{logs.length !== 1 ? 'ies' : 'y'}
         </span>

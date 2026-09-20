@@ -46,6 +46,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
 import type { TenantUserItem } from '@/hooks/useTenantUsers';
 import { useTenantUsers } from '@/hooks/useTenantUsers';
+import { useI18n } from '@/i18n';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { AiPersona } from '@/types/messaging';
 import { getInitials } from '@/utils/messaging-helpers';
@@ -232,6 +233,7 @@ function UserRow({
  * navigation to the new chat room upon channel creation.
  */
 export function NewChatPage(): JSX.Element {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { user: currentUser, tenantId, hasPermission } = useAuth();
   // Tenant-RBAC: only members granted `channels:create_group` see the group
@@ -479,6 +481,7 @@ export function NewChatPage(): JSX.Element {
               />
               {searchQuery && (
                 <button
+                  aria-label={t('a11y.clearSearch')}
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
                 >

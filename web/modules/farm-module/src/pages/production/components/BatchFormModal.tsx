@@ -3,7 +3,15 @@
  * Full form for creating new batches with documents and tank allocations
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Spinner,
+  Textarea,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import {
   useGenerateBatchNumber,
   useAvailableTanks,
@@ -372,15 +380,14 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   : false;
 
           return (
-            <button
+            <ToggleButton
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md relative ${
-                activeTab === tab
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={activeTab === tab}
+              className="px-3 py-1.5 text-sm font-medium rounded-md relative"
+              pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               {tab === 'basic' && 'Basic Info'}
               {tab === 'documents' && 'Documents'}
@@ -389,7 +396,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               {hasError && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-error-500 rounded-full" />
               )}
-            </button>
+            </ToggleButton>
           );
         })}
       </div>
@@ -402,18 +409,14 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Name (optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Batch Name
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
-                    placeholder="Optional display name"
-                  />
-                </div>
+                <Input
+                  label="Batch Name"
+                  fullWidth
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="Optional display name"
+                />
 
                 {/* Input Date */}
                 <div>
@@ -591,45 +594,33 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Strain */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Strain
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.strain}
-                    onChange={(e) => handleInputChange('strain', e.target.value)}
-                    placeholder="e.g., AquaGen"
-                  />
-                </div>
+                <Input
+                  label="Strain"
+                  fullWidth
+                  type="text"
+                  value={formData.strain}
+                  onChange={(e) => handleInputChange('strain', e.target.value)}
+                  placeholder="e.g., AquaGen"
+                />
 
                 {/* Supplier Batch Number */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Supplier Batch #
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.supplierBatchNumber}
-                    onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
-                    placeholder="e.g., HTC-2024-001"
-                  />
-                </div>
+                <Input
+                  label="Supplier Batch #"
+                  fullWidth
+                  type="text"
+                  value={formData.supplierBatchNumber}
+                  onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
+                  placeholder="e.g., HTC-2024-001"
+                />
 
                 {/* Expected Harvest Date */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Expected Harvest
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={formData.expectedHarvestDate}
-                    onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
-                  />
-                </div>
+                <Input
+                  label="Expected Harvest"
+                  fullWidth
+                  type="date"
+                  value={formData.expectedHarvestDate}
+                  onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -726,19 +717,15 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
           {/* Notes Tab */}
           {activeTab === 'notes' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Notes
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.notes}
-                onChange={(e) => handleInputChange('notes', e.target.value)}
-                rows={8}
-                maxLength={5000}
-                placeholder="Additional notes about this batch..."
-              />
-            </div>
+            <Textarea
+              label="Notes"
+              fullWidth
+              value={formData.notes}
+              onChange={(e) => handleInputChange('notes', e.target.value)}
+              rows={8}
+              maxLength={5000}
+              placeholder="Additional notes about this batch..."
+            />
           )}
         </div>
 

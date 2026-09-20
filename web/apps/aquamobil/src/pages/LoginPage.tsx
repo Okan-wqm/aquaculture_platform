@@ -12,8 +12,10 @@ import {
   storeBiometricEmail,
   useWebAuthn,
 } from '@/hooks/useWebAuthn';
+import { useI18n } from '@/i18n';
 
 export function LoginPage(): JSX.Element | null {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { login, loginWithToken, isLoading, isAuthenticated, isMobileDisabled } = useAuth();
   // SSoT: the biometric login flow (challenge → WebAuthn assertion → verify) lives
@@ -227,6 +229,7 @@ export function LoginPage(): JSX.Element | null {
                   className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
                 />
                 <button
+                  aria-label={showPassword ? t('a11y.hidePassword') : t('a11y.showPassword')}
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
@@ -235,7 +238,6 @@ export function LoginPage(): JSX.Element | null {
                 </button>
               </div>
             </div>
-
 
             <button
               type="submit"

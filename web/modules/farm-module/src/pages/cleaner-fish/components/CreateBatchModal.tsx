@@ -180,22 +180,15 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               label,
             }))}
           />
-          <div>
-            <label
-              htmlFor="sourceLocation"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Source Location
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              id="sourceLocation"
-              value={sourceLocation}
-              onChange={(e) => setSourceLocation(e.target.value)}
-              placeholder="e.g., Supplier name or location"
-            />
-          </div>
+          <Input
+            label="Source Location"
+            fullWidth
+            type="text"
+            id="sourceLocation"
+            value={sourceLocation}
+            onChange={(e) => setSourceLocation(e.target.value)}
+            placeholder="e.g., Supplier name or location"
+          />
         </div>
 
         {/* Stocked Date */}
@@ -218,65 +211,44 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
 
         {/* Purchase Cost */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="purchaseCost"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Purchase Cost
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              id="purchaseCost"
-              min="0"
-              step="0.01"
-              value={purchaseCost || ''}
-              onChange={(e) => setPurchaseCost(parseFloat(e.target.value) || undefined)}
-              placeholder="Optional"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="currency"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Currency
-            </label>
-            <Select
-              fullWidth
-              options={[
-                { value: 'NOK', label: 'NOK' },
-                { value: 'EUR', label: 'EUR' },
-                { value: 'USD', label: 'USD' },
-                { value: 'GBP', label: 'GBP' },
-                { value: 'TRY', label: 'TRY' },
-              ]}
-              id="currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Purchase Cost"
+            fullWidth
+            type="number"
+            id="purchaseCost"
+            min="0"
+            step="0.01"
+            value={purchaseCost || ''}
+            onChange={(e) => setPurchaseCost(parseFloat(e.target.value) || undefined)}
+            placeholder="Optional"
+          />
+          <Select
+            label="Currency"
+            fullWidth
+            options={[
+              { value: 'NOK', label: 'NOK' },
+              { value: 'EUR', label: 'EUR' },
+              { value: 'USD', label: 'USD' },
+              { value: 'GBP', label: 'GBP' },
+              { value: 'TRY', label: 'TRY' },
+            ]}
+            id="currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+          />
         </div>
 
         {/* Notes */}
-        <div>
-          <label
-            htmlFor="notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            id="notes"
-            rows={3}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes about this batch..."
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          id="notes"
+          rows={3}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes about this batch..."
+        />
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t">

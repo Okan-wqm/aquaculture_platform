@@ -1,5 +1,12 @@
 import React, { useCallback } from 'react';
-import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -80,27 +87,21 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
   return (
     <div className="space-y-3">
       {/* Title */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <Input
-          fullWidth
-          type="text"
-          value={title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Schedule"
-        />
-      </div>
+      <Input
+        label="Title"
+        fullWidth
+        type="text"
+        value={title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Schedule"
+      />
 
       {/* Show Hour Labels */}
-      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={showHourLabels}
-          onChange={(e) => onChange({ showHourLabels: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show hour labels
-      </label>
+      <Checkbox
+        label="Show hour labels"
+        checked={showHourLabels}
+        onChange={(e) => onChange({ showHourLabels: e.target.checked })}
+      />
 
       {/* Entries */}
       <div>
@@ -150,67 +151,47 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Day + Hours */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Day
-                  </label>
-                  <select
-                    value={entry.day}
-                    onChange={(e) => updateEntry(idx, { day: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {DAY_OPTIONS.map((d) => (
-                      <option key={d.value} value={d.value}>
-                        {d.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Start Hour
-                  </label>
-                  <select
-                    value={entry.startHour}
-                    onChange={(e) => updateEntry(idx, { startHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>
-                        {String(h).padStart(2, '0')}:00
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    End Hour
-                  </label>
-                  <select
-                    value={entry.endHour}
-                    onChange={(e) => updateEntry(idx, { endHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>
-                        {String(h).padStart(2, '0')}:00
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Day"
+                  value={entry.day}
+                  onChange={(e) => updateEntry(idx, { day: Number(e.target.value) })}
+                  options={DAY_OPTIONS.map((d) => ({ value: d.value, label: d.label }))}
+                />
+                <Select
+                  label="Start Hour"
+                  value={entry.startHour}
+                  onChange={(e) => updateEntry(idx, { startHour: Number(e.target.value) })}
+                  options={HOUR_OPTIONS.map((h) => ({
+                    value: h,
+                    label: `${String(h).padStart(2, '0')}:00`,
+                  }))}
+                />
+                <Select
+                  label="End Hour"
+                  value={entry.endHour}
+                  onChange={(e) => updateEntry(idx, { endHour: Number(e.target.value) })}
+                  options={HOUR_OPTIONS.map((h) => ({
+                    value: h,
+                    label: `${String(h).padStart(2, '0')}:00`,
+                  }))}
+                />
               </div>
 
               {/* Color */}
               <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                <label
+                  htmlFor={`scheduler-entry-${idx}-color`}
+                  className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5"
+                >
                   Color
                 </label>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="color"
+                  <ColorInput
+                    id={`scheduler-entry-${idx}-color`}
+                    variant="swatch"
+                    size="xs"
                     value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
-                    className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
                   />
                   <Input
                     type="text"
@@ -222,30 +203,22 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Optional: Tag Name + Tag Value */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Tag Name (optional)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={entry.tagName ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
-                    placeholder="e.g. pump1.schedule"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Tag Value (optional)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={entry.tagValue ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
-                    placeholder="e.g. ON"
-                  />
-                </div>
+                <Input
+                  label="Tag Name (optional)"
+                  fullWidth
+                  type="text"
+                  value={entry.tagName ?? ''}
+                  onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
+                  placeholder="e.g. pump1.schedule"
+                />
+                <Input
+                  label="Tag Value (optional)"
+                  fullWidth
+                  type="text"
+                  value={entry.tagValue ?? ''}
+                  onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
+                  placeholder="e.g. ON"
+                />
               </div>
             </div>
           ))}

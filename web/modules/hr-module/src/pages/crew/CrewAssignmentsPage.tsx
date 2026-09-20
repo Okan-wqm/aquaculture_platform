@@ -23,12 +23,13 @@ import {
   Clock,
 } from 'lucide-react';
 import {
+  Button,
   cn,
   DataTable,
-  type DataTableColumn,
   PageHeader,
-  Button,
   Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { useEmployees, useWorkAreas, useCrewAssignments, useCurrentlyOffshore } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
@@ -383,39 +384,33 @@ export function CrewAssignmentsPage() {
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('overview')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'overview'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'overview'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Overview
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('assignments')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'assignments'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'assignments'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Assignments
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('work-areas')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'work-areas'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'work-areas'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Work Areas
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Tab Content */}

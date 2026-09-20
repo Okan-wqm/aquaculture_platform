@@ -22,7 +22,7 @@ import type {
   VfdAutomationRule,
 } from '../../types/vfd.types';
 import { VfdAutomationRuleForm } from './VfdAutomationRuleForm';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Button, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -201,14 +201,13 @@ export function VfdAutomationRuleList({
                 >
                   Edit
                 </Button>
-                <button
+                <ToggleButton
                   type="button"
                   onClick={() => onToggle(rule.id, !rule.isActive)}
-                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium ${
-                    rule.isActive
-                      ? 'border-warning-200 dark:border-warning-800 text-warning-700 dark:text-warning-300 hover:bg-warning-50 dark:hover:bg-warning-900/30'
-                      : 'border-success-200 dark:border-success-800 text-success-700 dark:text-success-300 hover:bg-success-50 dark:hover:bg-success-900/30'
-                  }`}
+                  pressed={rule.isActive}
+                  className="inline-flex items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium"
+                  pressedClassName="border-warning-200 dark:border-warning-800 text-warning-700 dark:text-warning-300 hover:bg-warning-50 dark:hover:bg-warning-900/30"
+                  idleClassName="border-success-200 dark:border-success-800 text-success-700 dark:text-success-300 hover:bg-success-50 dark:hover:bg-success-900/30"
                   data-testid={`toggle-btn-${rule.id}`}
                 >
                   {rule.isActive ? (
@@ -220,7 +219,7 @@ export function VfdAutomationRuleList({
                       <Power className="h-3 w-3" /> Enable
                     </>
                   )}
-                </button>
+                </ToggleButton>
                 {confirmDeleteId === rule.id ? (
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-error-600 dark:text-error-400">Confirm?</span>

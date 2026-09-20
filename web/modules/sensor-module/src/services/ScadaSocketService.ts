@@ -11,7 +11,12 @@
  */
 
 import { io, type Socket } from 'socket.io-client';
-import { getAccessToken, getTenantId, onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
+import {
+  getAccessToken,
+  getTenantId,
+  onTenantChange,
+  registerLogoutCleanup,
+} from '@aquaculture/shared-ui';
 import {
   ScadaSocketEvent,
   type TagValuesPayload,
@@ -24,18 +29,17 @@ import {
 
 // ── URL resolution (mirrors existing hooks pattern) ──────────────────────────
 
-const SCADA_WS_NAMESPACE: string =
-  (() => {
-    const base =
-      (typeof import.meta !== 'undefined' && (import.meta as unknown as Record<string, unknown>).env != null
-        ? (import.meta as unknown as { env: Record<string, string> }).env.VITE_WS_URL
-        : undefined) ??
-      (typeof window !== 'undefined'
-        ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL
-        : undefined) ??
-      '';
-    return base ? `${base}/scada` : '/scada';
-  })();
+const SCADA_WS_NAMESPACE: string = (() => {
+  const base =
+    (typeof import.meta !== 'undefined' && import.meta.env != null
+      ? import.meta.env.VITE_WS_URL
+      : undefined) ??
+    (typeof window !== 'undefined'
+      ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL
+      : undefined) ??
+    '';
+  return base ? `${base}/scada` : '/scada';
+})();
 
 // ── Backoff config ────────────────────────────────────────────────────────────
 
@@ -92,6 +96,27 @@ export class ScadaSocketService {
    */
   private readonly HEARTBEAT_INTERVAL_MS = 15_000;
 
+  /**
+   * Connection-state subscribers. `_connectionState` was a private field with
+   * a getter and no observer, so React could not learn that the link dropped:
+   * a provider read it during render and an operator screen kept painting the
+   * last values it had. Nothing said the feed was gone.
+   */
+  private connectionStateListeners = new Set<(state: DataProviderConnectionState) => void>();
+
+  /**
+   * Refcount for shared ownership. The operator bootstrap and the two live
+   * data providers all mount over this singleton; the bootstrap's cleanup used
+   * to call disconnect() unconditionally and tore the socket out from under
+   * whichever provider was still reading. Owners pair acquire() with release(),
+   * and only the LAST release disconnects. Logout and tenant-change teardown
+   * still use the unconditional disconnect().
+   */
+  private ownerCount = 0;
+
+  /** True once an owner has asked for unbounded reconnection (operator route). */
+  private persistentReconnect = false;
+
   private constructor() {}
 
   // ── Singleton accessor ────────────────────────────────────────────────────
@@ -114,10 +139,44 @@ export class ScadaSocketService {
   }
 
   /**
+   * Subscribe to connection-state transitions; returns the unsubscribe fn.
+   * The callback fires once immediately with the current state, so a late
+   * subscriber converges without polling — which is what the providers were
+   * reduced to doing while this surface did not exist.
+   */
+  onConnectionStateChange(callback: (state: DataProviderConnectionState) => void): () => void {
+    this.connectionStateListeners.add(callback);
+    callback(this._connectionState);
+    return () => {
+      this.connectionStateListeners.delete(callback);
+    };
+  }
+
+  /** Take shared ownership of the connection. Pair with exactly one release(). */
+  acquire(): void {
+    this.ownerCount += 1;
+  }
+
+  /**
+   * Release shared ownership. Disconnects only when the refcount reaches zero.
+   * Unbounded reconnection is an operator-route property, so it is reset with
+   * the last owner: a builder preview opened later in the same tab must not
+   * inherit Infinity retries.
+   */
+  release(): void {
+    this.ownerCount = Math.max(0, this.ownerCount - 1);
+    if (this.ownerCount === 0) {
+      this.persistentReconnect = false;
+      this.disconnect();
+    }
+  }
+
+  /**
    * Connect (or reconnect) to the /scada namespace.
    * Safe to call multiple times — no-op when already connected.
    */
-  connect(): void {
+  connect(options?: { persistent?: boolean }): void {
+    if (options?.persistent) this.persistentReconnect = true;
     if (this.socket?.connected) return;
 
     const token = getAccessToken();
@@ -152,10 +211,12 @@ export class ScadaSocketService {
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,
-      // Bounded, not Infinity: a full gateway/SCADA outage must not be amplified by
+      // Bounded by default: a full gateway/SCADA outage must not be amplified by
       // an unbounded reconnect storm against a dead upstream. The backoff already
-      // caps the delay; this caps the count so the storm ends.
-      reconnectionAttempts: 20,
+      // caps the delay; this caps the count so the storm ends. An operator
+      // station is the exception — it must keep retrying through the outage and
+      // self-heal, so its owner connects with { persistent: true }.
+      reconnectionAttempts: this.persistentReconnect ? Infinity : 20,
       reconnectionDelay: BACKOFF_BASE_MS,
       reconnectionDelayMax: BACKOFF_MAX_MS,
       randomizationFactor: 0.3,
@@ -194,10 +255,7 @@ export class ScadaSocketService {
    * Register a typed callback for a server-pushed event.
    * Multiple callbacks per event are supported.
    */
-  on<E extends keyof ScadaEventPayloadMap>(
-    event: E,
-    callback: ScadaEventCallback<E>,
-  ): void {
+  on<E extends keyof ScadaEventPayloadMap>(event: E, callback: ScadaEventCallback<E>): void {
     if (!this.listeners[event]) {
       (this.listeners as Record<string, Set<ScadaEventCallback<E>>>)[event] = new Set();
     }
@@ -207,10 +265,7 @@ export class ScadaSocketService {
   /**
    * Remove a previously registered callback.
    */
-  off<E extends keyof ScadaEventPayloadMap>(
-    event: E,
-    callback: ScadaEventCallback<E>,
-  ): void {
+  off<E extends keyof ScadaEventPayloadMap>(event: E, callback: ScadaEventCallback<E>): void {
     (this.listeners[event] as Set<ScadaEventCallback<E>> | undefined)?.delete(callback);
   }
 
@@ -224,10 +279,7 @@ export class ScadaSocketService {
   /**
    * Register a one-time callback that is automatically removed after the first invocation.
    */
-  once<E extends keyof ScadaEventPayloadMap>(
-    event: E,
-    callback: ScadaEventCallback<E>,
-  ): void {
+  once<E extends keyof ScadaEventPayloadMap>(event: E, callback: ScadaEventCallback<E>): void {
     const wrapper: ScadaEventCallback<E> = (payload) => {
       this.off(event, wrapper);
       callback(payload);
@@ -256,7 +308,11 @@ export class ScadaSocketService {
         this.off(ScadaSocketEvent.PIN_RESULT, handler);
         reject(new Error('PIN verification timed out'));
       }, timeoutMs);
-      const handler = (payload: { valid: boolean; expiresAt?: number; lockedUntil?: number }): void => {
+      const handler = (payload: {
+        valid: boolean;
+        expiresAt?: number;
+        lockedUntil?: number;
+      }): void => {
         clearTimeout(timer);
         this.off(ScadaSocketEvent.PIN_RESULT, handler);
         resolve(payload);
@@ -374,10 +430,7 @@ export class ScadaSocketService {
     }
   }
 
-  private _dispatch<E extends keyof ScadaEventPayloadMap>(
-    event: E,
-    payload: unknown,
-  ): void {
+  private _dispatch<E extends keyof ScadaEventPayloadMap>(event: E, payload: unknown): void {
     const callbacks = this.listeners[event] as Set<ScadaEventCallback<E>> | undefined;
     if (!callbacks || callbacks.size === 0) return;
     callbacks.forEach((cb) => {
@@ -392,6 +445,13 @@ export class ScadaSocketService {
   private _setConnectionState(state: DataProviderConnectionState): void {
     if (this._connectionState === state) return;
     this._connectionState = state;
+    this.connectionStateListeners.forEach((callback) => {
+      try {
+        callback(state);
+      } catch (err) {
+        console.error('[ScadaSocketService] Error in connection-state listener:', err);
+      }
+    });
   }
 
   private _resetHeartbeatTimer(): void {
@@ -437,13 +497,7 @@ registerLogoutCleanup(() => {
 // ── Convenience export ────────────────────────────────────────────────────────
 
 /** Pre-bound singleton getter for use in providers/hooks. */
-export const getScadaSocketService = (): ScadaSocketService =>
-  ScadaSocketService.getInstance();
+export const getScadaSocketService = (): ScadaSocketService => ScadaSocketService.getInstance();
 
 // Re-export payload types so consumers do not have to import from the types file.
-export type {
-  TagValuesPayload,
-  TagWritePayload,
-  DaqQueryPayload,
-  DaqResultPayload,
-};
+export type { TagValuesPayload, TagWritePayload, DaqQueryPayload, DaqResultPayload };

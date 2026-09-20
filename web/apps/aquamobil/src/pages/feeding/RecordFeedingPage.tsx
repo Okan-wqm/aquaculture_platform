@@ -11,15 +11,7 @@
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
 import { clsx } from 'clsx';
-import {
-  Check,
-  Package,
-  AlertCircle,
-  Hand,
-  Settings,
-  Radio,
-  Thermometer,
-} from 'lucide-react';
+import { Check, Package, AlertCircle, Hand, Settings, Radio, Thermometer } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -29,6 +21,7 @@ import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import type { FeedingMethod } from '@/generated/graphql';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
@@ -229,11 +222,7 @@ export function RecordFeedingPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        tone="green"
-        icon={Package}
-        title={t('feeding.title')}
-      />
+      <PageHeader tone="green" icon={Package} title={t('feeding.title')} />
 
       {/* FE-MEDIUM-054: dürüst kaynak bandı — plan şifreli offline cache'ten
           geliyorsa işçiye söyle. */}
@@ -258,7 +247,12 @@ export function RecordFeedingPage(): JSX.Element {
         <>
           <SectionTitle>{t('feeding.selectUnit')}</SectionTitle>
           <div className="px-4">
-            <Select label={t('feeding.selectUnit')} hideLabel value={selectedUnitId} onChange={handleUnitChange}>
+            <Select
+              label={t('feeding.selectUnit')}
+              hideLabel
+              value={selectedUnitId}
+              onChange={handleUnitChange}
+            >
               <option value="">{t('feeding.selectUnitPlaceholder')}</option>
               {plans.map((plan) => (
                 <option key={plan.unitId} value={plan.unitId}>
@@ -362,17 +356,17 @@ export function RecordFeedingPage(): JSX.Element {
               const open = isMealOpen(meal);
               const selected = meal.id === selectedMealId;
               return (
-                <button
+                <ToggleButton
                   key={meal.id}
                   disabled={!open}
                   onClick={() => handleMealSelect(meal)}
+                  pressed={selected}
                   className={clsx(
                     'w-full text-left bg-white dark:bg-gray-900 rounded-2xl p-3 border-2 transition-all touch-feedback',
-                    selected
-                      ? 'border-green-500 shadow-glow-green'
-                      : 'border-gray-100 dark:border-gray-800',
                     !open && 'opacity-60',
                   )}
+                  pressedClassName="border-green-500 shadow-glow-green"
+                  idleClassName="border-gray-100 dark:border-gray-800"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -400,7 +394,7 @@ export function RecordFeedingPage(): JSX.Element {
                       </span>
                     )}
                   </div>
-                </button>
+                </ToggleButton>
               );
             })}
           </div>
@@ -428,7 +422,9 @@ export function RecordFeedingPage(): JSX.Element {
                 }}
                 className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
               />
-              <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">kg</p>
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">
+                kg
+              </p>
               <p className="text-center text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {t('feeding.pour.remaining', {
                   kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
@@ -471,22 +467,24 @@ export function RecordFeedingPage(): JSX.Element {
               {FEEDING_METHODS.map((m) => {
                 const Icon = m.Icon;
                 return (
-                  <button
+                  <ToggleButton
                     key={m.value}
                     onClick={() => setFeedingMethod(m.value)}
-                    className={clsx(
-                      'flex flex-col items-center p-4 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                      feedingMethod === m.value
-                        ? 'border-green-500 bg-green-50 dark:bg-green-900/20 shadow-glow-green'
-                        : 'border-gray-100 dark:border-gray-800',
-                    )}
+                    pressed={feedingMethod === m.value}
+                    className="flex flex-col items-center p-4 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900"
+                    pressedClassName="border-green-500 bg-green-50 dark:bg-green-900/20 shadow-glow-green"
+                    idleClassName="border-gray-100 dark:border-gray-800"
                   >
                     <Icon
                       size={24}
-                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}
+                      className={
+                        feedingMethod === m.value
+                          ? 'text-green-600'
+                          : 'text-gray-400 dark:text-gray-500'
+                      }
                     />
                     <span className="text-xs font-semibold mt-1.5">{t(m.labelKey)}</span>
-                  </button>
+                  </ToggleButton>
                 );
               })}
             </div>

@@ -1,9 +1,10 @@
 import { clsx } from 'clsx';
 import { AlertTriangle, BellRing, Check, CheckCheck, RefreshCw } from 'lucide-react';
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
-import {useSearchParams} from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import type { AlertSeverity } from '@/generated/graphql';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
 
@@ -16,12 +17,36 @@ import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
 type StatusFilter = 'unacked' | 'all';
 
 const SEVERITY_STYLES: Record<AlertSeverity, { chip: string; icon: string; label: string }> = {
-  CRITICAL: { chip: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300', icon: 'text-red-600', label: 'Critical' },
-  HIGH: { chip: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300', icon: 'text-orange-600', label: 'High' },
-  MEDIUM: { chip: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon: 'text-amber-600', label: 'Medium' },
-  WARNING: { chip: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300', icon: 'text-yellow-600', label: 'Warning' },
-  LOW: { chip: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', icon: 'text-blue-600', label: 'Low' },
-  INFO: { chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', icon: 'text-gray-500 dark:text-gray-400', label: 'Info' },
+  CRITICAL: {
+    chip: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+    icon: 'text-red-600',
+    label: 'Critical',
+  },
+  HIGH: {
+    chip: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+    icon: 'text-orange-600',
+    label: 'High',
+  },
+  MEDIUM: {
+    chip: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    icon: 'text-amber-600',
+    label: 'Medium',
+  },
+  WARNING: {
+    chip: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    icon: 'text-yellow-600',
+    label: 'Warning',
+  },
+  LOW: {
+    chip: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+    icon: 'text-blue-600',
+    label: 'Low',
+  },
+  INFO: {
+    chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+    icon: 'text-gray-500 dark:text-gray-400',
+    label: 'Info',
+  },
 };
 
 function formatTimeAgo(dateStr: string): string {
@@ -62,12 +87,21 @@ function AlertCard({
         <AlertTriangle size={22} className={clsx('mt-0.5 shrink-0', style.icon)} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className={clsx('px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide', style.chip)}>
+            <span
+              className={clsx(
+                'px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide',
+                style.chip,
+              )}
+            >
               {style.label}
             </span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">{formatTimeAgo(alert.triggeredAt)}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {formatTimeAgo(alert.triggeredAt)}
+            </span>
           </div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 break-words">{alert.message}</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 break-words">
+            {alert.message}
+          </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{alert.ruleName}</p>
           {alert.acknowledged && (
             <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1">
@@ -152,18 +186,16 @@ export function AlertsPage(): JSX.Element {
       {/* Status filter */}
       <div className="px-4 pt-4 flex gap-2">
         {(['unacked', 'all'] as const).map((filter) => (
-          <button
+          <ToggleButton
             key={filter}
             onClick={() => setStatusFilter(filter)}
-            className={clsx(
-              'px-4 min-h-[44px] rounded-xl text-sm font-semibold touch-feedback transition-colors',
-              statusFilter === filter
-                ? 'bg-ocean-600 text-white'
-                : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700',
-            )}
+            pressed={statusFilter === filter}
+            className="px-4 min-h-[44px] rounded-xl text-sm font-semibold touch-feedback transition-colors"
+            pressedClassName="bg-ocean-600 text-white"
+            idleClassName="bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
           >
             {filter === 'unacked' ? 'Needs Action' : 'All'}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -172,7 +204,10 @@ export function AlertsPage(): JSX.Element {
         {isLoading && alerts.length === 0 && (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-28 rounded-2xl bg-gray-200 dark:bg-gray-800 animate-pulse" />
+              <div
+                key={i}
+                className="h-28 rounded-2xl bg-gray-200 dark:bg-gray-800 animate-pulse"
+              />
             ))}
           </div>
         )}
@@ -196,7 +231,9 @@ export function AlertsPage(): JSX.Element {
               {statusFilter === 'unacked' ? 'All alerts acknowledged' : 'No alerts'}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {statusFilter === 'unacked' ? 'Nothing needs your attention right now.' : 'No alarm history in this window.'}
+              {statusFilter === 'unacked'
+                ? 'Nothing needs your attention right now.'
+                : 'No alarm history in this window.'}
             </p>
           </div>
         )}

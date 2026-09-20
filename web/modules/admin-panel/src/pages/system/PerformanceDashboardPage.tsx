@@ -7,13 +7,15 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
+  Checkbox,
   DataTable,
   LineChart,
-  type DataTableColumn,
   PageHeader,
+  Select,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
@@ -351,27 +353,17 @@ export const PerformanceDashboardPage: React.FC = () => {
         description="Real-time sistem performans metrikleri ve servis saglik durumu"
         actions={
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-              />
-              Auto-refresh
-            </label>
-            <select
+            <Checkbox
+              label="Auto-refresh"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            <Select
               aria-label="Time range"
               value={rangeValue}
               onChange={(e) => setRangeValue(e.target.value as TimeRangeValue)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-            >
-              {TIME_RANGES.map((tr) => (
-                <option key={tr.value} value={tr.value}>
-                  {tr.label}
-                </option>
-              ))}
-            </select>
+              options={TIME_RANGES.map((tr) => ({ value: tr.value, label: tr.label }))}
+            />
             <Button onClick={loadData} variant="secondary" disabled={isFetching}>
               <RefreshCw
                 className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`}

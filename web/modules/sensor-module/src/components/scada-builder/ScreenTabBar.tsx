@@ -6,11 +6,12 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import {
-  useConfirm,
-  useClickOutside,
-  colors as themeColors,
   Button,
+  colors as themeColors,
   Input,
+  ToggleButton,
+  useClickOutside,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -192,7 +193,7 @@ const ScreenTabBar: React.FC = () => {
         }
 
         return (
-          <button
+          <ToggleButton
             key={screen.id}
             onClick={() => setActiveScreen(screen.id)}
             onContextMenu={(e) => handleContextMenu(e, screen.id)}
@@ -223,11 +224,10 @@ const ScreenTabBar: React.FC = () => {
               setDraggedTabId(null);
               setDropTargetId(null);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-              isActive
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-200 dark:border-gray-700'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-100'
-            }`}
+            pressed={isActive}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap"
+            pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-200 dark:border-gray-700"
+            idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-100"
             style={{
               opacity: draggedTabId === screen.id ? 0.5 : 1,
               borderLeft:
@@ -238,7 +238,7 @@ const ScreenTabBar: React.FC = () => {
             {getScreenIcon(screen.icon)}
             <span>{screen.name}</span>
             {screen.isDefault && <Star className="w-3 h-3 text-warning-500 fill-warning-400" />}
-          </button>
+          </ToggleButton>
         );
       })}
 

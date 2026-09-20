@@ -936,38 +936,30 @@ export const ChemicalsTab: React.FC = () => {
                       })),
                     ]}
                   />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Unit *
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: 'liter', label: 'Liter' },
-                        { value: 'ml', label: 'Milliliter' },
-                        { value: 'kg', label: 'Kilogram' },
-                        { value: 'gram', label: 'Gram' },
-                        { value: 'piece', label: 'Piece' },
-                      ]}
-                      required
-                      value={formData.unit}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Description
-                  </label>
-                  <Textarea
+                  <Select
+                    label="Unit"
                     fullWidth
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, description: e.target.value }))
-                    }
-                    rows={2}
+                    options={[
+                      { value: 'liter', label: 'Liter' },
+                      { value: 'ml', label: 'Milliliter' },
+                      { value: 'kg', label: 'Kilogram' },
+                      { value: 'gram', label: 'Gram' },
+                      { value: 'piece', label: 'Piece' },
+                    ]}
+                    required
+                    value={formData.unit}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
                   />
                 </div>
+                <Textarea
+                  label="Description"
+                  fullWidth
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  rows={2}
+                />
                 <Select
                   label="Status"
                   value={formData.status}
@@ -987,54 +979,43 @@ export const ChemicalsTab: React.FC = () => {
               optional
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Active Ingredient
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.activeIngredient}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Concentration
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.concentration}
-                    placeholder="e.g., 10%, 50mg/L"
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, concentration: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Formulation
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: '', label: 'Select Formulation' },
-                      { value: 'liquid', label: 'Liquid' },
-                      { value: 'powder', label: 'Powder' },
-                      { value: 'granule', label: 'Granule' },
-                      { value: 'tablet', label: 'Tablet' },
-                      { value: 'gel', label: 'Gel' },
-                      { value: 'emulsion', label: 'Emulsion' },
-                    ]}
-                    value={formData.formulation}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, formulation: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Active Ingredient"
+                  fullWidth
+                  type="text"
+                  value={formData.activeIngredient}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
+                  }
+                />
+                <Input
+                  label="Concentration"
+                  fullWidth
+                  type="text"
+                  value={formData.concentration}
+                  placeholder="e.g., 10%, 50mg/L"
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, concentration: e.target.value }))
+                  }
+                />
+                <Select
+                  label="Formulation"
+                  className="col-span-2"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'Select Formulation' },
+                    { value: 'liquid', label: 'Liquid' },
+                    { value: 'powder', label: 'Powder' },
+                    { value: 'granule', label: 'Granule' },
+                    { value: 'tablet', label: 'Tablet' },
+                    { value: 'gel', label: 'Gel' },
+                    { value: 'emulsion', label: 'Emulsion' },
+                  ]}
+                  value={formData.formulation}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, formulation: e.target.value }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
@@ -1055,126 +1036,96 @@ export const ChemicalsTab: React.FC = () => {
                     }
                     options={storageOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
                   />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Hazard Class
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.hazardClass}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Hazard Class"
+                    fullWidth
+                    type="text"
+                    value={formData.hazardClass}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
+                    }
+                  />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Min Temp (°C)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      value={formData.storageTempMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Max Temp (°C)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      value={formData.storageTempMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Min Humidity (%)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={formData.storageHumidityMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Max Humidity (%)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={formData.storageHumidityMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Min Temp (°C)"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Max Temp (°C)"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Min Humidity (%)"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Max Humidity (%)"
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Signal Word
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: '', label: 'None' },
-                        { value: 'warning', label: 'Warning' },
-                        { value: 'danger', label: 'Danger' },
-                      ]}
-                      value={formData.signalWord}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      MSDS URL
-                    </label>
-                    <Input
-                      fullWidth
-                      type="url"
-                      value={formData.msdsUrl}
-                      placeholder="https://..."
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
-                      }
-                    />
-                  </div>
+                  <Select
+                    label="Signal Word"
+                    fullWidth
+                    options={[
+                      { value: '', label: 'None' },
+                      { value: 'warning', label: 'Warning' },
+                      { value: 'danger', label: 'Danger' },
+                    ]}
+                    value={formData.signalWord}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
+                    }
+                  />
+                  <Input
+                    label="MSDS URL"
+                    fullWidth
+                    type="url"
+                    value={formData.msdsUrl}
+                    placeholder="https://..."
+                    onChange={(e) => setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))}
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -1187,37 +1138,29 @@ export const ChemicalsTab: React.FC = () => {
               optional
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Withdrawal Period (days)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={formData.withdrawalPeriodDays}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        withdrawalPeriodDays: parseInt(e.target.value) || 0,
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Usage Guide URL
-                  </label>
-                  <Input
-                    fullWidth
-                    type="url"
-                    value={formData.usageGuideUrl}
-                    placeholder="https://..."
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Withdrawal Period (days)"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={formData.withdrawalPeriodDays}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      withdrawalPeriodDays: parseInt(e.target.value) || 0,
+                    }))
+                  }
+                />
+                <Input
+                  label="Usage Guide URL"
+                  fullWidth
+                  type="url"
+                  value={formData.usageGuideUrl}
+                  placeholder="https://..."
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 

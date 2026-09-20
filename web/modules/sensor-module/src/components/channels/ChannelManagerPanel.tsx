@@ -7,11 +7,12 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  useConfirm,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  DataTable,
+  Spinner,
+  ToggleButton,
+  useConfirm,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
 import {
@@ -355,17 +356,16 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Veri Kanallari</h3>
         <div className="flex items-center gap-2">
-          <button
+          <ToggleButton
             onClick={() => setShowAIDetection((prev) => !prev)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
-              showAIDetection
-                ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
-                : 'bg-accent-600 text-white hover:bg-accent-700'
-            }`}
+            pressed={showAIDetection}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+            pressedClassName="bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700"
+            idleClassName="bg-accent-600 text-white hover:bg-accent-700"
           >
             <Sparkles className="w-4 h-4" />
             AI Tespit
-          </button>
+          </ToggleButton>
           <Button
             variant="primary"
             leftIcon={<Plus className="w-4 h-4" />}

@@ -7,16 +7,19 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
+  Checkbox,
   DataTable,
   Input,
-  Select,
   Modal,
+  PageHeader,
+  Select,
+  Slider,
+  ToggleButton,
   useConfirm,
   type DataTableColumn,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
@@ -362,17 +365,16 @@ export const FeatureTogglesPage: React.FC = () => {
       align: 'right',
       render: (_value, toggle) => (
         <div className="flex justify-end gap-2">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => handleToggleStatus(toggle)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              toggle.status === 'enabled'
-                ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 hover:bg-error-200 dark:hover:bg-error-800/60'
-                : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60'
-            }`}
+            pressed={toggle.status === 'enabled'}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+            pressedClassName="bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 hover:bg-error-200 dark:hover:bg-error-800/60"
+            idleClassName="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60"
           >
             {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
-          </button>
+          </ToggleButton>
           <button
             type="button"
             onClick={() => openEditModal(toggle)}
@@ -566,75 +568,54 @@ export const FeatureTogglesPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Scope
-                </label>
-                <Select
-                  value={formData.scope}
-                  // Fixed at creation — `UpdateFeatureToggleDto` has no
-                  // `scope`, so an editable control here would offer a
-                  // change the API discards (ADMIN-HIGH-113).
-                  disabled={showEditModal}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      scope: e.target.value as FeatureToggleForm['scope'],
-                    })
-                  }
-                  options={[
-                    { value: 'global', label: 'Global' },
-                    { value: 'tenant', label: 'Tenant' },
-                    { value: 'user', label: 'User' },
-                    // Offered because the API can return it: an
-                    // environment-scoped toggle opened here without this
-                    // option would have been saved back with a different
-                    // scope (ADMIN-MEDIUM-111).
-                    { value: 'environment', label: 'Environment' },
-                  ]}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Category
-                </label>
-                <Input
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder="e.g., ui, analytics, ml"
-                />
-              </div>
+              <Select
+                label="Scope"
+                value={formData.scope}
+                // Fixed at creation — `UpdateFeatureToggleDto` has no
+                // `scope`, so an editable control here would offer a
+                // change the API discards (ADMIN-HIGH-113).
+                disabled={showEditModal}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    scope: e.target.value as FeatureToggleForm['scope'],
+                  })
+                }
+                options={[
+                  { value: 'global', label: 'Global' },
+                  { value: 'tenant', label: 'Tenant' },
+                  { value: 'user', label: 'User' },
+                  // Offered because the API can return it: an
+                  // environment-scoped toggle opened here without this
+                  // option would have been saved back with a different
+                  // scope (ADMIN-MEDIUM-111).
+                  { value: 'environment', label: 'Environment' },
+                ]}
+              />
+              <Input
+                label="Category"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                placeholder="e.g., ui, analytics, ml"
+              />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Rollout Percentage
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.rolloutPercentage}
-                  onChange={(e) =>
-                    setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })
-                  }
-                  className="flex-1"
-                />
-                <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
-              </div>
-            </div>
+            <Slider
+              label="Rollout Percentage"
+              readout="beside-label"
+              unit="%"
+              min={0}
+              max={100}
+              value={formData.rolloutPercentage}
+              onChange={(rolloutPercentage) => setFormData({ ...formData, rolloutPercentage })}
+            />
 
             <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isExperimental}
-                  onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Experimental</span>
-              </label>
+              <Checkbox
+                label="Experimental"
+                checked={formData.isExperimental}
+                onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
+              />
             </div>
           </div>
         </Modal>

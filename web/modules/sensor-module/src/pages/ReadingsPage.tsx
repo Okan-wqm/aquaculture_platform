@@ -30,12 +30,13 @@ import {
 import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
 import {
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
   Button,
+  DataTable,
+  PageHeader,
   Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -570,17 +571,16 @@ const ReadingsPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Yenile
             </button>
-            <button
+            <ToggleButton
               onClick={() => setIsAutoRefresh(!isAutoRefresh)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                isAutoRefresh
-                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-              }`}
+              pressed={isAutoRefresh}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
+              pressedClassName="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
             >
               <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
               {isAutoRefresh ? 'Otomatik (30s)' : 'Manuel'}
-            </button>
+            </ToggleButton>
             <Button variant="primary" leftIcon={<Download className="w-4 h-4" />}>
               Dışa Aktar
             </Button>

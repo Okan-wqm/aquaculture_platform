@@ -20,7 +20,15 @@
  *    retries do not create duplicate movements — critical for accurate inventory.
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Textarea,
+  ToggleButton,
+  useToast,
+} from '@aquaculture/shared-ui';
 import {
   useRecordStockMovement,
   StorageItemType,
@@ -383,19 +391,18 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
-                <button
+                <ToggleButton
                   key={opt.value}
                   type="button"
                   onClick={() => handleItemTypeChange(opt.value)}
                   disabled={!!defaultItemType}
-                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                    itemType === opt.value
-                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  } disabled:opacity-60 disabled:cursor-not-allowed`}
+                  pressed={itemType === opt.value}
+                  className="px-3 py-2 text-sm rounded-lg border transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {opt.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>
@@ -415,20 +422,16 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           />
 
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Quantity *
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
+          <Input
+            label="Quantity *"
+            fullWidth
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="0.00"
+          />
 
           {/* Location fields — shown/hidden based on movement type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -485,33 +488,25 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
           {isReasonRequired && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Reason *
-              </label>
-              <Textarea
-                fullWidth
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Document the reason for this movement (audit trail)"
-              />
-            </div>
+            <Textarea
+              label="Reason *"
+              fullWidth
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Document the reason for this movement (audit trail)"
+            />
           )}
 
           {/* Reference — optional link to external documents (delivery note, PO number) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Reference
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="PO number, delivery note, etc. (optional)"
-            />
-          </div>
+          <Input
+            label="Reference"
+            fullWidth
+            type="text"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="PO number, delivery note, etc. (optional)"
+          />
         </div>
 
         {/* Footer with cancel/submit actions */}

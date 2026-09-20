@@ -1,4 +1,3 @@
-import { clsx } from 'clsx';
 import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,10 +8,10 @@ import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, QueuedPayload } from '@/types';
-
 
 interface FormErrors {
   leaveType?: string;
@@ -131,11 +130,7 @@ export function LeaveRequestPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        tone="violet"
-        icon={CalendarOff}
-        title="New Leave Request"
-      />
+      <PageHeader tone="violet" icon={CalendarOff} title="New Leave Request" />
 
       {/* Error Banner */}
       {errors.general && (
@@ -147,28 +142,32 @@ export function LeaveRequestPage(): JSX.Element {
 
       {/* Leave Type Selector */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Leave Type</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+          Leave Type
+        </h3>
         <div className="grid grid-cols-2 gap-2">
           {leaveTypes.map((type: LeaveType) => (
-            <button
+            <ToggleButton
               key={type.id}
               onClick={() => {
                 setSelectedTypeId(type.id);
                 setErrors((prev) => ({ ...prev, leaveType: undefined }));
               }}
-              className={clsx(
-                'flex flex-col p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                selectedTypeId === type.id
-                  ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
-                  : 'border-gray-100 dark:border-gray-800',
-              )}
+              pressed={selectedTypeId === type.id}
+              className="flex flex-col p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900"
+              pressedClassName="border-violet-500 bg-violet-50 dark:bg-violet-900/20"
+              idleClassName="border-gray-100 dark:border-gray-800"
             >
               <div className="flex items-center gap-2">
                 <LeaveTypeSwatch color={type.color} />
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">{type.name}</span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {type.name}
+                </span>
               </div>
-              {type.isPaid && <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>}
-            </button>
+              {type.isPaid && (
+                <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>
+              )}
+            </ToggleButton>
           ))}
         </div>
         {errors.leaveType && <p className="text-red-500 text-sm mt-2">{errors.leaveType}</p>}
@@ -243,7 +242,9 @@ export function LeaveRequestPage(): JSX.Element {
       {/* Submit Button */}
       <div className="px-4">
         <button
-          onClick={() => { void handleSubmit(); }}
+          onClick={() => {
+            void handleSubmit();
+          }}
           disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}
           className="w-full py-4 bg-gradient-to-r from-violet-600 to-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >

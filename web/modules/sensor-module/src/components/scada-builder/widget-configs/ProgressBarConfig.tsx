@@ -14,7 +14,16 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
-import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Select,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -36,10 +45,8 @@ const LABEL_POSITION_OPTIONS: { value: LabelPosition; label: string }[] = [
   { value: 'below', label: 'Below' },
 ];
 
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
-
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+  const { t } = useI18n();
   const min = (config.min ?? 0) as number;
   const max = (config.max ?? 100) as number;
   const showLabel = (config.showLabel ?? true) as boolean;
@@ -90,106 +97,64 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       />
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Progress"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Progress"
+      />
 
       {/* Range */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <input
-            type="number"
-            value={min}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <input
-            type="number"
-            value={max}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
+        <NumberInput
+          label="Min"
+          value={min}
+          onChange={(e) => onChange({ min: Number(e.target.value) })}
+        />
+        <NumberInput
+          label="Max"
+          value={max}
+          onChange={(e) => onChange({ max: Number(e.target.value) })}
+        />
       </div>
 
       {/* Bar dimensions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Bar Height (px)
-          </label>
-          <input
-            type="number"
-            min={8}
-            max={80}
-            value={barHeight}
-            onChange={(e) => onChange({ height: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Border Radius
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={40}
-            value={borderRadius}
-            onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-            className={INPUT_CLS}
-          />
-        </div>
+        <NumberInput
+          label="Bar Height (px)"
+          min={8}
+          max={80}
+          value={barHeight}
+          onChange={(e) => onChange({ height: Number(e.target.value) })}
+        />
+        <NumberInput
+          label="Border Radius"
+          min={0}
+          max={40}
+          value={borderRadius}
+          onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+        />
       </div>
 
       {/* Label position & toggles */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Label Position
-        </label>
-        <select
-          value={labelPosition}
-          onChange={(e) => onChange({ labelPosition: e.target.value })}
-          className={INPUT_CLS}
-        >
-          {LABEL_POSITION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Label Position"
+        value={labelPosition}
+        onChange={(e) => onChange({ labelPosition: e.target.value })}
+        options={LABEL_POSITION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       <div className="space-y-2">
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showLabel}
-            onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show Label
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showPercentage}
-            onChange={(e) => onChange({ showPercentage: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show Percentage
-        </label>
+        <Checkbox
+          label="Show Label"
+          checked={showLabel}
+          onChange={(e) => onChange({ showLabel: e.target.checked })}
+        />
+        <Checkbox
+          label="Show Percentage"
+          checked={showPercentage}
+          onChange={(e) => onChange({ showPercentage: e.target.checked })}
+        />
       </div>
 
       {/* Colors */}
@@ -198,28 +163,16 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           Colors
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Background
-            </label>
-            <input
-              type="color"
-              value={backgroundColor}
-              onChange={(e) => onChange({ backgroundColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Fill Color
-            </label>
-            <input
-              type="color"
-              value={fillColor}
-              onChange={(e) => onChange({ fillColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
+          <ColorInput
+            label="Background"
+            value={backgroundColor}
+            onChange={(e) => onChange({ backgroundColor: e.target.value })}
+          />
+          <ColorInput
+            label="Fill Color"
+            value={fillColor}
+            onChange={(e) => onChange({ fillColor: e.target.value })}
+          />
         </div>
       </div>
 
@@ -251,11 +204,11 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
                 onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
                 placeholder="Max %"
               />
-              <input
-                type="color"
+              <ColorInput
+                aria-label={t('scada.color.zone')}
+                variant="swatch"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
-                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
               <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>
                 X

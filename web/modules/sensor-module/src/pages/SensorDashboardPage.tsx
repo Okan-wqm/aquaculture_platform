@@ -28,7 +28,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { SensorPicker, WidgetType } from '../components/dashboard/SensorPicker';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Button, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -217,35 +217,25 @@ const SensorDashboardPage: React.FC = () => {
             </div>
 
             {/* Refresh rate selector */}
-            <select
+            <Select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 bg-white dark:bg-gray-900"
               title="Yenileme aralığı"
-            >
-              {REFRESH_RATES.map((rate) => (
-                <option key={rate.value} value={rate.value}>
-                  {rate.label}
-                </option>
-              ))}
-            </select>
+              options={REFRESH_RATES.map((rate) => ({ value: rate.value, label: rate.label }))}
+            />
 
             {/* Live toggle button */}
-            <button
+            <ToggleButton
               onClick={() => setIsLiveMode(!isLiveMode)}
-              className={`
-                flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors
-                ${
-                  isLiveMode
-                    ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }
-              `}
+              pressed={isLiveMode}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors"
+              pressedClassName="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60"
+              idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               title={isLiveMode ? 'Duraklatılmış' : 'Canlı Moda Geç'}
             >
               {isLiveMode ? <Pause size={16} /> : <Play size={16} />}
               <span className="text-sm">{isLiveMode ? 'Duraklat' : 'Başlat'}</span>
-            </button>
+            </ToggleButton>
 
             {/* Alerts button */}
             <Link

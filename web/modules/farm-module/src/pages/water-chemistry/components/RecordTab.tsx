@@ -222,47 +222,33 @@ export const RecordTab: React.FC = () => {
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* System selector (optional) */}
-          <div>
-            <label
-              htmlFor="record-system-select"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              System (optional)
-            </label>
-            <Select
-              id="record-system-select"
-              size="sm"
-              value={selectedSystemId ?? ''}
-              onChange={(e) => handleSystemChange(e.target.value)}
-              options={[
-                { value: '', label: 'All Systems' },
-                ...systems.map((sys) => ({ value: sys.id, label: `${sys.name} (${sys.code})` })),
-              ]}
-            />
-          </div>
+          <Select
+            label="System (optional)"
+            id="record-system-select"
+            size="sm"
+            value={selectedSystemId ?? ''}
+            onChange={(e) => handleSystemChange(e.target.value)}
+            options={[
+              { value: '', label: 'All Systems' },
+              ...systems.map((sys) => ({ value: sys.id, label: `${sys.name} (${sys.code})` })),
+            ]}
+          />
 
           {/* Equipment selector */}
-          <div>
-            <label
-              htmlFor="record-equipment-select"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              Equipment
-            </label>
-            <Select
-              id="record-equipment-select"
-              size="sm"
-              value={selectedEquipmentId ?? ''}
-              onChange={(e) => handleEquipmentChange(e.target.value)}
-              options={[
-                { value: '', label: 'Select equipment...' },
-                ...sortedEquipment.map((eq) => ({
-                  value: eq.id,
-                  label: `${eq.name} (${eq.code})${eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}`,
-                })),
-              ]}
-            />
-          </div>
+          <Select
+            label="Equipment"
+            id="record-equipment-select"
+            size="sm"
+            value={selectedEquipmentId ?? ''}
+            onChange={(e) => handleEquipmentChange(e.target.value)}
+            options={[
+              { value: '', label: 'Select equipment...' },
+              ...sortedEquipment.map((eq) => ({
+                value: eq.id,
+                label: `${eq.name} (${eq.code})${eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}`,
+              })),
+            ]}
+          />
         </div>
       </div>
 

@@ -1,6 +1,15 @@
 import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
-import { colors as themeColors, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  Select,
+  Textarea,
+  ToggleButton,
+  useI18n,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -15,6 +24,7 @@ const ALIGN_OPTIONS = [
 ] as const;
 
 export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+  const { t } = useI18n();
   const hasBg = !!config.backgroundColor && config.backgroundColor !== 'transparent';
 
   return (
@@ -25,44 +35,38 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Text */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text</label>
-        <Textarea
-          className="resize-none"
-          fullWidth
-          rows={3}
-          value={config.text || ''}
-          onChange={(e) => onChange({ text: e.target.value })}
-          placeholder="Text"
-        />
-      </div>
+      <Textarea
+        label="Text"
+        className="resize-none"
+        fullWidth
+        rows={3}
+        value={config.text || ''}
+        onChange={(e) => onChange({ text: e.target.value })}
+        placeholder="Text"
+      />
 
       {/* Font Size & Weight */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-          <Input
-            fullWidth
-            type="number"
-            min={8}
-            max={72}
-            value={config.fontSize ?? 14}
-            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Weight</label>
-          <Select
-            fullWidth
-            options={[
-              { value: 'light', label: 'Light' },
-              { value: 'normal', label: 'Normal' },
-              { value: 'bold', label: 'Bold' },
-            ]}
-            value={config.fontWeight || 'normal'}
-            onChange={(e) => onChange({ fontWeight: e.target.value })}
-          />
-        </div>
+        <Input
+          label="Font Size"
+          fullWidth
+          type="number"
+          min={8}
+          max={72}
+          value={config.fontSize ?? 14}
+          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+        />
+        <Select
+          label="Weight"
+          fullWidth
+          options={[
+            { value: 'light', label: 'Light' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'bold', label: 'Bold' },
+          ]}
+          value={config.fontWeight || 'normal'}
+          onChange={(e) => onChange({ fontWeight: e.target.value })}
+        />
       </div>
 
       {/* Text Align */}
@@ -72,38 +76,34 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         </label>
         <div className="flex gap-1">
           {ALIGN_OPTIONS.map(({ value, icon: Icon }) => (
-            <button
+            <ToggleButton
+              aria-label={`${t('a11y.textAlign')} ${value}`}
               key={value}
               type="button"
               onClick={() => onChange({ textAlign: value })}
-              className={`flex-1 flex items-center justify-center py-2 rounded-lg border text-sm transition-colors ${
-                (config.textAlign || 'left') === value
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={(config.textAlign || 'left') === value}
+              className="flex-1 flex items-center justify-center py-2 rounded-lg border text-sm transition-colors"
+              pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+              idleClassName="border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Icon size={16} />
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>
 
       {/* Vertical Align */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Vertical Alignment
-        </label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'top', label: 'Top' },
-            { value: 'middle', label: 'Middle' },
-            { value: 'bottom', label: 'Bottom' },
-          ]}
-          value={config.verticalAlign || 'middle'}
-          onChange={(e) => onChange({ verticalAlign: e.target.value })}
-        />
-      </div>
+      <Select
+        label="Vertical Alignment"
+        fullWidth
+        options={[
+          { value: 'top', label: 'Top' },
+          { value: 'middle', label: 'Middle' },
+          { value: 'bottom', label: 'Bottom' },
+        ]}
+        value={config.verticalAlign || 'middle'}
+        onChange={(e) => onChange({ verticalAlign: e.target.value })}
+      />
 
       {/* ── Appearance ── */}
       <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide pt-1">
@@ -111,79 +111,58 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Text Color */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text Color</label>
-        <input
-          type="color"
-          value={config.color || themeColors.neutral[800]}
-          onChange={(e) => onChange({ color: e.target.value })}
-          className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-        />
-      </div>
+      <ColorInput
+        label="Text Color"
+        value={config.color || themeColors.neutral[800]}
+        onChange={(e) => onChange({ color: e.target.value })}
+      />
 
       {/* Background Color */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
-          <input
-            type="checkbox"
-            checked={hasBg}
-            onChange={(e) =>
-              onChange({ backgroundColor: e.target.checked ? themeColors.white : 'transparent' })
-            }
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Background
-        </label>
+        <Checkbox
+          label="Background"
+          checked={hasBg}
+          onChange={(e) =>
+            onChange({ backgroundColor: e.target.checked ? themeColors.white : 'transparent' })
+          }
+        />
         {hasBg && (
-          <input
-            type="color"
+          <ColorInput
+            aria-label={t('scada.color.background')}
             value={config.backgroundColor || themeColors.white}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
-            className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
         )}
       </div>
 
       {/* Border */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Border Width
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            min={0}
-            max={5}
-            value={config.borderWidth ?? 0}
-            onChange={(e) => onChange({ borderWidth: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Border Color
-          </label>
-          <input
-            type="color"
-            value={config.borderColor || themeColors.neutral[300]}
-            onChange={(e) => onChange({ borderColor: e.target.value })}
-            className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-          />
-        </div>
-      </div>
-
-      {/* Padding */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Padding (px)</label>
         <Input
+          label="Border Width"
           fullWidth
           type="number"
           min={0}
-          max={32}
-          value={config.padding ?? 8}
-          onChange={(e) => onChange({ padding: Number(e.target.value) })}
+          max={5}
+          value={config.borderWidth ?? 0}
+          onChange={(e) => onChange({ borderWidth: Number(e.target.value) })}
+        />
+        <ColorInput
+          label="Border Color"
+          value={config.borderColor || themeColors.neutral[300]}
+          onChange={(e) => onChange({ borderColor: e.target.value })}
         />
       </div>
+
+      {/* Padding */}
+      <Input
+        label="Padding (px)"
+        fullWidth
+        type="number"
+        min={0}
+        max={32}
+        value={config.padding ?? 8}
+        onChange={(e) => onChange({ padding: Number(e.target.value) })}
+      />
     </div>
   );
 };

@@ -25,7 +25,14 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  PageHeader,
+  Select,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -794,42 +801,41 @@ export const ActivityLogPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
-          <select
+          <Select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-          >
-            <option value="all">All Categories</option>
-            <option value="user_action">User Actions</option>
-            <option value="system_event">System Events</option>
-            <option value="api_call">API Calls</option>
-            <option value="data_access">Data Access</option>
-            <option value="security_event">Security Events</option>
-            <option value="configuration">Config Changes</option>
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Categories' },
+              { value: 'user_action', label: 'User Actions' },
+              { value: 'system_event', label: 'System Events' },
+              { value: 'api_call', label: 'API Calls' },
+              { value: 'data_access', label: 'Data Access' },
+              { value: 'security_event', label: 'Security Events' },
+              { value: 'configuration', label: 'Config Changes' },
+            ]}
+          />
+          <Select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-          >
-            <option value="all">All Severities</option>
-            <option value="info">Info</option>
-            <option value="debug">Debug</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-            <option value="critical">Critical</option>
-          </select>
-          <button
+            options={[
+              { value: 'all', label: 'All Severities' },
+              { value: 'info', label: 'Info' },
+              { value: 'debug', label: 'Debug' },
+              { value: 'warning', label: 'Warning' },
+              { value: 'error', label: 'Error' },
+              { value: 'critical', label: 'Critical' },
+            ]}
+          />
+          <ToggleButton
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg ${
-              showFilters
-                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={showFilters}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg"
+            pressedClassName="border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Filter className="w-4 h-4" />
             Filters
-          </button>
+          </ToggleButton>
         </div>
 
         {/* Advanced Filters */}

@@ -159,6 +159,16 @@ interface PaginationProps {
   };
 }
 
+/**
+ * The page a reader is on is a state, not a colour: `aria-current="page"` is
+ * what a screen reader announces, and it is also what the silent-state ratchet
+ * (FE-HIGH-159) looks for. The two class strings live here so the attribute and
+ * the paint are chosen in one place.
+ */
+const paginationPageSelected = 'px-3 py-1 rounded text-sm bg-primary-600 text-white';
+const paginationPageIdle =
+  'px-3 py-1 rounded text-sm border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800';
+
 const Pagination: React.FC<PaginationProps> = ({ current, pageSize, total, onChange, labels }) => {
   const { t } = useI18n();
   const totalPages = Math.ceil(total / pageSize);
@@ -210,11 +220,8 @@ const Pagination: React.FC<PaginationProps> = ({ current, pageSize, total, onCha
             <button
               key={page}
               onClick={() => onChange(page, pageSize)}
-              className={`px-3 py-1 rounded text-sm ${
-                current === page
-                  ? 'bg-primary-600 text-white'
-                  : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              aria-current={current === page ? 'page' : undefined}
+              className={current === page ? paginationPageSelected : paginationPageIdle}
             >
               {page}
             </button>

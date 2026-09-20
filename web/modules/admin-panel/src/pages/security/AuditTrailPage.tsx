@@ -14,14 +14,19 @@ import {
   AlertTriangle,
   Bell,
   Plus,
-  Edit2,
-  Trash2,
   Archive,
   XCircle,
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  PageHeader,
+  Select,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -682,6 +687,7 @@ export const AuditTrailPage: React.FC = () => {
       render: (_value, entry) => (
         <>
           <button
+            aria-label="View audit entry"
             onClick={() => setSelectedEntry(entry)}
             className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
           >
@@ -792,18 +798,17 @@ export const AuditTrailPage: React.FC = () => {
             { id: 'retention', label: 'Retention Policies', icon: Archive },
             { id: 'alerts', label: 'Alert Rules', icon: Bell },
           ].map(({ id, label, icon: Icon }) => (
-            <button
+            <ToggleButton
               key={id}
               onClick={() => setActiveTab(id as typeof activeTab)}
-              className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
-                activeTab === id
-                  ? 'border-info-500 text-info-600 dark:text-info-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={activeTab === id}
+              className="flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm"
+              pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+              idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               <Icon className="w-4 h-4" />
               {label}
-            </button>
+            </ToggleButton>
           ))}
         </nav>
       </div>
@@ -824,29 +829,29 @@ export const AuditTrailPage: React.FC = () => {
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
                 />
               </div>
-              <select
+              <Select
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Actions</option>
-                <option value="create">Create</option>
-                <option value="read">Read</option>
-                <option value="update">Update</option>
-                <option value="delete">Delete</option>
-                <option value="login">Login</option>
-                <option value="logout">Logout</option>
-              </select>
-              <select
+                options={[
+                  { value: 'all', label: 'All Actions' },
+                  { value: 'create', label: 'Create' },
+                  { value: 'read', label: 'Read' },
+                  { value: 'update', label: 'Update' },
+                  { value: 'delete', label: 'Delete' },
+                  { value: 'login', label: 'Login' },
+                  { value: 'logout', label: 'Logout' },
+                ]}
+              />
+              <Select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Severities</option>
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="critical">Critical</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Severities' },
+                  { value: 'info', label: 'Info' },
+                  { value: 'warning', label: 'Warning' },
+                  { value: 'critical', label: 'Critical' },
+                ]}
+              />
             </div>
           </div>
 
@@ -961,14 +966,6 @@ export const AuditTrailPage: React.FC = () => {
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         Condition: {rule.condition}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { CheckCircle, Search, Shield, RefreshCw } from 'lucide-react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Button, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import { useAssignModuleManager, useTenantUsers } from '../../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import type { DisplayModule } from './ModuleCard';
@@ -101,14 +101,13 @@ const AssignManagerModal: React.FC<{
         ) : (
           <div className="space-y-2">
             {filteredUsers.map((user) => (
-              <button
+              <ToggleButton
                 key={user.id}
                 onClick={() => setSelectedUserId(user.id)}
-                className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
-                  selectedUserId === user.id
-                    ? 'bg-success-100 dark:bg-success-900/40 ring-2 ring-success-500'
-                    : 'hover:bg-success-50 dark:hover:bg-success-900/30'
-                }`}
+                pressed={selectedUserId === user.id}
+                className="w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left"
+                pressedClassName="bg-success-100 dark:bg-success-900/40 ring-2 ring-success-500"
+                idleClassName="hover:bg-success-50 dark:hover:bg-success-900/30"
               >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-sm font-medium">
                   {user.name
@@ -129,7 +128,7 @@ const AssignManagerModal: React.FC<{
                 ) : (
                   <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}
-              </button>
+              </ToggleButton>
             ))}
             {filteredUsers.length === 0 && !loading && (
               <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-4">

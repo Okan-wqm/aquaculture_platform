@@ -30,7 +30,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { useScadaTrend, type TrendQuery } from '../hooks/useScadaTrend';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Button, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Trend Mini Panel
@@ -214,13 +214,12 @@ const SensorScadaPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <ProcessSelector />
           <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
-          <button
+          <ToggleButton
             onClick={() => setIsLiveMode(!isLiveMode)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium text-xs transition-colors ${
-              isLiveMode
-                ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+            pressed={isLiveMode}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium text-xs transition-colors"
+            pressedClassName="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60"
+            idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             {isLiveMode ? (
               <>
@@ -233,7 +232,7 @@ const SensorScadaPage: React.FC = () => {
                 Durduruldu
               </>
             )}
-          </button>
+          </ToggleButton>
           <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1">
@@ -272,6 +271,7 @@ const SensorScadaPage: React.FC = () => {
           {selectedProcess && (
             <button
               onClick={() => setIsTrendOpen((prev) => !prev)}
+              aria-expanded={isTrendOpen}
               title="Trend Goruntule"
               className={`p-1.5 rounded-md transition-colors ${
                 isTrendOpen

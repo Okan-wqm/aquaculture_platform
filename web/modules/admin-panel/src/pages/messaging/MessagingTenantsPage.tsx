@@ -14,12 +14,13 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
-  type DataTableColumn,
   PageHeader,
+  Select,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/adminApi';
@@ -251,28 +252,21 @@ const MessagingTenantsPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
               />
             </div>
-            <div>
-              <label
-                htmlFor="export-format"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
-              >
-                Format
-              </label>
-              <select
-                id="export-format"
-                value={exportForm.format}
-                onChange={(e) =>
-                  setExportForm((prev) => ({
-                    ...prev,
-                    format: e.target.value as 'csv' | 'json',
-                  }))
-                }
-                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="json">JSON</option>
-                <option value="csv">CSV</option>
-              </select>
-            </div>
+            <Select
+              label="Format"
+              id="export-format"
+              value={exportForm.format}
+              onChange={(e) =>
+                setExportForm((prev) => ({
+                  ...prev,
+                  format: e.target.value as 'csv' | 'json',
+                }))
+              }
+              options={[
+                { value: 'json', label: 'JSON' },
+                { value: 'csv', label: 'CSV' },
+              ]}
+            />
             <Button
               onClick={() => void handleExport()}
               disabled={exportLoading || !exportForm.tenantId.trim()}

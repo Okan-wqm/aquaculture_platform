@@ -12,7 +12,7 @@ import {
   useApplyTemplate,
   IndustryTemplate,
 } from '../../hooks/useIndustryTemplates';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Button, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 interface IndustryTemplateSelectorProps {
   onTemplateApplied?: () => void;
@@ -43,14 +43,13 @@ interface TemplateCardProps {
 }
 
 const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSelect }) => (
-  <button
+  <ToggleButton
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
-      isSelected
-        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
-        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
-    }`}
+    pressed={isSelected}
+    className="relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2"
+    pressedClassName="border-info-500 ring-1 ring-info-500 shadow-md"
+    idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
   >
     {/* Selection indicator */}
     {isSelected && (
@@ -78,7 +77,7 @@ const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSel
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
       {template.sensorTypes.length} sensor tipi
     </span>
-  </button>
+  </ToggleButton>
 );
 
 // ============================================================================
@@ -91,14 +90,13 @@ interface CustomCardProps {
 }
 
 const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
-  <button
+  <ToggleButton
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
-      isSelected
-        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
-        : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-    }`}
+    pressed={isSelected}
+    className="relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2"
+    pressedClassName="border-info-500 ring-1 ring-info-500 shadow-md"
+    idleClassName="border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
   >
     {isSelected && (
       <div className="absolute top-3 right-3">
@@ -121,7 +119,7 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
       Ozel kurulum
     </span>
-  </button>
+  </ToggleButton>
 );
 
 // ============================================================================

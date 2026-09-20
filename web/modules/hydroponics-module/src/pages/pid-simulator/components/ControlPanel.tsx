@@ -2,7 +2,7 @@
  * Control Panel - tank values, target ranges, reagent selection, system params
  */
 import React from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Select, Slider, ToggleButton, useI18n } from '@aquaculture/shared-ui';
 import { SimConfig, SimState } from '../simulation/types';
 import { ACID_REAGENTS, BASE_REAGENTS } from '../engine/reagents';
 
@@ -17,37 +17,6 @@ interface ControlPanelProps {
   onDisturbance: (type: 'phUp' | 'phDown' | 'ecUp' | 'ecDown') => void;
 }
 
-const Slider: React.FC<{
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-}> = ({ label, value, min, max, step, unit, onChange, disabled }) => (
-  <div className="mb-2">
-    <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
-      <span>{label}</span>
-      <span className="font-mono">
-        {value.toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0)}
-        {unit || ''}
-      </span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full h-1.5 accent-info-600"
-      disabled={disabled}
-    />
-  </div>
-);
-
 const ControlPanel: React.FC<ControlPanelProps> = ({
   state,
   config,
@@ -58,6 +27,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onReset,
   onDisturbance,
 }) => {
+  const { t } = useI18n();
   const phInRange = state.pH >= config.phMin && state.pH <= config.phMax;
   const ecInRange = state.EC >= config.ecMin && state.EC <= config.ecMax;
   const phColor = phInRange
@@ -142,6 +112,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           pH Range
         </h4>
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="pH Min"
           value={config.phMin}
           min={4.0}
@@ -150,6 +123,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onChange={(v) => onConfigChange({ ...config, phMin: v })}
         />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="pH Max"
           value={config.phMax}
           min={config.phMin + 0.1}
@@ -164,6 +140,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           EC Range
         </h4>
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="EC Min"
           value={config.ecMin}
           min={0.5}
@@ -173,6 +152,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onChange={(v) => onConfigChange({ ...config, ecMin: v })}
         />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="EC Max"
           value={config.ecMax}
           min={config.ecMin + 0.1}
@@ -188,19 +170,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Acid
         </h4>
-        <select
+        <Select
+          size="xs"
+          className="mb-2"
+          aria-label={t('hydroponics.pid.acidReagent')}
           value={config.acidReagent}
           onChange={(e) => onConfigChange({ ...config, acidReagent: e.target.value })}
-          className="w-full mb-2 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
           disabled={running}
-        >
-          {ACID_REAGENTS.map((r) => (
-            <option key={r.name} value={r.name}>
-              {r.formula} - {r.name}
-            </option>
-          ))}
-        </select>
+          options={ACID_REAGENTS.map((r) => ({ value: r.name, label: `${r.formula} - ${r.name}` }))}
+        />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Concentration"
           value={config.acidConc}
           min={10}
@@ -216,19 +198,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Base
         </h4>
-        <select
+        <Select
+          size="xs"
+          className="mb-2"
+          aria-label={t('hydroponics.pid.baseReagent')}
           value={config.baseReagent}
           onChange={(e) => onConfigChange({ ...config, baseReagent: e.target.value })}
-          className="w-full mb-2 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
           disabled={running}
-        >
-          {BASE_REAGENTS.map((r) => (
-            <option key={r.name} value={r.name}>
-              {r.formula} - {r.name}
-            </option>
-          ))}
-        </select>
+          options={BASE_REAGENTS.map((r) => ({ value: r.name, label: `${r.formula} - ${r.name}` }))}
+        />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Concentration"
           value={config.baseConc}
           min={10}
@@ -246,6 +228,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           System
         </h4>
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Volume"
           value={config.volumeL}
           min={10}
@@ -256,6 +241,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           disabled={running}
         />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Temperature"
           value={config.tempC}
           min={10}
@@ -265,6 +253,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onChange={(v) => onConfigChange({ ...config, tempC: v })}
         />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Salinity"
           value={config.salinity}
           min={0}
@@ -281,6 +272,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           Freshwater
         </h4>
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Water ALK"
           value={config.freshwaterALK}
           min={0.5}
@@ -290,6 +284,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onChange={(v) => onConfigChange({ ...config, freshwaterALK: v })}
         />
         <Slider
+          size="xs"
+          readout="beside-label"
+          className="mb-2"
           label="Water pH"
           value={config.freshwaterPH}
           min={5.0}
@@ -374,17 +371,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </h4>
         <div className="flex gap-1">
           {[1, 5, 20, 60].map((s) => (
-            <button
+            <ToggleButton
               key={s}
               onClick={() => onConfigChange({ ...config, speedMultiplier: s })}
-              className={`flex-1 py-1 text-xs rounded border ${
-                config.speedMultiplier === s
-                  ? 'bg-info-600 text-white border-info-700'
-                  : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
+              pressed={config.speedMultiplier === s}
+              className="flex-1 py-1 text-xs rounded border"
+              pressedClassName="bg-info-600 text-white border-info-700"
+              idleClassName="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               {s}x
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

@@ -528,39 +528,31 @@ export const ConsumablesTab: React.FC = () => {
                     error={formData.category ? undefined : fieldErrors.category}
                     options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
                   />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Unit
-                    </label>
-                    <Select
-                      fullWidth
-                      options={[
-                        { value: 'pcs', label: 'Pieces' },
-                        { value: 'm', label: 'Meters' },
-                        { value: 'kg', label: 'Kilograms' },
-                        { value: 'L', label: 'Liters' },
-                        { value: 'box', label: 'Box' },
-                        { value: 'roll', label: 'Roll' },
-                        { value: 'tank', label: 'Tank' },
-                        { value: 'set', label: 'Set' },
-                      ]}
-                      value={formData.unit}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                    />
-                  </div>
+                  <Select
+                    label="Unit"
+                    fullWidth
+                    options={[
+                      { value: 'pcs', label: 'Pieces' },
+                      { value: 'm', label: 'Meters' },
+                      { value: 'kg', label: 'Kilograms' },
+                      { value: 'L', label: 'Liters' },
+                      { value: 'box', label: 'Box' },
+                      { value: 'roll', label: 'Roll' },
+                      { value: 'tank', label: 'Tank' },
+                      { value: 'set', label: 'Set' },
+                    ]}
+                    value={formData.unit}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                  />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Brand
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.brand}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
-                    />
-                  </div>
+                  <Input
+                    label="Brand"
+                    fullWidth
+                    type="text"
+                    value={formData.brand}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
+                  />
                   <Select
                     label="Supplier"
                     placeholder="Select Supplier"
@@ -574,203 +566,160 @@ export const ConsumablesTab: React.FC = () => {
                     }))}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Description
-                  </label>
-                  <Textarea
-                    fullWidth
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, description: e.target.value }))
-                    }
-                    rows={2}
-                  />
-                </div>
+                <Textarea
+                  label="Description"
+                  fullWidth
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  rows={2}
+                />
               </div>
             </CollapsibleSection>
 
             {/* Stock & Price */}
             <CollapsibleSection title="Stock & Price">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Current Stock
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.quantity}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        quantity: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Min Stock
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.minStock}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        minStock: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Unit Price
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.unitPrice}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        unitPrice: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Currency
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: 'NOK', label: 'NOK' },
-                      { value: 'EUR', label: 'EUR' },
-                      { value: 'USD', label: 'USD' },
-                    ]}
-                    value={formData.currency}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
-                  />
-                </div>
+                <Input
+                  label="Current Stock"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.quantity}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      quantity: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Min Stock"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.minStock}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      minStock: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Unit Price"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.unitPrice}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      unitPrice: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Select
+                  label="Currency"
+                  fullWidth
+                  options={[
+                    { value: 'NOK', label: 'NOK' },
+                    { value: 'EUR', label: 'EUR' },
+                    { value: 'USD', label: 'USD' },
+                  ]}
+                  value={formData.currency}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
+                />
               </div>
             </CollapsibleSection>
 
             {/* Storage Conditions */}
             <CollapsibleSection title="Storage Conditions">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Min Temperature (°C)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    value={formData.storageTempMin}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Max Temperature (°C)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    value={formData.storageTempMax}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Min Humidity (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.storageHumidityMin}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Max Humidity (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.storageHumidityMax}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Storage Requirements
-                  </label>
-                  <Textarea
-                    fullWidth
-                    rows={2}
-                    placeholder="Special storage instructions..."
-                    value={formData.storageRequirements}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Min Temperature (°C)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.storageTempMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Max Temperature (°C)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.storageTempMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Min Humidity (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.storageHumidityMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Max Humidity (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.storageHumidityMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Textarea
+                  label="Storage Requirements"
+                  className="col-span-2"
+                  fullWidth
+                  rows={2}
+                  placeholder="Special storage instructions..."
+                  value={formData.storageRequirements}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
             {/* Additional Information */}
             <CollapsibleSection title="Additional Information">
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Notes
-                  </label>
-                  <Textarea
-                    fullWidth
-                    value={formData.notes}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                    rows={3}
-                  />
-                </div>
+                <Textarea
+                  label="Notes"
+                  fullWidth
+                  value={formData.notes}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={3}
+                />
                 <Select
                   label="Status"
                   value={formData.status}

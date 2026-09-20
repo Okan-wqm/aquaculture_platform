@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Select } from '@aquaculture/shared-ui';
 import { AlertCircle, Check, Clock, RefreshCw, Save } from 'lucide-react';
 
 import {
@@ -140,19 +140,13 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
         >
           Language
         </label>
-        <select
+        <Select
           id="tenant-locale"
           value={locale}
           onChange={(e) => setLocale(e.target.value)}
           disabled={!canEdit || isLoading}
-          className={selectClass}
-        >
-          {LOCALE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          options={LOCALE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+        />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Used for report and date formatting. It does not change feeding schedules.
         </p>

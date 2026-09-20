@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Select } from '@aquaculture/shared-ui';
 import { JSONSchema, JSONSchemaProperty, UIGroup } from '../../types/registration.types';
 
 interface DynamicFormRendererProps {
@@ -38,21 +38,15 @@ function FieldRenderer({
     // Handle enum (select)
     if (property.enum) {
       return (
-        <select
+        <Select
           value={(value as string) || ''}
           onChange={(e) =>
             onChange(property.type === 'integer' ? Number(e.target.value) : e.target.value)
           }
-          className={inputClassName}
           disabled={disabled}
-        >
-          <option value="">Select {property.title}</option>
-          {property.enum.map((opt) => (
-            <option key={String(opt)} value={opt}>
-              {String(opt)}
-            </option>
-          ))}
-        </select>
+          placeholder={`Select ${property.title}`}
+          options={property.enum.map((opt) => ({ value: opt, label: String(opt) }))}
+        />
       );
     }
 

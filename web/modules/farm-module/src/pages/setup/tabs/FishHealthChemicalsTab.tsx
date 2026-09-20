@@ -10,14 +10,15 @@
  */
 import React, { useState } from 'react';
 import {
-  FormField,
-  Modal,
-  useToast,
-  DataTable,
-  type DataTableColumn,
   Button,
+  Checkbox,
+  DataTable,
+  FormField,
   Input,
+  Modal,
   Select,
+  useToast,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -610,29 +611,21 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   Composition
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Active Ingredient
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.activeIngredient}
-                      onChange={(e) => updateField('activeIngredient', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Concentration
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={formData.concentration}
-                      onChange={(e) => updateField('concentration', e.target.value)}
-                      placeholder="e.g., 10%, 50mg/L"
-                    />
-                  </div>
+                  <Input
+                    label="Active Ingredient"
+                    fullWidth
+                    type="text"
+                    value={formData.activeIngredient}
+                    onChange={(e) => updateField('activeIngredient', e.target.value)}
+                  />
+                  <Input
+                    label="Concentration"
+                    fullWidth
+                    type="text"
+                    value={formData.concentration}
+                    onChange={(e) => updateField('concentration', e.target.value)}
+                    placeholder="e.g., 10%, 50mg/L"
+                  />
                 </div>
                 <div className="mt-4">
                   <Select
@@ -653,32 +646,22 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   Regulation
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Withdrawal Period (days)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min="0"
-                      value={formData.withdrawalPeriodDays}
-                      onChange={(e) =>
-                        updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
-                      }
-                    />
-                  </div>
+                  <Input
+                    label="Withdrawal Period (days)"
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={formData.withdrawalPeriodDays}
+                    onChange={(e) =>
+                      updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
+                    }
+                  />
                   <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={formData.prescriptionRequired}
-                        onChange={(e) => updateField('prescriptionRequired', e.target.checked)}
-                        className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-                      />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Prescription Required
-                      </span>
-                    </label>
+                    <Checkbox
+                      label="Prescription Required"
+                      checked={formData.prescriptionRequired}
+                      onChange={(e) => updateField('prescriptionRequired', e.target.checked)}
+                    />
                   </div>
                 </div>
               </div>

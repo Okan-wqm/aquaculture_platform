@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton } from '@aquaculture/shared-ui';
 import { Check, CircleAlert, Clock } from 'lucide-react';
 
 // ============================================================================
@@ -338,19 +338,17 @@ export const UrgencyFilter: React.FC<UrgencyFilterProps> = ({
         const count = deadlineCounts[urgency];
 
         return (
-          <button
+          <ToggleButton
             key={urgency}
-            type="button"
+            pressed={isSelected}
             onClick={() => toggleUrgency(urgency)}
-            className={`
-              px-2 py-1 text-xs rounded-full transition-colors
-              ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
-              ${count === 0 ? 'opacity-50' : ''}
-            `}
+            className={`px-2 py-1 text-xs rounded-full transition-colors ${count === 0 ? 'opacity-50' : ''}`}
+            pressedClassName={`${config.bgColor} ${config.iconColor}`}
+            idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
             data-testid={`filter-${urgency}`}
           >
             {config.label} ({count})
-          </button>
+          </ToggleButton>
         );
       })}
     </div>

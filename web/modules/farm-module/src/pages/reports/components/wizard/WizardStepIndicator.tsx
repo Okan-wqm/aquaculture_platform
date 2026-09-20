@@ -41,6 +41,7 @@ export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
               type="button"
               onClick={() => handleStepClick(index)}
               disabled={index >= currentStep}
+              aria-current={index === currentStep ? 'step' : undefined}
               className={`flex items-center ${
                 index < currentStep ? 'cursor-pointer' : 'cursor-default'
               }`}

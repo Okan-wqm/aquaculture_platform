@@ -1101,18 +1101,14 @@ export const WorkOrdersPage: React.FC = () => {
           {!confirmAction?.actionDef.needsReason &&
             confirmAction?.actionDef.action !== 'submit' &&
             confirmAction?.actionDef.action !== 'resume' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Not (opsiyonel)
-                </label>
-                <Textarea
-                  fullWidth
-                  value={actionNotes}
-                  onChange={(e) => setActionNotes(e.target.value)}
-                  rows={2}
-                  placeholder="Ek not ekleyin..."
-                />
-              </div>
+              <Textarea
+                label="Not (opsiyonel)"
+                fullWidth
+                value={actionNotes}
+                onChange={(e) => setActionNotes(e.target.value)}
+                rows={2}
+                placeholder="Ek not ekleyin..."
+              />
             )}
 
           {/* Action Buttons */}

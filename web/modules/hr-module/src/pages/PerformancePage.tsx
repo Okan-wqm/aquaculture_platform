@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
 import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
-import { cn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { cn, PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { ReviewStatus } from '../types';
 
 const PerformancePage: React.FC = () => {
@@ -57,28 +57,24 @@ const PerformancePage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('reviews')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'reviews'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'reviews'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Reviews
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('goals')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'goals'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'goals'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Goals
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Reviews Tab */}

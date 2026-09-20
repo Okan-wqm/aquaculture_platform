@@ -118,44 +118,32 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           />
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Description
-          </label>
-          <Textarea
-            fullWidth
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="Brief description of the department"
-          />
-        </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="Brief description of the department"
+        />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Budget Code
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={budgetCode}
-              onChange={(e) => setBudgetCode(e.target.value)}
-              placeholder="e.g. BC-001"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Cost Center
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={costCenter}
-              onChange={(e) => setCostCenter(e.target.value)}
-              placeholder="e.g. CC-001"
-            />
-          </div>
+          <Input
+            label="Budget Code"
+            fullWidth
+            type="text"
+            value={budgetCode}
+            onChange={(e) => setBudgetCode(e.target.value)}
+            placeholder="e.g. BC-001"
+          />
+          <Input
+            label="Cost Center"
+            fullWidth
+            type="text"
+            value={costCenter}
+            onChange={(e) => setCostCenter(e.target.value)}
+            placeholder="e.g. CC-001"
+          />
         </div>
 
         <div className="flex justify-end gap-3 pt-2">

@@ -5,17 +5,18 @@
  */
 import React, { useState, useMemo } from 'react';
 import {
-  FormField,
-  Modal,
+  AffectedItemGroup,
+  Button,
+  Checkbox,
   DeleteConfirmationDialog,
   DeletePreviewData,
-  AffectedItemGroup,
-  useToast,
-  Spinner,
-  Button,
+  FormField,
   Input,
+  Modal,
   Select,
+  Spinner,
   Textarea,
+  useToast,
 } from '@aquaculture/shared-ui';
 import {
   useSystemList,
@@ -373,15 +374,11 @@ export const SystemsTab: React.FC = () => {
               ...sites.map((site) => ({ value: site.id, label: site.name })),
             ]}
           />
-          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
-            <input
-              type="checkbox"
-              checked={showOrphanedOnly}
-              onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Orphaned only
-          </label>
+          <Checkbox
+            label="Orphaned only"
+            checked={showOrphanedOnly}
+            onChange={(e) => setShowOrphanedOnly(e.target.checked)}
+          />
         </div>
         <Button variant="primary" onClick={handleCreate}>
           <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
@@ -677,58 +674,42 @@ export const SystemsTab: React.FC = () => {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Description
-            </label>
-            <Textarea
-              fullWidth
-              value={formData.description}
-              onChange={(e) => handleFormChange('description', e.target.value)}
-              rows={3}
-              placeholder="System description..."
-            />
-          </div>
+          <Textarea
+            label="Description"
+            fullWidth
+            value={formData.description}
+            onChange={(e) => handleFormChange('description', e.target.value)}
+            rows={3}
+            placeholder="System description..."
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Total Volume (m³)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={formData.totalVolumeM3}
-                onChange={(e) => handleFormChange('totalVolumeM3', e.target.value)}
-                placeholder="0"
-                step="0.01"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Max Biomass (kg)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={formData.maxBiomassKg}
-                onChange={(e) => handleFormChange('maxBiomassKg', e.target.value)}
-                placeholder="0"
-                step="0.01"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Tank Count
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={formData.tankCount}
-                onChange={(e) => handleFormChange('tankCount', e.target.value)}
-                placeholder="0"
-              />
-            </div>
+            <Input
+              label="Total Volume (m³)"
+              fullWidth
+              type="number"
+              value={formData.totalVolumeM3}
+              onChange={(e) => handleFormChange('totalVolumeM3', e.target.value)}
+              placeholder="0"
+              step="0.01"
+            />
+            <Input
+              label="Max Biomass (kg)"
+              fullWidth
+              type="number"
+              value={formData.maxBiomassKg}
+              onChange={(e) => handleFormChange('maxBiomassKg', e.target.value)}
+              placeholder="0"
+              step="0.01"
+            />
+            <Input
+              label="Tank Count"
+              fullWidth
+              type="number"
+              value={formData.tankCount}
+              onChange={(e) => handleFormChange('tankCount', e.target.value)}
+              placeholder="0"
+            />
           </div>
         </div>
       </Modal>

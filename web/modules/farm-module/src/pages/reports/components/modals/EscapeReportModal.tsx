@@ -12,7 +12,7 @@
  * - Dynamic species list from tank data
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Modal, Select, Spinner } from '@aquaculture/shared-ui';
 import { EscapeReport, EscapeCause } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, ESCAPE_CAUSES } from '../../utils/thresholds';
 import { useTanksList } from '../../../../hooks/useTanks';
@@ -611,52 +611,40 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                     </div>
 
                     {/* Batch Number */}
-                    <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                        Batch Number
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={unit.batchNumber}
-                        onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)}
-                        placeholder="e.g., NF-2025-001"
-                        readOnly={!!unit.tankId}
-                      />
-                    </div>
+                    <Input
+                      label="Batch Number"
+                      fullWidth
+                      type="text"
+                      value={unit.batchNumber}
+                      onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)}
+                      placeholder="e.g., NF-2025-001"
+                      readOnly={!!unit.tankId}
+                    />
 
                     {/* Average Weight */}
-                    <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                        Avg Weight (g)
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={unit.avgWeightG || ''}
-                        onChange={(e) =>
-                          handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
-                        }
-                        placeholder="e.g., 3500"
-                      />
-                    </div>
+                    <Input
+                      label="Avg Weight (g)"
+                      fullWidth
+                      type="number"
+                      value={unit.avgWeightG || ''}
+                      onChange={(e) =>
+                        handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
+                      }
+                      placeholder="e.g., 3500"
+                    />
 
                     {/* Original Stock Count */}
-                    <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                        Original Stock
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={unit.originalCount || ''}
-                        onChange={(e) =>
-                          handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
-                        }
-                        placeholder="Stock before escape"
-                        readOnly={!!unit.tankId}
-                      />
-                    </div>
+                    <Input
+                      label="Original Stock"
+                      fullWidth
+                      type="number"
+                      value={unit.originalCount || ''}
+                      onChange={(e) =>
+                        handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
+                      }
+                      placeholder="Stock before escape"
+                      readOnly={!!unit.tankId}
+                    />
 
                     {/* Escaped Count */}
                     <div>
@@ -719,43 +707,29 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
             Recovery Efforts
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                Recaptured Count
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                value={formData.recapturedCount}
-                onChange={(e) => handleChange('recapturedCount', e.target.value)}
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                Recapture Method
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.recaptureMethod}
-                onChange={(e) => handleChange('recaptureMethod', e.target.value)}
-                placeholder="e.g., Seine netting"
-              />
-            </div>
+            <Input
+              label="Recaptured Count"
+              fullWidth
+              type="number"
+              value={formData.recapturedCount}
+              onChange={(e) => handleChange('recapturedCount', e.target.value)}
+              placeholder="0"
+            />
+            <Input
+              label="Recapture Method"
+              fullWidth
+              type="text"
+              value={formData.recaptureMethod}
+              onChange={(e) => handleChange('recaptureMethod', e.target.value)}
+              placeholder="e.g., Seine netting"
+            />
           </div>
           <div className="mt-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={formData.ongoingEfforts}
-                onChange={(e) => handleChange('ongoingEfforts', e.target.checked)}
-                className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Recovery efforts ongoing
-              </span>
-            </label>
+            <Checkbox
+              label="Recovery efforts ongoing"
+              checked={formData.ongoingEfforts}
+              onChange={(e) => handleChange('ongoingEfforts', e.target.checked)}
+            />
           </div>
         </div>
 
@@ -765,17 +739,11 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
             Environmental Impact
           </h4>
           <div className="space-y-3">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={formData.nearbyWildPopulations}
-                onChange={(e) => handleChange('nearbyWildPopulations', e.target.checked)}
-                className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Nearby wild salmon populations
-              </span>
-            </label>
+            <Checkbox
+              label="Nearby wild salmon populations"
+              checked={formData.nearbyWildPopulations}
+              onChange={(e) => handleChange('nearbyWildPopulations', e.target.checked)}
+            />
 
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">

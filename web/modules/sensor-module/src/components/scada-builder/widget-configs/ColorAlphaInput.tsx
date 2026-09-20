@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { colors, Input } from '@aquaculture/shared-ui';
+import { ColorInput, Input, Slider, colors, useI18n } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -37,6 +37,7 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
   onChange,
   label,
 }) => {
+  const { t } = useI18n();
   const handleColorChange = useCallback(
     (newColor: string) => {
       onChange(newColor, alpha);
@@ -80,12 +81,11 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
       )}
       <div className="flex items-center gap-1.5">
         {/* Color swatch -- opens native color picker */}
-        <input
-          type="color"
+        <ColorInput
+          variant="swatch"
+          aria-label={label ? `${label} color swatch` : 'Color swatch'}
           value={color.length === 7 ? color : colors.black}
           onChange={(e) => handleColorChange(e.target.value)}
-          className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer flex-shrink-0 p-0"
-          aria-label={label ? `${label} color swatch` : 'Color swatch'}
           data-testid="color-swatch"
         />
 
@@ -102,15 +102,15 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
         />
 
         {/* Alpha slider */}
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          aria-label={label ? `${label} ${t('scada.color.opacity')}` : t('scada.color.opacity')}
+          className="flex-1 min-w-[40px]"
           min={0}
           max={1}
           step={0.01}
           value={alpha}
-          onChange={(e) => handleAlphaSlider(Number(e.target.value))}
-          className="flex-1 min-w-[40px]"
-          aria-label={label ? `${label} opacity` : 'Color opacity'}
+          onChange={handleAlphaSlider}
           data-testid="alpha-slider"
         />
 

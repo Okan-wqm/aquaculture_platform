@@ -178,7 +178,11 @@ describe('CustomSvgConfig', () => {
       <CustomSvgConfig config={{ opacity: 0.7 }} onChange={onChange} />,
     );
 
-    const opacitySlider = screen.getByLabelText('SVG opacity');
+    // The accessible name is now the VISIBLE label, bound to the control. It used
+    // to be an aria-label ('SVG opacity') that overrode a visible 'Opacity' sitting
+    // above it unbound, so a screen reader heard a different name than a sighted
+    // user read (FE-MEDIUM-157). Same assertion, corrected expectation.
+    const opacitySlider = screen.getByLabelText('Opacity');
     expect(opacitySlider).toBeDefined();
   });
 

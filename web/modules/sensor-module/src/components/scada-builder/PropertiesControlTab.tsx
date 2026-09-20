@@ -121,21 +121,17 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
       {/* Emergency Stop Config */}
       <div className="pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
         <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400">Emergency Stop</h5>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Hold Duration (ms)
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            min={500}
-            step={100}
-            value={emergencyStop.holdDuration}
-            onChange={(e) =>
-              onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })
-            }
-          />
-        </div>
+        <Input
+          label="Hold Duration (ms)"
+          fullWidth
+          type="number"
+          min={500}
+          step={100}
+          value={emergencyStop.holdDuration}
+          onChange={(e) =>
+            onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })
+          }
+        />
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs text-gray-500 dark:text-gray-400">Affected Tags</label>

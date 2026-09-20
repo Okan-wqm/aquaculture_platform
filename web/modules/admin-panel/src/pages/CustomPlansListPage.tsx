@@ -8,16 +8,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
   Input,
   Modal,
+  PageHeader,
+  Select,
+  Spinner,
   useConfirm,
   type DataTableColumn,
-  Spinner,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/adminApi';
 import type { PaginatedResult } from '../services/types/common';
@@ -551,17 +552,11 @@ const CustomPlansListPage: React.FC = () => {
             />
           </div>
           <div>
-            <select
-              className="w-full sm:w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-info-500"
+            <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as CustomPlanStatus | 'all')}
-            >
-              {STATUS_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+              options={STATUS_FILTERS.map((f) => ({ value: f.value, label: f.label }))}
+            />
           </div>
         </div>
       </Card>

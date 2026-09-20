@@ -162,6 +162,9 @@ const MobileSettings: React.FC = () => {
   }
 
   type MobileUserRow = (typeof mobileUsers)[number];
+  /** A toggle in a grid cell has no visible label; its name is the column and the row. */
+  const rowName = (user: MobileUserRow): string =>
+    `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
   const featureColumns: DataTableColumn<MobileUserRow>[] = FEATURE_COLUMNS.map((col) => ({
     key: col.key,
     header: col.label,
@@ -170,6 +173,7 @@ const MobileSettings: React.FC = () => {
       <SmallToggle
         enabled={getUserSettings(user.id).allowedFeatures[col.key]}
         onChange={(v) => updateUserMobileSetting(user.id, col.key, v)}
+        label={`${col.label} — ${rowName(user)}`}
       />
     ),
   }));
@@ -178,8 +182,7 @@ const MobileSettings: React.FC = () => {
       key: 'user',
       header: 'User',
       render: (_value, user) => {
-        const name =
-          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+        const name = rowName(user);
         return (
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-xs font-semibold">
@@ -206,6 +209,7 @@ const MobileSettings: React.FC = () => {
         <SmallToggle
           enabled={getUserSettings(user.id).isMobileEnabled}
           onChange={(v) => updateUserMobileSetting(user.id, 'isMobileEnabled', v)}
+          label={`Mobile — ${rowName(user)}`}
         />
       ),
     },

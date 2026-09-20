@@ -570,6 +570,26 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     expect(offenders).toEqual([]);
   });
 
+  it('every generated user may answer the requests it receives (allow_responses) — the reply leg of request/reply', () => {
+    // INFRA-HIGH-188: a requester's inbox is `_INBOX<ITS CN>.<nuid>` and no
+    // responder holds a publish grant for another identity's inbox root, so
+    // under the scoped grants every reply was refused (`Publish Violation …
+    // "_INBOXGATEWAY_SERVICE.…"`, proven on nats:2.10.24) and every caller
+    // timed out. `allow_responses` lets a user publish only to the reply
+    // subject of a request it actually received; the generator emits it for
+    // every identity, so each user block must carry exactly one.
+    const block = loadNatsConfAuthBlock();
+    const users = [...block.matchAll(/user:\s*"CN=([A-Za-z0-9_-]+)"/g)].map((m) => m[1]);
+    expect(users.length).toBe(servicesDoc.services.length);
+    const blocks = block.split(/(?=user:\s*"CN=)/).filter((chunk) => chunk.includes('user: "CN='));
+    const missing = blocks
+      .filter(
+        (chunk) => !/allow_responses:\s*\{\s*max:\s*\d+,\s*expires:\s*"\d+[smh]"\s*\}/.test(chunk),
+      )
+      .map((chunk) => /user:\s*"CN=([A-Za-z0-9_-]+)"/.exec(chunk)?.[1] ?? '<unparsed>');
+    expect(missing).toEqual([]);
+  });
+
   it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {
     // SensorReading/SensorMetricIngested route to AQUACULTURE_TELEMETRY;
     // every identity allowed to publish them on the events root must ALSO

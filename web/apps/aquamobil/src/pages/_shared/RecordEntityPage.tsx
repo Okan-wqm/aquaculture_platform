@@ -31,8 +31,10 @@ import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader, type PageHeaderTone } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
+import { useI18n } from '@/i18n';
 import type { OperationType, QueuedPayload } from '@/types';
 
 /* ---------------------------------------------------------------- */
@@ -267,12 +269,22 @@ export function RecordEntityPage<
   if (step === 'confirm') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader tone={theme.headerTone} icon={Icon} title={confirmTitle} back={() => setStep('entry')} />
+        <PageHeader
+          tone={theme.headerTone}
+          icon={Icon}
+          title={confirmTitle}
+          back={() => setStep('entry')}
+        />
 
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3 className={clsx('text-sm font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
+              <h3
+                className={clsx(
+                  'text-sm font-bold uppercase tracking-wider',
+                  theme.summaryHeaderText,
+                )}
+              >
                 {summaryHeading}
               </h3>
             </div>
@@ -284,7 +296,9 @@ export function RecordEntityPage<
 
         <div className="px-4 mt-6 space-y-3">
           <button
-            onClick={() => { void handleSubmit(); }}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isSubmitting}
             className={clsx(
               'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
@@ -363,16 +377,20 @@ export function RecordEntityPage<
               error={errors.tank}
             >
               <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
+              {tanks
+                ?.filter((t) => t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                  </option>
+                ))}
+              {tanks
+                ?.filter((t) => !t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id} disabled>
+                    {t.name} (No active batch)
+                  </option>
+                ))}
             </Select>
           </div>
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
@@ -456,13 +474,17 @@ export function QuantityStepper(props: {
   theme: Pick<RecordEntityTheme, 'surfaceSoftBg' | 'surfaceBorder' | 'accentText'>;
 }): JSX.Element {
   const { label, value, onChange, max, error, theme } = props;
+  const { t } = useI18n();
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+        {label}
+      </h3>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
         <div className="flex items-center justify-center gap-5">
           <button
+            aria-label={`${t('a11y.decrease')} ${label}`}
             type="button"
             onClick={() => onChange(clamp(value - 1))}
             disabled={value <= 1}
@@ -478,6 +500,7 @@ export function QuantityStepper(props: {
             {value}
           </div>
           <button
+            aria-label={`${t('a11y.increase')} ${label}`}
             type="button"
             onClick={() => onChange(clamp(value + 1))}
             disabled={value >= max}
@@ -512,24 +535,29 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+        {label}
+      </h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
           return (
-            <button
+            <ToggleButton
               key={r.value}
               onClick={() => onChange(r.value)}
-              className={clsx(
-                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
-                selected
-                  ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
-                  : 'border-gray-100 dark:border-gray-800',
+              pressed={selected}
+              className="flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900"
+              pressedClassName={clsx(
+                theme.selectionBorder,
+                theme.surfaceSoftBg,
+                theme.selectionGlow,
+                'scale-[1.02]',
               )}
+              idleClassName="border-gray-100 dark:border-gray-800"
             >
               <span className="text-xl mb-1">{r.emoji}</span>
               <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
-            </button>
+            </ToggleButton>
           );
         })}
       </div>

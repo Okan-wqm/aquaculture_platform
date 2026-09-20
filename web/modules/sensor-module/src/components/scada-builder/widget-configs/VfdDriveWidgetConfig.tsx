@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Select } from '@aquaculture/shared-ui';
+import { Checkbox, Input, NumberInput, Select } from '@aquaculture/shared-ui';
 import { VfdBrand, VFD_BRAND_NAMES } from '../../../types/vfd.types';
 
 /* ------------------------------------------------------------------ */
@@ -61,10 +61,6 @@ const DEMO_STATES: Array<{ value: string; label: string }> = [
 /*  Shared input class                                                 */
 /* ------------------------------------------------------------------ */
 
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
-const SELECT_CLS = INPUT_CLS;
-const LABEL_CLS = 'block text-xs text-gray-500 dark:text-gray-400 mb-1';
 const SECTION_CLS = 'pt-2 border-t border-gray-100 dark:border-gray-700';
 
 /* ------------------------------------------------------------------ */
@@ -90,29 +86,21 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
   return (
     <div className="space-y-3" data-testid="vfd-drive-widget-config">
       {/* VFD Device ID */}
-      <div>
-        <label className={LABEL_CLS}>VFD Device ID</label>
-        <input
-          type="text"
-          value={(config.vfdDeviceId as string) || ''}
-          onChange={handleChange('vfdDeviceId')}
-          placeholder="Enter VFD device ID..."
-          className={INPUT_CLS}
-          data-testid="vfd-config-device-id"
-        />
-      </div>
+      <Input
+        label="VFD Device ID"
+        value={(config.vfdDeviceId as string) || ''}
+        onChange={handleChange('vfdDeviceId')}
+        placeholder="Enter VFD device ID..."
+        data-testid="vfd-config-device-id"
+      />
 
       {/* Display Name */}
-      <div>
-        <label className={LABEL_CLS}>Display Name</label>
-        <input
-          type="text"
-          value={(config.displayName as string) || ''}
-          onChange={handleChange('displayName')}
-          placeholder="VFD Drive"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Display Name"
+        value={(config.displayName as string) || ''}
+        onChange={handleChange('displayName')}
+        placeholder="VFD Drive"
+      />
 
       {/* Brand */}
       <Select
@@ -134,17 +122,13 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       />
 
       {/* Max Frequency */}
-      <div>
-        <label className={LABEL_CLS}>Max Frequency (Hz)</label>
-        <input
-          type="number"
-          min={1}
-          max={200}
-          value={(config.maxFrequency as number) || 60}
-          onChange={handleChange('maxFrequency')}
-          className={INPUT_CLS}
-        />
-      </div>
+      <NumberInput
+        label="Max Frequency (Hz)"
+        min={1}
+        max={200}
+        value={(config.maxFrequency as number) || 60}
+        onChange={handleChange('maxFrequency')}
+      />
 
       {/* ---- Parameter Visibility ---- */}
       <div className={SECTION_CLS}>
@@ -182,44 +166,32 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           Warning Thresholds
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className={LABEL_CLS}>Temp (&#176;C)</label>
-            <input
-              type="number"
-              min={0}
-              max={150}
-              value={(config.tempWarningThreshold as number) || 70}
-              onChange={handleChange('tempWarningThreshold')}
-              className={INPUT_CLS}
-              data-testid="vfd-config-temp-threshold"
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLS}>Current (A)</label>
-            <input
-              type="number"
-              min={0}
-              max={500}
-              value={(config.currentWarningThreshold as number) || 15}
-              onChange={handleChange('currentWarningThreshold')}
-              className={INPUT_CLS}
-              data-testid="vfd-config-current-threshold"
-            />
-          </div>
+          <NumberInput
+            label="Temp (°C)"
+            min={0}
+            max={150}
+            value={(config.tempWarningThreshold as number) || 70}
+            onChange={handleChange('tempWarningThreshold')}
+            data-testid="vfd-config-temp-threshold"
+          />
+          <NumberInput
+            label="Current (A)"
+            min={0}
+            max={500}
+            value={(config.currentWarningThreshold as number) || 15}
+            onChange={handleChange('currentWarningThreshold')}
+            data-testid="vfd-config-current-threshold"
+          />
         </div>
       </div>
 
       {/* Quick Actions Toggle */}
       <div className={SECTION_CLS}>
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.showQuickActions !== false}
-            onChange={handleCheckbox('showQuickActions')}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-500 focus:ring-info-500"
-          />
-          Show Quick Actions (Start/Stop/Program)
-        </label>
+        <Checkbox
+          label="Show Quick Actions (Start/Stop/Program)"
+          checked={config.showQuickActions !== false}
+          onChange={handleCheckbox('showQuickActions')}
+        />
       </div>
 
       {/* Demo State (for builder preview) */}

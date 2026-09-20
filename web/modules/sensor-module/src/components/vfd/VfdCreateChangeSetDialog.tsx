@@ -128,22 +128,15 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Description */}
-        <div>
-          <label
-            htmlFor="cs-desc"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description *
-          </label>
-          <Textarea
-            fullWidth
-            id="cs-desc"
-            value={draftDescription}
-            onChange={(e) => setDraftDescription(e.target.value)}
-            rows={3}
-            placeholder="Describe the purpose of these parameter changes..."
-          />
-        </div>
+        <Textarea
+          label="Description *"
+          fullWidth
+          id="cs-desc"
+          value={draftDescription}
+          onChange={(e) => setDraftDescription(e.target.value)}
+          rows={3}
+          placeholder="Describe the purpose of these parameter changes..."
+        />
 
         {/* Schedule */}
         <div>

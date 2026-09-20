@@ -19723,7 +19723,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a46e2642f7b6ca80f3a267ea8903b895a43773425002858e9e162a23eda264da",
+      "content_sha256": "9b4707514ef77465b927fdf14956d1858b427d821ab706e5c00711db44c86185",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -37672,6 +37672,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-20-aria-suite-changed-merge-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -39995,7 +40001,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "372ee7d06717ed738d34b784f8df90cc53e29e08f8a43a5ffeaa734b61c1a236",
+      "content_sha256": "cafe227f8267e6610f89a5daebd206650ba0cfca3b7b4c45aa89bb00d8d7bff6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -40030,7 +40036,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1b19386c2f4a1348af59cdb10f197ee31486f44e1a81c41cb9c8ecc9e7f8ab34",
+      "content_sha256": "97a3f3fa9f7072678b0d7618ecd9773664bed5a36199e9abb932b785e412b5da",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -42524,6 +42530,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/nats/__tests__/nats-connection.factory.inbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-v3-client.inbox.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48273,6 +48285,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-repin-wiring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
       "prettier_managed": true
     },
@@ -51687,6 +51705,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/ToggleButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
       "prettier_managed": true
     },
@@ -51760,6 +51784,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/Switch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ToggleButton.tsx",
       "prettier_managed": true
     },
     {
@@ -60630,6 +60660,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useScadaConnectionState.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts",
       "prettier_managed": true
     },
@@ -61159,6 +61195,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.heartbeat.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.shared-ownership.test.ts",
       "prettier_managed": true
     },
     {
@@ -62604,6 +62646,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Form/ColorInput.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Form/DatePicker.tsx",
       "prettier_managed": true
     },
@@ -62617,6 +62665,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Form/DynamicSpecificationForm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/fieldLabel.ts",
       "prettier_managed": true
     },
     {
@@ -62682,6 +62736,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Form/Slider.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/index.ts",
       "prettier_managed": true
     },
@@ -62712,6 +62772,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/SuderraSidebar.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/DesktopOnlyNotice.tsx",
       "prettier_managed": true
     },
@@ -62730,6 +62796,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/navIcons.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
       "prettier_managed": true
     },
@@ -62737,6 +62809,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/SuderraSidebar.tsx",
       "prettier_managed": true
     },
     {
@@ -62899,6 +62977,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/__tests__/ToggleButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/ToggleButton.tsx",
       "prettier_managed": true
     },
     {

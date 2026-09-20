@@ -235,17 +235,14 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                   </div>
 
                   {/* Biomass (calculated) */}
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Biomass (kg)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      readOnly
-                      value={calculateBiomass(allocation.quantity).toFixed(2)}
-                    />
-                  </div>
+                  <Input
+                    label="Biomass (kg)"
+                    className="col-span-2"
+                    fullWidth
+                    type="text"
+                    readOnly
+                    value={calculateBiomass(allocation.quantity).toFixed(2)}
+                  />
 
                   {/* Remove Button */}
                   <div className="col-span-2 flex items-end justify-end">

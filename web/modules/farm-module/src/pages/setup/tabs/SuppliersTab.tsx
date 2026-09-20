@@ -633,17 +633,13 @@ export const SuppliersTab: React.FC = () => {
                     />
                   </FormField>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Code
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.code}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                  />
-                </div>
+                <Input
+                  label="Code"
+                  fullWidth
+                  type="text"
+                  value={formData.code}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <Select
@@ -675,55 +671,39 @@ export const SuppliersTab: React.FC = () => {
               onToggle={() => toggleSection('contact')}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Contact Person
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.contactPerson}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Email
-                  </label>
-                  <Input
-                    fullWidth
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
+                <Input
+                  label="Contact Person"
+                  fullWidth
+                  type="text"
+                  value={formData.contactPerson}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
+                  }
+                />
+                <Input
+                  label="Email"
+                  fullWidth
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Phone
-                  </label>
-                  <Input
-                    fullWidth
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Website
-                  </label>
-                  <Input
-                    fullWidth
-                    type="url"
-                    value={formData.website}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
-                    placeholder="https://..."
-                  />
-                </div>
+                <Input
+                  label="Phone"
+                  fullWidth
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                />
+                <Input
+                  label="Website"
+                  fullWidth
+                  type="url"
+                  value={formData.website}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
+                  placeholder="https://..."
+                />
               </div>
             </CollapsibleSection>
 
@@ -733,41 +713,29 @@ export const SuppliersTab: React.FC = () => {
               isOpen={openSections.address}
               onToggle={() => toggleSection('address')}
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Street Address
-                </label>
+              <Input
+                label="Street Address"
+                fullWidth
+                type="text"
+                value={formData.street}
+                onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))}
+                placeholder="Street, Building, No."
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <Input
+                  label="City"
                   fullWidth
                   type="text"
-                  value={formData.street}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))}
-                  placeholder="Street, Building, No."
+                  value={formData.city}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
                 />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    City
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.city}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Country
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.country}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
-                  />
-                </div>
+                <Input
+                  label="Country"
+                  fullWidth
+                  type="text"
+                  value={formData.country}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
+                />
               </div>
             </CollapsibleSection>
 
@@ -849,18 +817,14 @@ export const SuppliersTab: React.FC = () => {
               isOpen={openSections.notes}
               onToggle={() => toggleSection('notes')}
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Notes
-                </label>
-                <Textarea
-                  fullWidth
-                  value={formData.notes}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  rows={4}
-                  placeholder="Additional notes about the supplier..."
-                />
-              </div>
+              <Textarea
+                label="Notes"
+                fullWidth
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={4}
+                placeholder="Additional notes about the supplier..."
+              />
             </CollapsibleSection>
 
             {/*

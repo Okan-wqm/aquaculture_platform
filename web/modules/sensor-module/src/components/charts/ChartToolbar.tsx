@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
 import { ChartExport } from './ChartExport';
 import type {
   ChartLine,
@@ -244,7 +244,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         {showPresetMenu && (
           <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[110px]">
             {PRESETS.map((preset) => (
-              <button
+              <ToggleButton
                 key={preset.value}
                 type="button"
                 onClick={() => {
@@ -252,14 +252,13 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                   setShowPresetMenu(false);
                   setShowCustom(false);
                 }}
-                className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
-                  currentPreset?.value === preset.value
-                    ? 'font-semibold text-info-600 dark:text-info-400'
-                    : 'text-gray-700 dark:text-gray-300'
-                }`}
+                pressed={currentPreset?.value === preset.value}
+                className="block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors"
+                pressedClassName="font-semibold text-info-600 dark:text-info-400"
+                idleClassName="text-gray-700 dark:text-gray-300"
               >
                 {preset.label}
-              </button>
+              </ToggleButton>
             ))}
             <hr className="my-1 border-gray-100 dark:border-gray-700" />
             <Button
@@ -339,21 +338,20 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           {showAggMenu && (
             <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[100px]">
               {AGGREGATION_OPTIONS.map((opt) => (
-                <button
+                <ToggleButton
                   key={opt.value}
                   type="button"
                   onClick={() => {
                     onAggregationChange(opt.value);
                     setShowAggMenu(false);
                   }}
-                  className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
-                    opt.value === aggregationInterval
-                      ? 'font-semibold text-info-600 dark:text-info-400'
-                      : 'text-gray-700 dark:text-gray-300'
-                  }`}
+                  pressed={opt.value === aggregationInterval}
+                  className="block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors"
+                  pressedClassName="font-semibold text-info-600 dark:text-info-400"
+                  idleClassName="text-gray-700 dark:text-gray-300"
                 >
                   {opt.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           )}
@@ -397,21 +395,20 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         {showRefreshMenu && (
           <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[90px]">
             {AUTO_REFRESH_OPTIONS.map((opt) => (
-              <button
+              <ToggleButton
                 key={opt.label}
                 type="button"
                 onClick={() => {
                   onAutoRefreshChange(opt.ms);
                   setShowRefreshMenu(false);
                 }}
-                className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
-                  opt.ms === autoRefreshMs
-                    ? 'font-semibold text-info-600 dark:text-info-400'
-                    : 'text-gray-700 dark:text-gray-300'
-                }`}
+                pressed={opt.ms === autoRefreshMs}
+                className="block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors"
+                pressedClassName="font-semibold text-info-600 dark:text-info-400"
+                idleClassName="text-gray-700 dark:text-gray-300"
               >
                 {opt.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}

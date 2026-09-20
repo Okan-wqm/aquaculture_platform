@@ -36,16 +36,21 @@ import type {
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Select,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Helper to extract transform from config with defaults */
 function getTransform(config: Record<string, unknown>): SvgTransform {
@@ -97,18 +102,14 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
           label="Fill Color"
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Corner Radius</label>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          value={(config.cornerRadius as number) ?? 0}
-          onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Corner radius"
-        />
-      </div>
+      <NumberInput
+        label="Corner Radius"
+        min={0}
+        max={100}
+        value={(config.cornerRadius as number) ?? 0}
+        onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
+        aria-label="Corner radius"
+      />
     </div>
 
     {/* Gradient editor -- overrides flat fill when type is not 'none' */}
@@ -129,17 +130,13 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       onChange={(updates) => onChange(updates)}
     />
 
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
 
     {/* SVG filter effects -- blur, shadow, glow */}
     <SvgFilterEditor
@@ -197,17 +194,13 @@ export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       onChange={(updates) => onChange(updates)}
     />
 
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
 
     {/* SVG filter effects */}
     <SvgFilterEditor
@@ -242,17 +235,17 @@ export const SvgLineConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.lineDirection as string) || 'horizontal'}
         onChange={(e) => onChange({ lineDirection: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Line direction"
-      >
-        <option value="horizontal">Horizontal</option>
-        <option value="vertical">Vertical</option>
-        <option value="diagonal-tl">Diagonal (Top-Left to Bottom-Right)</option>
-        <option value="diagonal-tr">Diagonal (Top-Right to Bottom-Left)</option>
-      </select>
+        options={[
+          { value: 'horizontal', label: 'Horizontal' },
+          { value: 'vertical', label: 'Vertical' },
+          { value: 'diagonal-tl', label: 'Diagonal (Top-Left to Bottom-Right)' },
+          { value: 'diagonal-tr', label: 'Diagonal (Top-Right to Bottom-Left)' },
+        ]}
+      />
     </div>
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
@@ -290,77 +283,61 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
       Text
     </div>
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text</label>
-      <input
-        type="text"
-        value={(config.text as string) || ''}
-        onChange={(e) => onChange({ text: e.target.value })}
-        placeholder="Enter text"
-        className={INPUT_CLASS}
-        aria-label="Text content"
-      />
-    </div>
+    <Input
+      label="Text"
+      value={(config.text as string) || ''}
+      onChange={(e) => onChange({ text: e.target.value })}
+      placeholder="Enter text"
+      aria-label="Text content"
+    />
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-        <input
-          type="number"
-          min={8}
-          max={120}
-          value={(config.fontSize as number) ?? 16}
-          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Font size"
-        />
-      </div>
+      <NumberInput
+        label="Font Size"
+        min={8}
+        max={120}
+        value={(config.fontSize as number) ?? 16}
+        onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+        aria-label="Font size"
+      />
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Weight</label>
-        <select
+        <Select
           value={(config.fontWeight as string) || 'normal'}
           onChange={(e) => onChange({ fontWeight: e.target.value })}
-          className={INPUT_CLASS}
           aria-label="Font weight"
-        >
-          <option value="light">Light</option>
-          <option value="normal">Normal</option>
-          <option value="bold">Bold</option>
-        </select>
+          options={[
+            { value: 'light', label: 'Light' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'bold', label: 'Bold' },
+          ]}
+        />
       </div>
     </div>
+    <ColorInput
+      label="Color"
+      aria-label="Text color"
+      value={(config.color as string) || themeColors.neutral[800]}
+      onChange={(e) => onChange({ color: e.target.value })}
+    />
     <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
-      <input
-        type="color"
-        value={(config.color as string) || themeColors.neutral[800]}
-        onChange={(e) => onChange({ color: e.target.value })}
-        className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-        aria-label="Text color"
+      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alignment</label>
+      <Select
+        value={(config.textAlign as string) || 'center'}
+        onChange={(e) => onChange({ textAlign: e.target.value })}
+        aria-label="Text alignment"
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
       />
     </div>
     <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alignment</label>
-      <select
-        value={(config.textAlign as string) || 'center'}
-        onChange={(e) => onChange({ textAlign: e.target.value })}
-        className={INPUT_CLASS}
-        aria-label="Text alignment"
-      >
-        <option value="left">Left</option>
-        <option value="center">Center</option>
-        <option value="right">Right</option>
-      </select>
-    </div>
-    <div>
-      <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-        <input
-          type="checkbox"
-          checked={(config.showValue as boolean) ?? false}
-          onChange={(e) => onChange({ showValue: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show live tag value
-      </label>
+      <Checkbox
+        label="Show live tag value"
+        checked={(config.showValue as boolean) ?? false}
+        onChange={(e) => onChange({ showValue: e.target.checked })}
+      />
     </div>
 
     {/* Stroke -- optional for text outlines */}
@@ -392,48 +369,34 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       Polygon
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <NumberInput
+        label="Sides"
+        min={3}
+        max={12}
+        value={(config.sides as number) ?? 6}
+        onChange={(e) => onChange({ sides: Number(e.target.value) })}
+        aria-label="Number of sides"
+      />
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sides</label>
-        <input
-          type="number"
-          min={3}
-          max={12}
-          value={(config.sides as number) ?? 6}
-          onChange={(e) => onChange({ sides: Number(e.target.value) })}
-          className={INPUT_CLASS}
-          aria-label="Number of sides"
+        <Checkbox
+          label="Star Mode"
+          checked={(config.starMode as boolean) ?? false}
+          onChange={(e) => onChange({ starMode: e.target.checked })}
         />
-      </div>
-      <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-5">
-          <input
-            type="checkbox"
-            checked={(config.starMode as boolean) ?? false}
-            onChange={(e) => onChange({ starMode: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Star Mode
-        </label>
       </div>
     </div>
     {(config.starMode as boolean) && (
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Inner Radius Ratio
-        </label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Inner Radius Ratio"
+          readout="below"
           min={0.1}
           max={0.9}
           step={0.05}
           value={(config.innerRadius as number) ?? 0.5}
-          onChange={(e) => onChange({ innerRadius: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Inner radius ratio"
+          onChange={(innerRadius) => onChange({ innerRadius })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.innerRadius as number) ?? 0.5).toFixed(2)}
-        </span>
       </div>
     )}
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
@@ -459,17 +422,13 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -493,17 +452,17 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.direction as string) || 'up'}
         onChange={(e) => onChange({ direction: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Triangle direction"
-      >
-        <option value="up">Up</option>
-        <option value="down">Down</option>
-        <option value="left">Left</option>
-        <option value="right">Right</option>
-      </select>
+        options={[
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+          { value: 'left', label: 'Left' },
+          { value: 'right', label: 'Right' },
+        ]}
+      />
     </div>
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
       Fill
@@ -528,17 +487,13 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -580,17 +535,13 @@ export const SvgDiamondConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}
@@ -614,50 +565,42 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.direction as string) || 'right'}
         onChange={(e) => onChange({ direction: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Arrow direction"
-      >
-        <option value="right">Right</option>
-        <option value="left">Left</option>
-        <option value="up">Up</option>
-        <option value="down">Down</option>
-      </select>
+        options={[
+          { value: 'right', label: 'Right' },
+          { value: 'left', label: 'Left' },
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+        ]}
+      />
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Head Width</label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Head Width"
+          readout="below"
           min={0.3}
           max={1}
           step={0.05}
           value={(config.headWidthRatio as number) ?? 0.6}
-          onChange={(e) => onChange({ headWidthRatio: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Arrow head width ratio"
+          onChange={(headWidthRatio) => onChange({ headWidthRatio })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.headWidthRatio as number) ?? 0.6).toFixed(2)}
-        </span>
       </div>
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Body Width</label>
-        <input
-          type="range"
+        <Slider
+          size="xs"
+          label="Body Width"
+          readout="below"
           min={0.2}
           max={0.8}
           step={0.05}
           value={(config.bodyWidthRatio as number) ?? 0.5}
-          onChange={(e) => onChange({ bodyWidthRatio: Number(e.target.value) })}
-          className="w-full"
-          aria-label="Arrow body width ratio"
+          onChange={(bodyWidthRatio) => onChange({ bodyWidthRatio })}
         />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {((config.bodyWidthRatio as number) ?? 0.5).toFixed(2)}
-        </span>
       </div>
     </div>
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
@@ -683,17 +626,13 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
       lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'}
       onChange={(updates) => onChange(updates)}
     />
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-      <input
-        type="text"
-        value={(config.label as string) || ''}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Optional label"
-        className={INPUT_CLASS}
-        aria-label="Widget label"
-      />
-    </div>
+    <Input
+      label="Label"
+      value={(config.label as string) || ''}
+      onChange={(e) => onChange({ label: e.target.value })}
+      placeholder="Optional label"
+      aria-label="Widget label"
+    />
     <SvgFilterEditor
       filter={getFilter(config)}
       onChange={(filter) => onChange({ filter })}

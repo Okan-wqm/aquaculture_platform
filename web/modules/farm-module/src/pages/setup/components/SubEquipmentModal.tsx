@@ -247,57 +247,36 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="sub-eq-manufacturer"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Manufacturer
-            </label>
-            <Input
-              fullWidth
-              id="sub-eq-manufacturer"
-              type="text"
-              maxLength={100}
-              value={form.manufacturer}
-              onChange={(e) => set('manufacturer', e.target.value)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="sub-eq-model"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Model
-            </label>
-            <Input
-              fullWidth
-              id="sub-eq-model"
-              type="text"
-              maxLength={100}
-              value={form.model}
-              onChange={(e) => set('model', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Manufacturer"
+            fullWidth
+            id="sub-eq-manufacturer"
+            type="text"
+            maxLength={100}
+            value={form.manufacturer}
+            onChange={(e) => set('manufacturer', e.target.value)}
+          />
+          <Input
+            label="Model"
+            fullWidth
+            id="sub-eq-model"
+            type="text"
+            maxLength={100}
+            value={form.model}
+            onChange={(e) => set('model', e.target.value)}
+          />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="sub-eq-serial"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Serial number
-            </label>
-            <Input
-              fullWidth
-              id="sub-eq-serial"
-              type="text"
-              maxLength={100}
-              value={form.serialNumber}
-              onChange={(e) => set('serialNumber', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Serial number"
+            fullWidth
+            id="sub-eq-serial"
+            type="text"
+            maxLength={100}
+            value={form.serialNumber}
+            onChange={(e) => set('serialNumber', e.target.value)}
+          />
           <Select
             id="sub-eq-status"
             label="Status"
@@ -307,55 +286,34 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           />
         </div>
 
-        <div>
-          <label
-            htmlFor="sub-eq-install"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Installation date
-          </label>
-          <Input
-            fullWidth
-            id="sub-eq-install"
-            type="date"
-            value={form.installationDate}
-            onChange={(e) => set('installationDate', e.target.value)}
-          />
-        </div>
+        <Input
+          label="Installation date"
+          fullWidth
+          id="sub-eq-install"
+          type="date"
+          value={form.installationDate}
+          onChange={(e) => set('installationDate', e.target.value)}
+        />
 
-        <div>
-          <label
-            htmlFor="sub-eq-desc"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description
-          </label>
-          <Textarea
-            fullWidth
-            id="sub-eq-desc"
-            rows={2}
-            maxLength={1000}
-            value={form.description}
-            onChange={(e) => set('description', e.target.value)}
-          />
-        </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          id="sub-eq-desc"
+          rows={2}
+          maxLength={1000}
+          value={form.description}
+          onChange={(e) => set('description', e.target.value)}
+        />
 
-        <div>
-          <label
-            htmlFor="sub-eq-notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            id="sub-eq-notes"
-            rows={2}
-            maxLength={2000}
-            value={form.notes}
-            onChange={(e) => set('notes', e.target.value)}
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          id="sub-eq-notes"
+          rows={2}
+          maxLength={2000}
+          value={form.notes}
+          onChange={(e) => set('notes', e.target.value)}
+        />
 
         {errors.length > 0 && (
           <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">

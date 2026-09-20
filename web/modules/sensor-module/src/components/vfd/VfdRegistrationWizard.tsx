@@ -206,6 +206,7 @@ export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistr
               <button
                 onClick={() => index < wizard.currentStep && wizard.goToStep(index)}
                 disabled={index > wizard.currentStep}
+                aria-current={index === wizard.currentStep ? 'step' : undefined}
                 className={`flex items-center ${
                   index < wizard.currentStep ? 'cursor-pointer' : 'cursor-default'
                 }`}

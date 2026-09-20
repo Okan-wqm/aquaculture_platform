@@ -20,7 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
-import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import { Button, ColorInput, colors as themeColors, Input, Select } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -228,16 +228,12 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   return (
     <div className="space-y-3">
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="FUXA Widget"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="FUXA Widget"
+      />
 
       {/* SVG Upload */}
       <div>
@@ -317,17 +313,13 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
           State Machine
         </label>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag Name</label>
-          <input
-            type="text"
-            value={tagName}
-            onChange={(e) => onChange({ tagName: e.target.value })}
-            placeholder="sensor.temperature"
-            className={INPUT_CLS}
-            data-testid="fuxa-state-tag"
-          />
-        </div>
+        <Input
+          label="Tag Name"
+          value={tagName}
+          onChange={(e) => onChange({ tagName: e.target.value })}
+          placeholder="sensor.temperature"
+          data-testid="fuxa-state-tag"
+        />
       </div>
 
       {/* State Rules */}
@@ -416,11 +408,11 @@ const VariableInput: React.FC<VariableInputProps> = ({
       case 'color':
         return (
           <div className="flex items-center gap-2">
-            <input
-              type="color"
+            <ColorInput
+              variant="swatch"
+              aria-label={variable.label}
               value={String(value)}
               onChange={(e) => onChange(variable.id, e.target.value)}
-              className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
               data-testid={`fuxa-var-${variable.id}`}
             />
             <input
@@ -494,17 +486,11 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       data-testid={`fuxa-rule-${index}`}
     >
       {/* Condition */}
-      <select
+      <Select
         value={rule.condition}
         onChange={(e) => onChange(index, 'condition', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-      >
-        {CONDITION_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        options={CONDITION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Value */}
       <Input
@@ -518,17 +504,11 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       <span className="text-xs text-gray-400 dark:text-gray-500">{'\u2192'}</span>
 
       {/* State index */}
-      <select
+      <Select
         value={rule.state}
         onChange={(e) => onChange(index, 'state', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-      >
-        {[0, 1, 2, 3, 4, 5].map((s) => (
-          <option key={s} value={s}>
-            State {s}
-          </option>
-        ))}
-      </select>
+        options={[0, 1, 2, 3, 4, 5].map((s) => ({ value: s, label: `State ${s}` }))}
+      />
 
       {/* Remove */}
       <Button variant="ghost" iconOnly aria-label="Close" onClick={() => onRemove(index)}>

@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Input, Slider } from '@aquaculture/shared-ui';
 import { Upload, Trash2, AlertCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
@@ -60,9 +60,6 @@ interface WidgetConfigProps {
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -166,35 +163,26 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           </div>
         )}
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Optional label"
-          className={INPUT_CLASS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Optional label"
+      />
 
       {/* Opacity slider -- allows the entire custom SVG to be semi-transparent */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={(config.opacity as number) ?? 1}
-          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-          className="w-full"
-          aria-label="SVG opacity"
-          data-testid="custom-svg-opacity"
-        />
-        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-          {Math.round(((config.opacity as number) ?? 1) * 100)}%
-        </div>
-      </div>
+      <Slider
+        size="xs"
+        label="Opacity"
+        readout="below"
+        formatValue={(v) => `${Math.round(v * 100)}%`}
+        min={0}
+        max={1}
+        step={0.05}
+        value={(config.opacity as number) ?? 1}
+        onChange={(opacity) => onChange({ opacity })}
+        data-testid="custom-svg-opacity"
+      />
 
       {/* Transform section -- rotation, scale, skew for custom SVGs */}
       <TransformConfig

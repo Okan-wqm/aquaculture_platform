@@ -672,32 +672,24 @@ const ModulePricingPage: React.FC = () => {
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                        Price (USD)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={metric.price}
-                        onChange={(e) => handleMetricPriceChange(metric.metricType, e.target.value)}
-                      />
-                    </div>
+                    <Input
+                      label="Price (USD)"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={metric.price}
+                      onChange={(e) => handleMetricPriceChange(metric.metricType, e.target.value)}
+                    />
                     {!isBasePrice(metric.metricType) && (
-                      <div>
-                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                          Included Free
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={metric.includedQuantity || 0}
-                          onChange={(e) =>
-                            handleMetricIncludedChange(metric.metricType, e.target.value)
-                          }
-                        />
-                      </div>
+                      <Input
+                        label="Included Free"
+                        type="number"
+                        min="0"
+                        value={metric.includedQuantity || 0}
+                        onChange={(e) =>
+                          handleMetricIncludedChange(metric.metricType, e.target.value)
+                        }
+                      />
                     )}
                   </div>
                 </div>

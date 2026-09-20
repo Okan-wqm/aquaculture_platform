@@ -91,18 +91,14 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
           />
 
           {/* Notes — optional context for the counting session */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Notes
-            </label>
-            <Textarea
-              fullWidth
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g., Quarterly cycle count, reason for ad-hoc count..."
-            />
-          </div>
+          <Textarea
+            label="Notes"
+            fullWidth
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g., Quarterly cycle count, reason for ad-hoc count..."
+          />
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">

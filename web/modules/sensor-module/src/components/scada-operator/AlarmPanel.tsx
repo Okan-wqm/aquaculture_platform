@@ -36,11 +36,13 @@ import type {
 } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import {
-  DataTable,
-  type DataTableColumn,
-  severityClasses,
   Button,
+  DataTable,
   Input,
+  Select,
+  severityClasses,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -418,18 +420,16 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       {/* ── Tabs ───────────────────────────────────────────────────── */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 px-4">
         {(['active', 'history'] as PanelTab[]).map((t) => (
-          <button
+          <ToggleButton
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
-              ${
-                tab === t
-                  ? 'border-info-600 text-info-600 dark:border-info-400 dark:text-info-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-              }`}
+            pressed={tab === t}
+            className="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+            pressedClassName="border-info-600 text-info-600 dark:border-info-400 dark:text-info-400"
+            idleClassName="border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           >
             {t === 'active' ? 'Active Alarms' : 'History'}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -502,20 +502,12 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
 
         {/* Group filter */}
         {availableGroups.length > 0 && (
-          <select
+          <Select
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value)}
-            className="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
-                       bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300
-                       focus:outline-hidden focus:ring-1 focus:ring-info-500"
-          >
-            <option value="">All groups</option>
-            {availableGroups.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
+            placeholder="All groups"
+            options={availableGroups.map((g) => ({ value: g, label: g }))}
+          />
         )}
 
         {/* History date range */}

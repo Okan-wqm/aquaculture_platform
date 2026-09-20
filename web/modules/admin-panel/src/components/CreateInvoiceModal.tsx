@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -359,25 +359,18 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
             />
           </div>
         </div>
-        <div>
-          <label
-            htmlFor="invoice-currency"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Currency
-          </label>
-          <select
-            id="invoice-currency"
-            value={form.currency}
-            onChange={(e) => updateField('currency', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
-          >
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-            <option value="TRY">TRY</option>
-          </select>
-        </div>
+        <Select
+          label="Currency"
+          id="invoice-currency"
+          value={form.currency}
+          onChange={(e) => updateField('currency', e.target.value)}
+          options={[
+            { value: 'USD', label: 'USD' },
+            { value: 'EUR', label: 'EUR' },
+            { value: 'GBP', label: 'GBP' },
+            { value: 'TRY', label: 'TRY' },
+          ]}
+        />
       </div>
       <div>
         <label

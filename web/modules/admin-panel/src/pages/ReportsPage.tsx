@@ -6,7 +6,16 @@
  * Uses real API data from backend reports service.
  */
 
-import { Card, Button, Badge, DataTable, Modal, Input, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
@@ -574,17 +583,16 @@ const ReportsPage: React.FC = () => {
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2">
         {categories.map((cat) => (
-          <button
+          <ToggleButton
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeCategory === cat
-                ? 'bg-info-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+            pressed={activeCategory === cat}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            pressedClassName="bg-info-600 text-white"
+            idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             {cat === 'all' ? 'All' : cat}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -694,38 +702,24 @@ const ReportsPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="report-start-date"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                >
-                  Start Date
-                </label>
-                <Input
-                  id="report-start-date"
-                  type="date"
-                  value={dateRange.startDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange((prev) => ({ ...prev, startDate: event.currentTarget.value }))
-                  }
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="report-end-date"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                >
-                  End Date
-                </label>
-                <Input
-                  id="report-end-date"
-                  type="date"
-                  value={dateRange.endDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange((prev) => ({ ...prev, endDate: event.currentTarget.value }))
-                  }
-                />
-              </div>
+              <Input
+                label="Start Date"
+                id="report-start-date"
+                type="date"
+                value={dateRange.startDate}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setDateRange((prev) => ({ ...prev, startDate: event.currentTarget.value }))
+                }
+              />
+              <Input
+                label="End Date"
+                id="report-end-date"
+                type="date"
+                value={dateRange.endDate}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setDateRange((prev) => ({ ...prev, endDate: event.currentTarget.value }))
+                }
+              />
             </div>
 
             <div>
@@ -734,17 +728,16 @@ const ReportsPage: React.FC = () => {
               </p>
               <div className="flex gap-2">
                 {(['json', 'csv', 'pdf'] as ReportFormat[]).map((format) => (
-                  <button
+                  <ToggleButton
                     key={format}
                     onClick={() => setSelectedFormat(format)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedFormat === format
-                        ? 'bg-info-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                    pressed={selectedFormat === format}
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    pressedClassName="bg-info-600 text-white"
+                    idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                   >
                     {format.toUpperCase()}
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </div>

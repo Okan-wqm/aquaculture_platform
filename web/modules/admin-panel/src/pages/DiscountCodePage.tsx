@@ -6,16 +6,18 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
+  Checkbox,
   DataTable,
   Input,
   Modal,
+  PageHeader,
+  Select,
+  Spinner,
   useConfirm,
   type DataTableColumn,
-  Spinner,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -419,24 +421,16 @@ const DiscountCodePage: React.FC = () => {
       {/* Filters */}
       <Card className="p-4">
         <div className="flex gap-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showActive}
-              onChange={(e) => setShowActive(e.target.checked)}
-              className="rounded border-gray-300 dark:border-gray-600"
-            />
-            <span className="text-sm">Active Only</span>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showExpired}
-              onChange={(e) => setShowExpired(e.target.checked)}
-              className="rounded border-gray-300 dark:border-gray-600"
-            />
-            <span className="text-sm">Include Expired</span>
-          </label>
+          <Checkbox
+            label="Active Only"
+            checked={showActive}
+            onChange={(e) => setShowActive(e.target.checked)}
+          />
+          <Checkbox
+            label="Include Expired"
+            checked={showExpired}
+            onChange={(e) => setShowExpired(e.target.checked)}
+          />
         </div>
       </Card>
 
@@ -503,49 +497,34 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Name *
-              </label>
-              <Input
-                value={newCode.name || ''}
-                onChange={(e) => setNewCode({ ...newCode, name: e.target.value })}
-                placeholder="Summer Sale 2024"
-              />
-            </div>
+            <Input
+              label="Name *"
+              value={newCode.name || ''}
+              onChange={(e) => setNewCode({ ...newCode, name: e.target.value })}
+              placeholder="Summer Sale 2024"
+            />
 
             {/* Description */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Description
-              </label>
-              <Input
-                value={newCode.description || ''}
-                onChange={(e) => setNewCode({ ...newCode, description: e.target.value })}
-                placeholder="Special discount for summer campaign"
-              />
-            </div>
+            <Input
+              label="Description"
+              value={newCode.description || ''}
+              onChange={(e) => setNewCode({ ...newCode, description: e.target.value })}
+              placeholder="Special discount for summer campaign"
+            />
 
             {/* Discount Type & Value */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Discount Type
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
-                  value={newCode.discountType}
-                  onChange={(e) =>
-                    setNewCode({ ...newCode, discountType: e.target.value as DiscountType })
-                  }
-                >
-                  {Object.values(DiscountType).map((type) => (
-                    <option key={type} value={type}>
-                      {getDiscountTypeLabel(type)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Discount Type"
+                value={newCode.discountType}
+                onChange={(e) =>
+                  setNewCode({ ...newCode, discountType: e.target.value as DiscountType })
+                }
+                options={Object.values(DiscountType).map((type) => ({
+                  value: type,
+                  label: getDiscountTypeLabel(type),
+                }))}
+              />
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {VALUE_FIELD_LABEL[newCode.discountType ?? DiscountType.PERCENTAGE]}
@@ -566,128 +545,90 @@ const DiscountCodePage: React.FC = () => {
 
             {/* Applies To & Duration */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Applies To
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
-                  value={newCode.appliesTo}
-                  onChange={(e) =>
-                    setNewCode({ ...newCode, appliesTo: e.target.value as DiscountAppliesTo })
-                  }
-                >
-                  {Object.values(DiscountAppliesTo).map((type) => (
-                    <option key={type} value={type}>
-                      {type.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Duration
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
-                  value={newCode.duration}
-                  onChange={(e) =>
-                    setNewCode({ ...newCode, duration: e.target.value as DiscountDuration })
-                  }
-                >
-                  {Object.values(DiscountDuration).map((type) => (
-                    <option key={type} value={type}>
-                      {type.charAt(0).toUpperCase() + type.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Applies To"
+                value={newCode.appliesTo}
+                onChange={(e) =>
+                  setNewCode({ ...newCode, appliesTo: e.target.value as DiscountAppliesTo })
+                }
+                options={Object.values(DiscountAppliesTo).map((type) => ({
+                  value: type,
+                  label: type.replace(/_/g, ' '),
+                }))}
+              />
+              <Select
+                label="Duration"
+                value={newCode.duration}
+                onChange={(e) =>
+                  setNewCode({ ...newCode, duration: e.target.value as DiscountDuration })
+                }
+                options={Object.values(DiscountDuration).map((type) => ({
+                  value: type,
+                  label: type.charAt(0).toUpperCase() + type.slice(1),
+                }))}
+              />
             </div>
 
             {/* Validity Period */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Valid From
-                </label>
-                <Input
-                  type="date"
-                  value={newCode.validFrom || ''}
-                  onChange={(e) => setNewCode({ ...newCode, validFrom: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Valid Until
-                </label>
-                <Input
-                  type="date"
-                  value={newCode.validUntil || ''}
-                  onChange={(e) => setNewCode({ ...newCode, validUntil: e.target.value })}
-                />
-              </div>
+              <Input
+                label="Valid From"
+                type="date"
+                value={newCode.validFrom || ''}
+                onChange={(e) => setNewCode({ ...newCode, validFrom: e.target.value })}
+              />
+              <Input
+                label="Valid Until"
+                type="date"
+                value={newCode.validUntil || ''}
+                onChange={(e) => setNewCode({ ...newCode, validUntil: e.target.value })}
+              />
             </div>
 
             {/* Max Redemptions */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Max Total Uses
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={newCode.maxRedemptions || ''}
-                  onChange={(e) =>
-                    setNewCode({
-                      ...newCode,
-                      maxRedemptions: parseInt(e.target.value, 10) || undefined,
-                    })
-                  }
-                  placeholder="Leave empty for unlimited"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Max Per Tenant
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={newCode.maxRedemptionsPerTenant || ''}
-                  onChange={(e) =>
-                    setNewCode({
-                      ...newCode,
-                      maxRedemptionsPerTenant: parseInt(e.target.value, 10) || undefined,
-                    })
-                  }
-                  placeholder="Leave empty for unlimited"
-                />
-              </div>
+              <Input
+                label="Max Total Uses"
+                type="number"
+                min={0}
+                value={newCode.maxRedemptions || ''}
+                onChange={(e) =>
+                  setNewCode({
+                    ...newCode,
+                    maxRedemptions: parseInt(e.target.value, 10) || undefined,
+                  })
+                }
+                placeholder="Leave empty for unlimited"
+              />
+              <Input
+                label="Max Per Tenant"
+                type="number"
+                min={0}
+                value={newCode.maxRedemptionsPerTenant || ''}
+                onChange={(e) =>
+                  setNewCode({
+                    ...newCode,
+                    maxRedemptionsPerTenant: parseInt(e.target.value, 10) || undefined,
+                  })
+                }
+                placeholder="Leave empty for unlimited"
+              />
             </div>
 
             {/* Campaign Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Campaign ID
-                </label>
-                <Input
-                  value={newCode.campaignId || ''}
-                  onChange={(e) => setNewCode({ ...newCode, campaignId: e.target.value })}
-                  placeholder="summer-2024"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Campaign Name
-                </label>
-                <Input
-                  value={newCode.campaignName || ''}
-                  onChange={(e) => setNewCode({ ...newCode, campaignName: e.target.value })}
-                  placeholder="Summer Campaign 2024"
-                />
-              </div>
+              <Input
+                label="Campaign ID"
+                value={newCode.campaignId || ''}
+                onChange={(e) => setNewCode({ ...newCode, campaignId: e.target.value })}
+                placeholder="summer-2024"
+              />
+              <Input
+                label="Campaign Name"
+                value={newCode.campaignName || ''}
+                onChange={(e) => setNewCode({ ...newCode, campaignName: e.target.value })}
+                placeholder="Summer Campaign 2024"
+              />
             </div>
           </div>
         </Modal>

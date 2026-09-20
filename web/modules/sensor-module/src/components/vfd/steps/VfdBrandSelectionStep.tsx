@@ -7,7 +7,7 @@ import {
   VFD_MODEL_SERIES,
 } from '../../../types/vfd.types';
 import { useVfdBrands } from '../../../hooks/useVfdBrands';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, ToggleButton } from '@aquaculture/shared-ui';
 import { CircleCheck, Code, Star } from 'lucide-react';
 
 interface VfdBrandSelectionStepProps {
@@ -163,13 +163,12 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
   };
 
   return (
-    <button
+    <ToggleButton
       onClick={() => onSelect(brand)}
-      className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
-        isSelected
-          ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md'
-          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
-      }`}
+      pressed={isSelected}
+      className="relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md"
+      pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md"
+      idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500"
     >
       {isPopular && (
         <span className="absolute -top-2 -right-2 bg-warning-400 text-warning-900 dark:text-warning-100 text-xs px-1.5 py-0.5 rounded-full font-medium">
@@ -196,7 +195,7 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
           <CircleCheck className="w-5 h-5 text-info-500" aria-hidden="true" />
         </div>
       )}
-    </button>
+    </ToggleButton>
   );
 }
 

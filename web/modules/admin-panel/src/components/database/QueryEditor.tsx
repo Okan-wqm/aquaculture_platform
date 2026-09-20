@@ -11,11 +11,12 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
-  Card,
-  Button,
   Alert,
   Badge,
+  Button,
+  Card,
   DataTable,
+  Select,
   type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { getAccessToken } from '@aquaculture/shared-ui';
@@ -684,18 +685,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
               >
                 Schema:
               </label>
-              <select
+              <Select
                 id="schema-select"
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-info-500 focus:border-info-500"
                 value={selectedSchema}
                 onChange={(e) => setSelectedSchema(e.target.value)}
-              >
-                {schemas.map((schema) => (
-                  <option key={schema} value={schema}>
-                    {schema}
-                  </option>
-                ))}
-              </select>
+                options={schemas.map((schema) => ({ value: schema, label: schema }))}
+              />
             </div>
 
             <QueryHistoryDropdown

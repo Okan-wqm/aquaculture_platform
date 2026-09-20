@@ -19,7 +19,7 @@ import React, { memo, useEffect, useRef, useState, useCallback, useMemo } from '
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, ToggleButton } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -349,18 +349,17 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       {showToolbar && (
         <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           {RANGE_PRESETS.map((preset) => (
-            <button
+            <ToggleButton
               key={preset.label}
               type="button"
               onClick={() => handleRangeChange(preset.minutes)}
-              className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
-                rangeMinutes === preset.minutes
-                  ? 'bg-info-500 text-white font-semibold'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              pressed={rangeMinutes === preset.minutes}
+              className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
+              pressedClassName="bg-info-500 text-white font-semibold"
+              idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               {preset.label}
-            </button>
+            </ToggleButton>
           ))}
           {title && (
             <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[120px]">

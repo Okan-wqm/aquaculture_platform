@@ -180,40 +180,26 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         />
 
         {/* Detail */}
-        <div>
-          <label
-            htmlFor="detail"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Detail / Diagnosis
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            id="detail"
-            value={detail}
-            onChange={(e) => setDetail(e.target.value)}
-            placeholder="e.g., Specific disease name..."
-          />
-        </div>
+        <Input
+          label="Detail / Diagnosis"
+          fullWidth
+          type="text"
+          id="detail"
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+          placeholder="e.g., Specific disease name..."
+        />
 
         {/* Observation Date */}
-        <div>
-          <label
-            htmlFor="observedAt"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Observation Date
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            id="observedAt"
-            value={observedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setObservedAt(e.target.value)}
-          />
-        </div>
+        <Input
+          label="Observation Date"
+          fullWidth
+          type="date"
+          id="observedAt"
+          value={observedAt}
+          max={new Date().toISOString().split('T')[0]}
+          onChange={(e) => setObservedAt(e.target.value)}
+        />
 
         {/* Notes */}
         <div>

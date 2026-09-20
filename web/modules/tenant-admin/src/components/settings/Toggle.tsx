@@ -40,13 +40,24 @@ export const Toggle: React.FC<{
 
 /**
  * Small inline toggle for table cells.
+ *
+ * Same control as `Toggle` above, in a table cell, and it had none of the
+ * semantics: no role, no aria-checked, no name. In a grid of them a screen
+ * reader announced a row of unnamed buttons whose only difference was colour.
+ * `label` is required rather than optional because a cell has no visible text
+ * to fall back on — the caller builds the name from the column and the row.
  */
 export const SmallToggle: React.FC<{
   enabled: boolean;
   onChange: (enabled: boolean) => void;
-}> = ({ enabled, onChange }) => (
+  /** Accessible name — the cell has no visible label of its own */
+  label: string;
+}> = ({ enabled, onChange, label }) => (
   <button
     type="button"
+    role="switch"
+    aria-checked={enabled}
+    aria-label={label}
     onClick={() => onChange(!enabled)}
     className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
       enabled ? 'bg-success-600' : 'bg-gray-200 dark:bg-gray-700'

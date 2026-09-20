@@ -10,13 +10,15 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  Modal,
-  Spinner,
-  PageHeader,
-  severityClasses,
   Button,
+  Input,
+  Modal,
+  PageHeader,
   Select,
+  severityClasses,
+  Spinner,
   Textarea,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
@@ -358,17 +360,19 @@ const PlcAlarmsPage: React.FC = () => {
 
       {/* Filters */}
       <div className="mt-4 mb-4 flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-          <input
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            aria-label="Alarm ara"
             type="text"
             placeholder="Alarm ara..."
+            leftIcon={<Search className="h-4 w-4" />}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
         <Select
+          aria-label="Tum Seviyeler"
+          fullWidth={false}
           options={[
             { value: '', label: 'Tum Seviyeler' },
             { value: 'EMERGENCY', label: 'Acil' },
@@ -379,43 +383,38 @@ const PlcAlarmsPage: React.FC = () => {
           value={severityFilter}
           onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')}
         />
-        <select
+        <Select
+          aria-label="Tum Kaynaklar"
+          fullWidth={false}
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as AlarmSource | '')}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
-        >
-          <option value="">Tum Kaynaklar</option>
-          {Object.entries(SOURCE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
+          options={[
+            { value: '', label: 'Tum Kaynaklar' },
+            ...Object.entries(SOURCE_LABELS).map(([key, label]) => ({ value: key, label })),
+          ]}
+        />
+        <Select
+          aria-label="Tum Baglantilar"
+          fullWidth={false}
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
-        >
-          <option value="">Tum Baglantilar</option>
-          {connections?.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'Tum Baglantilar' },
+            ...(connections ?? []).map((c) => ({ value: c.id, label: c.name })),
+          ]}
+        />
         <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
           {(['all', 'unacknowledged', 'acknowledged'] as const).map((tab) => (
-            <button
+            <ToggleButton
               key={tab}
               onClick={() => setAckFilter(tab)}
-              className={`px-3 py-2 text-sm font-medium transition-colors ${
-                ackFilter === tab
-                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              pressed={ackFilter === tab}
+              className="px-3 py-2 text-sm font-medium transition-colors"
+              pressedClassName="bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+              idleClassName="text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {tab === 'all' ? 'Tumu' : tab === 'unacknowledged' ? 'Onaylanmamis' : 'Onaylandi'}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>

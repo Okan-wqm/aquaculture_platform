@@ -201,23 +201,16 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           <p className="font-medium text-gray-900 dark:text-gray-100">{batch.batchNumber}</p>
         </div>
 
-        <div>
-          <label
-            htmlFor="update-batch-name"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            İsim
-          </label>
-          <Input
-            fullWidth
-            id="update-batch-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={NAME_MAX}
-            placeholder="(opsiyonel) parti için anlamlı bir isim"
-          />
-        </div>
+        <Input
+          label="İsim"
+          fullWidth
+          id="update-batch-name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={NAME_MAX}
+          placeholder="(opsiyonel) parti için anlamlı bir isim"
+        />
 
         <div>
           <label

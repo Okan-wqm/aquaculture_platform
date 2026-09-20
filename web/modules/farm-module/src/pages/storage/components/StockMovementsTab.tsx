@@ -13,12 +13,13 @@ import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
 import {
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  DataTable,
   Input,
   Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { Search as SearchIcon } from 'lucide-react';
 
@@ -226,19 +227,18 @@ export const StockMovementsTab: React.FC = () => {
               Switches the view from chronological movement history to a
               focused lot-level traceability chain showing every movement
               that affected a specific production lot. */}
-          <button
+          <ToggleButton
             onClick={() => {
               setLotTraceMode(!lotTraceMode);
               if (lotTraceMode) setLotTraceNumber('');
             }}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              lotTraceMode
-                ? 'bg-accent-600 text-white'
-                : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={lotTraceMode}
+            className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            pressedClassName="bg-accent-600 text-white"
+            idleClassName="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {lotTraceMode ? '\u2715 Exit Lot Trace' : 'Lot Trace'}
-          </button>
+          </ToggleButton>
           <Button variant="primary" onClick={() => setShowMovementModal(true)}>
             Record Movement
           </Button>

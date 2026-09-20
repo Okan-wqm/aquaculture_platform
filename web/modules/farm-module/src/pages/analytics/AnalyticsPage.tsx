@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Select, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { TanksAnalyticsTab } from './tabs';
 
 // ============================================================================
@@ -76,20 +76,16 @@ const AnalyticsPage: React.FC = () => {
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             {analyticsTabs.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => handleTabChange(tab.path)}
-                className={`
-                  group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-                  ${
-                    activeTab === tab.id
-                      ? 'border-info-500 text-info-600 dark:text-info-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                  }
-                `}
+                pressed={activeTab === tab.id}
+                className="group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap"
+                pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+                idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </nav>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Textarea } from '@aquaculture/shared-ui';
+import { Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import { CheckCircle2, XCircle, Tag } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../../hooks/useDeviceTags';
 import { FunctionReference } from './FunctionReference';
@@ -182,15 +182,14 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
             className="absolute z-50 mt-0.5 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto"
           >
             {filteredTags.map((tag, idx) => (
-              <button
+              <ToggleButton
                 key={tag.name}
                 type="button"
                 onClick={() => insertTag(tag.name)}
-                className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                  idx === autocompleteIndex
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={idx === autocompleteIndex}
+                className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+                idleClassName="hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Tag className="w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span className="font-mono font-medium truncate">{tag.name}</span>
@@ -199,7 +198,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
                     {tag.unit}
                   </span>
                 )}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}

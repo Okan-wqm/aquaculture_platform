@@ -7,13 +7,14 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  usePrompt,
-  type PromptFn,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  DataTable,
+  Select,
   SeverityBadge,
+  Spinner,
+  usePrompt,
+  type DataTableColumn,
+  type PromptFn,
 } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
@@ -219,20 +220,14 @@ export function VfdChangeSetList({
       <div className="mb-4 flex items-center gap-3">
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-          <select
+          <Select
             value={changeSetFilter ?? ''}
             onChange={(e) =>
               setChangeSetFilter(e.target.value ? (e.target.value as VfdChangeSetStatus) : null)
             }
-            className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
             aria-label="Filter by status"
-          >
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
         </div>
         <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
           {filteredSets.length} change set{filteredSets.length !== 1 ? 's' : ''}

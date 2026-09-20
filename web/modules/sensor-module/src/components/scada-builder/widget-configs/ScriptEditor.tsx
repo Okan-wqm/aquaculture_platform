@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Textarea, ToggleButton } from '@aquaculture/shared-ui';
 import { Trash2, Play, ChevronDown, ChevronRight, Power, BookOpen } from 'lucide-react';
 import type { ScadaScript } from '../../../engine/events/types';
 
@@ -123,18 +123,17 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           placeholder="Script name"
           data-testid="script-name-input"
         />
-        <button
+        <ToggleButton
           onClick={() => onChange({ enabled: !script.enabled })}
-          className={`p-1.5 rounded-lg border transition-colors ${
-            script.enabled
-              ? 'bg-success-50 dark:bg-success-900/20 border-success-300 dark:border-success-700 text-success-600 dark:text-success-400'
-              : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500'
-          }`}
+          pressed={script.enabled}
+          className="p-1.5 rounded-lg border transition-colors"
+          pressedClassName="bg-success-50 dark:bg-success-900/20 border-success-300 dark:border-success-700 text-success-600 dark:text-success-400"
+          idleClassName="bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500"
           title={script.enabled ? 'Disable script' : 'Enable script'}
           data-testid="script-enabled-toggle"
         >
           <Power className="w-3.5 h-3.5" />
-        </button>
+        </ToggleButton>
         <Button
           variant="secondary"
           size="sm"

@@ -79,33 +79,25 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Rule Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Kural Adı *
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Stok azaldığında sipariş görevi oluştur"
-              required
-            />
-          </div>
+          <Input
+            label="Kural Adı"
+            fullWidth
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="Stok azaldığında sipariş görevi oluştur"
+            required
+          />
 
           {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Textarea
-              fullWidth
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              rows={2}
-              placeholder="Kuralın ne yaptığını kısaca açıklayın..."
-            />
-          </div>
+          <Textarea
+            label="Açıklama"
+            fullWidth
+            value={formData.description}
+            onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+            rows={2}
+            placeholder="Kuralın ne yaptığını kısaca açıklayın..."
+          />
 
           {/* Trigger Section */}
           <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-4 space-y-3">
@@ -126,21 +118,17 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
             />
 
             {/* Trigger Condition */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Tetikleyici Koşul *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.triggerCondition}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, triggerCondition: e.target.value }))
-                }
-                placeholder={TRIGGER_PLACEHOLDERS[formData.trigger]}
-                required
-              />
-            </div>
+            <Input
+              label="Tetikleyici Koşul"
+              fullWidth
+              type="text"
+              value={formData.triggerCondition}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, triggerCondition: e.target.value }))
+              }
+              placeholder={TRIGGER_PLACEHOLDERS[formData.trigger]}
+              required
+            />
           </div>
 
           {/* Task Section */}
@@ -150,35 +138,27 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
             </h4>
 
             {/* Task Title */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Görev Başlığı *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.taskTitle}
-                onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))}
-                placeholder="Yem siparişi ver"
-                required
-              />
-            </div>
+            <Input
+              label="Görev Başlığı"
+              fullWidth
+              type="text"
+              value={formData.taskTitle}
+              onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))}
+              placeholder="Yem siparişi ver"
+              required
+            />
 
             {/* Task Description */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Görev Açıklaması
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.taskDescription}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, taskDescription: e.target.value }))
-                }
-                rows={2}
-                placeholder="Görev detayları..."
-              />
-            </div>
+            <Textarea
+              label="Görev Açıklaması"
+              fullWidth
+              value={formData.taskDescription}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, taskDescription: e.target.value }))
+              }
+              rows={2}
+              placeholder="Görev detayları..."
+            />
 
             {/* Category + Priority */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

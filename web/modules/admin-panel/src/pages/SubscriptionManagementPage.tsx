@@ -6,14 +6,15 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
   DataTable,
   Input,
   Modal,
-  type DataTableColumn,
   PageHeader,
+  Select,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -358,37 +359,31 @@ const SubscriptionManagementPage: React.FC = () => {
             />
           </div>
 
-          <select
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+          <Select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value as SubscriptionStatus | '');
               setPage(1);
             }}
-          >
-            <option value="">All Statuses</option>
-            {Object.values(SubscriptionStatus).map((status) => (
-              <option key={status} value={status}>
-                {status.replace('_', ' ').toUpperCase()}
-              </option>
-            ))}
-          </select>
+            placeholder="All Statuses"
+            options={Object.values(SubscriptionStatus).map((status) => ({
+              value: status,
+              label: status.replace('_', ' ').toUpperCase(),
+            }))}
+          />
 
-          <select
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+          <Select
             value={planFilter}
             onChange={(e) => {
               setPlanFilter(e.target.value as PlanTier | '');
               setPage(1);
             }}
-          >
-            <option value="">All Plans</option>
-            {Object.values(PlanTier).map((tier) => (
-              <option key={tier} value={tier}>
-                {tier.toUpperCase()}
-              </option>
-            ))}
-          </select>
+            placeholder="All Plans"
+            options={Object.values(PlanTier).map((tier) => ({
+              value: tier,
+              label: tier.toUpperCase(),
+            }))}
+          />
         </div>
       </Card>
 
@@ -467,18 +462,15 @@ const SubscriptionManagementPage: React.FC = () => {
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             Extend the trial period for <strong>{selectedSubscription.tenantName}</strong>
           </p>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Additional Days
-            </label>
-            <Input
-              type="number"
-              min={1}
-              max={90}
-              value={trialDays}
-              onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
-            />
-          </div>
+          <Input
+            label="Additional Days"
+            className="mb-4"
+            type="number"
+            min={1}
+            max={90}
+            value={trialDays}
+            onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
+          />
         </Modal>
       )}
     </div>

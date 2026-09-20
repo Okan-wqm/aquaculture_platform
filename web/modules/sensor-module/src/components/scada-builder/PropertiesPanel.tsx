@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { Settings, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
 import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
@@ -192,26 +192,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Connection Properties
                 </h4>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Connection Type
-                  </label>
-                  <select
-                    value={selectedEdge.data.connectionType}
-                    onChange={(e) =>
-                      onEdgeDataChange(selectedEdge.id, {
-                        connectionType: e.target.value as ConnectionType,
-                      })
-                    }
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {CONNECTION_TYPES.map((ct) => (
-                      <option key={ct.id} value={ct.id}>
-                        {ct.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Connection Type"
+                  value={selectedEdge.data.connectionType}
+                  onChange={(e) =>
+                    onEdgeDataChange(selectedEdge.id, {
+                      connectionType: e.target.value as ConnectionType,
+                    })
+                  }
+                  options={CONNECTION_TYPES.map((ct) => ({ value: ct.id, label: ct.label }))}
+                />
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     Line Type
@@ -222,34 +212,29 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       { type: 'multiHandle' as const, label: 'Polyline' },
                       { type: 'draggable' as const, label: 'Bezier' },
                     ].map((opt) => (
-                      <button
+                      <ToggleButton
                         key={opt.type}
                         onClick={() => onEdgeTypeChange?.(selectedEdge.id, opt.type)}
-                        className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
-                          selectedEdge.type === opt.type
-                            ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 font-medium'
-                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        pressed={selectedEdge.type === opt.type}
+                        className="flex-1 px-2 py-1.5 text-xs rounded border transition-colors"
+                        pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 font-medium"
+                        idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                       >
                         {opt.label}
-                      </button>
+                      </ToggleButton>
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Label
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={selectedEdge.data.label || ''}
-                    onChange={(e) =>
-                      onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })
-                    }
-                    placeholder="Connection label"
-                  />
-                </div>
+                <Input
+                  label="Label"
+                  fullWidth
+                  type="text"
+                  value={selectedEdge.data.label || ''}
+                  onChange={(e) =>
+                    onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })
+                  }
+                  placeholder="Connection label"
+                />
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"

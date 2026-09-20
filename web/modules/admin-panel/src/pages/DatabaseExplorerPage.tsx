@@ -7,17 +7,19 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  Button,
-  Input,
-  Badge,
   Alert,
-  Modal,
+  Badge,
+  Button,
+  Card,
   DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  Spinner,
+  ToggleButton,
   type DataTableColumn,
   type SortConfig,
-  Spinner,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
 import { saveBlob } from '../services/blob-client';
@@ -653,17 +655,11 @@ const DatabaseExplorerPage: React.FC = () => {
         description="View and manage database tables"
         actions={
           <div className="mt-4 sm:mt-0 flex gap-2">
-            <select
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
+            <Select
               value={selectedSchema}
               onChange={(e) => handleSchemaSelect(e.target.value)}
-            >
-              {schemas.map((schema) => (
-                <option key={schema} value={schema}>
-                  {schema}
-                </option>
-              ))}
-            </select>
+              options={schemas.map((schema) => ({ value: schema, label: schema }))}
+            />
             {selectedTable && (
               <>
                 {/* Export Dropdown */}
@@ -718,21 +714,20 @@ const DatabaseExplorerPage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Tables ({tables.length})</h3>
           <div className="space-y-1 max-h-[calc(100vh-300px)] overflow-y-auto">
             {tables.map((table) => (
-              <button
+              <ToggleButton
                 key={table.tableName}
                 onClick={() => handleTableSelect(table.tableName)}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                  selectedTable === table.tableName
-                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
+                pressed={selectedTable === table.tableName}
+                className="w-full text-left px-3 py-2 rounded-lg transition-colors"
+                pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+                idleClassName="hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <div className="font-medium text-sm">{table.tableName}</div>
                 <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                   <span>{table.rowCount.toLocaleString()} rows</span>
                   <span>{formatBytes(table.sizeBytes)}</span>
                 </div>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </Card>

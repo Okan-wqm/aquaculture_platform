@@ -5,7 +5,7 @@ import {
   VFD_PROTOCOL_NAMES,
   VFD_PROTOCOL_DESCRIPTIONS,
 } from '../../../types/vfd.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Building2,
   CircleCheck,
@@ -266,14 +266,13 @@ function ProtocolGroup({
           const isSelected = selectedProtocol === protocol;
 
           return (
-            <button
+            <ToggleButton
               key={protocol}
               onClick={() => onSelect(protocol)}
-              className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
-                isSelected
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md'
-                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
-              }`}
+              pressed={isSelected}
+              className="relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md"
+              pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md"
+              idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500"
             >
               <div className="flex items-start">
                 <div
@@ -297,7 +296,7 @@ function ProtocolGroup({
                   <CircleCheck className="w-5 h-5 text-info-500" aria-hidden="true" />
                 </div>
               )}
-            </button>
+            </ToggleButton>
           );
         })}
       </div>

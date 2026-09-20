@@ -8,7 +8,11 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({
+  config,
+  onChange,
+  deviceId,
+}) => {
   return (
     <div className="space-y-3">
       <div>
@@ -20,19 +24,32 @@ export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           placeholder="Select tag..."
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Temperature" />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Temperature"
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-          <Input fullWidth type="text" value={config.unit || ''} onChange={(e) => onChange({ unit: e.target.value })} placeholder="°C" />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Decimals</label>
-          <Input fullWidth type="number" min={0} max={6} value={config.decimals ?? 1} onChange={(e) => onChange({ decimals: Number(e.target.value) })} />
-        </div>
+        <Input
+          label="Unit"
+          fullWidth
+          type="text"
+          value={config.unit || ''}
+          onChange={(e) => onChange({ unit: e.target.value })}
+          placeholder="°C"
+        />
+        <Input
+          label="Decimals"
+          fullWidth
+          type="number"
+          min={0}
+          max={6}
+          value={config.decimals ?? 1}
+          onChange={(e) => onChange({ decimals: Number(e.target.value) })}
+        />
       </div>
     </div>
   );

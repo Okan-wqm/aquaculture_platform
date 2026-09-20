@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Button, PasswordInput } from '@aquaculture/shared-ui';
+import { Button, Checkbox, PasswordInput, Select } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
 import {
   useAiProviderSettings,
@@ -136,34 +136,20 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          AI Provider
-        </label>
-        <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as LlmProviderId)}
-          disabled={!canEdit}
-          className={inputClass}
-        >
-          {availableProviders.map((p) => (
-            <option key={p} value={p}>
-              {PROVIDER_LABEL[p]}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="AI Provider"
+        value={provider}
+        onChange={(e) => setProvider(e.target.value as LlmProviderId)}
+        disabled={!canEdit}
+        options={availableProviders.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+      />
 
-      <label className="flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-        <input
-          type="checkbox"
-          checked={isEnabled}
-          onChange={(e) => setIsEnabled(e.target.checked)}
-          disabled={!canEdit}
-          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500 disabled:cursor-not-allowed"
-        />
-        Enable the AI assistant
-      </label>
+      <Checkbox
+        label="Enable the AI assistant"
+        checked={isEnabled}
+        onChange={(e) => setIsEnabled(e.target.checked)}
+        disabled={!canEdit}
+      />
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

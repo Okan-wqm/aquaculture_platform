@@ -1,27 +1,70 @@
 import { clsx } from 'clsx';
-import { ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Coffee,
+  Palmtree,
+  GraduationCap,
+  CalendarOff,
+} from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
-
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import type { WeeklyPlanEntryType } from '@/generated/graphql';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
-
+import { useI18n } from '@/i18n';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_NAMES_FULL = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
 
 // MOB-HIGH-022: keyed by the generated enum (wire NAMES). The old record was
 // keyed by lowercase strings, so every lookup missed and each day rendered as
 // "Day Off"; a total Record makes a missing entry type a compile error.
-const ENTRY_TYPE_CONFIG: Record<WeeklyPlanEntryType, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {
-  WORK: { icon: Clock, label: 'Work', bgColor: 'bg-ocean-50 dark:bg-ocean-900/20', textColor: 'text-ocean-600 dark:text-ocean-400' },
-  OFF: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500 dark:text-gray-400' },
-  LEAVE: { icon: Palmtree, label: 'Leave', bgColor: 'bg-sea-50 dark:bg-sea-900/20', textColor: 'text-sea-600 dark:text-sea-400' },
-  HOLIDAY: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-coral-50 dark:bg-coral-900/20', textColor: 'text-coral-600' },
-  TRAINING: { icon: GraduationCap, label: 'Training', bgColor: 'bg-purple-50 dark:bg-purple-900/20', textColor: 'text-purple-600' },
+const ENTRY_TYPE_CONFIG: Record<
+  WeeklyPlanEntryType,
+  { icon: typeof Clock; label: string; bgColor: string; textColor: string }
+> = {
+  WORK: {
+    icon: Clock,
+    label: 'Work',
+    bgColor: 'bg-ocean-50 dark:bg-ocean-900/20',
+    textColor: 'text-ocean-600 dark:text-ocean-400',
+  },
+  OFF: {
+    icon: Coffee,
+    label: 'Day Off',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
+    textColor: 'text-gray-500 dark:text-gray-400',
+  },
+  LEAVE: {
+    icon: Palmtree,
+    label: 'Leave',
+    bgColor: 'bg-sea-50 dark:bg-sea-900/20',
+    textColor: 'text-sea-600 dark:text-sea-400',
+  },
+  HOLIDAY: {
+    icon: CalendarOff,
+    label: 'Holiday',
+    bgColor: 'bg-coral-50 dark:bg-coral-900/20',
+    textColor: 'text-coral-600',
+  },
+  TRAINING: {
+    icon: GraduationCap,
+    label: 'Training',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+    textColor: 'text-purple-600',
+  },
 };
 
 function isToday(dateStr: string): boolean {
@@ -44,13 +87,18 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
         'rounded-2xl p-4 border transition-all',
         today
           ? 'border-ocean-300 dark:border-ocean-600 bg-ocean-50/50 dark:bg-ocean-900/10 shadow-glow-ocean'
-          : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'
+          : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900',
       )}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {today && <span className="w-2 h-2 rounded-full bg-ocean-500 animate-pulse" />}
-          <span className={clsx('text-sm font-bold', today ? 'text-ocean-600 dark:text-ocean-400' : 'text-gray-900 dark:text-white')}>
+          <span
+            className={clsx(
+              'text-sm font-bold',
+              today ? 'text-ocean-600 dark:text-ocean-400' : 'text-gray-900 dark:text-white',
+            )}
+          >
             {DAY_NAMES_FULL[adjustedIndex]}
           </span>
         </div>
@@ -69,13 +117,18 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {startTime.slice(0, 5)} - {endTime.slice(0, 5)}
               {entry.plannedMinutes > 0 && (
-                <span className="ml-2 text-gray-400 dark:text-gray-500">({formatMinutesAsHours(entry.plannedMinutes)})</span>
+                <span className="ml-2 text-gray-400 dark:text-gray-500">
+                  ({formatMinutesAsHours(entry.plannedMinutes)})
+                </span>
               )}
             </div>
           )}
         </div>
         {entry.shift?.colorCode && (
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.shift.colorCode }} />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: entry.shift.colorCode }}
+          />
         )}
       </div>
     </div>
@@ -83,6 +136,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
 }
 
 export function MySchedulePage(): JSX.Element {
+  const { t } = useI18n();
   const [weekOffset, setWeekOffset] = useState(0);
   const { data: plan, isLoading, isError } = useMySchedule(weekOffset);
 
@@ -106,14 +160,11 @@ export function MySchedulePage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        icon={Clock}
-        title="My Schedule"
-      >
-
+      <PageHeader icon={Clock} title="My Schedule">
         {/* Week navigation */}
         <div className="flex items-center justify-between px-4 pb-4">
           <button
+            aria-label={t('a11y.previousWeek')}
             onClick={() => setWeekOffset((w) => w - 1)}
             className="p-2 rounded-xl bg-white/10 dark:bg-gray-900/10 hover:bg-white/20 dark:hover:bg-gray-800/20 touch-feedback"
           >
@@ -122,10 +173,17 @@ export function MySchedulePage(): JSX.Element {
           <div className="text-center">
             <div className="text-sm font-semibold">{formatWeekRange()}</div>
             <div className="text-ocean-200 text-xs font-medium mt-0.5">
-              {weekOffset === 0 ? 'This Week' : weekOffset === 1 ? 'Next Week' : weekOffset === -1 ? 'Last Week' : ''}
+              {weekOffset === 0
+                ? 'This Week'
+                : weekOffset === 1
+                  ? 'Next Week'
+                  : weekOffset === -1
+                    ? 'Last Week'
+                    : ''}
             </div>
           </div>
           <button
+            aria-label={t('a11y.nextWeek')}
             onClick={() => setWeekOffset((w) => w + 1)}
             className="p-2 rounded-xl bg-white/10 dark:bg-gray-900/10 hover:bg-white/20 dark:hover:bg-gray-800/20 touch-feedback"
           >
@@ -141,17 +199,30 @@ export function MySchedulePage(): JSX.Element {
               <div className="text-ocean-200 text-[10px] font-medium">Work Days</div>
             </div>
             <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold">{formatMinutesAsHours(plan.plannedTotalMinutes)}</div>
+              <div className="text-lg font-bold">
+                {formatMinutesAsHours(plan.plannedTotalMinutes)}
+              </div>
               <div className="text-ocean-200 text-[10px] font-medium">Total Hours</div>
             </div>
-            <div className={clsx(
-              'rounded-xl p-2.5 text-center backdrop-blur-sm',
-              plan.plannedOvertimeMinutes > 0 ? 'bg-coral-500/30' : 'bg-white/10 dark:bg-gray-900/10'
-            )}>
+            <div
+              className={clsx(
+                'rounded-xl p-2.5 text-center backdrop-blur-sm',
+                plan.plannedOvertimeMinutes > 0
+                  ? 'bg-coral-500/30'
+                  : 'bg-white/10 dark:bg-gray-900/10',
+              )}
+            >
               <div className="text-lg font-bold">
-                {plan.plannedOvertimeMinutes > 0 ? formatMinutesAsHours(plan.plannedOvertimeMinutes) : '--'}
+                {plan.plannedOvertimeMinutes > 0
+                  ? formatMinutesAsHours(plan.plannedOvertimeMinutes)
+                  : '--'}
               </div>
-              <div className={clsx('text-[10px] font-medium', plan.plannedOvertimeMinutes > 0 ? 'text-coral-200' : 'text-ocean-200')}>
+              <div
+                className={clsx(
+                  'text-[10px] font-medium',
+                  plan.plannedOvertimeMinutes > 0 ? 'text-coral-200' : 'text-ocean-200',
+                )}
+              >
                 Overtime
               </div>
             </div>
@@ -203,21 +274,30 @@ export function MySchedulePage(): JSX.Element {
                 const today = isToday(entry.date);
                 return (
                   <div key={entry.id} className="flex-1 text-center">
-                    <div className={clsx(
-                      'text-[10px] font-bold mb-1',
-                      today ? 'text-ocean-600' : 'text-gray-400 dark:text-gray-500'
-                    )}>
+                    <div
+                      className={clsx(
+                        'text-[10px] font-bold mb-1',
+                        today ? 'text-ocean-600' : 'text-gray-400 dark:text-gray-500',
+                      )}
+                    >
                       {DAY_NAMES[adjustedIndex]}
                     </div>
-                    <div className={clsx(
-                      'h-1.5 rounded-full',
-                      entry.entryType === 'WORK'
-                        ? today ? 'bg-ocean-500' : 'bg-ocean-300 dark:bg-ocean-700'
-                        : entry.entryType === 'OFF' ? 'bg-gray-200 dark:bg-gray-700'
-                        : entry.entryType === 'LEAVE' ? 'bg-sea-400'
-                        : entry.entryType === 'HOLIDAY' ? 'bg-coral-400'
-                        : 'bg-purple-400'
-                    )} />
+                    <div
+                      className={clsx(
+                        'h-1.5 rounded-full',
+                        entry.entryType === 'WORK'
+                          ? today
+                            ? 'bg-ocean-500'
+                            : 'bg-ocean-300 dark:bg-ocean-700'
+                          : entry.entryType === 'OFF'
+                            ? 'bg-gray-200 dark:bg-gray-700'
+                            : entry.entryType === 'LEAVE'
+                              ? 'bg-sea-400'
+                              : entry.entryType === 'HOLIDAY'
+                                ? 'bg-coral-400'
+                                : 'bg-purple-400',
+                      )}
+                    />
                   </div>
                 );
               })}

@@ -12,6 +12,7 @@ import {
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
 
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useTanks } from '@/hooks/useTanks';
 import type { QualityClass, QueuedPayload } from '@/types';
 
@@ -202,24 +203,24 @@ export function RecordHarvestPage(): JSX.Element {
 
       {/* Quality class — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
       <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Quality Class</h3>
+        <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+          Quality Class
+        </h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {QUALITY_CLASSES.map((g) => {
             const selected = qualityClass === g.value;
             return (
-              <button
+              <ToggleButton
                 key={g.value}
                 onClick={() => setQualityClass(g.value)}
-                className={clsx(
-                  'flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                  selected
-                    ? 'border-harvest bg-purple-50 dark:bg-purple-900/20 shadow-glow-purple'
-                    : 'border-gray-100 dark:border-gray-800',
-                )}
+                pressed={selected}
+                className="flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900"
+                pressedClassName="border-harvest bg-purple-50 dark:bg-purple-900/20 shadow-glow-purple"
+                idleClassName="border-gray-100 dark:border-gray-800"
               >
                 <div className={clsx('w-4 h-4 rounded-full mx-auto mb-1.5', g.color)} />
                 <span className="text-xs font-semibold">{g.label}</span>
-              </button>
+              </ToggleButton>
             );
           })}
         </div>
@@ -264,7 +265,9 @@ export function RecordHarvestPage(): JSX.Element {
               })}{' '}
               USD
             </div>
-            <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">Estimated Value</div>
+            <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">
+              Estimated Value
+            </div>
           </div>
         </div>
       )}

@@ -338,129 +338,99 @@ export const StorageLocationsTab: React.FC = () => {
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Capacity
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  min="0"
-                  value={formData.capacity}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      capacity: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Unit
-                </label>
-                <Select
-                  fullWidth
-                  options={[
-                    { value: 'm³', label: 'm³' },
-                    { value: 'kg', label: 'kg' },
-                    { value: 'L', label: 'L' },
-                    { value: 'tons', label: 'tons' },
-                  ]}
-                  value={formData.capacityUnit}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, capacityUnit: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Temp Min (°C)
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="0.1"
-                  value={formData.temperatureMin}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      temperatureMin: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Temp Max (°C)
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="0.1"
-                  value={formData.temperatureMax}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      temperatureMax: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Humidity Min (%)
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={formData.humidityMin}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      humidityMin: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Humidity Max (%)
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={formData.humidityMax}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      humidityMax: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Description
-              </label>
-              <Textarea
+              <Input
+                label="Capacity"
                 fullWidth
-                rows={2}
-                value={formData.description}
-                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                type="number"
+                min="0"
+                value={formData.capacity}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    capacity: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+              />
+              <Select
+                label="Unit"
+                fullWidth
+                options={[
+                  { value: 'm³', label: 'm³' },
+                  { value: 'kg', label: 'kg' },
+                  { value: 'L', label: 'L' },
+                  { value: 'tons', label: 'tons' },
+                ]}
+                value={formData.capacityUnit}
+                onChange={(e) => setFormData((prev) => ({ ...prev, capacityUnit: e.target.value }))}
               />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Temp Min (°C)"
+                fullWidth
+                type="number"
+                step="0.1"
+                value={formData.temperatureMin}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    temperatureMin: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+              />
+              <Input
+                label="Temp Max (°C)"
+                fullWidth
+                type="number"
+                step="0.1"
+                value={formData.temperatureMax}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    temperatureMax: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Humidity Min (%)"
+                fullWidth
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                value={formData.humidityMin}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    humidityMin: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+              />
+              <Input
+                label="Humidity Max (%)"
+                fullWidth
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                value={formData.humidityMax}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    humidityMax: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+              />
+            </div>
+            <Textarea
+              label="Description"
+              fullWidth
+              rows={2}
+              value={formData.description}
+              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+            />
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
             <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>

@@ -8,7 +8,11 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({
+  config,
+  onChange,
+  deviceId,
+}) => {
   return (
     <div className="space-y-3">
       <div>
@@ -20,18 +24,33 @@ export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           placeholder="Select tag..."
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Dirty Water Tank" />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Level (%)</label>
-        <Input fullWidth type="number" min={0} max={100} value={config.demoLevel ?? 55} onChange={(e) => onChange({ demoLevel: Number(e.target.value) })} />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Status</label>
-        <Select fullWidth options={[{ value: 'running', label: 'Running' }, { value: 'stopped', label: 'Stopped' }]} value={config.demoStatus || 'running'} onChange={(e) => onChange({ demoStatus: e.target.value })} />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Dirty Water Tank"
+      />
+      <Input
+        label="Demo Level (%)"
+        fullWidth
+        type="number"
+        min={0}
+        max={100}
+        value={config.demoLevel ?? 55}
+        onChange={(e) => onChange({ demoLevel: Number(e.target.value) })}
+      />
+      <Select
+        label="Demo Status"
+        fullWidth
+        options={[
+          { value: 'running', label: 'Running' },
+          { value: 'stopped', label: 'Stopped' },
+        ]}
+        value={config.demoStatus || 'running'}
+        onChange={(e) => onChange({ demoStatus: e.target.value })}
+      />
     </div>
   );
 };

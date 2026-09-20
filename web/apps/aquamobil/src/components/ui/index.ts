@@ -12,6 +12,9 @@ export { Field, Input, Select, Textarea } from './Field';
 export type { FieldProps, InputProps, SelectProps, TextareaProps } from './Field';
 export { Switch } from './Switch';
 export type { SwitchProps, SwitchTone } from './Switch';
+
+export { ToggleButton } from './ToggleButton';
+export type { ToggleButtonProps } from './ToggleButton';
 export { SectionTitle } from './SectionTitle';
 export { Button } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';

@@ -4,6 +4,7 @@
  * Seçilen değerleri chip olarak gösterir
  */
 
+import { useI18n } from '../../i18n';
 import React, { forwardRef, useState, useRef, useEffect, useId } from 'react';
 import type { Size } from '../../types';
 import { ChevronDown, X } from 'lucide-react';
@@ -108,6 +109,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
     },
     ref,
   ) => {
+    const { t } = useI18n();
     const generatedId = useId();
     const selectId = providedId || generatedId;
     // BUG-013: label needs its own id to use aria-labelledby pattern with a div[role="combobox"]
@@ -225,6 +227,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     <button
                       type="button"
                       onClick={(e) => handleRemove(opt.value, e)}
+                      aria-label={t('a11y.removeSelection')}
                       className="hover:text-primary-600 dark:hover:text-primary-300 focus:outline-hidden"
                     >
                       <X className="w-3 h-3" aria-hidden="true" />

@@ -20,6 +20,7 @@ import { useState, useCallback, useMemo, type ReactElement } from 'react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { IconButton } from '@/components/ui/IconButton';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
@@ -110,14 +111,11 @@ export function ForwardModal({
   // Forward mutation
   const forwardMutation = useMutation({
     mutationFn: async (targetChannelId: string) => {
-      const result = await graphqlRequest(
-        FORWARD_MESSAGE,
-        {
-          sourceMessageId: message.id,
-          sourceMessageCreatedAt: message.createdAt,
-          targetChannelId,
-        },
-      );
+      const result = await graphqlRequest(FORWARD_MESSAGE, {
+        sourceMessageId: message.id,
+        sourceMessageCreatedAt: message.createdAt,
+        targetChannelId,
+      });
       return result.forwardMessage;
     },
     onSuccess: () => {
@@ -125,7 +123,9 @@ export function ForwardModal({
       // returns a Promise; we intentionally fire-and-forget the refetch here, so
       // mark it void to satisfy no-floating-promises without blocking onClose.
       void queryClient.invalidateQueries({ queryKey: messagesFamilyKey(tenantId) });
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       onClose();
     },
   });
@@ -168,7 +168,9 @@ export function ForwardModal({
           disabled={!selectedChannelId || isForwarding}
           className={clsx(
             'text-white',
-            selectedChannelId && !isForwarding ? 'bg-ocean-600 hover:bg-ocean-700' : 'bg-ocean-600/50',
+            selectedChannelId && !isForwarding
+              ? 'bg-ocean-600 hover:bg-ocean-700'
+              : 'bg-ocean-600/50',
           )}
         >
           <Forward size={20} />
@@ -177,12 +179,8 @@ export function ForwardModal({
     >
       {/* Message preview */}
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
-        <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
-          Forwarding:
-        </p>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-          {preview}
-        </p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Forwarding:</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{preview}</p>
       </div>
 
       {/* Search */}
@@ -223,16 +221,14 @@ export function ForwardModal({
             const isSelected = channel.id === selectedChannelId;
 
             return (
-              <button
+              <ToggleButton
                 key={channel.id}
                 onClick={() => handleSelect(channel.id)}
                 disabled={isForwarding}
-                className={clsx(
-                  'flex items-center gap-3 w-full px-4 py-3 min-h-[56px] text-left touch-feedback transition-colors',
-                  isSelected
-                    ? 'bg-ocean-50 dark:bg-ocean-900/20 border-l-2 border-ocean-500'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-l-2 border-transparent',
-                )}
+                pressed={isSelected}
+                className="flex items-center gap-3 w-full px-4 py-3 min-h-[56px] text-left touch-feedback transition-colors"
+                pressedClassName="bg-ocean-50 dark:bg-ocean-900/20 border-l-2 border-ocean-500"
+                idleClassName="hover:bg-gray-50 dark:hover:bg-gray-800 border-l-2 border-transparent"
               >
                 <div
                   className={clsx(
@@ -271,7 +267,7 @@ export function ForwardModal({
                     <div className="w-2 h-2 rounded-full bg-white dark:bg-gray-900" />
                   </div>
                 )}
-              </button>
+              </ToggleButton>
             );
           })
         )}

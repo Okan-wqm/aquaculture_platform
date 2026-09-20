@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Badge, Button, Card, Input, PageHeader, Select, Spinner } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -381,68 +381,49 @@ const CustomPlanBuilderPage: React.FC = () => {
                   onChange={(e) => setConfig({ ...config, name: e.target.value })}
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Description
-                </label>
-                <Input
-                  placeholder="Description..."
-                  value={config.description}
-                  onChange={(e) => setConfig({ ...config, description: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Tier
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-info-500"
-                  value={config.tier}
-                  onChange={(e) => setConfig({ ...config, tier: e.target.value as PlanTier })}
-                >
-                  <option value={PlanTier.STARTER}>Starter (Full Price)</option>
-                  <option value={PlanTier.PROFESSIONAL}>Professional (10% off)</option>
-                  <option value={PlanTier.ENTERPRISE}>Enterprise (30% off)</option>
-                  <option value={PlanTier.CUSTOM}>Custom</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Billing Cycle
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-info-500"
-                  value={config.billingCycle}
-                  onChange={(e) =>
-                    setConfig({ ...config, billingCycle: e.target.value as BillingCycle })
-                  }
-                >
-                  <option value={BillingCycle.MONTHLY}>Monthly</option>
-                  <option value={BillingCycle.QUARTERLY}>Quarterly (5% off)</option>
-                  <option value={BillingCycle.SEMI_ANNUAL}>Semi-Annual (10% off)</option>
-                  <option value={BillingCycle.ANNUAL}>Annual (15% off)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Valid From
-                </label>
-                <Input
-                  type="date"
-                  value={config.validFrom}
-                  onChange={(e) => setConfig({ ...config, validFrom: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Valid To (Optional)
-                </label>
-                <Input
-                  type="date"
-                  value={config.validTo}
-                  onChange={(e) => setConfig({ ...config, validTo: e.target.value })}
-                />
-              </div>
+              <Input
+                label="Description"
+                className="md:col-span-2"
+                placeholder="Description..."
+                value={config.description}
+                onChange={(e) => setConfig({ ...config, description: e.target.value })}
+              />
+              <Select
+                label="Tier"
+                value={config.tier}
+                onChange={(e) => setConfig({ ...config, tier: e.target.value as PlanTier })}
+                options={[
+                  { value: '{PlanTier.STARTER}', label: 'Starter (Full Price)' },
+                  { value: '{PlanTier.PROFESSIONAL}', label: 'Professional (10% off)' },
+                  { value: '{PlanTier.ENTERPRISE}', label: 'Enterprise (30% off)' },
+                  { value: '{PlanTier.CUSTOM}', label: 'Custom' },
+                ]}
+              />
+              <Select
+                label="Billing Cycle"
+                value={config.billingCycle}
+                onChange={(e) =>
+                  setConfig({ ...config, billingCycle: e.target.value as BillingCycle })
+                }
+                options={[
+                  { value: '{BillingCycle.MONTHLY}', label: 'Monthly' },
+                  { value: '{BillingCycle.QUARTERLY}', label: 'Quarterly (5% off)' },
+                  { value: '{BillingCycle.SEMI_ANNUAL}', label: 'Semi-Annual (10% off)' },
+                  { value: '{BillingCycle.ANNUAL}', label: 'Annual (15% off)' },
+                ]}
+              />
+              <Input
+                label="Valid From"
+                type="date"
+                value={config.validFrom}
+                onChange={(e) => setConfig({ ...config, validFrom: e.target.value })}
+              />
+              <Input
+                label="Valid To (Optional)"
+                type="date"
+                value={config.validTo}
+                onChange={(e) => setConfig({ ...config, validTo: e.target.value })}
+              />
             </div>
           </Card>
 
@@ -551,41 +532,29 @@ const CustomPlanBuilderPage: React.FC = () => {
           <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">Discounts (Optional)</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Discount %
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.01"
-                  value={config.discountPercent}
-                  onChange={(e) => setConfig({ ...config, discountPercent: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Fixed Discount ($)
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={config.discountAmount}
-                  onChange={(e) => setConfig({ ...config, discountAmount: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Discount Reason
-                </label>
-                <Input
-                  placeholder="Early adopter discount"
-                  value={config.discountReason}
-                  onChange={(e) => setConfig({ ...config, discountReason: e.target.value })}
-                />
-              </div>
+              <Input
+                label="Discount %"
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={config.discountPercent}
+                onChange={(e) => setConfig({ ...config, discountPercent: e.target.value })}
+              />
+              <Input
+                label="Fixed Discount ($)"
+                type="number"
+                min={0}
+                step="0.01"
+                value={config.discountAmount}
+                onChange={(e) => setConfig({ ...config, discountAmount: e.target.value })}
+              />
+              <Input
+                label="Discount Reason"
+                placeholder="Early adopter discount"
+                value={config.discountReason}
+                onChange={(e) => setConfig({ ...config, discountReason: e.target.value })}
+              />
             </div>
           </Card>
         </div>

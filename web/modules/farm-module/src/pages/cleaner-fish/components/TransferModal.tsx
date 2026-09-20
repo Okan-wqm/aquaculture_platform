@@ -192,59 +192,38 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         </div>
 
         {/* Transfer Date */}
-        <div>
-          <label
-            htmlFor="transferredAt"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Transfer Date
-          </label>
-          <Input
-            fullWidth
-            type="date"
-            id="transferredAt"
-            value={transferredAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setTransferredAt(e.target.value)}
-          />
-        </div>
+        <Input
+          label="Transfer Date"
+          fullWidth
+          type="date"
+          id="transferredAt"
+          value={transferredAt}
+          max={new Date().toISOString().split('T')[0]}
+          onChange={(e) => setTransferredAt(e.target.value)}
+        />
 
         {/* Reason */}
-        <div>
-          <label
-            htmlFor="reason"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Transfer Reason
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            id="reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g., Rebalancing, Production needs..."
-          />
-        </div>
+        <Input
+          label="Transfer Reason"
+          fullWidth
+          type="text"
+          id="reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g., Rebalancing, Production needs..."
+        />
 
         {/* Notes */}
-        <div>
-          <label
-            htmlFor="notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes..."
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          id="notes"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes..."
+        />
 
         {/* Validation Error */}
         {quantity > maxQuantity && (

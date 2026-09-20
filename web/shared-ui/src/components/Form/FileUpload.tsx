@@ -3,6 +3,7 @@
  * Drag and drop file upload with preview
  */
 
+import { useI18n } from '../../i18n';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { CircleCheck, CloudUpload, File as FileIcon, FileText, Image, X } from 'lucide-react';
 
@@ -74,6 +75,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   showPreview = true,
   className = '',
 }) => {
+  const { t } = useI18n();
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -315,6 +317,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                   e.stopPropagation();
                   handleRemove(file.id);
                 }}
+                aria-label={t('a11y.removeFile')}
                 className="p-1 text-gray-500 dark:text-gray-400 hover:text-error-500 transition-colors"
               >
                 <X className="w-5 h-5" aria-hidden="true" />

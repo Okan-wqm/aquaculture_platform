@@ -46,7 +46,12 @@
    Checkboxes, radios, ranges, files and colour pickers keep their native
    rendering, which `color-scheme: dark` on <html> already darkens. */
 @layer base {
-  [data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea) {
+  [data-theme='dark']
+    :where(
+      input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+      select,
+      textarea
+    ) {
     @apply bg-gray-800 text-gray-100 border-gray-600;
   }
   [data-theme='dark'] :where(input, textarea)::placeholder {
@@ -250,6 +255,31 @@
   --color-sd-ink-hint: #8aa0aa; /* placeholder / empty-state hint text */
   --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
   --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
+
+  /* Completing the set for the console's own components (rail, page
+     primitives, tables, toolbars, tabs): the ported stylesheet writes 39
+     distinct colours, of which 19 already resolve to the tokens above.
+     These are the other 20. Light theme only, as the port is. */
+  --color-sd-mint-ink: #166f5a; /* ledger/success text on paper */
+  --color-sd-mint-deep: #4abba2; /* mint accent on paper (dot, focus ring, progress) */
+  --color-sd-mint-light: #7cedd0; /* progress gradient stop */
+  --color-sd-on-mint: #f4fbf9; /* text on a mint fill */
+  --color-sd-cyan: #4fb6c8; /* secondary accent beside teal (dot, eyebrow rule) */
+  --color-sd-cyan-light: #8fd8e4; /* brand caption on the dark rail */
+  --color-sd-cyan-faint: #eaf6f8; /* brand name on the dark rail, avatar text */
+  --color-sd-on-teal: #f4fbfc; /* text on a teal fill */
+  --color-sd-teal-mid: #14606f; /* avatar gradient stop */
+  --color-sd-amber-ink: #8a5e10; /* pending/HR tile text on paper */
+  --color-sd-amber: #a97514; /* amber status dot */
+  --color-sd-amber-surface: #fbf3dc; /* check-row background on paper */
+  --color-sd-violet-ink: #4a3766; /* AI channel icon */
+  --color-sd-violet: #7a63b4; /* AI author mark */
+  --color-sd-paper-lit: #fcf9f1; /* content gradient stop 1 (lit) */
+  --color-sd-paper-deep: #f0f2e9; /* content gradient stop 3 (deep) */
+  --color-sd-ink-body: #1c4353; /* message body text */
+  --color-sd-ink-disabled: #9fbfc9; /* disabled send button */
+  --color-sd-ink-hint-soft: #b7c7cd; /* faint hint text, lighter than ink-hint */
+  --color-sd-white: #ffffff; /* pure white tiles and hover surfaces */
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
 }
 
@@ -321,5 +351,314 @@
      :where() keeps specificity at 0 so an explicit text-* utility still wins. */
   .surface-glass :where(label) {
     color: var(--surface-label-fg);
+  }
+}
+
+/* ============================================================================
+   SUDERRA tenant-console rail (`SuderraSidebar`)
+   ============================================================================
+   WHY plain classes and not utilities: the rail is rendered by a federated
+   remote, and the shell's Tailwind scan does not reach a remote's source — a
+   utility written there would simply not be emitted. A class the host document
+   carries works for every remote, which is the same reason the glass surface
+   above is a class. Every colour is a `--color-sd-*` @theme token; the mockup's
+   raw hex does not survive into the repository.
+
+   @layer components, not @theme: these are rules, not tokens. A second @theme
+   block under web/ is what the theme-parity invariant forbids (Batch 33).
+   ============================================================================ */
+@layer components {
+  .sd-rail {
+    flex-shrink: 0;
+    width: 68px;
+    transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .sd-rail[data-open='true'] {
+    width: 264px;
+  }
+
+  .sd-rail-drawer {
+    position: sticky;
+    top: 0;
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: linear-gradient(
+      180deg,
+      var(--color-sd-rail-top) 0%,
+      var(--color-sd-rail-mid) 46%,
+      var(--color-sd-rail-bottom) 100%
+    );
+    border-right: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    height: 64px;
+    padding: 0 18px;
+    border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-logo {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--color-sd-white);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+  }
+  .sd-rail-logo img {
+    display: block;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
+  .sd-rail-brand {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    line-height: 1;
+  }
+  .sd-rail-brand-name {
+    overflow: hidden;
+    color: var(--color-sd-cyan-faint);
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sd-rail-brand-sub {
+    margin-top: 5px;
+    color: var(--color-sd-cyan-light);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .sd-rail-pin {
+    display: flex;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--color-sd-rail-icon);
+    background: transparent;
+    cursor: pointer;
+    transform: rotate(35deg);
+    transition:
+      transform 0.2s ease,
+      background 0.2s ease,
+      color 0.2s ease;
+  }
+  .sd-rail-pin--pinned {
+    background: rgb(110 231 199 / 0.16);
+    color: var(--color-sd-mint);
+    transform: rotate(0deg);
+  }
+
+  .sd-rail-nav {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 14px 12px 12px;
+  }
+
+  .sd-rail-section {
+    margin-bottom: 18px;
+  }
+
+  .sd-rail-section-label {
+    padding: 0 8px 9px;
+    color: var(--color-sd-rail-child);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .sd-rail-hairline {
+    height: 1px;
+    margin: 0 6px 11px;
+    background: rgb(255 255 255 / 0.09);
+  }
+
+  .sd-rail-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 11px;
+    border: 0;
+    border-radius: 9px;
+    color: var(--color-sd-rail-item);
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .sd-rail[data-open='false'] .sd-rail-item {
+    justify-content: center;
+  }
+  .sd-rail-item:hover {
+    background: rgb(255 255 255 / 0.08);
+  }
+  .sd-rail-item--active {
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.14);
+    font-weight: 600;
+  }
+
+  .sd-rail-item-main {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .sd-rail-icon {
+    color: var(--color-sd-rail-icon);
+  }
+  .sd-rail-icon--active {
+    color: var(--color-sd-mint);
+  }
+  .sd-rail-icon--child {
+    color: var(--color-sd-rail-child-icon);
+  }
+
+  .sd-rail-item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sd-rail-meta {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border: 1px solid rgb(110 231 199 / 0.24);
+    border-radius: 999px;
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.14);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .sd-rail-toggle {
+    flex-shrink: 0;
+    padding: 0 3px;
+    color: var(--color-sd-rail-icon);
+    font-size: 14.5px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .sd-rail-children {
+    display: flex;
+    margin: 3px 0 7px 16px;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 14px;
+    border-left: 1px solid rgb(255 255 255 / 0.11);
+  }
+
+  .sd-rail-child {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--color-sd-rail-child);
+    background: transparent;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .sd-rail-child:hover {
+    color: var(--color-sd-cyan-faint);
+    background: rgb(255 255 255 / 0.08);
+  }
+  .sd-rail-child--active {
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.12);
+    font-weight: 600;
+  }
+  .sd-rail-child--active .sd-rail-icon--child {
+    color: var(--color-sd-mint);
+  }
+
+  .sd-rail-child-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sd-rail-footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 11px;
+    padding: 14px 18px 16px;
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-status-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-sd-mint);
+    animation: sdRailPulse 2.4s ease-in-out infinite;
+  }
+
+  .sd-rail-status-text {
+    overflow: hidden;
+    color: var(--color-sd-mint-soft);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  @keyframes sdRailPulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sd-rail,
+    .sd-rail-pin,
+    .sd-rail-item,
+    .sd-rail-child {
+      transition: none;
+    }
+    .sd-rail-status-dot {
+      animation: none;
+    }
   }
 }

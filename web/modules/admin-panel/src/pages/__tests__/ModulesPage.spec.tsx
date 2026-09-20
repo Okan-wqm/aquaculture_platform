@@ -124,8 +124,10 @@ describe('ModulesPage on the admin data layer (ADMIN-HIGH-121)', () => {
     expect(await screen.findByText('Farm Core')).toBeInTheDocument();
     await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(1));
 
-    const toggle = screen.getAllByRole('button').find((button) => button.textContent === '');
-    await user.click(toggle ?? screen.getAllByRole('button')[0]!);
+    // The control is a switch named after its module, so the test asks for it
+    // by what it is. It used to be found as "the button with no text", which
+    // only worked while the toggle had no accessible name at all (FE-HIGH-159).
+    await user.click(screen.getByRole('switch', { name: 'Farm Core' }));
 
     await waitFor(() => expect(deactivateMock).toHaveBeenCalledWith('module-1'));
     // The regression: the old handler re-fetched the list only, so the

@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { ConnectionPointPosition, ConnectionPointType } from '../../equipment-icons/equipmentTypes';
+import { ToggleButton } from '@aquaculture/shared-ui';
 
 interface ConnectionPointContextMenuProps {
   isOpen: boolean;
@@ -90,13 +91,12 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
 
       {/* Menu Items */}
       <div className="py-1">
-        <button
+        <ToggleButton
           onClick={handleSetInput}
-          className={`
-            w-full px-3 py-2 text-left text-sm flex items-center gap-2
-            hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
-            ${currentType === 'input' ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300' : 'text-gray-700 dark:text-gray-300'}
-          `}
+          pressed={currentType === 'input'}
+          className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
+          idleClassName="text-gray-700 dark:text-gray-300"
         >
           <span
             className={`
@@ -106,15 +106,14 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
           />
           <span>Giriş Olarak Ayarla</span>
           {currentType === 'input' && <span className="ml-auto text-info-500">✓</span>}
-        </button>
+        </ToggleButton>
 
-        <button
+        <ToggleButton
           onClick={handleSetOutput}
-          className={`
-            w-full px-3 py-2 text-left text-sm flex items-center gap-2
-            hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
-            ${currentType === 'output' ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300' : 'text-gray-700 dark:text-gray-300'}
-          `}
+          pressed={currentType === 'output'}
+          className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          pressedClassName="bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300"
+          idleClassName="text-gray-700 dark:text-gray-300"
         >
           <span
             className={`
@@ -124,7 +123,7 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
           />
           <span>Çıkış Olarak Ayarla</span>
           {currentType === 'output' && <span className="ml-auto text-success-500">✓</span>}
-        </button>
+        </ToggleButton>
       </div>
     </div>
   );

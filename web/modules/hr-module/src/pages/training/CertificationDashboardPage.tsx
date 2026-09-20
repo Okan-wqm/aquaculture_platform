@@ -27,12 +27,13 @@ import {
   FileText,
 } from 'lucide-react';
 import {
+  Button,
   cn,
   DataTable,
-  type DataTableColumn,
   PageHeader,
-  Button,
   Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useCertificationTypes,
@@ -552,50 +553,42 @@ export function CertificationDashboardPage() {
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
-        <button
+        <ToggleButton
           onClick={() => setActiveTab('overview')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'overview'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'overview'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Overview
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('certifications')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'certifications'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'certifications'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           All Certifications
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('types')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'types'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'types'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Certification Types
-        </button>
-        <button
+        </ToggleButton>
+        <ToggleButton
           onClick={() => setActiveTab('compliance')}
-          className={cn(
-            'border-b-2 pb-3 text-sm font-medium transition-colors',
-            activeTab === 'compliance'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
-          )}
+          pressed={activeTab === 'compliance'}
+          className="border-b-2 pb-3 text-sm font-medium transition-colors"
+          pressedClassName="border-primary-600 text-primary-600 dark:text-primary-400"
+          idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100"
         >
           Compliance Report
-        </button>
+        </ToggleButton>
       </div>
 
       {/* Tab Content */}

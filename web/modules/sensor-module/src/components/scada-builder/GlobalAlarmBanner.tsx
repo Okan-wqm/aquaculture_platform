@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 import type { AlarmRuleDef } from '../../store/scada';
-import { severityClasses } from '@aquaculture/shared-ui';
+import { severityClasses, useI18n } from '@aquaculture/shared-ui';
+import { useScadaConnectionState } from '../../hooks/useScadaConnectionState';
 
 /* ------------------------------------------------------------------ */
 /*  ISA-101 Severity Configuration                                     */
@@ -47,9 +48,28 @@ const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'warning', 'info'];
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export const GlobalAlarmBanner: React.FC = () => {
+export interface GlobalAlarmBannerProps {
+  /**
+   * True when the live data plane is expected (preview/run mode). Only then
+   * does a disconnected socket mean the alarm reading is unknown; in edit mode
+   * no socket is opened, so a quiet banner is the truth.
+   */
+  liveDataActive?: boolean;
+}
+
+export const GlobalAlarmBanner: React.FC<GlobalAlarmBannerProps> = ({ liveDataActive = false }) => {
   const alarmRules = useScadaPackageStore((s) => s.alarmRules);
   const simulationMode = useScadaPackageStore((s) => s.simulationMode);
+  const { t } = useI18n();
+  // A disconnected data plane means the alarm summary below cannot be trusted:
+  // "no alarms" and "no link" look identical on a process display, and the
+  // second one is the dangerous reading. Only say so where live data is
+  // EXPECTED — in edit mode no socket is opened, so silence is correct there.
+  const connectionState = useScadaConnectionState();
+  const alarmStateUnknown =
+    liveDataActive &&
+    !simulationMode &&
+    (connectionState === 'disconnected' || connectionState === 'error');
   const simAlarms = useScadaPackageStore((s) => s.simAlarms);
 
   const { counts, total, highestSeverity } = useMemo(() => {
@@ -97,11 +117,22 @@ export const GlobalAlarmBanner: React.FC = () => {
   const isEmpty = total === 0;
 
   /* Bar background: red-600 + pulse if critical, otherwise neutral dark */
+  // What the centre of the bar reports, decided once rather than as a ternary
+  // chain inside the JSX: 'unknown' outranks 'empty', because a link that is
+  // down is a stronger statement than a package with no rules.
+  const centre: 'unknown' | 'empty' | 'summary' = alarmStateUnknown
+    ? 'unknown'
+    : isEmpty
+      ? 'empty'
+      : 'summary';
+
   const barClasses = [
     'flex items-center justify-between px-4 h-8 text-xs select-none',
     hasCritical
       ? 'bg-error-600 text-white animate-pulse'
-      : 'bg-gray-800 text-gray-500 dark:text-gray-400',
+      : alarmStateUnknown
+        ? 'bg-warning-600 text-white'
+        : 'bg-gray-800 text-gray-500 dark:text-gray-400',
   ].join(' ');
 
   return (
@@ -110,6 +141,8 @@ export const GlobalAlarmBanner: React.FC = () => {
       <div className="flex items-center gap-2 min-w-0">
         {hasCritical ? (
           <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+        ) : centre === 'unknown' ? (
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
         ) : (
           <Bell className="w-3.5 h-3.5 flex-shrink-0" />
         )}
@@ -120,7 +153,9 @@ export const GlobalAlarmBanner: React.FC = () => {
 
       {/* Center: Severity summary or empty message */}
       <div className="flex items-center gap-2">
-        {isEmpty ? (
+        {centre === 'unknown' ? (
+          <span className="font-medium whitespace-nowrap">{t('scada.comms.lost')}</span>
+        ) : centre === 'empty' ? (
           <span className="text-gray-500 dark:text-gray-400 italic">No alarm rules defined</span>
         ) : (
           <div className="flex items-center gap-1.5">

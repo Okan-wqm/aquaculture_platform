@@ -1,12 +1,11 @@
-import { clsx } from 'clsx';
 import { CheckSquare, ClipboardList } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
 
 import { TaskCard } from '@/components/cards/TaskCard';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { useMyTasks } from '@/hooks/useMyTasks';
-
 
 type Segment = 'today' | 'upcoming' | 'overdue';
 
@@ -31,28 +30,22 @@ export function MyTasksPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        variant="hub"
-        icon={CheckSquare}
-        title="My Tasks"
-      />
+      <PageHeader variant="hub" icon={CheckSquare} title="My Tasks" />
 
       {/* Segment control */}
       <div className="px-5 pt-4">
         <div className="flex bg-white dark:bg-gray-900 rounded-xl p-1 shadow-card border border-gray-100 dark:border-gray-800">
           {SEGMENTS.map((seg) => (
-            <button
+            <ToggleButton
               key={seg.key}
               onClick={() => setSegment(seg.key)}
-              className={clsx(
-                'flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all touch-feedback',
-                segment === seg.key
-                  ? 'bg-ocean-500 text-white shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400',
-              )}
+              pressed={segment === seg.key}
+              className="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all touch-feedback"
+              pressedClassName="bg-ocean-500 text-white shadow-sm"
+              idleClassName="text-gray-500 dark:text-gray-400"
             >
               {seg.label}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>
@@ -60,7 +53,9 @@ export function MyTasksPage(): JSX.Element {
       {/* Pull to refresh button */}
       <div className="px-5 pt-3 flex justify-end">
         <button
-          onClick={() => { void handleRefresh(); }}
+          onClick={() => {
+            void handleRefresh();
+          }}
           disabled={isRefreshing}
           className="text-xs text-ocean-500 font-medium touch-feedback"
         >
@@ -89,7 +84,6 @@ export function MyTasksPage(): JSX.Element {
           tasks.map((task) => <TaskCard key={task.id} task={task} />)
         )}
       </div>
-
     </div>
   );
 }

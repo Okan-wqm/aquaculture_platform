@@ -7,13 +7,14 @@ import React, { useState, useMemo, useCallback, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, Edit, Ship, Building2 } from 'lucide-react';
 import {
-  cn,
-  useAuth,
-  DataTable,
-  type DataTableColumn,
-  PageHeader,
   Button,
+  cn,
+  DataTable,
+  PageHeader,
   Select,
+  ToggleButton,
+  useAuth,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
@@ -252,18 +253,16 @@ export function EmployeesListPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          <ToggleButton
             onClick={() => setShowFilters(!showFilters)}
-            className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1',
-              showFilters
-                ? 'bg-primary-50 text-primary-600 ring-primary-200 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-800'
-                : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600',
-            )}
+            pressed={showFilters}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1"
+            pressedClassName="bg-primary-50 text-primary-600 ring-primary-200 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-800"
+            idleClassName="bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600"
           >
             <Filter className="h-4 w-4" />
             Filters
-          </button>
+          </ToggleButton>
         </div>
       </div>
 
@@ -271,82 +270,60 @@ export function EmployeesListPage() {
       {showFilters && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Status
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All Statuses' },
-                  { value: 'active', label: 'Active' },
-                  { value: 'inactive', label: 'Inactive' },
-                  { value: 'on_leave', label: 'On Leave' },
-                  { value: 'probation', label: 'Probation' },
-                  { value: 'terminated', label: 'Terminated' },
-                ]}
-                value={filter.status || ''}
-                onChange={(e) => handleFilterChange('status', e.target.value as EmployeeStatus)}
-              />
-            </div>
+            <Select
+              label="Status"
+              fullWidth
+              options={[
+                { value: '', label: 'All Statuses' },
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+                { value: 'on_leave', label: 'On Leave' },
+                { value: 'probation', label: 'Probation' },
+                { value: 'terminated', label: 'Terminated' },
+              ]}
+              value={filter.status || ''}
+              onChange={(e) => handleFilterChange('status', e.target.value as EmployeeStatus)}
+            />
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Department
-              </label>
-              <select
-                value={filter.department || ''}
-                onChange={(e) => handleFilterChange('department', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Departments</option>
-                {departments?.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Department"
+              value={filter.department || ''}
+              onChange={(e) => handleFilterChange('department', e.target.value)}
+              placeholder="All Departments"
+              options={(departments ?? []).map((dept) => ({ value: dept.id, label: dept.name }))}
+            />
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Personnel Category
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All Categories' },
-                  { value: 'offshore', label: 'Offshore' },
-                  { value: 'onshore', label: 'Onshore' },
-                  { value: 'hybrid', label: 'Hybrid' },
-                ]}
-                value={filter.personnelCategory || ''}
-                onChange={(e) =>
-                  handleFilterChange('personnelCategory', e.target.value as PersonnelCategory)
-                }
-              />
-            </div>
+            <Select
+              label="Personnel Category"
+              fullWidth
+              options={[
+                { value: '', label: 'All Categories' },
+                { value: 'offshore', label: 'Offshore' },
+                { value: 'onshore', label: 'Onshore' },
+                { value: 'hybrid', label: 'Hybrid' },
+              ]}
+              value={filter.personnelCategory || ''}
+              onChange={(e) =>
+                handleFilterChange('personnelCategory', e.target.value as PersonnelCategory)
+              }
+            />
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Sea Worthy
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All' },
-                  { value: 'true', label: 'Certified' },
-                  { value: 'false', label: 'Not Certified' },
-                ]}
-                value={filter.seaWorthy === undefined ? '' : filter.seaWorthy.toString()}
-                onChange={(e) =>
-                  handleFilterChange(
-                    'seaWorthy',
-                    e.target.value === '' ? undefined : e.target.value === 'true',
-                  )
-                }
-              />
-            </div>
+            <Select
+              label="Sea Worthy"
+              fullWidth
+              options={[
+                { value: '', label: 'All' },
+                { value: 'true', label: 'Certified' },
+                { value: 'false', label: 'Not Certified' },
+              ]}
+              value={filter.seaWorthy === undefined ? '' : filter.seaWorthy.toString()}
+              onChange={(e) =>
+                handleFilterChange(
+                  'seaWorthy',
+                  e.target.value === '' ? undefined : e.target.value === 'true',
+                )
+              }
+            />
           </div>
 
           <div className="mt-4 flex justify-end">

@@ -34,7 +34,7 @@ import type {
   PersonnelCategory,
   Department,
 } from '../types';
-import { Spinner, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, PageHeader, Select, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -434,35 +434,27 @@ const EmployeeFormPage: React.FC = () => {
                 required={!isEditing}
               />
             </div>
-            <div>
-              <label htmlFor="employee-emergencyContact" className={labelClass}>
-                Emergency Contact Name
-              </label>
-              <Input
-                fullWidth
-                id="employee-emergencyContact"
-                type="text"
-                name="emergencyContact"
-                value={formData.emergencyContact}
-                onChange={handleChange}
-                placeholder="Emergency contact full name"
-                maxLength={100}
-              />
-            </div>
-            <div>
-              <label htmlFor="employee-emergencyPhone" className={labelClass}>
-                Emergency Phone
-              </label>
-              <Input
-                fullWidth
-                id="employee-emergencyPhone"
-                type="tel"
-                name="emergencyPhone"
-                value={formData.emergencyPhone}
-                onChange={handleChange}
-                placeholder="+1 555 000 0000"
-              />
-            </div>
+            <Input
+              label="Emergency Contact Name"
+              fullWidth
+              id="employee-emergencyContact"
+              type="text"
+              name="emergencyContact"
+              value={formData.emergencyContact}
+              onChange={handleChange}
+              placeholder="Emergency contact full name"
+              maxLength={100}
+            />
+            <Input
+              label="Emergency Phone"
+              fullWidth
+              id="employee-emergencyPhone"
+              type="tel"
+              name="emergencyPhone"
+              value={formData.emergencyPhone}
+              onChange={handleChange}
+              placeholder="+1 555 000 0000"
+            />
           </div>
         </div>
 
@@ -584,25 +576,17 @@ const EmployeeFormPage: React.FC = () => {
                   page.
                 </div>
               ) : (
-                <select
+                <Select
                   id="employee-departmentHrId"
                   name="departmentHrId"
                   value={formData.departmentHrId}
                   onChange={handleDepartmentChange}
                   disabled={isEditing}
-                  className={isEditing ? inputDisabledClass : inputClass}
-                >
-                  <option value="">
-                    {loadingDepartments ? 'Loading departments...' : 'Select department'}
-                  </option>
-                  {(departments || [])
+                  placeholder={loadingDepartments ? 'Loading departments...' : 'Select department'}
+                  options={(departments || [])
                     .filter((d) => d.isActive)
-                    .map((dept) => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name} ({dept.code})
-                      </option>
-                    ))}
-                </select>
+                    .map((dept) => ({ value: dept.id, label: `${dept.name} (${dept.code})` }))}
+                />
               )}
             </div>
             <div>
@@ -635,24 +619,20 @@ const EmployeeFormPage: React.FC = () => {
                 className={isEditing ? inputDisabledClass : inputClass}
               />
             </div>
-            <div>
-              <label htmlFor="employee-employmentType" className={labelClass}>
-                Employment Type
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: 'FULL_TIME', label: 'Full Time' },
-                  { value: 'PART_TIME', label: 'Part Time' },
-                  { value: 'CONTRACT', label: 'Contract' },
-                  { value: 'SEASONAL', label: 'Seasonal' },
-                ]}
-                id="employee-employmentType"
-                name="employmentType"
-                value={formData.employmentType}
-                onChange={handleChange}
-              />
-            </div>
+            <Select
+              label="Employment Type"
+              fullWidth
+              options={[
+                { value: 'FULL_TIME', label: 'Full Time' },
+                { value: 'PART_TIME', label: 'Part Time' },
+                { value: 'CONTRACT', label: 'Contract' },
+                { value: 'SEASONAL', label: 'Seasonal' },
+              ]}
+              id="employee-employmentType"
+              name="employmentType"
+              value={formData.employmentType}
+              onChange={handleChange}
+            />
           </div>
         </div>
 
@@ -683,24 +663,14 @@ const EmployeeFormPage: React.FC = () => {
                 required={!isEditing}
               />
             </div>
-            <div>
-              <label htmlFor="employee-currency" className={labelClass}>
-                Currency
-              </label>
-              <select
-                id="employee-currency"
-                name="currency"
-                value={formData.currency}
-                onChange={handleChange}
-                className={inputClass}
-              >
-                {CURRENCY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Currency"
+              id="employee-currency"
+              name="currency"
+              value={formData.currency}
+              onChange={handleChange}
+              options={CURRENCY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
           </div>
         </div>
 
@@ -713,41 +683,28 @@ const EmployeeFormPage: React.FC = () => {
             Aquaculture Information
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="employee-personnelCategory" className={labelClass}>
-                Personnel Category
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'Select category' },
-                  { value: 'OFFSHORE', label: 'Offshore' },
-                  { value: 'ONSHORE', label: 'Onshore' },
-                  { value: 'HYBRID', label: 'Hybrid' },
-                ]}
-                id="employee-personnelCategory"
-                name="personnelCategory"
-                value={formData.personnelCategory}
+            <Select
+              label="Personnel Category"
+              fullWidth
+              options={[
+                { value: '', label: 'Select category' },
+                { value: 'OFFSHORE', label: 'Offshore' },
+                { value: 'ONSHORE', label: 'Onshore' },
+                { value: 'HYBRID', label: 'Hybrid' },
+              ]}
+              id="employee-personnelCategory"
+              name="personnelCategory"
+              value={formData.personnelCategory}
+              onChange={handleChange}
+            />
+            <div className="flex items-center">
+              <Checkbox
+                label="Sea Worthy"
+                id="employee-seaWorthy"
+                name="seaWorthy"
+                checked={formData.seaWorthy}
                 onChange={handleChange}
               />
-            </div>
-            <div className="flex items-center">
-              <label
-                htmlFor="employee-seaWorthy"
-                className="flex items-center gap-3 cursor-pointer"
-              >
-                <input
-                  id="employee-seaWorthy"
-                  type="checkbox"
-                  name="seaWorthy"
-                  checked={formData.seaWorthy}
-                  onChange={handleChange}
-                  className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
-                />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Sea Worthy
-                </span>
-              </label>
               <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
                 Certified for offshore deployment
               </span>

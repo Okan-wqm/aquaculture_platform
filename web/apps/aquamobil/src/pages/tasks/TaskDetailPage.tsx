@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTaskActions } from '@/hooks/useTaskActions';
+import { useI18n } from '@/i18n';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
 
@@ -59,6 +60,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function TaskDetailPage(): JSX.Element {
+  const { t } = useI18n();
   const { taskId } = useParams<{ taskId: string }>();
   const { completeTask, startTask, setChecklistItem, addNote } = useTaskActions();
 
@@ -405,6 +407,7 @@ export function TaskDetailPage(): JSX.Element {
               )}
             />
             <button
+              aria-label={t('a11y.sendComment')}
               onClick={() => {
                 void handleAddNote();
               }}

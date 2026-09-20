@@ -396,7 +396,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 150
+      ceiling: 104
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079

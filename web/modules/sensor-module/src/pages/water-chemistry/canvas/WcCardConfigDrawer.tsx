@@ -96,17 +96,14 @@ const WcCardConfigDrawer = ({
                 })
               }
             />
-            <select
+            <Select
               value={card.scope.id}
               onChange={(e) => setScope({ kind: card.scope.kind, id: e.target.value })}
-              className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1"
-            >
-              {(card.scope.kind === 'tank' ? TANKS : LOOPS).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+              options={(card.scope.kind === 'tank' ? TANKS : LOOPS).map((o) => ({
+                value: o.id,
+                label: o.name,
+              }))}
+            />
           </div>
           <label className="flex items-center gap-2 text-xs">
             <span className="text-gray-600 dark:text-gray-400">Sampling</span>
@@ -128,17 +125,11 @@ const WcCardConfigDrawer = ({
           <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
             Species &amp; limits
           </h4>
-          <select
+          <Select
             value={card.speciesTemplateId}
             onChange={(e) => setSpecies(e.target.value)}
-            className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs"
-          >
-            {SPECIES_TEMPLATES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+            options={SPECIES_TEMPLATES.map((s) => ({ value: s.id, label: s.name }))}
+          />
           <div className="space-y-1 rounded bg-gray-50 dark:bg-gray-800 p-2">
             <NumberField
               label="NH₃-N limit"

@@ -517,21 +517,18 @@ export const PropertiesPanel: React.FC = () => {
                     Select equipment below
                   </span>
                 </div>
-                <select
+                <Select
                   onChange={(e) => {
                     const eq = unlinkedEquipment.find((eq) => eq.id === e.target.value);
                     if (eq) handleEquipmentSelect(eq);
                   }}
                   value=""
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
-                >
-                  <option value="">Select Equipment...</option>
-                  {unlinkedEquipment.map((eq) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} ({eq.code})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Select Equipment..."
+                  options={unlinkedEquipment.map((eq) => ({
+                    value: eq.id,
+                    label: `${eq.name}(${eq.code})`,
+                  }))}
+                />
                 {unlinkedEquipment.length === 0 && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     No linkable equipment found. Enable "Show in Sensor Module" in equipment
@@ -947,20 +944,17 @@ export const PropertiesPanel: React.FC = () => {
                 <p className="text-xs text-error-500">Failed to load devices</p>
               ) : (
                 <>
-                  <select
+                  <Select
                     onChange={(e) => {
                       if (e.target.value) handleEdgeDeviceSelect(e.target.value);
                     }}
                     value=""
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-900"
-                  >
-                    <option value="">Select Edge Device...</option>
-                    {edgeDevices.map((device) => (
-                      <option key={device.id} value={device.id}>
-                        {device.deviceName} ({device.deviceCode}){device.isOnline ? ' ●' : ' ○'}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Select Edge Device..."
+                    options={edgeDevices.map((device) => ({
+                      value: device.id,
+                      label: `${device.deviceName}(${device.deviceCode})${device.isOnline ? ' ●' : ' ○'}`,
+                    }))}
+                  />
                   {edgeDevices.length === 0 && (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       No edge devices registered. Add devices in Edge Device Management.

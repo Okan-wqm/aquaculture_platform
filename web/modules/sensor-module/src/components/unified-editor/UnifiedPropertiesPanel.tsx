@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Settings,
   Tag,
@@ -235,29 +235,15 @@ const HmiWidgetPanel: React.FC = () => {
                 className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700"
               >
                 <div className="flex items-center justify-between">
-                  <select
+                  <Select
                     value={rule.severity}
                     onChange={(e) =>
                       storeUpdateAlarmRule(rule.id, {
                         severity: e.target.value as (typeof SEVERITIES)[number],
                       })
                     }
-                    className={`text-xs font-medium rounded px-2 py-1 border-0 ${
-                      rule.severity === 'critical'
-                        ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
-                        : rule.severity === 'high'
-                          ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
-                          : rule.severity === 'warning'
-                            ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
-                            : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                    }`}
-                  >
-                    {SEVERITIES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                    options={SEVERITIES.map((s) => ({ value: s, label: s }))}
+                  />
                   <Button
                     variant="ghost"
                     iconOnly
@@ -275,17 +261,11 @@ const HmiWidgetPanel: React.FC = () => {
                   placeholder="Tag"
                 />
                 <div className="flex gap-1">
-                  <select
+                  <Select
                     value={rule.condition}
                     onChange={(e) => storeUpdateAlarmRule(rule.id, { condition: e.target.value })}
-                    className="w-16 px-1 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {CONDITIONS.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                    options={CONDITIONS.map((c) => ({ value: c, label: c }))}
+                  />
                   <Input
                     type="number"
                     value={rule.value}

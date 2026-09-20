@@ -24,6 +24,7 @@ import {
   colors as themeColors,
   Input,
   NumberInput,
+  Select,
   Slider,
 } from '@aquaculture/shared-ui';
 
@@ -36,9 +37,6 @@ interface StrokeConfigProps {
   lineJoin: StrokeLineJoin;
   onChange: (updates: Record<string, string | number>) => void;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Small SVG line preview for a given dash pattern */
 const DashPreview: React.FC<{ pattern: StrokeDashPattern }> = ({ pattern }) => (
@@ -158,19 +156,13 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
     {/* Dash pattern */}
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Dash Pattern</label>
-      <select
+      <Select
         value={dashPattern}
         onChange={(e) => onChange({ dashPattern: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Dash pattern"
         data-testid="dash-pattern-select"
-      >
-        {DASH_PATTERN_OPTIONS.map((p) => (
-          <option key={p} value={p}>
-            {DASH_LABELS[p]}
-          </option>
-        ))}
-      </select>
+        options={DASH_PATTERN_OPTIONS.map((p) => ({ value: p, label: DASH_LABELS[p] }))}
+      />
       {/* Visual preview of currently selected pattern */}
       <div className="mt-1 text-gray-500 dark:text-gray-400">
         <DashPreview pattern={dashPattern} />

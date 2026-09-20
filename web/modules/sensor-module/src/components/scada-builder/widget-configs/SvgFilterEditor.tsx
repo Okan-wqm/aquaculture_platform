@@ -17,7 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
-import { Button, colors, NumberInput, Slider } from '@aquaculture/shared-ui';
+import { Button, colors, NumberInput, Select, Slider } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -32,9 +32,6 @@ interface SvgFilterEditorProps {
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Human-readable labels for filter types */
 const FILTER_LABELS: Record<SvgFilterType, string> = {
@@ -137,19 +134,13 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChan
           {/* Filter type selector */}
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Effect</label>
-            <select
+            <Select
               value={filter.type}
               onChange={(e) => handleTypeChange(e.target.value as SvgFilterType)}
-              className={INPUT_CLASS}
               aria-label="Filter type"
               data-testid="filter-type-select"
-            >
-              {SVG_FILTER_TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {FILTER_LABELS[t]}
-                </option>
-              ))}
-            </select>
+              options={SVG_FILTER_TYPE_OPTIONS.map((t) => ({ value: t, label: FILTER_LABELS[t] }))}
+            />
           </div>
 
           {/* Blur controls */}

@@ -16,6 +16,7 @@ import {
   colors,
   Input,
   NumberInput,
+  Select,
   useI18n,
 } from '@aquaculture/shared-ui';
 
@@ -51,11 +52,6 @@ const FORMAT_OPTIONS = [
 ];
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
-
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
-const SMALL_INPUT_CLS =
-  'w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded';
 
 export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const { t } = useI18n();
@@ -171,22 +167,12 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                 />
 
                 {/* Format */}
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Format
-                  </label>
-                  <select
-                    value={col.format}
-                    onChange={(e) => updateColumn(i, 'format', e.target.value)}
-                    className={SMALL_INPUT_CLS}
-                  >
-                    {FORMAT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Format"
+                  value={col.format}
+                  onChange={(e) => updateColumn(i, 'format', e.target.value)}
+                  options={FORMAT_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+                />
 
                 {/* Sortable */}
                 <div className="flex items-end pb-1">
@@ -205,20 +191,12 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Pagination */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Page Size</label>
-            <select
-              value={pageSize}
-              onChange={(e) => onChange({ pageSize: Number(e.target.value) })}
-              className={INPUT_CLS}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Page Size"
+            value={pageSize}
+            onChange={(e) => onChange({ pageSize: Number(e.target.value) })}
+            options={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, label: String(size) }))}
+          />
           <NumberInput
             label="Font Size"
             min={8}

@@ -12,12 +12,9 @@
  */
 
 import React, { useState } from 'react';
-import { Input, ToggleButton } from '@aquaculture/shared-ui';
+import { Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import type { ScriptTrigger, ScadaScript } from '../../../engine/events/types';
 import { TagBrowser } from '../TagBrowser';
-
-const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Trigger type options with human-readable labels for the dropdown. */
 const TRIGGER_OPTIONS: Array<{ value: ScriptTrigger; label: string; description: string }> = [
@@ -76,21 +73,13 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
   return (
     <div className="space-y-2" data-testid="script-trigger-config">
       {/* Trigger type dropdown */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Trigger</label>
-        <select
-          value={trigger}
-          onChange={(e) => handleTriggerChange(e.target.value as ScriptTrigger)}
-          className={INPUT_CLASS}
-          data-testid="trigger-type-select"
-        >
-          {TRIGGER_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Trigger"
+        value={trigger}
+        onChange={(e) => handleTriggerChange(e.target.value as ScriptTrigger)}
+        data-testid="trigger-type-select"
+        options={TRIGGER_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Description hint for the selected trigger */}
       <p

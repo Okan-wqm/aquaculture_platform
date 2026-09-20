@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Button, Checkbox, Input, Modal, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Modal, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import {
@@ -246,18 +246,15 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 Bağlanabilir sensor bulunamadı. Önce /sensor/devices sayfasından sensor kaydedin.
               </div>
             ) : (
-              <select
+              <Select
                 value={config.sensorId || ''}
                 onChange={(e) => handleSensorSelect(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-success-500 focus:border-success-500 bg-white dark:bg-gray-900"
-              >
-                <option value="">Sensor seçin...</option>
-                {unlinkedSensors.map((sensor) => (
-                  <option key={sensor.id} value={sensor.id}>
-                    {sensor.displayName} ({getSensorTypeLabel(sensor.type)})
-                  </option>
-                ))}
-              </select>
+                placeholder="Sensor seçin..."
+                options={unlinkedSensors.map((sensor) => ({
+                  value: sensor.id,
+                  label: `${sensor.displayName}(${getSensorTypeLabel(sensor.type)})`,
+                }))}
+              />
             )}
           </div>
         )}

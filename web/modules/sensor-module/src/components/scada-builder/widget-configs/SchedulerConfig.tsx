@@ -1,5 +1,12 @@
 import React, { useCallback } from 'react';
-import { Button, Checkbox, ColorInput, colors as themeColors, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -144,54 +151,30 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Day + Hours */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Day
-                  </label>
-                  <select
-                    value={entry.day}
-                    onChange={(e) => updateEntry(idx, { day: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {DAY_OPTIONS.map((d) => (
-                      <option key={d.value} value={d.value}>
-                        {d.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Start Hour
-                  </label>
-                  <select
-                    value={entry.startHour}
-                    onChange={(e) => updateEntry(idx, { startHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>
-                        {String(h).padStart(2, '0')}:00
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    End Hour
-                  </label>
-                  <select
-                    value={entry.endHour}
-                    onChange={(e) => updateEntry(idx, { endHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>
-                        {String(h).padStart(2, '0')}:00
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Day"
+                  value={entry.day}
+                  onChange={(e) => updateEntry(idx, { day: Number(e.target.value) })}
+                  options={DAY_OPTIONS.map((d) => ({ value: d.value, label: d.label }))}
+                />
+                <Select
+                  label="Start Hour"
+                  value={entry.startHour}
+                  onChange={(e) => updateEntry(idx, { startHour: Number(e.target.value) })}
+                  options={HOUR_OPTIONS.map((h) => ({
+                    value: h,
+                    label: `${String(h).padStart(2, '0')}:00`,
+                  }))}
+                />
+                <Select
+                  label="End Hour"
+                  value={entry.endHour}
+                  onChange={(e) => updateEntry(idx, { endHour: Number(e.target.value) })}
+                  options={HOUR_OPTIONS.map((h) => ({
+                    value: h,
+                    label: `${String(h).padStart(2, '0')}:00`,
+                  }))}
+                />
               </div>
 
               {/* Color */}

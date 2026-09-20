@@ -20,7 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
-import { Button, ColorInput, colors as themeColors, Input } from '@aquaculture/shared-ui';
+import { Button, ColorInput, colors as themeColors, Input, Select } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -486,17 +486,11 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       data-testid={`fuxa-rule-${index}`}
     >
       {/* Condition */}
-      <select
+      <Select
         value={rule.condition}
         onChange={(e) => onChange(index, 'condition', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-      >
-        {CONDITION_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        options={CONDITION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Value */}
       <Input
@@ -510,17 +504,11 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       <span className="text-xs text-gray-400 dark:text-gray-500">{'\u2192'}</span>
 
       {/* State index */}
-      <select
+      <Select
         value={rule.state}
         onChange={(e) => onChange(index, 'state', e.target.value)}
-        className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-      >
-        {[0, 1, 2, 3, 4, 5].map((s) => (
-          <option key={s} value={s}>
-            State {s}
-          </option>
-        ))}
-      </select>
+        options={[0, 1, 2, 3, 4, 5].map((s) => ({ value: s, label: `State${s}` }))}
+      />
 
       {/* Remove */}
       <Button variant="ghost" iconOnly aria-label="Close" onClick={() => onRemove(index)}>

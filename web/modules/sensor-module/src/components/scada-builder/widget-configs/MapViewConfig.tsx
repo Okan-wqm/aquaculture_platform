@@ -17,6 +17,7 @@ import {
   colors as themeColors,
   Input,
   NumberInput,
+  Select,
 } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -215,22 +216,12 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               </div>
 
               {/* Status */}
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  Status
-                </label>
-                <select
-                  value={marker.status}
-                  onChange={(e) => updateMarker(marker.id, 'status', e.target.value)}
-                  className={SMALL_INPUT_CLASS}
-                >
-                  {STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Status"
+                value={marker.status}
+                onChange={(e) => updateMarker(marker.id, 'status', e.target.value)}
+                options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
 
               {/* Tag Name (optional) */}
               <div>

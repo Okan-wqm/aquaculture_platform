@@ -28,7 +28,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { SensorPicker, WidgetType } from '../components/dashboard/SensorPicker';
-import { Button, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -217,18 +217,12 @@ const SensorDashboardPage: React.FC = () => {
             </div>
 
             {/* Refresh rate selector */}
-            <select
+            <Select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 bg-white dark:bg-gray-900"
               title="Yenileme aralığı"
-            >
-              {REFRESH_RATES.map((rate) => (
-                <option key={rate.value} value={rate.value}>
-                  {rate.label}
-                </option>
-              ))}
-            </select>
+              options={REFRESH_RATES.map((rate) => ({ value: rate.value, label: rate.label }))}
+            />
 
             {/* Live toggle button */}
             <ToggleButton

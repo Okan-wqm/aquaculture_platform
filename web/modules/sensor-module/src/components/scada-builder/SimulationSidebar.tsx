@@ -25,12 +25,13 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
-  getTenantId,
-  tenantScopedStorageKey,
-  severityClasses,
   Button,
+  getTenantId,
   Input,
+  Select,
+  severityClasses,
   Slider,
+  tenantScopedStorageKey,
 } from '@aquaculture/shared-ui';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
@@ -730,17 +731,11 @@ export const SimulationSidebar: React.FC = () => {
             {/* Scan interval selector */}
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] text-gray-400 dark:text-gray-500">Scan:</span>
-              <select
+              <Select
                 value={scanInterval}
                 onChange={(e) => setScanInterval(Number(e.target.value))}
-                className="text-[10px] bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-gray-200"
-              >
-                {[50, 100, 250, 500, 1000].map((ms) => (
-                  <option key={ms} value={ms}>
-                    {ms}ms
-                  </option>
-                ))}
-              </select>
+                options={[50, 100, 250, 500, 1000].map((ms) => ({ value: ms, label: `${ms}ms` }))}
+              />
             </div>
 
             {automationError && (

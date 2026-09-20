@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Button, Input, NumberInput, Slider } from '@aquaculture/shared-ui';
+import { Button, Input, NumberInput, Select, Slider } from '@aquaculture/shared-ui';
 import { TransformConfig } from './TransformConfig';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -22,9 +22,6 @@ interface WidgetConfigProps {
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Allowed MIME types for raster image upload */
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -176,18 +173,12 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Object fit */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Object Fit</label>
-        <select
+        <Select
           value={(config.objectFit as string) || 'contain'}
           onChange={(e) => onChange({ objectFit: e.target.value })}
-          className={INPUT_CLASS}
           aria-label="Object fit mode"
-        >
-          {OBJECT_FIT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          options={OBJECT_FIT_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
       </div>
 
       {/* Alt text (accessibility) */}

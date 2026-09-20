@@ -324,21 +324,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           </div>
 
           {/* Type */}
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
-            <select
-              value={anim.type}
-              onChange={(e) => handleTypeChange(anim.id, e.target.value as AnimationRuleType)}
-              className={INPUT_CLASS}
-              data-testid="animation-type-select"
-            >
-              {ANIMATION_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Type"
+            value={anim.type}
+            onChange={(e) => handleTypeChange(anim.id, e.target.value as AnimationRuleType)}
+            data-testid="animation-type-select"
+            options={ANIMATION_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
 
           {/* ============================================================ */}
           {/*  Type-specific configuration inputs                           */}

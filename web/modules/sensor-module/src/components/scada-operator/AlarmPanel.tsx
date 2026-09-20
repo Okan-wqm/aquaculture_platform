@@ -39,6 +39,7 @@ import {
   Button,
   DataTable,
   Input,
+  Select,
   severityClasses,
   ToggleButton,
   type DataTableColumn,
@@ -501,20 +502,12 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
 
         {/* Group filter */}
         {availableGroups.length > 0 && (
-          <select
+          <Select
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value)}
-            className="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
-                       bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300
-                       focus:outline-hidden focus:ring-1 focus:ring-info-500"
-          >
-            <option value="">All groups</option>
-            {availableGroups.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
+            placeholder="All groups"
+            options={availableGroups.map((g) => ({ value: g, label: g }))}
+          />
         )}
 
         {/* History date range */}

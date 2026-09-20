@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { Database, Plus, Trash2, Upload, ToggleLeft, ToggleRight, Search } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -233,21 +233,15 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
       {/* Add tag */}
       <div className="flex items-center gap-2">
         {unconfiguredTags.length > 0 ? (
-          <select
+          <Select
             value={newTagName}
             onChange={(e) => {
               setNewTagName(e.target.value);
               if (e.target.value) handleAddTag(e.target.value);
             }}
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-info-500"
-          >
-            <option value="">Add tag...</option>
-            {unconfiguredTags.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </select>
+            placeholder="Add tag..."
+            options={unconfiguredTags.map((tag) => ({ value: tag, label: tag }))}
+          />
         ) : (
           <Input
             type="text"
@@ -325,25 +319,18 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               {/* Settings row */}
               {config.enabled && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
-                      Interval
-                    </label>
-                    <select
-                      value={config.interval}
-                      onChange={(e) =>
-                        handleUpdate(config.tagName, { interval: e.target.value as DaqInterval })
-                      }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
-                      data-testid={`daq-interval-${config.tagName}`}
-                    >
-                      {INTERVAL_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Interval"
+                    value={config.interval}
+                    onChange={(e) =>
+                      handleUpdate(config.tagName, { interval: e.target.value as DaqInterval })
+                    }
+                    data-testid={`daq-interval-${config.tagName}`}
+                    options={INTERVAL_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    }))}
+                  />
                   <Input
                     label="Deadband"
                     fullWidth
@@ -355,24 +342,17 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                     min={0}
                     step={0.1}
                   />
-                  <div>
-                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
-                      Retention
-                    </label>
-                    <select
-                      value={config.retention}
-                      onChange={(e) =>
-                        handleUpdate(config.tagName, { retention: e.target.value as DaqRetention })
-                      }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
-                    >
-                      {RETENTION_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Retention"
+                    value={config.retention}
+                    onChange={(e) =>
+                      handleUpdate(config.tagName, { retention: e.target.value as DaqRetention })
+                    }
+                    options={RETENTION_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    }))}
+                  />
                 </div>
               )}
             </div>

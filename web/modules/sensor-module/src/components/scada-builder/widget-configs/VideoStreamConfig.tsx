@@ -1,5 +1,5 @@
 import React from 'react';
-import { Checkbox, Input } from '@aquaculture/shared-ui';
+import { Checkbox, Input, Select } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -35,20 +35,12 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       />
 
       {/* Stream Mode */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream Mode</label>
-        <select
-          value={streamMode}
-          onChange={(e) => onChange({ streamMode: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-        >
-          {STREAM_MODE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Stream Mode"
+        value={streamMode}
+        onChange={(e) => onChange({ streamMode: e.target.value })}
+        options={STREAM_MODE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Refresh Interval (Image mode only) */}
       {streamMode === 'image' && (

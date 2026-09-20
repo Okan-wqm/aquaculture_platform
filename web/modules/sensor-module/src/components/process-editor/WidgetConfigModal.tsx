@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Button, Input, Modal, Spinner, ToggleButton } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
@@ -271,39 +271,19 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Time Range
-              </label>
-              <select
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {TIME_RANGES.map((tr) => (
-                  <option key={tr.value} value={tr.value}>
-                    {tr.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Time Range"
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              options={TIME_RANGES.map((tr) => ({ value: tr.value, label: tr.label }))}
+            />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Refresh Interval
-              </label>
-              <select
-                value={refreshInterval}
-                onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {REFRESH_INTERVALS.map((ri) => (
-                  <option key={ri.value} value={ri.value}>
-                    {ri.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Refresh Interval"
+              value={refreshInterval}
+              onChange={(e) => setRefreshInterval(Number(e.target.value))}
+              options={REFRESH_INTERVALS.map((ri) => ({ value: ri.value, label: ri.label }))}
+            />
 
             {selectedType &&
               [

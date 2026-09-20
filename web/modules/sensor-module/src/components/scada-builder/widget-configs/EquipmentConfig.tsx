@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input, ToggleButton } from '@aquaculture/shared-ui';
+import { Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 /* ------------------------------------------------------------------ */
@@ -128,17 +128,11 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Demo state selector */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Status</label>
-        <select
+        <Select
           value={config.demoState || ''}
           onChange={(e) => onChange({ demoState: e.target.value || undefined })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
-        >
-          {DEMO_STATE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          options={DEMO_STATE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Select a state to test the symbol in edit mode.
         </p>

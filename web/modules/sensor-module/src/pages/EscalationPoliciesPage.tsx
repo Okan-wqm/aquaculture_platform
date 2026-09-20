@@ -19,6 +19,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  Select,
   severityClasses,
   Spinner,
   ToggleButton,
@@ -254,20 +255,12 @@ const LevelEditor: React.FC<{
             />
 
             {/* Action */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Aksiyon</label>
-              <select
-                value={level.action}
-                onChange={(e) => updateLevel(index, 'action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {ACTION_OPTIONS.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Aksiyon"
+              value={level.action}
+              onChange={(e) => updateLevel(index, 'action', e.target.value)}
+              options={ACTION_OPTIONS.map((a) => ({ value: a.value, label: a.label }))}
+            />
           </div>
 
           {/* Notify User IDs */}

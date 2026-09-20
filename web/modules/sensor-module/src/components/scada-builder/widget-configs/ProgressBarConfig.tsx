@@ -21,6 +21,7 @@ import {
   colors as themeColors,
   Input,
   NumberInput,
+  Select,
   useI18n,
 } from '@aquaculture/shared-ui';
 
@@ -43,9 +44,6 @@ const LABEL_POSITION_OPTIONS: { value: LabelPosition; label: string }[] = [
   { value: 'above', label: 'Above' },
   { value: 'below', label: 'Below' },
 ];
-
-const INPUT_CLS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const { t } = useI18n();
@@ -139,22 +137,12 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       {/* Label position & toggles */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Label Position
-        </label>
-        <select
-          value={labelPosition}
-          onChange={(e) => onChange({ labelPosition: e.target.value })}
-          className={INPUT_CLS}
-        >
-          {LABEL_POSITION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Label Position"
+        value={labelPosition}
+        onChange={(e) => onChange({ labelPosition: e.target.value })}
+        options={LABEL_POSITION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       <div className="space-y-2">
         <Checkbox

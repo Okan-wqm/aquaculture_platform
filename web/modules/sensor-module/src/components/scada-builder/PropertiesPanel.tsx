@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Input, ToggleButton } from '@aquaculture/shared-ui';
+import { Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import { Settings, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
 import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
@@ -192,26 +192,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Connection Properties
                 </h4>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Connection Type
-                  </label>
-                  <select
-                    value={selectedEdge.data.connectionType}
-                    onChange={(e) =>
-                      onEdgeDataChange(selectedEdge.id, {
-                        connectionType: e.target.value as ConnectionType,
-                      })
-                    }
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {CONNECTION_TYPES.map((ct) => (
-                      <option key={ct.id} value={ct.id}>
-                        {ct.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Connection Type"
+                  value={selectedEdge.data.connectionType}
+                  onChange={(e) =>
+                    onEdgeDataChange(selectedEdge.id, {
+                      connectionType: e.target.value as ConnectionType,
+                    })
+                  }
+                  options={CONNECTION_TYPES.map((ct) => ({ value: ct.id, label: ct.label }))}
+                />
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     Line Type

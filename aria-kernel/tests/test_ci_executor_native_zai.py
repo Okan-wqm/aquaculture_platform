@@ -230,6 +230,53 @@ class NativeZaiLane(unittest.TestCase):
         self.assertEqual(admissions, [])
         self._assert_secret_nowhere()
 
+    def test_a_judge_request_without_a_convergence_is_paid_and_accepted_not_released(self) -> None:
+        # ARIA-HIGH-180 — the fan-out mints judge requests with no
+        # convergence; the Z.ai path passed that None to the cost ledger,
+        # whose refusal it read as control_or_transport_unavailable AFTER
+        # the verdict was written. The cost row carries the same derived
+        # identity the Claude path always used, and the verdict is folded.
+        from aria_kernel.budget import read_cost_attribution
+        from aria_kernel.ledger import load_declared_jsonl
+
+        target_sha = self.request["target_sha"]
+        orphan = self.ai.create_agent_invocation_request(
+            target_agent="aria-evidence-judge", role="evidence_judgment",
+            suggested_prompt="Inspect the provider declaration at the supplied source line.",
+            must_satisfy=[{"id": "provider-source", "description": "cite the provider declaration"}],
+            allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
+            convergence_id=None, cycle_id="cyc-orphan-judge",
+            target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+        )
+        self.assertIsNone(orphan.get("convergence_id"))
+        self.request = orphan
+        response = {
+            "satisfaction_matrix": [{"id": "provider-source", "verdict": "satisfied",
+                                     "evidence_refs": ["src/model_fleet.py:1"],
+                                     "evidence": "the module docstring names the fleet"}],
+            "evidence_refs": ["src/model_fleet.py:1"],
+            "details": {
+                "verdict": {"verdict": "true_positive", "judge_id": "aria-evidence-judge",
+                            "tool_id": "fixture-tool", "run_id": "fixture-run", "finding_id": "F-002",
+                            "confidence": 0.9, "rationale": "the cited line declares the fleet"},
+            },
+        }
+        self.vendor.script.append((200, _completion("OK", prompt_tokens=7, completion_tokens=1)))  # probe
+        self.vendor.script.append((200, _completion(json.dumps(response), prompt_tokens=800, completion_tokens=60)))
+        completed = self._run_executor()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self.ai.derive_request_state(request_id=orphan["request_id"], base_dir=self.tools), "ACCEPTED",
+                         completed.stderr)
+        governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"]
+        self.assertEqual([f["result_admission"] for f in finished], ["pending_native_submit"])
+        self.assertFalse(any(row["kind"] == "agent_requeued" for row in governance), "the verdict is folded, not released")
+        usage = [row for row in read_cost_attribution(base_dir=self.tools) if row.get("cycle_id") == "cyc-orphan-judge"]
+        self.assertEqual(len(usage), 1)
+        self.assertEqual(usage[0]["plan_id"], "plan-" + orphan["request_id"][-12:])
+        self.assertEqual(usage[0]["agent_role"], "evidence_judgment")
+        self._assert_secret_nowhere()
+
     def test_a_vendor_that_rejects_the_probe_keeps_the_request_pending(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 

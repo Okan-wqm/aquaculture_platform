@@ -1,0 +1,198 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at tools/aria-adapters/bundle-budget-adapter.ts (tool bundle-budget-adapter, finding bundle-budget:no-budget:web/apps/aquamobil, confidence 0.84)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-20T17:40:32Z",
+  "evidence_chain_id": "chain_af8d1ec937716309",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/bundle-budget-adapter.ts",
+        "content_hash": "sha256:0bb2018539780e64730dcaba827e1ce03d6ea8f6c0462b45b4efe0e3df103675",
+        "envelope_hash": "sha256:c6332fbaec7842ffbb40835849aeefe033086dfa5429fa7f0f1a7a39e94be5bb",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 113,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/bundle-budget-adapter.ts:113"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/bundle-budget-adapter.ts",
+        "content_hash": "sha256:0bb2018539780e64730dcaba827e1ce03d6ea8f6c0462b45b4efe0e3df103675",
+        "envelope_hash": "sha256:7b63097c4234be1a2d3d9cc3de7bfe3dac586f45737f739fea5f67d34fc75c8f",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 134,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/bundle-budget-adapter.ts:134"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:39df64a2e6bbebf908af0ef1ab97c5a405c216f4fbec349be4a91a7f54e22b64",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 137,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:137"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:12ae7d4cf5eb174c70999597561be8f55ee773b5d375562eb131aee7badf7fbd",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 147,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:147"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:03512334c57f0fe59dc582e36e36425387b0f648d652ef1d883a14744acee6ec",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 149,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:149"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:21e15a7011245b5d265b94935d358103021aaaaa3f73733ae78a7643f4be1f8e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 157,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:157"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:a5294df1c6e35f15f354701e6543618c53aea249e09f4023c7c32f685e63398a",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 22,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:22"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/vite.config.ts",
+        "content_hash": "sha256:704e0c296907593b4ae7eaaba0e9f0399400d25c5d7b950eec2556e5a50e6134",
+        "envelope_hash": "sha256:0e73d578eb0e360464f65d2ed0378d656d3d1680521930d85f4feee3c83c62ad",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 69,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/vite.config.ts:69"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/farm-module/vite.config.ts",
+        "content_hash": "sha256:6cf102d581d9d009854aa5fa59591bc8750a145a4087b6081e83b61cfe974c49",
+        "envelope_hash": "sha256:e7904764ac73533906d899b6c454d535f4f731dfe1823bc3808568d76db0db33",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 89,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/farm-module/vite.config.ts:89"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:895f8628eae615ad8e633afa2712316d617bf50d0abb5e56cdc869b1a1faa3bd",
+    "judgment_group_id=judge:bundle-budget-adapter:finding:895f8628eae615ad8e633afa2712316d617bf50d0abb5e56cdc869b1a1faa3bd",
+    "consensus_run_id=6def99f0-a25d-4b67-abd5-1ccdbbcbc150"
+  ],
+  "finding_id": "F-011",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "6def99f0-a25d-4b67-abd5-1ccdbbcbc150",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "ai-safety-auditor",
+    "frontend-expert",
+    "frontend-mobile-development:mobile-developer"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "tools/aria-adapters/bundle-budget-adapter.ts",
+      "web/apps/aquamobil/vite.config.ts",
+      "web/modules/farm-module/vite.config.ts"
+    ]
+  },
+  "service": null,
+  "services": [
+    "web:aquamobil",
+    "web:farm-module"
+  ],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-011:emitted",
+  "source_ledger_hash": "sha256:bb0508e17f3ce5703358dfc161956da10e665f1be3fdd8bf54e317e589a4a3ae",
+  "status": "OPEN"
+}

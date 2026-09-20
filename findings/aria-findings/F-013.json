@@ -1,0 +1,171 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md (tool doc-staleness-adapter, finding doc-staleness:missing:docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:195:apps/admin-api-service/src/settings/services/tenant-configuration.service.ts, confidence 0.85)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-20T17:40:34Z",
+  "evidence_chain_id": "chain_1bb3fa777d5a68bf",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:357f8403f9b69ed7424807dd06588910ab1054ab1035ce7c83df2b98dc48aad0",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 150,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:150"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:4e28c38b982255dac38beb06aca9029284c655cfb094c32fe86ab358ed4973c6",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 185,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:185"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:267b5cb9b5eaed99eda5fe5cd07d909427b6df7348614e310bfbc6cc7eb23635",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 195,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:195"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:a475eabbcb608791487f7e7a09e80309f62d19cb835f71460986a0739e5ed3ca",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 202,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:202"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:45c5b07363f8b7445573bcc299f225fdcb0efb1ef443528d49d70caec59bc70f",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 235,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:235"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:6472167e8c055303686dd414d60d816aef62b83ec8ab67d76a54d089b50c3aa2",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 32,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:32"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:069a8da76107b709064b2ad5f20c0e3ea11a1e16a2fa42cdb0d381a73de8f81e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 34,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:34"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+        "content_hash": "sha256:f98cd3764d9857093c1e476ba0e806dbe34a244e77938b6158e064bfc4e13729",
+        "envelope_hash": "sha256:7b5595b7435f54546f67e873b871fdc94e247eb93bd45cad0ca5e799f87a7a04",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 69,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:69"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:61123c0360d0a898506ccd287b1e4f41164636ab76d93785faa14d6e60611aad",
+    "judgment_group_id=judge:doc-staleness-adapter:finding:61123c0360d0a898506ccd287b1e4f41164636ab76d93785faa14d6e60611aad",
+    "consensus_run_id=605e35ac-3107-405b-87fb-bdb713dab19e"
+  ],
+  "finding_id": "F-013",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "605e35ac-3107-405b-87fb-bdb713dab19e",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md"
+    ]
+  },
+  "service": null,
+  "services": [],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-013:emitted",
+  "source_ledger_hash": "sha256:f5f6e5dc0b826657e8b3ddc039be74294cc4622c3148e4221efd2ab7a748bde5",
+  "status": "OPEN"
+}

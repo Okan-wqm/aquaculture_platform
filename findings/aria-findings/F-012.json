@@ -1,0 +1,103 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at docs/adr/024-compliance-retention-matrix.md (tool doc-staleness-adapter, finding doc-staleness:missing:docs/adr/024-compliance-retention-matrix.md:41:tools/gates/findings-pii-scan.ts, confidence 0.825)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-20T17:40:33Z",
+  "evidence_chain_id": "chain_177be9acf6eb0744",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/024-compliance-retention-matrix.md",
+        "content_hash": "sha256:32bd3133ccaf25d47a66f4ccb916c03b4afab214946f77d1aef517ee76b2f074",
+        "envelope_hash": "sha256:737af4bc398d54fd46a674a27067ff4ba735532db13661412adb40733f289e15",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 103,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/024-compliance-retention-matrix.md:103"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/024-compliance-retention-matrix.md",
+        "content_hash": "sha256:32bd3133ccaf25d47a66f4ccb916c03b4afab214946f77d1aef517ee76b2f074",
+        "envelope_hash": "sha256:a61f2e1b087c6b38a87e99de0879237a6e0ae06dc176556e03279dd920344b67",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 41,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/024-compliance-retention-matrix.md:41"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/024-compliance-retention-matrix.md",
+        "content_hash": "sha256:32bd3133ccaf25d47a66f4ccb916c03b4afab214946f77d1aef517ee76b2f074",
+        "envelope_hash": "sha256:36961fd80cfa372993231f3ed45e4df66e0599ea64ed3ad881190b88ae289208",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 64,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/024-compliance-retention-matrix.md:64"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/024-compliance-retention-matrix.md",
+        "content_hash": "sha256:32bd3133ccaf25d47a66f4ccb916c03b4afab214946f77d1aef517ee76b2f074",
+        "envelope_hash": "sha256:63c18a9f09f5327e0171de58cd381691328c34a138678ab24ecfd30d55a7014e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 88,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/024-compliance-retention-matrix.md:88"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:5171668ff5197e16d1fd03765ccc39016a4a07ed57bd17c4894ad200965ff80f",
+    "judgment_group_id=judge:doc-staleness-adapter:finding:5171668ff5197e16d1fd03765ccc39016a4a07ed57bd17c4894ad200965ff80f",
+    "consensus_run_id=1710fe2e-111a-4ab0-af0a-39c591ff6c2f"
+  ],
+  "finding_id": "F-012",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "docs/adr/024-compliance-retention-matrix.md"
+    ]
+  },
+  "service": null,
+  "services": [],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-012:emitted",
+  "source_ledger_hash": "sha256:c2bfc433acac08adb9779fd12e4c15984d800b64008dff0f4170882748876454",
+  "status": "OPEN"
+}

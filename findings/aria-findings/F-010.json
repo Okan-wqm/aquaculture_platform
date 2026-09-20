@@ -1,0 +1,235 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at apps/ai-service/src/health/health.module.ts (tool test-gap-adapter, finding security-source-without-test:apps/ai-service/src/health/health.resolver.ts, confidence 0.815)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-20T17:40:31Z",
+  "evidence_chain_id": "chain_36a3ecf7a8ae93cd",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/ai-service/src/health/health.module.ts",
+        "content_hash": "sha256:ea6b28af01accc25f9bbc44c9e4c8c09931e74cc0427710f86a4acfdc93b0421",
+        "envelope_hash": "sha256:44dba0294eb2b8ec46c3e6245552474cc0fd703dfb88c659b0912969ba6ab9b8",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 3,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/ai-service/src/health/health.module.ts:3"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/ai-service/src/health/health.resolver.ts",
+        "content_hash": "sha256:3163f635a725ed84463311ac0068950245aa2d0f2576ae7a31d5b5243faddab1",
+        "envelope_hash": "sha256:66f2477fe6d43c87525c867409b4a6dd1d55034af52912c21cb322cb2da2c693",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/ai-service/src/health/health.resolver.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/ai-service/src/health/health.resolver.ts",
+        "content_hash": "sha256:3163f635a725ed84463311ac0068950245aa2d0f2576ae7a31d5b5243faddab1",
+        "envelope_hash": "sha256:c8c36642ce27a88f19f1ddc9362e07eb0be70d9a208457b6df238717dc24d125",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 5,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/ai-service/src/health/health.resolver.ts:5"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/ai-service/src/health/health.resolver.ts",
+        "content_hash": "sha256:3163f635a725ed84463311ac0068950245aa2d0f2576ae7a31d5b5243faddab1",
+        "envelope_hash": "sha256:d8a2a6ae53d062e41f252e09ab377eee20357db3c48ec7f140e513450dbdbab4",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 6,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/ai-service/src/health/health.resolver.ts:6"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/ai-service/src/health/health.resolver.ts",
+        "content_hash": "sha256:3163f635a725ed84463311ac0068950245aa2d0f2576ae7a31d5b5243faddab1",
+        "envelope_hash": "sha256:b1d35cba5fff91aa51d1b3c8914c940b76dd377daa12b582acb8c05e77095053",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 9,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/ai-service/src/health/health.resolver.ts:9"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/auth-service/src/health/__tests__/health.controller.spec.ts",
+        "content_hash": "sha256:b815c0d1d292d2e4d64c75daaaf13b545623bf6aa1aed1a355094a0154fcef22",
+        "envelope_hash": "sha256:045e04eb6c471b9e8989b0121c49054d646e7501a1d7ec7ce2a8a2f77cc213f2",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/auth-service/src/health/__tests__/health.controller.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "e2e/tests/mobile/ai-action-confirm.spec.ts",
+        "content_hash": "sha256:2b91e99d44d9d957f8d25bf7c6ee28b3055c5e5cfef3917b15e0e62005112561",
+        "envelope_hash": "sha256:730b9cfe0fef754a7564036359e6162fb984d40499fdd8f2a1d218f3df7ad81c",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 68,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "e2e/tests/mobile/ai-action-confirm.spec.ts:68"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts",
+        "content_hash": "sha256:29bc97c683a9ac97f05271d16dfe99f597d1959cc3a33a3d061a7cace1e96046",
+        "envelope_hash": "sha256:174b56aaa6a538317a03aa4bfe38003f0ca767f9287718eb4238d65ecfc7a992",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:e6ac33a7c3acf73a5fb361dd17f797e39986e9daa3372d75573722b7e312817d",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 168,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:168"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:001d47693f96007b85d1ccc747cc0969275736f87e879630afdcf330c3d150f1",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 271,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:271"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:b86ccccbc9fa4e8510cf8d6153374b57d7ee0b4c2a5b9051af8b53316fac3940",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 296,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:296"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:35ee84b350639de56751404268b43f21074caf09c6f6e909e3627816e470e33d",
+    "judgment_group_id=judge:test-gap-adapter:finding:35ee84b350639de56751404268b43f21074caf09c6f6e909e3627816e470e33d",
+    "consensus_run_id=df56f381-bb0e-4402-b3ce-1bc3a5e96fac"
+  ],
+  "finding_id": "F-010",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "df56f381-bb0e-4402-b3ce-1bc3a5e96fac",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "ai-safety-auditor",
+    "auth-security-expert",
+    "compliance-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/ai-service/src/health/health.module.ts",
+      "apps/ai-service/src/health/health.resolver.ts",
+      "apps/auth-service/src/health/__tests__/health.controller.spec.ts",
+      "e2e/tests/mobile/ai-action-confirm.spec.ts",
+      "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts",
+      "tools/aria-adapters/test-gap-adapter.ts"
+    ]
+  },
+  "service": null,
+  "services": [
+    "ai-service",
+    "auth-service",
+    "shared:backend-common"
+  ],
+  "severity": "HIGH",
+  "source_event_id": "finding:F-010:emitted",
+  "source_ledger_hash": "sha256:aa5c4929899fcbd923bcdf65df5dbfea99ceffe3655ca914e8c3e05e93a3dcb5",
+  "status": "OPEN"
+}

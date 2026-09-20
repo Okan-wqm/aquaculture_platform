@@ -1,0 +1,468 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts (tool test-gap-adapter, finding security-source-without-test:apps/hr-service/src/common/guards/gql-auth.guard.ts, confidence 0.825)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-20T17:40:30Z",
+  "evidence_chain_id": "chain_98f6917b5dee71eb",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts",
+        "content_hash": "sha256:2da2010cfa418d958f143092495a5fb8c16b02acca3ed87b25a454909e6637ef",
+        "envelope_hash": "sha256:8359866d37f9e5246f84818283b0e0438652ca93790db512627c1c94677b34ea",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+        "content_hash": "sha256:6ca6b61d8387ce2e249ea3368fdfda5d1db235db7853e7e609fd5b335e275042",
+        "envelope_hash": "sha256:e8a1df3800ac71c4bb20e3fa277b8286fef4d61c59e1038ef6ba61db000af05d",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/farm-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:9dabb398ad90a51ad643fd45e2dd1720c5592a4392822493fd112138e61675cb",
+        "envelope_hash": "sha256:fdd24780667209c73c18b4534c64b82e0fdbe397c86d857756156d0ae7236097",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/farm-service/src/common/guards/gql-auth.guard.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/gateway-api/src/guards/__tests__/auth.guard.spec.ts",
+        "content_hash": "sha256:2053b21b29a59118bf69f94df52eac47b400b72d6188faa230c87c0ea59bb69b",
+        "envelope_hash": "sha256:83d5259828073696e485b94b6d92a122677da6b1b65d4d8370b99538fe823740",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/gateway-api/src/guards/__tests__/auth.guard.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:bc366c2472f3694e7d778c28f6ad6d667de01881b26fc34d034f68a0b9f190a2",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 116,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:116"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:539272b54f1ebaaa4c7e7b3ef06d674b36bac60e8f7d594e63dff53c4c129e27",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 131,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:131"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:eb807b9c00a8dc22134005f5fd551efebdccc74a82cd9b268c012a707a8c5a84",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 141,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:141"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:10d1a97662a5dc736c58468b487a87a322c18e752e297eae1a1f468d00fb9c57",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 148,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:148"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:7e3596939b6c6e10cb285f64b5029dbe3bf0cb4405fa6df1d2822d91d4679c11",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 161,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:161"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:807b54473b39d52d423af2343d4e37c2dc20527c97e42dba6e3c4405164264ef",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 166,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:166"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:6e9edf52cfcd6d42d604a8e40b3f4de67b62b8dd8d86c543a9769488c964d221",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 177,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:177"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:fe6827c32649adab6ac0ca8fececb77704c7eb58050939c75dfbcfca922373ce",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 71,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:71"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:99b2ba05aab1f0bc206d126c8931fd018ed96a3d044233cd0ed08d3822b4f518",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 83,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:83"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+        "content_hash": "sha256:c70d52bac402c8f0c196eaec02fda9bf44c9aad2ee64d83593bdad9eed966c3e",
+        "envelope_hash": "sha256:3b944af56cb8d0be8306091f53034b47de591ff15405f716a247dc94084ecb0a",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 97,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/common/guards/gql-auth.guard.ts:97"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/hr/__tests__/hr.resolver.employee-pii.spec.ts",
+        "content_hash": "sha256:260f562889b1f3ae9ff0ca416d184435e16663f12d7fba0177fc9d8e0e891a15",
+        "envelope_hash": "sha256:83ee7dab0575912ec852d12980c9d6d6d4873638ddd0a01ae445dd3b55fbe406",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 49,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/hr/__tests__/hr.resolver.employee-pii.spec.ts:49"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/hr/hr.resolver.ts",
+        "content_hash": "sha256:c7562ce12c179caf7c2f0172d96ed1d87438c7115be68ba4b903001fed6a93af",
+        "envelope_hash": "sha256:a958b680cd3859acf17dfb51f452cfe5b22a34247630d08c8902bfb196b920a0",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 3,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/hr/hr.resolver.ts:3"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/hr/hr.resolver.ts",
+        "content_hash": "sha256:c7562ce12c179caf7c2f0172d96ed1d87438c7115be68ba4b903001fed6a93af",
+        "envelope_hash": "sha256:cb57061bb83beaaa7f370dd1b0053296491a9be85ae4f2ca7d3ebc3b52c945be",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 48,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/hr/hr.resolver.ts:48"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/auth/__tests__/jwt-verification.utils.spec.ts",
+        "content_hash": "sha256:fb14ee0786f095d0e0cc81357061a9a6f94f5daa5bed6df14814e9846a3c8d9f",
+        "envelope_hash": "sha256:1346fc7cc00476f4c9f37f8eef7ef816557f59ce01c28ae12e660f373440102b",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/auth/__tests__/jwt-verification.utils.spec.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tests/invariants/no-dead-guards.spec.ts",
+        "content_hash": "sha256:b6892c9a66ff65422c7cb7e0d1862b2ebabab2dcb12301090ebe919fe0ae496f",
+        "envelope_hash": "sha256:dfb3f055f376dc0b3b9fedf7829b5d7c3cb0431f094d46ba7ee2400104f3f5f8",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 10,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tests/invariants/no-dead-guards.spec.ts:10"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tests/invariants/verified-user-assertion-mounted.spec.ts",
+        "content_hash": "sha256:1d79dd19607731effb60334c86dc46177b5be78daa22112641233bf078e16716",
+        "envelope_hash": "sha256:56855fb3bcbf92ff75c1cd3ae54aac4c27211bd6f7a67791b7791efa2949c3a7",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 40,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tests/invariants/verified-user-assertion-mounted.spec.ts:40"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:6d16b3f0dafbc1fd03fcebd2af2c0e3393fa53d3f1fd2acb49852887b5fb9b1b",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 190,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:190"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:001d47693f96007b85d1ccc747cc0969275736f87e879630afdcf330c3d150f1",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 271,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:271"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:b86ccccbc9fa4e8510cf8d6153374b57d7ee0b4c2a5b9051af8b53316fac3940",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 296,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:296"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/test-gap-adapter.ts",
+        "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+        "envelope_hash": "sha256:96a4fe70e2cb10ca37fca6ed6b8832ffb0f13a2854487de45d84a0aa6862cf70",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 315,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "e9fd27bf3839a93eaec6011141a2c1952ddaa56a",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/test-gap-adapter.ts:315"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:3f9d35960bce3f6d9683c77f98aaf195180305e896023ce8c981ba813d73ebba",
+    "judgment_group_id=judge:test-gap-adapter:finding:3f9d35960bce3f6d9683c77f98aaf195180305e896023ce8c981ba813d73ebba",
+    "consensus_run_id=4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca"
+  ],
+  "finding_id": "F-009",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "admin-expert",
+    "ai-safety-auditor",
+    "auth-security-expert",
+    "compliance-expert",
+    "farm-expert",
+    "hr-expert",
+    "performance-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts",
+      "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+      "apps/farm-service/src/common/guards/gql-auth.guard.ts",
+      "apps/gateway-api/src/guards/__tests__/auth.guard.spec.ts",
+      "apps/hr-service/src/common/guards/gql-auth.guard.ts",
+      "apps/hr-service/src/hr/__tests__/hr.resolver.employee-pii.spec.ts",
+      "apps/hr-service/src/hr/hr.resolver.ts",
+      "libs/backend-common/src/auth/__tests__/jwt-verification.utils.spec.ts",
+      "tests/invariants/no-dead-guards.spec.ts",
+      "tests/invariants/verified-user-assertion-mounted.spec.ts",
+      "tools/aria-adapters/test-gap-adapter.ts"
+    ]
+  },
+  "service": null,
+  "services": [
+    "admin-api-service",
+    "auth-service",
+    "farm-service",
+    "gateway-api",
+    "hr-service",
+    "shared:backend-common"
+  ],
+  "severity": "HIGH",
+  "source_event_id": "finding:F-009:emitted",
+  "source_ledger_hash": "sha256:1ebeb76937a417153ae18abc648a154df20cf4933d7fc42755521546ca043259",
+  "status": "OPEN"
+}

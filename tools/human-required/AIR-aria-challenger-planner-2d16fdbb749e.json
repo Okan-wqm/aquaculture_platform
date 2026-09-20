@@ -1,0 +1,17 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "lease_lifecycle",
+    "request_id": "AIR-aria-challenger-planner-2d16fdbb749e",
+    "requeue_count": 73,
+    "role": "challenger_plan",
+    "target_agent": "aria-challenger-planner"
+  },
+  "reason": "lease lifecycle exhausted requeues for request 'AIR-aria-challenger-planner-2d16fdbb749e' (requeue_count=73); operator follow-up required.",
+  "recorded_at": "2026-09-20T17:24:20Z",
+  "request_id": "AIR-aria-challenger-planner-2d16fdbb749e",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-09-23T17:24:20Z",
+  "status": "open"
+}

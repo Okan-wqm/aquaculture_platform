@@ -39,6 +39,7 @@ import socket
 import socketserver
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,7 +152,29 @@ def serve_mcp_broker(*, base_dir: str | Path, workspace_root: str | Path, reques
             server.server_close()
         if thread is not None:
             thread.join(timeout=5.0)
+        remove_socket_dir(socket_dir)
+
+
+def remove_socket_dir(socket_dir: Path, *, deadline_seconds: float = 2.0) -> bool:
+    """Remove the broker's socket directory, waiting out a late writer.
+
+    A handler thread that is still closing its connection, or a prober
+    (`prune_stale_mcp_brokers`) that connected a moment before shutdown,
+    can leave an entry under the directory between the walk and the rmdir;
+    `shutil.rmtree(ignore_errors=True)` then left the directory standing,
+    and the caller's own fixture root failed its cleanup with
+    `Directory not empty` (the hosted kernel lane and two pre-push suites,
+    2026-09-19/20). The removal is retried inside a small bound and reports
+    whether the directory is gone.
+    """
+    end = time.monotonic() + deadline_seconds
+    while True:
         shutil.rmtree(socket_dir, ignore_errors=True)
+        if not socket_dir.exists():
+            return True
+        if time.monotonic() >= end:
+            return False
+        time.sleep(0.05)
 
 
 def _broker_answers(socket_path: Path) -> bool:

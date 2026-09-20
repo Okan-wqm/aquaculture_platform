@@ -14,15 +14,15 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `schema.drift.detected … entity declares owned table but DB has no such table
  * in any non-tenant schema` (2026-09-20 outage, FARM-CRITICAL-332).
  *
- * How the template vanished: SourceSchemaBootstrapService, in strict mode,
- * `DROP TABLE … CASCADE`s every source-schema table its OWN image's
- * MODULE_SCHEMAS does not list. On 2026-09-17 locally built farm images from
- * an older branch — whose registry predates the three newest farm tables —
- * were started against this database and reaped them as orphans; the tenant
- * clones survived because the bootstrap reconciles only the source schema.
- * The migration ledger and the schema therefore disagree, and a NEW migration
- * aligns the schema to the ledger (docs/runbooks/schema-drift-response.md,
- * path a); the original migration is immutable.
+ * How the template vanished is NOT established (DATA-HIGH-018): the ledger
+ * row exists, the tenant clone exists, no db-migrate run since 2026-09-17
+ * logged a drop, the applying run's container is gone, and main's
+ * SourceSchemaBootstrapService throws on orphans rather than dropping them.
+ * Candidates are a source pass that executed under a tenant-first
+ * search_path, or a manual drop. What IS established is that the migration
+ * ledger and the schema disagree, so a NEW migration aligns the schema to the
+ * ledger (docs/runbooks/schema-drift-response.md, path a); the original
+ * migration is immutable.
  *
  * WHAT: the table and its index, UNQUALIFIED and IF NOT EXISTS. This is a
  * per-tenant table (MODULE_SCHEMAS farm.tables), so the migration fans out:

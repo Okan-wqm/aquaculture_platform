@@ -12,12 +12,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * entity declares owned table but DB has no such table in any non-tenant
  * schema` (2026-09-20 outage, FARM-CRITICAL-332).
  *
- * How they vanished: SourceSchemaBootstrapService, in strict mode,
- * `DROP TABLE … CASCADE`s every source-schema table its OWN image's
- * MODULE_SCHEMAS does not list. On 2026-09-17 locally built farm images from
- * an older branch — whose registry predates these ledgers — were started
- * against this database and reaped them as orphans. The ledger and the schema
- * therefore disagree, and a NEW migration aligns the schema to the ledger
+ * How they vanished is NOT established (DATA-HIGH-018): the ledger row
+ * exists with a passing postCondition, no db-migrate run since 2026-09-17
+ * logged a drop, the applying run's container is gone, and main's
+ * SourceSchemaBootstrapService throws on orphans rather than dropping them.
+ * Candidates are a source pass that executed under a tenant-first
+ * search_path — which is why this restoration names `farm` explicitly — or a
+ * manual drop. What IS established is that the ledger and the schema
+ * disagree, so a NEW migration aligns the schema to the ledger
  * (docs/runbooks/schema-drift-response.md, path a); the original is immutable.
  *
  * WHAT: the same DDL as 1809100000000, IF NOT EXISTS, and — unlike the

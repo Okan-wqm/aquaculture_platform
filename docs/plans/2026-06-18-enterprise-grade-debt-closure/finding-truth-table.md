@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `3dff205352259c2ab435c8081a186cd589d2da4d55c34b4a7f3e00ac25d10d81`
+Registry tip: `a3c9235e671bd786d89e5120ef1561e45be5f38162a0b6ecd815b9bdfa666b53`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -397,8 +397,8 @@ Allowed truth buckets:
   stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
 
 - `FARM-CRITICAL-332` (2026-09-20, the boot-path outage, sixth blocker): three farm source-schema
-  tables recorded as migrated had been dropped as "orphans" by an older image's strict schema
-  bootstrap (DATA-HIGH-017), so the drift validator refused farm-service's cold start; two new
+  tables recorded as migrated were missing (cause not established, DATA-HIGH-018), so the drift
+  validator refused farm-service's cold start; two new
   migrations recreate them idempotently, proven against a Postgres shaped like production. The row
   stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
 

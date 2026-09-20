@@ -174,13 +174,15 @@ schema" — for `farm.feeding_record_attribution_quarantine`, `farm.tenant_local
 present; the tenant clone of the quarantine table exists. db-migrate had logged
 `absentTables: [feeding_record_attribution_quarantine]` on every run and carried on.
 
-**Cause.** `SourceSchemaBootstrapService` in strict mode `DROP TABLE … CASCADE`s every source-schema
-table the running image's `MODULE_SCHEMAS` does not list (documented in `schema-manager.service.ts`
-as the answer to the 2026-04-07 cross-module contamination). On 2026-09-17 locally built farm images
-from an older branch — whose registry predates the three newest farm tables — were started against
-this database and reaped them as orphans; the tenant clones survived because the bootstrap
-reconciles only the source schema. The ledger and the schema now disagree in a way the ledger cannot
-see (DATA-HIGH-017).
+**Cause — not established (DATA-HIGH-018).** An earlier reading of this cycle blamed
+`SourceSchemaBootstrapService` dropping unregistered source tables (DATA-HIGH-017); that is stale
+docblock text, not code — on `main` the service throws on orphans (`assertNoOrphanTables`) and the
+`DROP … CASCADE` was removed in 42695736f (2026-06-08), before either migration existed. What is
+established: both ledger rows exist, the quarantine table exists only in the tenant clone, the two
+clock ledgers exist nowhere, no db-migrate run since 2026-09-17 logged a drop, and the applying
+run's container is gone. Candidates are a source pass executed under a tenant-first `search_path`,
+or a manual drop. Either way the ledger and the schema disagree in a way the ledger cannot see, and
+nothing between db-migrate and service health detects it.
 
 **Fix.** Two new migrations align the schema to the ledger (`schema-drift-response.md`, path a; the
 originals are immutable): `1810400000000` recreates the per-tenant quarantine template unqualified
@@ -233,7 +235,9 @@ run idempotent.
   `onModuleInit` (a connection, a migration check) is still first seen at boot — PLAT-CRITICAL-918
   was exactly that, and PLAT-HIGH-919 is the real-broker boot test that closes the gap for the event
   bus.
-- DATA-HIGH-017: the strict source-schema bootstrap still drops tables newer than the running image.
-  The restoration here repairs the damage; making the drop impossible (a recorded migration's table
-  is never an orphan; genuine orphans are quarantined, not dropped; db-migrate fails on absent
-  tables instead of logging them) is tracked with owner claude and deadline 2026-10-04.
+- DATA-HIGH-018 (supersedes DATA-HIGH-017, whose cause the code does not support): db-migrate runs
+  no drift check of its own, so a database that no longer matches the entities fails the deploy at a
+  service's cold start twenty minutes after the migration step reported success. The detectable fix
+  — db-migrate runs the SchemaDriftValidator for every service after its migrations and fails the
+  run, and an absent table for a recorded migration is a hard failure rather than a log line — is
+  tracked with owner claude and deadline 2026-10-04.

@@ -9,8 +9,8 @@ request-reply; user-decided actuation (`confirm_required` cap).
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181,
-INFRA-HIGH-184, INFRA-HIGH-186 and DEPLOY-HIGH-024 (base-branch / platform
-defects found by this branch's gates and work, fixed here); FARM-LOW-330
+INFRA-HIGH-184, INFRA-HIGH-186, DEPLOY-HIGH-024 and INFRA-HIGH-187 (base-branch /
+platform defects found by this branch's gates and work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -307,6 +307,25 @@ that fails any `critical` / `required` active droplet entry whose image the
 deploy does not build or pull — `required` on the sidecar now fails the test
 naming the entry. Shipping the sidecar for real (own release tag, pull + start
 in `droplet-up`, health) is the tracked follow-up that lifts it back.
+
+## INFRA-HIGH-187 — the client proxy asked for a reply inbox nobody granted
+
+INFRA-HIGH-179/180 made the reply inbox follow the identity on the wire:
+the connection factory sets `inboxPrefix` from the certificate CN and
+services.yaml grants each identity `_INBOX<CN>.>` instead of the shared
+`_INBOX.>`. `NatsV3Client.publish()` never read that decision — it called
+`createInbox(this.options.inboxPrefix)` on the registration option, which
+only the two config-reply clients set, so every other ClientProxy on the
+platform subscribed `_INBOX.<nuid>` and the broker refused it: the request
+went out, the answer had nowhere granted to land, and the caller waited for
+its timeout. After the 8c9795f3 deploy aqua-nats logged ten such violations
+for gateway_service in one second (WebSocket RPCs); admin-api, messaging, ai,
+hr and sensor share the path. HTTP/GraphQL login does not, which is why every
+probe today passed over it. Fix: the client captures the connection's prefix
+at `connect()` (an explicit registration prefix stays an override for the
+separately granted `_INBOXBILLINGCFG` / `_INBOXFARMMARINECFG` channels) and
+creates every inbox under it; a spec drives the real `publish()` through a
+stubbed transport and fails on the `_INBOX.` root.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

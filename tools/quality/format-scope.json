@@ -40741,6 +40741,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/__tests__/optional-provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/create-service-app.ts",
       "prettier_managed": true
     },
@@ -40760,6 +40766,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/bootstrap/openapi-config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/optional-provider.ts",
       "prettier_managed": true
     },
     {

@@ -9,8 +9,8 @@ request-reply; user-decided actuation (`confirm_required` cap).
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
 ORPHAN-HIGH-828, INFRA-HIGH-176, INFRA-HIGH-179, INFRA-HIGH-180, INFRA-HIGH-181,
-INFRA-HIGH-184 and DEPLOY-HIGH-024 (base-branch / platform defects found by this
-branch's gates and work, fixed here); FARM-LOW-330
+INFRA-HIGH-184, INFRA-HIGH-186 and DEPLOY-HIGH-024 (base-branch / platform
+defects found by this branch's gates and work, fixed here); FARM-LOW-330
 (tracked, open — MCP analytics test debt, owner: farm-module maintainer,
 deadline 2026-10-16).
 
@@ -274,6 +274,21 @@ has no zone — so the path first executed in production. Fix:
 container, no zone) and answers `undefined` on `UnknownElementException`; a
 spec boots a module without `EVENT_BUS` through the real factory and pins
 both the fallback and the exit the old lookup caused.
+
+## INFRA-HIGH-186 — the gateway's sensor bridge listened on a subject it was never granted
+
+SENSOR-HIGH-092 moved `SensorReading` to the telemetry root, and the
+gateway's WebSocket bridge followed (`nats-bridge.service.ts:158` subscribes
+`telemetry.*.SensorReading`). services.yaml did not: gateway_service kept
+`events.>` only, so every gateway boot logged two `Subscription Violation`
+lines and the bridge never received a reading — the dashboards' live feed
+was silently dead. Nothing caught it because the RPC-coverage invariant
+read `@MessagePattern` / `@EventPattern` and ClientProxy sends, not a raw
+core `connection.subscribe()`, and `telemetry.` was not among the subject
+roots it recognised. Fix: the subscribe grant, `nats.conf` regenerated, and
+`extractRpcUsage` now treats a `.subscribe('<literal>')` as a handled
+subject with `telemetry.` as a recognised root; removing the grant again
+fails the gateway case with the exact subject.
 
 ## DEPLOY-HIGH-024 — the deploy promised a container it could never create
 

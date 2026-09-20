@@ -98,6 +98,7 @@ import {
   type FindingTrailerTarget,
 } from './finding-traceability';
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
+import { repinDebtPlan } from './repin-debt-plan';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
@@ -2084,14 +2085,59 @@ function main(): void {
   process.exit(exitCode);
 }
 
+/** The ledger's bytes, for telling a real mutation from a dry run. */
+function registryDigest(): string {
+  return createHash('sha256').update(readFileSync(REGISTRY_PATH)).digest('hex');
+}
+
+/**
+ * Rebuilds the enterprise-grade-debt-closure plan mirror from the registry.
+ *
+ * The three plan artifacts are DERIVED from this ledger, and a mutation is the
+ * only thing that can make them stale — so the mutation rebuilds them, rather
+ * than leaving a second command in the operator's memory for CI to catch a
+ * commit later (PROC-MEDIUM-037). Callers get the repin's own exit code folded
+ * into theirs.
+ *
+ * It runs AFTER the lock is released and only on success, for two reasons: the
+ * repin reads the registry the mutation just wrote, and a repin that refuses
+ * must not look like a mutation that failed. The ledger is append-only and
+ * hash-chained, so there is nothing to roll back either way — a refusal here
+ * names the remaining manual step and nothing else is undone.
+ *
+ * The caller gates it on the ledger bytes actually changing, so `--dry-run`
+ * stays dry: `sweep --dry-run` and `reconcile --dry-run` write nothing, and a
+ * repin firing behind them would have written three files on a command whose
+ * whole contract is that it writes none.
+ */
+function repinAfterMutation(): number {
+  try {
+    return repinDebtPlan();
+  } catch (error) {
+    process.stderr.write(
+      'Registry mutated, but the debt-plan mirror could NOT be rebuilt: ' +
+        `${error instanceof Error ? error.message : String(error)}\n` +
+        '  The ledger entry is durable — append-only, nothing was rolled back.\n' +
+        '  Repair the plan artifacts by hand, then re-run `npm run gates:debt-plan:repin`.\n',
+    );
+    return 1;
+  }
+}
+
 function runRegistryMutation(
   action: (lease: RegistryLockLease, authority: FindingAllocationAuthority) => number,
 ): number {
   try {
     const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-    return withRegistryFileLock(REGISTRY_PATH, (lease) => action(lease, authority), {
+    const before = registryDigest();
+    const code = withRegistryFileLock(REGISTRY_PATH, (lease) => action(lease, authority), {
       lockPath: authority.lockPath,
     });
+    // A dry run leaves the ledger byte-identical, and only a real mutation can
+    // have made the mirror stale — so this is what keeps `--dry-run` dry.
+    const ledgerChanged = registryDigest() !== before;
+    if (code !== 0 || !ledgerChanged) return code;
+    return repinAfterMutation();
   } catch (error) {
     if (error instanceof RegistryLockError) {
       process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n\n`);

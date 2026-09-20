@@ -504,6 +504,65 @@ static figure where a live one was promised. `ScadaRuntimeContext` already
 carries the `TagValueBus` the other widgets read. Product-truth defect on a
 SCADA surface; found while the design ratchets reformatted the file.
 
+### PROC-MEDIUM-037 — the debt-plan mirror went stale on every registry mutation
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+`docs/plans/2026-06-18-enterprise-grade-debt-closure/{manifest.json,finding-truth-table.md,README.md}`
+are derived from `findings.jsonl` — five scalars and an id list. Every mutating `finding-registry`
+subcommand moves at least one of them, and nothing in the mutation path refreshed the mirror:
+`repin-debt-plan.ts` was a separate npm script, so consistency rested on the operator remembering a
+second command. `enterprise-grade-debt-plan-contract.spec.ts` caught it, but a commit later, in CI,
+on a number nobody chose to change.
+
+It shipped red four times. Twice inside the three-file edit — recorded in the repin script's own
+header — and then twice more as a forgotten invocation, at `2c6156488` and `c7a1a6079`, which is the
+same bug one level up: collapsing three hand edits into one script left the script in human memory.
+
+Fixed by moving it from tier 3 to tier 2: `runRegistryMutation`, the single wrapper every mutating
+subcommand already routes through, repins after the mutation reports success. The ledger is
+append-only, so a repin that refuses is a non-zero exit naming the remaining manual step, never an
+undone mutation. Gated on the ledger's bytes actually changing, so `--dry-run` stays dry.
+
+### FE-MEDIUM-163 — two action blues
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+60 action surfaces paint the informational scale as their accent, so the product shows two blues
+that both read as "this is the action": the primitive's `primary-600` and the info scale beside it.
+
+### INFRA-HIGH-187 — the aria-kernel gate never reaches a verdict on an active branch
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+`aria-kernel.yml` sets `concurrency.cancel-in-progress: true` on a branch-scoped group while
+budgeting `timeout-minutes: 110` for a suite the same file measures at 3539 s. A branch that pushes
+more often than the suite takes cancels the run every time. All 16 runs before the current one on
+`claude/wonderful-archimedes-msrlg9` completed as `cancelled` — none as success or failure — while
+the branch carried a real change to `aria_kernel/security/grant.py`.
+
+Same class as FARM-MEDIUM-303: configured, never executed to completion, and invisible because a
+cancelled run is not a red check, so nothing blocks the merge.
+
+### FE-MEDIUM-164 — the hardcoded-string counter is blind to HTML entities
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+The counter's JSX-text character class excludes the semicolon, so a user-visible string written with
+an entity — `People &amp; access` — does not register as user-visible text. The ratchet therefore
+certifies a package that added an untranslated string.
+
+### FE-MEDIUM-165 — the hardcoded-string counter reads a ternary chain as text
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+A nested JSX ternary chain is matched as user-visible text, so refactoring one branch of a
+conditional render raises a package's count with no string added. Hit live while fixing
+SENSOR-HIGH-128: `GlobalAlarmBanner` rose 3196 → 3198 because `) : alarmStateUnknown ? (` and
+`) : isEmpty ? (` were each counted as a visible string. Lifting the decision into a named `centre`
+variable removed the false positive, which is a better shape anyway — but a counter that moves on a
+pure refactor is measuring the wrong thing, and treating that luck as the fix would hide it.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

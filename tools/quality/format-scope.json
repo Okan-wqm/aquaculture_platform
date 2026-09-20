@@ -48279,6 +48279,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-repin-wiring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
       "prettier_managed": true
     },

@@ -231,7 +231,17 @@ function rendersText(body: string): boolean {
 }
 
 const NAMES_THE_CONTROL = /\baria-label\b|\baria-labelledby\b|\btitle=/;
-const DECLARES_ITS_STATE = /\baria-pressed\b|\baria-selected\b|\baria-current\b/;
+/**
+ * Every attribute that actually declares a button's state, not just the three
+ * a toggle happens to use most. `aria-checked` is the correct one for
+ * role="switch", role="radio", role="checkbox" and role="menuitemradio", and
+ * `aria-expanded` for a disclosure. Leaving them out counted 15 controls that
+ * state themselves correctly — a switch on the report settings modal, the week
+ * pickers in scheduling, two water-chemistry toggles — as defects, and an
+ * inflated ceiling is as wrong as a missing one.
+ */
+const DECLARES_ITS_STATE =
+  /\baria-pressed\b|\baria-selected\b|\baria-current\b|\baria-checked\b|\baria-expanded\b/;
 const PAINTS_A_STATE = /className=\{`[^`]*\$\{[^}]*\?|className=\{[^}]*\?[^}]*:/;
 
 /**

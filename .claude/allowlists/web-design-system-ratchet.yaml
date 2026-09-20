@@ -302,14 +302,14 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 55
+      ceiling: 52
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 27
+      ceiling: 26
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -330,28 +330,28 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 140
+      ceiling: 135
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 17
+      ceiling: 14
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/shell
-      ceiling: 4
+      ceiling: 2
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/shared-ui
-      ceiling: 9
+      ceiling: 8
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159

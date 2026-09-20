@@ -188,11 +188,24 @@ inherits the absence from the primitive it was told to adopt.
 
 ### FE-HIGH-159 — buttons paint a state they never announce
 
-329 buttons switch their class attribute on a selected state while the opening
-tag carries no `aria-pressed`, `aria-selected` or `aria-current`. The selection
-is visible and inaudible — colour alone, which WCAG 1.4.1 rejects. sensor-module
-holds 140 of them (SCADA toolbars, the alignment and undo/redo bars, protocol and
-template pickers), farm-module 55, AquaMobil 39, admin-panel 34.
+314 buttons switch their class attribute on a selected state while the opening
+tag declares that state nowhere. The selection is visible and inaudible — colour
+alone, which WCAG 1.4.1 rejects. sensor-module holds 135 of them (SCADA
+toolbars, the alignment and undo/redo bars, protocol and template pickers),
+farm-module 52, AquaMobil 39, admin-panel 34.
+
+By shape: 128 sit inside a `.map()` over an options array (a segmented control
+or tab strip), 88 are a single `onClick={() => setX(…)}` selector, and the rest
+are one-off toggles. The 216 in the first two groups want one primitive whose
+`aria-pressed` comes from the same prop that paints the selection — the fix
+that would make the defect impossible rather than merely visible.
+
+The first count here was 329. Fifteen of those declare `aria-checked`, which is
+the correct attribute for `role="switch"`, `role="radio"` and `role="checkbox"`
+— a report-settings switch, the scheduling week pickers, two water-chemistry
+toggles — and the detector simply did not look for it, nor for `aria-expanded`
+on a disclosure. An inflated ceiling is as wrong as a missing one, so the
+detector was widened rather than the sites changed.
 
 ### Both: the count belongs in the gate, not in this document
 

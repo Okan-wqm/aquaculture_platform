@@ -35,8 +35,7 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 // Service
 import { WaterQualityService } from './water-quality.service';
 import { WaterTemperatureService } from './services/water-temperature.service';
-import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
-import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
+import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
 
 // Resolvers
 import { WaterQualityResolver } from './water-quality.resolver';
@@ -91,6 +90,8 @@ const CommandHandlers = [
 
 @Module({
   imports: [
+    // P-31 sıcaklık tetiklemesi — çekirdek modülün TEK örneği (yaprak; döngü yok).
+    FeedingProtocolCoreModule,
     TypeOrmModule.forFeature([
       WaterQualityMeasurement,
       WaterQualityParameterConfig,
@@ -115,9 +116,6 @@ const CommandHandlers = [
   controllers: [GetWaterQualityOverviewResponder, WaterQualityAiQueryResponder],
   providers: [
     WaterQualityService,
-    // P-31 sıcaklık tetiklemesi — stateless recalc servisleri doğrudan sağlanır.
-    ProtocolRateService,
-    DayPlanRecalcService,
     // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
     WaterTemperatureService,
     // W8/FARM-MEDIUM-284 — stateless checker (ProtocolRateService emsali):

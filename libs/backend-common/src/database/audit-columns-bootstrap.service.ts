@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import {
@@ -63,7 +63,10 @@ import { assertRuntimeDdlAllowed } from './db-migrate-authority.util';
  *   would skip this bootstrap and document why).
  */
 
-@Injectable()
+// Built by hand (`new AuditColumnsBootstrap(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class AuditColumnsBootstrap implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuditColumnsBootstrap.name);
 

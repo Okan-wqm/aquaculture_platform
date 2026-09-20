@@ -138,7 +138,7 @@ providers; a child module cannot see the root's providers, so the token was unre
 WebSocketModule.
 
 **Fix.** The limiter is built by a `useFactory` (both socket guards lose their decorative
-`@Injectable()`), and `TokenBlacklistModule` owns and exports the revocation store, imported by
+`@Injectable()`), and `GatewayTokenBlacklistModule` owns and exports the revocation store, imported by
 AppModule (for the global AuthGuard and JwtMiddleware) and by WebSocketModule.
 
 ## Why the gates were green

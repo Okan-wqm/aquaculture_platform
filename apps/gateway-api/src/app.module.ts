@@ -56,7 +56,7 @@ import type { GatewayContext, RequestWithUser } from './federation/authenticated
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard } from './guards/auth.guard';
 import { TokenBlacklistStore, TOKEN_BLACKLIST_STORE } from './guards/redis-token-blacklist.store';
-import { TokenBlacklistModule } from './guards/token-blacklist.module';
+import { GatewayTokenBlacklistModule } from './guards/token-blacklist.module';
 import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
@@ -465,7 +465,7 @@ function positiveIntConfig(configService: ConfigService, key: string, fallback: 
     // WebSocket module for real-time sensor data
     // The token-revocation store the global AuthGuard, JwtMiddleware and the
     // WebSocket revalidator all read (guards/token-blacklist.module.ts).
-    TokenBlacklistModule,
+    GatewayTokenBlacklistModule,
     WebSocketModule,
 
     // AI chat is no longer a REST proxy — it rides the AiChatGateway socket.io

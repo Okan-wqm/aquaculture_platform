@@ -37,4 +37,4 @@ import {
   ],
   exports: [TOKEN_BLACKLIST_STORE],
 })
-export class TokenBlacklistModule {}
+export class GatewayTokenBlacklistModule {}

@@ -16,7 +16,7 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
 import { AiChatGateway } from './ai-chat.gateway';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
-import { TokenBlacklistModule } from '../guards/token-blacklist.module';
+import { GatewayTokenBlacklistModule } from '../guards/token-blacklist.module';
 
 @Module({
   imports: [
@@ -24,7 +24,7 @@ import { TokenBlacklistModule } from '../guards/token-blacklist.module';
     JwtModule,
     // WsTokenRevalidator re-checks live sockets against the gateway's ONE
     // revocation store; the module that owns it is imported, not re-provided.
-    TokenBlacklistModule,
+    GatewayTokenBlacklistModule,
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',

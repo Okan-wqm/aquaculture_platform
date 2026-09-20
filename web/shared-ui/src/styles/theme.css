@@ -46,7 +46,12 @@
    Checkboxes, radios, ranges, files and colour pickers keep their native
    rendering, which `color-scheme: dark` on <html> already darkens. */
 @layer base {
-  [data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea) {
+  [data-theme='dark']
+    :where(
+      input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+      select,
+      textarea
+    ) {
     @apply bg-gray-800 text-gray-100 border-gray-600;
   }
   [data-theme='dark'] :where(input, textarea)::placeholder {
@@ -250,6 +255,31 @@
   --color-sd-ink-hint: #8aa0aa; /* placeholder / empty-state hint text */
   --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
   --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
+
+  /* Completing the set for the console's own components (rail, page
+     primitives, tables, toolbars, tabs): the ported stylesheet writes 39
+     distinct colours, of which 19 already resolve to the tokens above.
+     These are the other 20. Light theme only, as the port is. */
+  --color-sd-mint-ink: #166f5a; /* ledger/success text on paper */
+  --color-sd-mint-deep: #4abba2; /* mint accent on paper (dot, focus ring, progress) */
+  --color-sd-mint-light: #7cedd0; /* progress gradient stop */
+  --color-sd-on-mint: #f4fbf9; /* text on a mint fill */
+  --color-sd-cyan: #4fb6c8; /* secondary accent beside teal (dot, eyebrow rule) */
+  --color-sd-cyan-light: #8fd8e4; /* brand caption on the dark rail */
+  --color-sd-cyan-faint: #eaf6f8; /* brand name on the dark rail, avatar text */
+  --color-sd-on-teal: #f4fbfc; /* text on a teal fill */
+  --color-sd-teal-mid: #14606f; /* avatar gradient stop */
+  --color-sd-amber-ink: #8a5e10; /* pending/HR tile text on paper */
+  --color-sd-amber: #a97514; /* amber status dot */
+  --color-sd-amber-surface: #fbf3dc; /* check-row background on paper */
+  --color-sd-violet-ink: #4a3766; /* AI channel icon */
+  --color-sd-violet: #7a63b4; /* AI author mark */
+  --color-sd-paper-lit: #fcf9f1; /* content gradient stop 1 (lit) */
+  --color-sd-paper-deep: #f0f2e9; /* content gradient stop 3 (deep) */
+  --color-sd-ink-body: #1c4353; /* message body text */
+  --color-sd-ink-disabled: #9fbfc9; /* disabled send button */
+  --color-sd-ink-hint-soft: #b7c7cd; /* faint hint text, lighter than ink-hint */
+  --color-sd-white: #ffffff; /* pure white tiles and hover surfaces */
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
 }
 

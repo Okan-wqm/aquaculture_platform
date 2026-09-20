@@ -599,8 +599,25 @@ interface PackageCeiling {
   reason: string;
 }
 
+interface RaiseGrant {
+  /** Ratchet block the grant applies to, or 'overlays' for the overlay ceiling. */
+  block: string;
+  /** Package the grant applies to; 'overlays' blocks use the literal '*'. */
+  package: string;
+  /** The ceiling on the base ref. A grant that does not match it authorises nothing. */
+  from: number;
+  /** The ceiling this change moves to. */
+  to: number;
+  owner: string;
+  expiry: string | Date;
+  findingId: string;
+  reason: string;
+}
+
 interface Allowlist {
   version: number;
+  /** Explicit, single-use authorisations for a ceiling that must RISE (see the one-way test). */
+  raises?: RaiseGrant[];
   overlays: { ceiling: number; entries: OverlayEntry[] };
   rawHex: { entries: PackageCeiling[] };
   rawPalette: { entries: PackageCeiling[] };
@@ -692,6 +709,43 @@ function assertGoverned(
   expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
   expect(entry.reason.length).toBeGreaterThan(20);
   expect(expiryIso(entry.expiry) > today).toBe(true);
+}
+
+/**
+ * The merged baseline this file's ceilings are compared against. `origin/main`
+ * in CI (checkout uses `fetch-depth: 0`); a local clone may only have `main`.
+ * Same idiom as `finding-registry-closure-drift.spec.ts`, and the same refusal:
+ * a gate that certifies "only ever falls" against nothing certifies nothing.
+ */
+function resolveBaseRef(): string {
+  for (const ref of ['origin/main', 'main']) {
+    try {
+      execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', '--verify', `${ref}^{commit}`], {
+        stdio: 'ignore',
+      });
+      return ref;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    'Neither origin/main nor main is readable in this clone. This gate compares ' +
+      'ceilings against merged history and refuses to certify blind — fetch the ' +
+      'base ref (CI uses fetch-depth: 0) and re-run.',
+  );
+}
+
+/** Every ceiling in a parsed allowlist, keyed `<block>/<package>`. */
+function ceilingsOf(doc: Allowlist): Map<string, number> {
+  const out = new Map<string, number>();
+  out.set('overlays/*', doc.overlays.ceiling);
+  for (const [block, value] of Object.entries(doc)) {
+    if (block === 'overlays' || block === 'version' || block === 'raises') continue;
+    const entries = (value as { entries?: PackageCeiling[] }).entries;
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) out.set(`${block}/${entry.package}`, entry.ceiling);
+  }
+  return out;
 }
 
 describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-system adoption ratchet', () => {
@@ -1165,6 +1219,79 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
         (actual.get(entry.package) ?? 0) === entry.ceiling
           ? ''
           : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  /**
+   * The ceilings above only ever fall (FE-HIGH-065).
+   *
+   * The allowlist's own header has always said the counts are "pinned here so
+   * they can only shrink", and until this test nothing enforced it: every
+   * assertion above compares a ceiling to the LIVE count, so raising a ceiling
+   * and the count together passes. That is the one move which quietly undoes a
+   * migration — under "just make CI green" a ceiling goes up, a plausible
+   * reason goes in beside it, and the suite stays green while the adoption work
+   * unwinds. `assertGoverned` asks for an owner, a finding, a reason and a
+   * future expiry, which is a speed bump, not a direction.
+   *
+   * So the comparison is against the merged baseline, not against this file's
+   * own contents. A ceiling that rises is refused unless the same change
+   * declares it in `raises:` — pinned to the exact from/to pair, so a grant
+   * cannot be reused for a second rise, and governed like every other entry.
+   * A grant that authorises nothing is refused too: a licence with no rise
+   * behind it is either stale or speculative, and both are how an escape hatch
+   * becomes a habit. Once the rise is merged the grant reads as already
+   * applied (`to` equals the live ceiling) and sits harmlessly until its
+   * expiry forces the cleanup.
+   */
+  it('ceilings only ever fall; a rise needs an explicit, single-use grant (FE-HIGH-065)', () => {
+    const baseRef = resolveBaseRef();
+    const baselineSource = execFileSync(
+      'git',
+      ['-C', REPO_ROOT, 'show', `${baseRef}:${ALLOWLIST}`],
+      { encoding: 'utf8' },
+    );
+    const baselineDoc = yaml.load(baselineSource) as Allowlist;
+    const baseline = ceilingsOf(baselineDoc);
+    const current = ceilingsOf(doc);
+    const grants = doc.raises ?? [];
+
+    // A block the baseline does not have at all is a NEW COUNTER, not a rise.
+    // Introducing one records debt that was never measured before, which is the
+    // opposite of a regression, and it can only add measurement — it cannot
+    // relax a count that already exists. Its opening ceilings are the survey,
+    // so they are exempt; every later change to them is compared normally.
+    const baselineBlocks = new Set(Object.keys(baselineDoc));
+
+    // Within a block the baseline HAS, a package with no entry starts from
+    // zero: adding one with a non-zero ceiling is new debt, which is a rise
+    // like any other.
+    const rises = [...current]
+      .map(([key, to]) => ({ key, from: baseline.get(key) ?? 0, to }))
+      .filter((r) => r.to > r.from && baselineBlocks.has(r.key.slice(0, r.key.indexOf('/'))));
+
+    const ungranted = rises
+      .filter(
+        (r) =>
+          !grants.some(
+            (g) => `${g.block}/${g.package}` === r.key && g.from === r.from && g.to === r.to,
+          ),
+      )
+      .map((r) => `${r.key}: ${r.from} -> ${r.to} with no matching raises: grant`);
+    expect(ungranted.sort()).toEqual([]);
+
+    for (const grant of grants) {
+      assertGoverned(grant, today);
+      const key = `${grant.block}/${grant.package}`;
+      expect(current.has(key) ? '' : `raises: names ${key}, which has no ceiling`).toBe('');
+      const active = rises.some((r) => r.key === key && r.from === grant.from && r.to === grant.to);
+      const applied = current.get(key) === grant.to;
+      expect(
+        active || applied
+          ? ''
+          : `raises: grant for ${key} (${grant.from} -> ${grant.to}) authorises no rise in this change ` +
+              `and is not already applied (live ${current.get(key)}); remove it`,
       ).toBe('');
     }
   });

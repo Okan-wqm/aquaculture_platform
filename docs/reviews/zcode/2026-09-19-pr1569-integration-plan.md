@@ -1,117 +1,114 @@
-# PR #1569 → main Entegrasyon Planı (bulut LLM el kitabı)
+# PR #1569 → main Entegrasyon Planı v2 (bulut LLM el kitabı)
 
 > Bu belge sunucuya erişimi OLMAYAN bir mühendis/LLM için yazıldı: yalnız GitHub
-> repo'sundan çalışılır. Canlı droplet'e (89.38.97.90) dair hiçbir adım içermez —
-> o ayrı bir süreçtir (belge sonundaki "Dokunma listesi").
+> repo'sundan çalışılır. Canlı droplet'e (89.38.97.90) dair hiçbir adım içermez.
+> **v2 güncellemesi (2026-09-20):** main'in ilerlemesi incelendi; aşağıdaki
+> Faz 1 iptal edildi — main'de daha iyi/eşdeğer çözümler zaten merge edilmiş.
 
-## 1. Bağlam — bilinmesi gereken durum
+## 0. DURUM ÖZETİ (2026-09-20 itibarıyla)
 
-- **PR #1569** — dal: `feat/suderra-session-20260917`, head `664c0b67b`, OPEN.
-  main korumalı: 4 zorunlu kontrol (`sens-enterprise-summary`, `merge-gate`,
-  `aria-merge-authority`, `build-status`); strict + bu dört yeşil olmadan merge yok.
-- origin/main ayrılma noktasından beri **121 web commit'i** aldı: sistematik bir
-  design-system kampanyası (aşağıda). PR'ın web değişikliklerinin **623 dosyası**
-  bu commit'lerle çakışıyor.
-- PR üç katman taşır:
-  - **(A) Backend düzeltmeleri** — main ile **çakışmasız**: login token fence
-    (ms-truncation), NATS inbox öneki (boş-token bug'ı), JetStream durable
-    consumer re-attach, auth-service testleri (824/824 yeşil).
-  - **(B) Web frontend SUDERRA portu** — farm-module, tenant-admin, shell CSS
-    compat katmanı, AquaMobil v4: main'in yeni sistemiyle **çakışıyor/eskimiş**.
-  - **(C) Gate/envanter dosyaları** — invariants, format-scope, lockfile.
-- Canlı droplet bu içerikten LOKAL imajlarla çalışıyor (login açık, doğrulanmış);
-  GitHub main'den build alan yüzeylerde tenant-admin vs. SUDERRA DEĞİL — beklenen
-  davranış, iş aşağıda落地 main'e girene kadar.
+- **origin/main ilerledi** (`b5e04c653`+); canlı droplet artık main-build
+  imajlarıyla çalışıyor ve login ÇALIŞIYOR (canlıda doğrulandı).
+- **PR #1569'un backend katmanı ARTIK GEREKSİZ** — main'de eşdeğerleri var:
 
-## 2. main'in design-system mimarisi (uyum zorunlu)
+  | PR #1569'daki bulgu | main'deki çözüm (daha temiz) |
+  |---|---|
+  | login fence `updatedAt` ms-truncation | `6a7b90b33` — tamsayı **credentialVersion** fence'i (ORPHAN-CRITICAL-808) |
+  | NATS inbox önekindeki boş-token | `012bc5f3a` (PR #1637) — noktasız önek + her JetStream kullanıcısına `$JS.API.INFO` |
+  | durable consumer "already exists" | PR #1642 — mevcut consumer yerinde güncellenir |
+
+  → **Faz 1 (backend split PR) İPTAL.** Bu üç konuda #1569'dan bir şey taşıma;
+  #1569'dan geriye kalan tek gerçek blok **frontend + mobil** işi.
+
+- **Kalan içerik (yalnız #1569'da, main'de YOK):**
+  1. SUDERRA restyle — farm-module (`sd-*` kabukları: storage/tasks/maintenance/
+     harvest/reports/environment/water-chemistry/finance/analytics), tenant-admin,
+     shell CSS compat katmanı (I–V)
+  2. AquaMobil v4 (SUDERRA FIELD) — tablet/phone kabuk ayrımı, SUDERRA logo +
+     PWA ikonları, web-login minyatürü, offline/i18n/SSoT düzeltmeleri
+  3. i18n tek-katalog (m.*) + `CONNECTION-STATUS.md` + `validate-e2e.mjs` +
+     `ui-walkthrough.js`
+  4. TR→EN çeviri geçişleri (main'in kendi i18n mimarisi var — bkz. Faz 2)
+- Kaynak dallar: `feat/suderra-session-20260917` (PR başı, her şey push'lu),
+  `feat/aquamobil-v4-redesign` (v4'ün orijinali, origin'de).
+
+## 1. main'in design-system mimarisi (uyum ZORUNLU)
 
 - **Primitifler** (shared-ui): `Button/Input/Select/Textarea`, `DataTable`,
   `PageHeader`, `Spinner`, `Tabs`, `EmptyState/ErrorState`, `BottomSheet`,
   `Popover/Menu/Tooltip`, `Badge`. Sayfa kendi kontrolünü DEĞİL bunları kullanır.
-- **Tek ikon sistemi:** lucide-react (703 SVG silindi).
+- **Tek ikon sistemi:** lucide-react.
 - **Renk:** `web/shared-ui/src/styles/theme.css` TypeScript colour-token'ları +
   dark pair'ler. **SUDERRA tokenları zaten burada** (`--color-sd-paper`,
-  `-parchment`, `-ink`, `-teal`...). Çiğ Tailwind hue'u yasak.
-- **i18n:** hesapta kalıcı, değiştirilebilir locale; shell chrome/navigation mesaj
-  haritalarında; `hardcodedText` ratchet'i — **hardcode İngilizce string YASAK**,
-  mesaj anahtarı + default locale `en`.
-- **Ratchet invariant'ları** (test olarak eski kalıbı yasaklar): raw-table,
-  rawSpinner, rawPageTitle, inline-style, raw-palette, hardcodedText.
-  `npm run invariants:fast` yerelde koşulmadan push etmeyin.
+  `-parchment`, `-ink`, `-teal`, ...). Çiğ Tailwind hue'u yasak.
+- **i18n:** hesapta kalıcı, değiştirilebilir locale; `hardcodedText` ratchet'i —
+  **hardcode İngilizce string YASAK**, mesaj anahtarı + default locale `en`.
+- **Ratchet invariant'ları:** raw-table, rawSpinner, rawPageTitle, inline-style,
+  raw-palette, hardcodedText. Push öncesi `npm run invariants:fast` koş.
 - **Doğrulama zinciri:** pre-push `type-check-changed-files.mjs` (değişen dosya
-  sıkı tsc), CI'da compose süpergraf drift=0 kapısı, codegen tazelik kapısı,
-  format-scope determinizmi (`npm run quality:format-scope:generate`).
+  sıkı tsc), CI compose süpergraf drift=0, codegen tazelik, format-scope
+  determinizmi (`npm run quality:format-scope:generate`).
 
-## 3. Faz 0 — Dalı tazele
+## 2. FAZ A — Dalı tazele
 
 ```
 git fetch origin
 git checkout feat/suderra-session-20260917
-git merge origin/main      # çakışmalar Faz 1/2 prensipleriyle çözülür
+git merge origin/main   # çakışmalar Faz B prensipleriyle çözülür:
+                        # main'in dosyası BAZ ALINIR, bizim katman yeniden uygulanır
 ```
 
-## 4. Faz 1 — Backend split PR (acil, çakışmasız, hızlı merge)
-
-Amaç: login/NATS üretim düzeltmelerini main'e **hemen** sokmak.
-
-```
-git checkout -b fix/auth-nats-login-chain origin/main
-git checkout feat/suderra-session-20260917 -- \
-  apps/auth-service/src/modules/authentication/services/token.service.ts \
-  apps/auth-service/src/modules/authentication/services/token.service.spec.ts \
-  libs/backend-common/src/nats/nats-connection.factory.ts \
-  platform/libs/event-bus/src/nats/nats-event-bus.ts
-```
-
-- Commit mesajı için kaynak: `664c0b67b` (aynı dosyalar, gerekçe açıklamaları
-  commit gövdesinde hazır — aynen taşıyabilirsiniz).
-- Test: `cd apps/auth-service && npx jest` (824/824 beklenir) + root
-  `node scripts/ci/type-check-changed-files.mjs --base origin/main --head HEAD`.
-- PR açıp 4 zorunlu kontrol yeşilince merge edin.
-
-## 5. Faz 2 — Frontend: main'in sistemine UYARLAYARAK yaz (modül modül)
+## 3. FAZ B — Frontend: main'in sistemine UYARLAYARAK yaz (modül modül)
 
 Prensip: **main'in dosyasını baz al, SUDERRA'yı token'larla ver.**
 
 1. `git checkout origin/main -- <modül>` ile main sürümünü baz al.
 2. SUDERRA görünümü: `sd-*` compat sınıfları YERİNE `theme.css`'teki
-   `--color-sd-*` tokenlarını primitif üstünde kullan (PageHeader/Spinner/
+   `--color-sd-*` tokenlarını primitifler üstünde kullan (PageHeader/Spinner/
    DataTable zaten temadan boyar; çoğu sayfada ek CSS GEREKMEZ).
-3. İngilizce: metinleri mesaj anahtarına taşı (`shared-ui` locale kataloğu),
-   default locale `en`. Hardcode string bırakma — `hardcodedText` ratchet kırmızı verir.
-4. Her modül ayrı PR, sırayla: farm-module → tenant-admin → shell (compat V
-   katmanı büyük olasılıkla GEREKSİZ — token yaklaşımıyla silinir) → reports
-   (farm içinde) → sensor/dashboard/hr.
-5. Her PR öncesi: `npm run invariants:fast` +
-   `npm run quality:format-scope:generate` (yeni/anan dosyalar için).
+3. İngilizce: metinler mesaj anahtarına (shared-ui locale kataloğu), default
+   locale `en`. Hardcode string bırakma — ratchet kırmızı verir.
+4. Sırayla ayrı PR: farm-module → tenant-admin → shell (compat V katmanı
+   büyük olasılıkla GEREKSİZ — token yaklaşımıyla silinir) → reports (farm
+   içinde) → sensor/dashboard/hr kalıntıları.
+5. Her PR öncesi: `npm run invariants:fast` + format-scope generate.
 
-## 6. Faz 3 — AquaMobil v4 (ayrı PR)
+**#1569'dan ne kopyalanır:** her sayfanın *yaptıkları* değil *gördükleri* —
+bilgi amaçlı: eyebrow/serif başlık/sd-stat-card desenleri, İngilizce metinler
+(anahtar kaynağı olarak), DATA SOURCES notları, `sd-stat-card--danger` gibi
+davranışsal kalıplar. Uygulama main'in primitifleriyle yeniden yazılır.
 
-- main'in aquamobil'u kendi büyük refaktörünü geçti (Konsta yok, Field/Switch/
-  Button/ListRow primitifleri, PageHeader, BottomSheet, pull-to-refresh).
-- SUDERRA FIELD tasarımı BU sözlüğe taşınır; `feat/aquamobil-v4-merge` dalındaki
-  v4 kaynaklarına bakılabilir ama birebir kopya DEĞİL (primitiflere çevir).
-- Bu PR'a aquamobil'ın sair düzeltmeleri de girer: SW-ready 3s timeout,
-  tenant-header token SSoT, CONNECTION-STATUS.md, validate-e2e.mjs.
-- Bilinen açık iş (harita): `src/pwa/operation-registry.ts` düz mutasyon
-  stringleri gql belgelerine çevrilip payload'lar `*MutationVariables['input']`
-  türetilecek (ssot invariant'ının c/d/f/g kuralları bunu ister).
+## 4. FAZ C — AquaMobil v4 (ayrı PR)
 
-## 7. Faz 4 — PR #1569'un kaderi
+- main'in aquamobil'u kendi büyük refaktöründen geçti (Konsta yok,
+  Field/Switch/Button/ListRow, PageHeader, BottomSheet, pull-to-refresh).
+- SUDERRA FIELD tasarımı BU sözlüğe taşınır; `feat/aquamobil-v4-merge` dalı
+  referans — birebir kopya DEĞİL.
+- Aynı PR'a: SW-ready 3s timeout (serviceWorker.ready yarışı), tenant-header
+  token-claim SSoT, `CONNECTION-STATUS.md`, `scripts/validate-e2e.mjs` +
+  `scripts/ui-walkthrough.js`, PWA ikon/manifest.
+- ssot invariant'ının (c)/(d)/(f)/(g) istediği: `src/pwa/operation-registry.ts`
+  düz mutasyon stringleri gql belgelerine, payload'lar
+  `*MutationVariables['input']` türetmesine.
 
-- Faz 1 çıkınca #1569'dan o commit'ler geri çekilir (ya da #1569 kapatılıp
-  kalan içerik Faz 2/3 PR'larına referansla taşınır — commit listesi:
-  `664c0b67b` Faz1, `4e49d66da`+`b0df1b451` invariants, gerisi frontend).
-- Kalan CI kapıları (Faz 2/3 PR'larında da karşınıza çıkacak):
-  - `entity-diff-witness`: entity değişimi DDL gerektirmiyorsa PR gövdesine
-    `ENTITY-DIFF-OK: <service> — <reason>` satırı; gerektiriyorsa migration.
-  - `docs-check`: markdown lint (satır uzunluğu 100).
-  - `validate-closes`/format-scope-derived-scalars: format-scope yenile.
+## 5. FAZ D — PR #1569'un kaderi
 
-## 8. Dokunma listesi (sunucu taraflı — bu belgeden İCRA EDİLMEZ)
+Faz B/C PR'ları main'e girince **#1569 kapatılır** (içeriği taşınmış olur;
+backend kısmı zaten main'de). Kapatan kişi, kapatma notunda bu belgeye atıf
+yapsın: `docs/reviews/zcode/2026-09-19-pr1569-integration-plan.md`.
 
-- `infrastructure/docker/nats/nats.conf` canlıda ELLE yamalandı (yedekler
-  `nats.conf.bak2/bak3`); kalıcı çözüm ACL **generator**'ünün event-bus ile
-  aynı inbox-önek formülünü türetmesi. Elle düzenleme tek-sahip ilkesiyle
-  sunucu tarafında yönetiliyor.
+**CI gate playbook'u (Faz B/C'de karşınıza çıkacak):**
+- `entity-diff-witness`: entity değişimi DDL gerektirmiyorsa PR gövdesine
+  `ENTITY-DIFF-OK: <service> — <reason>`; gerektiriyorsa migration.
+- `docs-check`: markdown satır uzunluğu ≤ 100.
+- `validate-closes` / format-scope-derived-scalars: format-scope yenile.
+- Compose/codegen kapıları: GraphQL operasyonları süpergrafa göre yaz;
+  v4-backend şeması isteyen (VFD/feeder) operasyonlar HARİÇ tutulmalı
+  (bkz. `codegen.ts` içindeki mevcut exclusion + açıklama).
+
+## 6. Dokunma listesi (sunucu taraflı — bu belgeden İCRA EDİLMEZ)
+
+- `infrastructure/docker/nats/nats.conf` canlıda elle yamalandı; kalıcı çözüm
+  ACL generator'ünün event-bus ile aynı önek formülünü türetmesi. Elle düzenleme
+  tek-sahip ilkesiyle sunucu tarafında yönetiliyor.
 - Docker deploy / 8443 / Redis rate-limit anahtarları: sunucu operasyonu.

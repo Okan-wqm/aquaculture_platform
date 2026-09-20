@@ -288,6 +288,16 @@ def sanitize_journal_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
         target = _write_target(payload)
         entry["files_touched"] = [target] if target else []
         entry["command_family"] = "file_write" if tool in WRITE_TOOL_NAMES else "file_read"
+    elif tool in {"Grep", "Glob"}:
+        # ARIA-HIGH-162 — the read shape's two search tools: the journal
+        # names WHERE the search looked (the path, the glob) and never what
+        # it looked for (a pattern can quote the secret it is hunting).
+        scope = tool_input.get("path")
+        entry["command_family"] = "file_search"
+        entry["search_scope"] = str(scope)[:_MAX_TOKEN_CHARS] if isinstance(scope, str) and scope else None
+        if tool == "Glob":
+            pattern = tool_input.get("pattern")
+            entry["search_glob"] = str(pattern)[:_MAX_TOKEN_CHARS] if isinstance(pattern, str) and pattern else None
     else:
         entry["command_family"] = "tool"
     if isinstance(response, Mapping):

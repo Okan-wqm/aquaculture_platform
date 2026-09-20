@@ -82,9 +82,13 @@ class RefusalIsNotABuildFailure(LivePathFetchTests):
     def test_a_real_child_failure_still_reds_the_drain(self) -> None:
         # The counterweight: infrastructure failure keeps its red. Pinned
         # here so a later "make it green" cannot quietly cover both.
+        # ARIA-MEDIUM-177 — the exit code is one rule over the two halves of
+        # `failed`; the harness's half keeps its red unconditionally.
         source = (Path(ci_executor_drain.__file__)).read_text(encoding="utf-8")
-        self.assertIn("return 0 if failed == 0 else 1", source)
+        self.assertIn("return drain_exit_code(", source)
+        self.assertIn("if harness_failed > 0:\n        return 1", source)
         self.assertIn("stop_reason = selection_error", source)
+        self.assertEqual(ci_executor_drain.drain_exit_code(attempted=1, succeeded=0, harness_failed=1, request_failed=0), 1)
 
 
 class ByDesignExitsNameThemselves(LivePathFetchTests):

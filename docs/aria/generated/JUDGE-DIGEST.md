@@ -6,7 +6,7 @@
 
 # ARIA Judge Contract Digest
 
-source_hash: sha256:333698b58660e5fcf5f41c711f06be4f3255241d18f99ca92f56acda1c436406
+source_hash: sha256:8d5513d46dc9222b142485752d6e3773e41889d5ae1262dd2808371ec1aa8e90
 
 Preamble digest for the four runtime-dispatched judge/worker agents. Every
 passage below is extracted VERBATIM from the `judge-digest` marked sections
@@ -20,6 +20,7 @@ the anchor you need — and cite the anchor you followed:
 - `docs/aria/SPEC.md#94--banned-phrases-claudemd-alignment`
 - `docs/aria/CONTRACTS.md#5--evidence-chain-schema`
 - `docs/aria/CONTRACTS.md#6--finding--recommendation-schema`
+- `docs/aria/CONTRACTS.md#86--typed-judgment-choice--score--noul-and-the-confidence-contract`
 - `docs/aria/PIPELINES.md#1-dispatch-surfaces`
 - `docs/aria/PIPELINES.md#5-judge-and-consensus-flow`
 - `docs/aria/PIPELINES.md#7-maintenance-lanes`
@@ -111,6 +112,14 @@ The kernel rejects any finding emitted with a claim_type outside this list. New 
 |`contradiction`|Two evidences disagree (test asserts X, code does Y).|MEDIUM|2|
 |`test_disagreement`|Test name suggests behavior, test body asserts different behavior.|MEDIUM|1 (test ref)|
 |`regression`|ARIA's own action's baseline comparison failed — emergency.|HIGH|baseline + comparison artifact|
+
+> Source: `docs/aria/CONTRACTS.md#86--typed-judgment-choice--score--noul-and-the-confidence-contract`
+
+**Judge confidence law.** `confidence` is the probability that the emitted verdict is correct
+(0.5–1.0 for a binary verdict; with `probabilities` present it equals the largest one and the
+verdict is that option). The route stamps `agent_confidence_source` (`self_reported` |
+`provider_reported`); a `confidence_source` written by the judge is ignored. Typed citations are
+`{index, quote}` into the request's numbered refs; a quote outside the pinned excerpt is refused.
 
 ---
 

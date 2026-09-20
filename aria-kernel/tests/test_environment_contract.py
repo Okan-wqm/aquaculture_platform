@@ -370,9 +370,13 @@ class PreClaimGateTest(unittest.TestCase):
 
         source = inspect.getsource(ci_executor._main)
         gate_at = source.index("_pre_claim_environment_gate")
-        claim_at = source.index('"agent", "claim"')
+        # Typed-judgment plan Phase 4a — the kernel claim argv lives in
+        # `_claim_request_via_cli`; `_main` calls it by name, after the gate.
+        claim_at = source.index("_claim_request_via_cli(")
 
         self.assertLess(gate_at, claim_at)
+        helper = inspect.getsource(ci_executor._claim_request_via_cli)
+        self.assertIn('"agent", "claim"', helper)
 
 
 class PreflightStandardSubsetTest(unittest.TestCase):

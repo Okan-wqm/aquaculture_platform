@@ -689,7 +689,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         for name, original in self.native_bytes.items():
             self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
 
-    def test_native_planner_hook_uses_bound_task_root_and_exact_prompt_projection(self) -> None:
+    def test_native_planner_hook_uses_a_worktree_under_the_bound_task_root_and_exact_prompt_projection(self) -> None:
         import subprocess
         from types import SimpleNamespace
         from tests._helpers.git_fixtures import _git
@@ -744,9 +744,15 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["request_id"], request["request_id"])
         self.assertEqual(claims[0]["claim_id"], result["claim_id"])
-        self.assertEqual(options["cwd"], str(self.repo))
+        # ARIA-HIGH-176 — the child is served from the request's own worktree
+        # at target_sha, rooted under the bound task root (never the
+        # engineering tree), and the worktree is gone once the child is.
+        from aria_kernel.request_worktree import request_worktree_path
+        task_root = request_worktree_path(self.repo, request["request_id"])
+        self.assertEqual(options["cwd"], str(task_root))
         self.assertEqual(options["env"]["ARIA_TOOLS_DIR"], str(self.tools))
-        self.assertEqual(options["env"]["ARIA_WORKSPACE_ROOT"], str(self.repo))
+        self.assertEqual(options["env"]["ARIA_WORKSPACE_ROOT"], str(task_root))
+        self.assertFalse(task_root.exists())
         self.assertEqual(options["env"]["PYTHONPATH"].split(os.pathsep), [str(_REPO_ROOT), str(_KERNEL_DIR)])
         # ARIA-HIGH-085 — the metadata is a 0600 file the environment names,
         # never the environment's value; the hook removes it once the child

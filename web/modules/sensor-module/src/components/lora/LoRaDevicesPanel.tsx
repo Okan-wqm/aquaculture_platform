@@ -10,6 +10,7 @@ import {
   ConfirmModal,
   DataTable,
   Modal,
+  Select,
   Spinner,
   ToggleButton,
   type DataTableColumn,
@@ -302,14 +303,16 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
         </div>
 
         {/* Codec */}
-        <div>
-          <label className={labelCls}>Codec</label>
-          <select className={inputCls} value={codec} onChange={(e) => setCodec(e.target.value)}>
-            <option value="CayenneLPP">CayenneLPP</option>
-            <option value="RawBinary">Raw Binary</option>
-            <option value="Custom">Custom</option>
-          </select>
-        </div>
+        <Select
+          label="Codec"
+          value={codec}
+          onChange={(e) => setCodec(e.target.value)}
+          options={[
+            { value: 'CayenneLPP', label: 'CayenneLPP' },
+            { value: 'RawBinary', label: 'Raw Binary' },
+            { value: 'Custom', label: 'Custom' },
+          ]}
+        />
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">

@@ -175,45 +175,31 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
             PLC Connection Settings
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="plc-ip-address"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                IP Address
-              </label>
-              <Input
-                fullWidth
-                id="plc-ip-address"
-                type="text"
-                value={plcConfig.targetPlcAddress || ''}
-                onChange={(e) =>
-                  onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })
-                }
-                placeholder="192.168.1.100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="plc-port"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                Port
-              </label>
-              <Input
-                fullWidth
-                id="plc-port"
-                type="number"
-                value={plcConfig.targetPlcPort || ''}
-                onChange={(e) =>
-                  onPlcConfigChange({
-                    ...plcConfig,
-                    targetPlcPort: parseInt(e.target.value) || undefined,
-                  })
-                }
-                placeholder={value === DeployTarget.CODESYS_PLC ? '1217' : '502'}
-              />
-            </div>
+            <Input
+              label="IP Address"
+              fullWidth
+              id="plc-ip-address"
+              type="text"
+              value={plcConfig.targetPlcAddress || ''}
+              onChange={(e) =>
+                onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })
+              }
+              placeholder="192.168.1.100"
+            />
+            <Input
+              label="Port"
+              fullWidth
+              id="plc-port"
+              type="number"
+              value={plcConfig.targetPlcPort || ''}
+              onChange={(e) =>
+                onPlcConfigChange({
+                  ...plcConfig,
+                  targetPlcPort: parseInt(e.target.value) || undefined,
+                })
+              }
+              placeholder={value === DeployTarget.CODESYS_PLC ? '1217' : '502'}
+            />
             {value === DeployTarget.CODESYS_PLC && (
               <Select
                 id="plc-model"

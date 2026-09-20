@@ -377,18 +377,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           /* Step 2: Widget Configuration */
           <div className="space-y-6">
             {/* Title */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Widget Title
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter widget title"
-              />
-            </div>
+            <Input
+              label="Widget Title"
+              fullWidth
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Enter widget title"
+            />
 
             {/* Process Selection (for process-view widget) */}
             {isProcessView ? (
@@ -620,42 +616,30 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
 
                 {yAxisEnabled && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Min Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMin}
-                        onChange={(e) => setYAxisMin(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Max Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMax}
-                        onChange={(e) => setYAxisMax(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Axis Label
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={yAxisLabel}
-                        onChange={(e) => setYAxisLabel(e.target.value)}
-                        placeholder="e.g., Temperature (°C)"
-                      />
-                    </div>
+                    <Input
+                      label="Min Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMin}
+                      onChange={(e) => setYAxisMin(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Max Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMax}
+                      onChange={(e) => setYAxisMax(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Axis Label"
+                      fullWidth
+                      type="text"
+                      value={yAxisLabel}
+                      onChange={(e) => setYAxisLabel(e.target.value)}
+                      placeholder="e.g., Temperature (°C)"
+                    />
                   </div>
                 )}
               </div>

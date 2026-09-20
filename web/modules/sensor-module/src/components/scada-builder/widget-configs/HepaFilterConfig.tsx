@@ -20,29 +20,25 @@ export const HepaFilterConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           placeholder="Select tag..."
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={config.label || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="HEPA Filter"
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Status</label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'running', label: 'Running' },
-            { value: 'stopped', label: 'Stopped' },
-            { value: 'error', label: 'Error' },
-          ]}
-          value={config.demoStatus || 'running'}
-          onChange={(e) => onChange({ demoStatus: e.target.value })}
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="HEPA Filter"
+      />
+      <Select
+        label="Demo Status"
+        fullWidth
+        options={[
+          { value: 'running', label: 'Running' },
+          { value: 'stopped', label: 'Stopped' },
+          { value: 'error', label: 'Error' },
+        ]}
+        value={config.demoStatus || 'running'}
+        onChange={(e) => onChange({ demoStatus: e.target.value })}
+      />
     </div>
   );
 };

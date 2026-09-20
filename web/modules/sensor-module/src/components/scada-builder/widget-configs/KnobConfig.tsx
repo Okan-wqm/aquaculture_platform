@@ -29,88 +29,74 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       </div>
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Knob"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Knob"
+      />
 
       {/* Value range */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.min as number) ?? 0}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.max as number) ?? 100}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Step</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.step as number) ?? 1}
-            onChange={(e) => onChange({ step: Number(e.target.value) })}
-            min={0.01}
-            step={0.1}
-          />
-        </div>
+        <Input
+          label="Min"
+          fullWidth
+          type="number"
+          value={(config.min as number) ?? 0}
+          onChange={(e) => onChange({ min: Number(e.target.value) })}
+        />
+        <Input
+          label="Max"
+          fullWidth
+          type="number"
+          value={(config.max as number) ?? 100}
+          onChange={(e) => onChange({ max: Number(e.target.value) })}
+        />
+        <Input
+          label="Step"
+          fullWidth
+          type="number"
+          value={(config.step as number) ?? 1}
+          onChange={(e) => onChange({ step: Number(e.target.value) })}
+          min={0.01}
+          step={0.1}
+        />
       </div>
 
       {/* Angular range */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.startAngle as number) ?? 30}
-            onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
-            min={0}
-            max={180}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Angle</label>
-          <Input
-            fullWidth
-            type="number"
-            value={(config.endAngle as number) ?? 330}
-            onChange={(e) => onChange({ endAngle: Number(e.target.value) })}
-            min={180}
-            max={360}
-          />
-        </div>
+        <Input
+          label="Start Angle"
+          fullWidth
+          type="number"
+          value={(config.startAngle as number) ?? 30}
+          onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
+          min={0}
+          max={180}
+        />
+        <Input
+          label="End Angle"
+          fullWidth
+          type="number"
+          value={(config.endAngle as number) ?? 330}
+          onChange={(e) => onChange({ endAngle: Number(e.target.value) })}
+          min={180}
+          max={360}
+        />
       </div>
 
       {/* Tick count */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tick Count</label>
-        <Input
-          fullWidth
-          type="number"
-          value={(config.tickCount as number) ?? 11}
-          onChange={(e) => onChange({ tickCount: Number(e.target.value) })}
-          min={2}
-          max={25}
-        />
-      </div>
+      <Input
+        label="Tick Count"
+        fullWidth
+        type="number"
+        value={(config.tickCount as number) ?? 11}
+        onChange={(e) => onChange({ tickCount: Number(e.target.value) })}
+        min={2}
+        max={25}
+      />
 
       {/* Display toggles */}
       <div className="space-y-1">

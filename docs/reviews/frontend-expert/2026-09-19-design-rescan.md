@@ -399,6 +399,44 @@ None share tokens; these are the surfaces a customer sees first and signs.
 unsaved flag; nothing reaches the scheduling API. Product-truth defect, outside
 the design lane.
 
+### FE-MEDIUM-161 — the hardcoded-string ratchet cannot see a string in an object literal
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+The counter matches JSX text between tags and a short list of attributes. A string inside an object
+literal matches neither, so `<option value="horizontal">Horizontal</option>` counts and
+`{ value: 'horizontal', label: 'Horizontal' }` does not — though both put the same word on screen.
+
+Measured across `web/`: **4 483** user-visible strings sit in `label` / `placeholder` / `title` /
+`description` / `header` keys of object literals and are invisible to the gate — sensor-module 1 746,
+farm-module 1 303, admin-panel 413, hr 285, hydroponics 280, AquaMobil 184, tenant-admin 168.
+
+Two consequences, and the second is the serious one. A conversion that moves a string from JSX
+children into an options array _lowers_ the count without removing a string: moving nine raw
+`<select>` onto shared-ui `Select` for FE-HIGH-079 took 28 option labels out of the counter's sight
+and sensor-module fell 3 222 → 3 196 with nothing leaving the product. And a **new** hardcoded option
+label cannot be caught at all, which is what the ratchet exists to prevent.
+
+Closing it means teaching the counter to read object-literal values and repinning every package
+upward — recording strings that were always there. It belongs with FE-HIGH-089.
+
+### FE-MEDIUM-160 — the VFD wizard's assignment pickers can never be used
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`VfdBasicInfoStep` renders three dropdowns under **Atama (Opsiyonel)** — Çiftlik, Tank/Havuz,
+Pompa. Each contains one entry, `Seçiniz...`, followed by a comment: _"Farm options would be loaded
+dynamically"_. Nothing loads them. `sensor-module` has no farm, tank or pump query anywhere — no
+hook, no GraphQL document — so the operator can open each control, read the placeholder, and close
+it again. `farmId`, `tankId` and `pumpId` are typed on the VFD payload, so the backend is waiting
+for a value the UI cannot produce.
+
+Found while converting raw `<select>` markup onto shared-ui `Select` for FE-HIGH-079, and left
+untouched on purpose. Rendering them as `Select options={[]}` would keep the same lie inside a
+better wrapper, and deleting the section is a product decision about whether VFD assignment belongs
+in the registration wizard at all. Closing this means wiring the three to real data — which needs
+queries sensor-module does not have today — or taking the section out.
+
 ### FE-HIGH-094 — FUXA widget variable bindings never reached the runtime tag bus
 
 `FuxaWidgetConfig.variableTagBindings` (variable id → tag) is configured in the

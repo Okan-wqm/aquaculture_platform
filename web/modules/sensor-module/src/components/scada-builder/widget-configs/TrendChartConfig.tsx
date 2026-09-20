@@ -57,23 +57,19 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Default time range */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Default Time Range
-        </label>
-        <Select
-          fullWidth
-          options={[
-            { value: '1h', label: '1 Hour' },
-            { value: '6h', label: '6 Hours' },
-            { value: '24h', label: '24 Hours' },
-            { value: '7d', label: '7 Days' },
-            { value: '30d', label: '30 Days' },
-          ]}
-          value={(config.defaultRange as string) || '24h'}
-          onChange={(e) => onChange({ defaultRange: e.target.value })}
-        />
-      </div>
+      <Select
+        label="Default Time Range"
+        fullWidth
+        options={[
+          { value: '1h', label: '1 Hour' },
+          { value: '6h', label: '6 Hours' },
+          { value: '24h', label: '24 Hours' },
+          { value: '7d', label: '7 Days' },
+          { value: '30d', label: '30 Days' },
+        ]}
+        value={(config.defaultRange as string) || '24h'}
+        onChange={(e) => onChange({ defaultRange: e.target.value })}
+      />
 
       {/* Show grid */}
       <div className="flex items-center gap-2">
@@ -104,20 +100,16 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Chart height mode */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Chart Height Mode
-        </label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'auto', label: 'Auto' },
-            { value: 'fixed', label: 'Fixed' },
-          ]}
-          value={(config.chartHeightMode as string) || 'auto'}
-          onChange={(e) => onChange({ chartHeightMode: e.target.value })}
-        />
-      </div>
+      <Select
+        label="Chart Height Mode"
+        fullWidth
+        options={[
+          { value: 'auto', label: 'Auto' },
+          { value: 'fixed', label: 'Fixed' },
+        ]}
+        value={(config.chartHeightMode as string) || 'auto'}
+        onChange={(e) => onChange({ chartHeightMode: e.target.value })}
+      />
     </div>
   );
 };

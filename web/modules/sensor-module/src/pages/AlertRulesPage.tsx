@@ -314,59 +314,43 @@ const RuleForm: React.FC<{
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              placeholder="Kuralın kisa aciklamasi"
-              maxLength={500}
-            />
-          </div>
+          <Input
+            label="Açıklama"
+            fullWidth
+            type="text"
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            placeholder="Kuralın kisa aciklamasi"
+            maxLength={500}
+          />
         </div>
 
         {/* Farm, Pond, Sensor IDs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Farm ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.farmId}
-              onChange={(e) => updateField('farmId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Havuz ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.pondId}
-              onChange={(e) => updateField('pondId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Sensor ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.sensorId}
-              onChange={(e) => updateField('sensorId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
+          <Input
+            label="Farm ID"
+            fullWidth
+            type="text"
+            value={form.farmId}
+            onChange={(e) => updateField('farmId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
+          <Input
+            label="Havuz ID"
+            fullWidth
+            type="text"
+            value={form.pondId}
+            onChange={(e) => updateField('pondId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
+          <Input
+            label="Sensor ID"
+            fullWidth
+            type="text"
+            value={form.sensorId}
+            onChange={(e) => updateField('sensorId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
         </div>
 
         {/* Conditions */}

@@ -167,18 +167,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               </Button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Title
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Widget title (auto-fills from channel)"
-              />
-            </div>
+            <Input
+              label="Title"
+              fullWidth
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Widget title (auto-fills from channel)"
+            />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -323,30 +319,22 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                     Y-Axis Range (optional)
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Min Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMin}
-                        onChange={(e) => setYAxisMin(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Max Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMax}
-                        onChange={(e) => setYAxisMax(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
+                    <Input
+                      label="Min Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMin}
+                      onChange={(e) => setYAxisMin(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Max Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMax}
+                      onChange={(e) => setYAxisMax(e.target.value)}
+                      placeholder="Auto"
+                    />
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     Leave empty for automatic range based on data

@@ -50,47 +50,39 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <Input
-            fullWidth
-            type="number"
-            value={config.min ?? 0}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <Input
-            fullWidth
-            type="number"
-            value={config.max ?? 100}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-          />
-        </div>
+        <Input
+          label="Min"
+          fullWidth
+          type="number"
+          value={config.min ?? 0}
+          onChange={(e) => onChange({ min: Number(e.target.value) })}
+        />
+        <Input
+          label="Max"
+          fullWidth
+          type="number"
+          value={config.max ?? 100}
+          onChange={(e) => onChange({ max: Number(e.target.value) })}
+        />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-          <Input
-            fullWidth
-            type="text"
-            value={config.unit || ''}
-            onChange={(e) => onChange({ unit: e.target.value })}
-            placeholder="°C"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Decimals</label>
-          <Input
-            fullWidth
-            type="number"
-            min={0}
-            max={6}
-            value={config.decimals ?? 1}
-            onChange={(e) => onChange({ decimals: Number(e.target.value) })}
-          />
-        </div>
+        <Input
+          label="Unit"
+          fullWidth
+          type="text"
+          value={config.unit || ''}
+          onChange={(e) => onChange({ unit: e.target.value })}
+          placeholder="°C"
+        />
+        <Input
+          label="Decimals"
+          fullWidth
+          type="number"
+          min={0}
+          max={6}
+          value={config.decimals ?? 1}
+          onChange={(e) => onChange({ decimals: Number(e.target.value) })}
+        />
       </div>
 
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">

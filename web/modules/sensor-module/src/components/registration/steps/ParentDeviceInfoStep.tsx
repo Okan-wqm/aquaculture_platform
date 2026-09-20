@@ -108,57 +108,36 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
 
       {/* Manufacturer and Model */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label
-            htmlFor="manufacturer"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Manufacturer
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            id="manufacturer"
-            value={values.manufacturer || ''}
-            onChange={(e) => handleChange('manufacturer', e.target.value)}
-            placeholder="e.g., Atlas Scientific"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="model"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Model
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            id="model"
-            value={values.model || ''}
-            onChange={(e) => handleChange('model', e.target.value)}
-            placeholder="e.g., EZO-WQM"
-          />
-        </div>
+        <Input
+          label="Manufacturer"
+          fullWidth
+          type="text"
+          id="manufacturer"
+          value={values.manufacturer || ''}
+          onChange={(e) => handleChange('manufacturer', e.target.value)}
+          placeholder="e.g., Atlas Scientific"
+        />
+        <Input
+          label="Model"
+          fullWidth
+          type="text"
+          id="model"
+          value={values.model || ''}
+          onChange={(e) => handleChange('model', e.target.value)}
+          placeholder="e.g., EZO-WQM"
+        />
       </div>
 
       {/* Serial Number */}
-      <div>
-        <label
-          htmlFor="serialNumber"
-          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-        >
-          Serial Number
-        </label>
-        <Input
-          fullWidth
-          type="text"
-          id="serialNumber"
-          value={values.serialNumber || ''}
-          onChange={(e) => handleChange('serialNumber', e.target.value)}
-          placeholder="e.g., WQM-2024-001234"
-        />
-      </div>
+      <Input
+        label="Serial Number"
+        fullWidth
+        type="text"
+        id="serialNumber"
+        value={values.serialNumber || ''}
+        onChange={(e) => handleChange('serialNumber', e.target.value)}
+        placeholder="e.g., WQM-2024-001234"
+      />
 
       {/* Location Section - Cascading Dropdowns */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -284,22 +263,15 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
       </div>
 
       {/* Description */}
-      <div>
-        <label
-          htmlFor="description"
-          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-        >
-          Description
-        </label>
-        <Textarea
-          fullWidth
-          id="description"
-          value={values.description || ''}
-          onChange={(e) => handleChange('description', e.target.value)}
-          placeholder="Additional notes about this device..."
-          rows={3}
-        />
-      </div>
+      <Textarea
+        label="Description"
+        fullWidth
+        id="description"
+        value={values.description || ''}
+        onChange={(e) => handleChange('description', e.target.value)}
+        placeholder="Additional notes about this device..."
+        rows={3}
+      />
     </div>
   );
 }

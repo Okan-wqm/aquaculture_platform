@@ -63,28 +63,24 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({
       </div>
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Selection"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Selection"
+      />
 
       {/* Placeholder */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Placeholder</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.placeholder as string) || ''}
-          onChange={(e) => onChange({ placeholder: e.target.value })}
-          placeholder="Select..."
-        />
-      </div>
+      <Input
+        label="Placeholder"
+        fullWidth
+        type="text"
+        value={(config.placeholder as string) || ''}
+        onChange={(e) => onChange({ placeholder: e.target.value })}
+        placeholder="Select..."
+      />
 
       {/* Show label toggle */}
       <div className="space-y-1">
@@ -100,19 +96,15 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({
       </div>
 
       {/* Font size */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Font Size (px)
-        </label>
-        <Input
-          fullWidth
-          type="number"
-          min={8}
-          max={24}
-          value={(config.fontSize as number) ?? 12}
-          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-        />
-      </div>
+      <Input
+        label="Font Size (px)"
+        fullWidth
+        type="number"
+        min={8}
+        max={24}
+        value={(config.fontSize as number) ?? 12}
+        onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+      />
 
       {/* Colors */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

@@ -61,46 +61,36 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
   return (
     <div className="space-y-3">
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Pie Chart"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Pie Chart"
+      />
 
       {/* Inner radius (0 = pie, >0 = donut) */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Inner Radius (0 = Pie, &gt;0 = Donut)
-        </label>
-        <Input
-          fullWidth
-          type="number"
-          min={0}
-          max={100}
-          value={(config.innerRadius as number) ?? 0}
-          onChange={(e) => onChange({ innerRadius: Number(e.target.value) })}
-        />
-      </div>
+      <Input
+        label="Inner Radius (0 = Pie, &gt;0 = Donut)"
+        fullWidth
+        type="number"
+        min={0}
+        max={100}
+        value={(config.innerRadius as number) ?? 0}
+        onChange={(e) => onChange({ innerRadius: Number(e.target.value) })}
+      />
 
       {/* Start angle */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Start Angle (degrees)
-        </label>
-        <Input
-          fullWidth
-          type="number"
-          min={-360}
-          max={360}
-          value={(config.startAngle as number) ?? -90}
-          onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
-        />
-      </div>
+      <Input
+        label="Start Angle (degrees)"
+        fullWidth
+        type="number"
+        min={-360}
+        max={360}
+        value={(config.startAngle as number) ?? -90}
+        onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
+      />
 
       {/* Display toggles */}
       <div className="space-y-1">

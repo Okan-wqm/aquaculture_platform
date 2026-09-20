@@ -235,20 +235,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Label
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={selectedEdge.data.label || ''}
-                    onChange={(e) =>
-                      onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })
-                    }
-                    placeholder="Connection label"
-                  />
-                </div>
+                <Input
+                  label="Label"
+                  fullWidth
+                  type="text"
+                  value={selectedEdge.data.label || ''}
+                  onChange={(e) =>
+                    onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })
+                  }
+                  placeholder="Connection label"
+                />
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"

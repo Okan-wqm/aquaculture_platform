@@ -61,30 +61,26 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
   return (
     <div className="space-y-3">
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Bar Chart"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Bar Chart"
+      />
 
       {/* Orientation */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Orientation</label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'vertical', label: 'Vertical' },
-            { value: 'horizontal', label: 'Horizontal' },
-          ]}
-          value={(config.orientation as string) || 'vertical'}
-          onChange={(e) => onChange({ orientation: e.target.value })}
-        />
-      </div>
+      <Select
+        label="Orientation"
+        fullWidth
+        options={[
+          { value: 'vertical', label: 'Vertical' },
+          { value: 'horizontal', label: 'Horizontal' },
+        ]}
+        value={(config.orientation as string) || 'vertical'}
+        onChange={(e) => onChange({ orientation: e.target.value })}
+      />
 
       {/* Y Axis range */}
       <div>
@@ -101,24 +97,20 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
 
       {!config.autoScale && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Y Min</label>
-            <Input
-              fullWidth
-              type="number"
-              value={(config.yAxisMin as number) ?? 0}
-              onChange={(e) => onChange({ yAxisMin: Number(e.target.value) })}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Y Max</label>
-            <Input
-              fullWidth
-              type="number"
-              value={(config.yAxisMax as number) ?? 100}
-              onChange={(e) => onChange({ yAxisMax: Number(e.target.value) })}
-            />
-          </div>
+          <Input
+            label="Y Min"
+            fullWidth
+            type="number"
+            value={(config.yAxisMin as number) ?? 0}
+            onChange={(e) => onChange({ yAxisMin: Number(e.target.value) })}
+          />
+          <Input
+            label="Y Max"
+            fullWidth
+            type="number"
+            value={(config.yAxisMax as number) ?? 100}
+            onChange={(e) => onChange({ yAxisMax: Number(e.target.value) })}
+          />
         </div>
       )}
 
@@ -163,19 +155,15 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       </div>
 
       {/* Bar spacing */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Bar Spacing (px)
-        </label>
-        <Input
-          fullWidth
-          type="number"
-          min={0}
-          max={20}
-          value={(config.barSpacing as number) ?? 4}
-          onChange={(e) => onChange({ barSpacing: Number(e.target.value) })}
-        />
-      </div>
+      <Input
+        label="Bar Spacing (px)"
+        fullWidth
+        type="number"
+        min={0}
+        max={20}
+        value={(config.barSpacing as number) ?? 4}
+        onChange={(e) => onChange({ barSpacing: Number(e.target.value) })}
+      />
 
       {/* Data sources */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">

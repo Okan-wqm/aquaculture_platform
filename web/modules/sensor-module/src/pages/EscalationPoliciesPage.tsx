@@ -232,34 +232,26 @@ const LevelEditor: React.FC<{
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Name */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Seviye Adi
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={level.name}
-                onChange={(e) => updateLevel(index, 'name', e.target.value)}
-                placeholder="Ornegin: Ilk Bildirim"
-              />
-            </div>
+            <Input
+              label="Seviye Adi"
+              fullWidth
+              type="text"
+              value={level.name}
+              onChange={(e) => updateLevel(index, 'name', e.target.value)}
+              placeholder="Ornegin: Ilk Bildirim"
+            />
 
             {/* Timeout */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Bekleme Suresi (dk)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                value={level.timeoutMinutes}
-                onChange={(e) =>
-                  updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)
-                }
-              />
-            </div>
+            <Input
+              label="Bekleme Suresi (dk)"
+              fullWidth
+              type="number"
+              min={0}
+              value={level.timeoutMinutes}
+              onChange={(e) =>
+                updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)
+              }
+            />
 
             {/* Action */}
             <div>
@@ -279,27 +271,23 @@ const LevelEditor: React.FC<{
           </div>
 
           {/* Notify User IDs */}
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Bildirilecek Kullanicilar (virgul ile)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={level.notifyUserIds.join(', ')}
-              onChange={(e) =>
-                updateLevel(
-                  index,
-                  'notifyUserIds',
-                  e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
-              placeholder="Kullanici ID'leri"
-            />
-          </div>
+          <Input
+            label="Bildirilecek Kullanicilar (virgul ile)"
+            fullWidth
+            type="text"
+            value={level.notifyUserIds.join(', ')}
+            onChange={(e) =>
+              updateLevel(
+                index,
+                'notifyUserIds',
+                e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
+            }
+            placeholder="Kullanici ID'leri"
+          />
 
           {/* Channels */}
           <div>
@@ -389,19 +377,15 @@ const PolicyForm: React.FC<{
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              placeholder="Politikanin kisa aciklamasi"
-              maxLength={1000}
-            />
-          </div>
+          <Input
+            label="Açıklama"
+            fullWidth
+            type="text"
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            placeholder="Politikanin kisa aciklamasi"
+            maxLength={1000}
+          />
         </div>
 
         {/* Severity Selection */}
@@ -432,56 +416,40 @@ const PolicyForm: React.FC<{
 
         {/* Configuration Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tekrar Araligi (dk)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={1}
-              value={form.repeatIntervalMinutes}
-              onChange={(e) =>
-                updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)
-              }
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Maks Tekrar
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              value={form.maxRepeats}
-              onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Oncelik
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              value={form.priority}
-              onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Saat Dilimi
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.timezone}
-              onChange={(e) => updateField('timezone', e.target.value)}
-              placeholder="Europe/Istanbul"
-            />
-          </div>
+          <Input
+            label="Tekrar Araligi (dk)"
+            fullWidth
+            type="number"
+            min={1}
+            value={form.repeatIntervalMinutes}
+            onChange={(e) =>
+              updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)
+            }
+          />
+          <Input
+            label="Maks Tekrar"
+            fullWidth
+            type="number"
+            min={0}
+            value={form.maxRepeats}
+            onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
+          />
+          <Input
+            label="Oncelik"
+            fullWidth
+            type="number"
+            min={0}
+            value={form.priority}
+            onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
+          />
+          <Input
+            label="Saat Dilimi"
+            fullWidth
+            type="text"
+            value={form.timezone}
+            onChange={(e) => updateField('timezone', e.target.value)}
+            placeholder="Europe/Istanbul"
+          />
         </div>
 
         {/* Default Policy Toggle */}
@@ -588,61 +556,51 @@ const SuppressionWindowManager: React.FC<{
           className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 space-y-3"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ad</label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.name}
-                onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ornegin: Planli Bakim"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sebep</label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.reason}
-                onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
-                placeholder="Opsiyonel"
-              />
-            </div>
+            <Input
+              label="Ad"
+              fullWidth
+              type="text"
+              value={windowForm.name}
+              onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Ornegin: Planli Bakim"
+              required
+            />
+            <Input
+              label="Sebep"
+              fullWidth
+              type="text"
+              value={windowForm.reason}
+              onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
+              placeholder="Opsiyonel"
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Baslangic
-              </label>
-              <Input
-                fullWidth
-                type="datetime-local"
-                value={windowForm.startTime}
-                onChange={(e) =>
-                  setWindowForm((f) => ({
-                    ...f,
-                    startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
-                  }))
-                }
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bitis</label>
-              <Input
-                fullWidth
-                type="datetime-local"
-                value={windowForm.endTime}
-                onChange={(e) =>
-                  setWindowForm((f) => ({
-                    ...f,
-                    endTime: e.target.value ? new Date(e.target.value).toISOString() : '',
-                  }))
-                }
-                required
-              />
-            </div>
+            <Input
+              label="Baslangic"
+              fullWidth
+              type="datetime-local"
+              value={windowForm.startTime}
+              onChange={(e) =>
+                setWindowForm((f) => ({
+                  ...f,
+                  startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                }))
+              }
+              required
+            />
+            <Input
+              label="Bitis"
+              fullWidth
+              type="datetime-local"
+              value={windowForm.endTime}
+              onChange={(e) =>
+                setWindowForm((f) => ({
+                  ...f,
+                  endTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                }))
+              }
+              required
+            />
           </div>
           <div className="flex items-center gap-3">
             <label className="relative inline-flex items-center cursor-pointer">
@@ -657,18 +615,14 @@ const SuppressionWindowManager: React.FC<{
             <span className="text-sm text-gray-700 dark:text-gray-300">Tekrarlayan</span>
           </div>
           {windowForm.isRecurring && (
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Cron Ifadesi
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.recurringPattern}
-                onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
-                placeholder="0 2 * * 0 (her pazar 02:00)"
-              />
-            </div>
+            <Input
+              label="Cron Ifadesi"
+              fullWidth
+              type="text"
+              value={windowForm.recurringPattern}
+              onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
+              placeholder="0 2 * * 0 (her pazar 02:00)"
+            />
           )}
           <div className="flex justify-end gap-2">
             <button
@@ -876,12 +830,14 @@ const CloneDialog: React.FC<{
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
         <strong>"{sourceName}"</strong> politikasinin kopyasi olusturulacak.
       </p>
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Yeni Ad
-        </label>
-        <Input fullWidth type="text" value={newName} onChange={(e) => setNewName(e.target.value)} />
-      </div>
+      <Input
+        label="Yeni Ad"
+        className="mb-6"
+        fullWidth
+        type="text"
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+      />
     </Modal>
   );
 };

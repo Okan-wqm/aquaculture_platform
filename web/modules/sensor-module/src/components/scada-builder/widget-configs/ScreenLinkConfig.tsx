@@ -38,29 +38,25 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           ))}
         </select>
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={config.label || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Go to Screen"
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Display Style</label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'card', label: 'Card' },
-            { value: 'button', label: 'Button' },
-            { value: 'minimal', label: 'Minimal' },
-          ]}
-          value={config.style || 'card'}
-          onChange={(e) => onChange({ style: e.target.value })}
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Go to Screen"
+      />
+      <Select
+        label="Display Style"
+        fullWidth
+        options={[
+          { value: 'card', label: 'Card' },
+          { value: 'button', label: 'Button' },
+          { value: 'minimal', label: 'Minimal' },
+        ]}
+        value={config.style || 'card'}
+        onChange={(e) => onChange({ style: e.target.value })}
+      />
       <div>
         <label
           htmlFor="screen-link-color"
@@ -83,19 +79,17 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           />
         </div>
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Icon</label>
-        <Select
-          fullWidth
-          options={[
-            { value: 'ArrowRight', label: 'Arrow (ArrowRight)' },
-            { value: 'ExternalLink', label: 'External Link (ExternalLink)' },
-            { value: 'Monitor', label: 'Screen (Monitor)' },
-          ]}
-          value={config.icon || 'ArrowRight'}
-          onChange={(e) => onChange({ icon: e.target.value })}
-        />
-      </div>
+      <Select
+        label="Icon"
+        fullWidth
+        options={[
+          { value: 'ArrowRight', label: 'Arrow (ArrowRight)' },
+          { value: 'ExternalLink', label: 'External Link (ExternalLink)' },
+          { value: 'Monitor', label: 'Screen (Monitor)' },
+        ]}
+        value={config.icon || 'ArrowRight'}
+        onChange={(e) => onChange({ icon: e.target.value })}
+      />
     </div>
   );
 };

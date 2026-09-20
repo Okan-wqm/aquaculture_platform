@@ -344,21 +344,17 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
-                      Deadband
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      value={config.deadband}
-                      onChange={(e) =>
-                        handleUpdate(config.tagName, { deadband: parseFloat(e.target.value) || 0 })
-                      }
-                      min={0}
-                      step={0.1}
-                    />
-                  </div>
+                  <Input
+                    label="Deadband"
+                    fullWidth
+                    type="number"
+                    value={config.deadband}
+                    onChange={(e) =>
+                      handleUpdate(config.tagName, { deadband: parseFloat(e.target.value) || 0 })
+                    }
+                    min={0}
+                    step={0.1}
+                  />
                   <div>
                     <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
                       Retention

@@ -255,18 +255,14 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Description
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.description || ''}
-                onChange={(e) => handleChange('description', e.target.value)}
-                rows={2}
-                placeholder="Optional description for this channel"
-              />
-            </div>
+            <Textarea
+              label="Description"
+              fullWidth
+              value={formData.description || ''}
+              onChange={(e) => handleChange('description', e.target.value)}
+              rows={2}
+              placeholder="Optional description for this channel"
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Select
@@ -307,42 +303,34 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Min Value
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="any"
-                  value={formData.minValue ?? ''}
-                  onChange={(e) =>
-                    handleChange(
-                      'minValue',
-                      e.target.value === '' ? undefined : parseFloat(e.target.value),
-                    )
-                  }
-                  placeholder="Optional"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Max Value
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="any"
-                  value={formData.maxValue ?? ''}
-                  onChange={(e) =>
-                    handleChange(
-                      'maxValue',
-                      e.target.value === '' ? undefined : parseFloat(e.target.value),
-                    )
-                  }
-                  placeholder="Optional"
-                />
-              </div>
+              <Input
+                label="Min Value"
+                fullWidth
+                type="number"
+                step="any"
+                value={formData.minValue ?? ''}
+                onChange={(e) =>
+                  handleChange(
+                    'minValue',
+                    e.target.value === '' ? undefined : parseFloat(e.target.value),
+                  )
+                }
+                placeholder="Optional"
+              />
+              <Input
+                label="Max Value"
+                fullWidth
+                type="number"
+                step="any"
+                value={formData.maxValue ?? ''}
+                onChange={(e) =>
+                  handleChange(
+                    'maxValue',
+                    e.target.value === '' ? undefined : parseFloat(e.target.value),
+                  )
+                }
+                placeholder="Optional"
+              />
             </div>
 
             {formData.sampleValue !== undefined && (
@@ -408,32 +396,24 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                 Warning Thresholds
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-warning-700 dark:text-warning-300 mb-1">
-                    Low Warning
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="any"
-                    value={formData.alertThresholds?.warning?.low ?? ''}
-                    onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
-                    placeholder="Below this = warning"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-warning-700 dark:text-warning-300 mb-1">
-                    High Warning
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="any"
-                    value={formData.alertThresholds?.warning?.high ?? ''}
-                    onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
-                    placeholder="Above this = warning"
-                  />
-                </div>
+                <Input
+                  label="Low Warning"
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.alertThresholds?.warning?.low ?? ''}
+                  onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
+                  placeholder="Below this = warning"
+                />
+                <Input
+                  label="High Warning"
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.alertThresholds?.warning?.high ?? ''}
+                  onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
+                  placeholder="Above this = warning"
+                />
               </div>
             </div>
 
@@ -444,32 +424,24 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                 Critical Thresholds
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-error-700 dark:text-error-300 mb-1">
-                    Low Critical
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="any"
-                    value={formData.alertThresholds?.critical?.low ?? ''}
-                    onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
-                    placeholder="Below this = critical"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-error-700 dark:text-error-300 mb-1">
-                    High Critical
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="any"
-                    value={formData.alertThresholds?.critical?.high ?? ''}
-                    onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
-                    placeholder="Above this = critical"
-                  />
-                </div>
+                <Input
+                  label="Low Critical"
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.alertThresholds?.critical?.low ?? ''}
+                  onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
+                  placeholder="Below this = critical"
+                />
+                <Input
+                  label="High Critical"
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.alertThresholds?.critical?.high ?? ''}
+                  onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
+                  placeholder="Above this = critical"
+                />
               </div>
             </div>
 
@@ -594,18 +566,14 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
                 onChange={(e) => handleDisplaySettingChange('precision', parseInt(e.target.value))}
                 options={[...PRECISION_OPTIONS]}
               />
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Icon
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.displaySettings?.icon || ''}
-                  onChange={(e) => handleDisplaySettingChange('icon', e.target.value)}
-                  placeholder="e.g., thermometer"
-                />
-              </div>
+              <Input
+                label="Icon"
+                fullWidth
+                type="text"
+                value={formData.displaySettings?.icon || ''}
+                onChange={(e) => handleDisplaySettingChange('icon', e.target.value)}
+                placeholder="e.g., thermometer"
+              />
             </div>
           </div>
         )}

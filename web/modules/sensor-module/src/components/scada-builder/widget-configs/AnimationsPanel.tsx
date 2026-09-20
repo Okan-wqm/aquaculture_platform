@@ -30,6 +30,7 @@ import {
   colors as themeColors,
   Input,
   NumberInput,
+  Select,
   Slider,
   Textarea,
   ToggleButton,
@@ -354,21 +355,17 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 }
                 min={100}
               />
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Direction
-                </label>
-                <select
-                  value={anim.options.direction ?? 'cw'}
-                  onChange={(e) =>
-                    updateAnimationOptions(anim.id, { direction: e.target.value as 'cw' | 'ccw' })
-                  }
-                  className={INPUT_CLASS}
-                >
-                  <option value="cw">Clockwise</option>
-                  <option value="ccw">Counter-CW</option>
-                </select>
-              </div>
+              <Select
+                label="Direction"
+                value={anim.options.direction ?? 'cw'}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, { direction: e.target.value as 'cw' | 'ccw' })
+                }
+                options={[
+                  { value: 'cw', label: 'Clockwise' },
+                  { value: 'ccw', label: 'Counter-CW' },
+                ]}
+              />
             </div>
           )}
 
@@ -663,20 +660,16 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* imageAlongPath — image traveling along SVG path for flow visualization */}
           {anim.type === 'imageAlongPath' && (
             <div className="space-y-2" data-testid="image-along-path-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Motion Path (SVG d-attribute)
-                </label>
-                <Textarea
-                  className="font-mono resize-y"
-                  fullWidth
-                  value={anim.options.motionPath ?? ''}
-                  onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })}
-                  placeholder="M 0,50 C 25,0 75,100 100,50"
-                  rows={3}
-                  data-testid="motion-path-textarea"
-                />
-              </div>
+              <Textarea
+                label="Motion Path (SVG d-attribute)"
+                className="font-mono resize-y"
+                fullWidth
+                value={anim.options.motionPath ?? ''}
+                onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })}
+                placeholder="M 0,50 C 25,0 75,100 100,50"
+                rows={3}
+                data-testid="motion-path-textarea"
+              />
               <NumberInput
                 label="Duration (ms)"
                 value={anim.options.motionDuration ?? 3000}
@@ -765,25 +758,21 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* videoPlayback — tag-driven video play/pause/stop control */}
           {anim.type === 'videoPlayback' && (
-            <div data-testid="video-playback-config">
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Video Action
-              </label>
-              <select
-                value={anim.options.videoAction ?? 'play'}
-                onChange={(e) =>
-                  updateAnimationOptions(anim.id, {
-                    videoAction: e.target.value as 'play' | 'pause' | 'stop',
-                  })
-                }
-                className={INPUT_CLASS}
-                data-testid="video-action-select"
-              >
-                <option value="play">Play</option>
-                <option value="pause">Pause</option>
-                <option value="stop">Stop</option>
-              </select>
-            </div>
+            <Select
+              label="Video Action"
+              value={anim.options.videoAction ?? 'play'}
+              onChange={(e) =>
+                updateAnimationOptions(anim.id, {
+                  videoAction: e.target.value as 'play' | 'pause' | 'stop',
+                })
+              }
+              data-testid="video-action-select"
+              options={[
+                { value: 'play', label: 'Play' },
+                { value: 'pause', label: 'Pause' },
+                { value: 'stop', label: 'Stop' },
+              ]}
+            />
           )}
 
           {/* textFormat — printf-style formatted tag value display */}

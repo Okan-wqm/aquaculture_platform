@@ -41,6 +41,7 @@ import {
   colors as themeColors,
   Input,
   NumberInput,
+  Select,
   Slider,
 } from '@aquaculture/shared-ui';
 
@@ -236,17 +237,17 @@ export const SvgLineConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.lineDirection as string) || 'horizontal'}
         onChange={(e) => onChange({ lineDirection: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Line direction"
-      >
-        <option value="horizontal">Horizontal</option>
-        <option value="vertical">Vertical</option>
-        <option value="diagonal-tl">Diagonal (Top-Left to Bottom-Right)</option>
-        <option value="diagonal-tr">Diagonal (Top-Right to Bottom-Left)</option>
-      </select>
+        options={[
+          { value: 'horizontal', label: 'Horizontal' },
+          { value: 'vertical', label: 'Vertical' },
+          { value: 'diagonal-tl', label: 'Diagonal (Top-Left to Bottom-Right)' },
+          { value: 'diagonal-tr', label: 'Diagonal (Top-Right to Bottom-Left)' },
+        ]}
+      />
     </div>
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
@@ -302,16 +303,16 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       />
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Weight</label>
-        <select
+        <Select
           value={(config.fontWeight as string) || 'normal'}
           onChange={(e) => onChange({ fontWeight: e.target.value })}
-          className={INPUT_CLASS}
           aria-label="Font weight"
-        >
-          <option value="light">Light</option>
-          <option value="normal">Normal</option>
-          <option value="bold">Bold</option>
-        </select>
+          options={[
+            { value: 'light', label: 'Light' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'bold', label: 'Bold' },
+          ]}
+        />
       </div>
     </div>
     <ColorInput
@@ -322,16 +323,16 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     />
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alignment</label>
-      <select
+      <Select
         value={(config.textAlign as string) || 'center'}
         onChange={(e) => onChange({ textAlign: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Text alignment"
-      >
-        <option value="left">Left</option>
-        <option value="center">Center</option>
-        <option value="right">Right</option>
-      </select>
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+      />
     </div>
     <div>
       <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -461,17 +462,17 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.direction as string) || 'up'}
         onChange={(e) => onChange({ direction: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Triangle direction"
-      >
-        <option value="up">Up</option>
-        <option value="down">Down</option>
-        <option value="left">Left</option>
-        <option value="right">Right</option>
-      </select>
+        options={[
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+          { value: 'left', label: 'Left' },
+          { value: 'right', label: 'Right' },
+        ]}
+      />
     </div>
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
       Fill
@@ -574,17 +575,17 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select
+      <Select
         value={(config.direction as string) || 'right'}
         onChange={(e) => onChange({ direction: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Arrow direction"
-      >
-        <option value="right">Right</option>
-        <option value="left">Left</option>
-        <option value="up">Up</option>
-        <option value="down">Down</option>
-      </select>
+        options={[
+          { value: 'right', label: 'Right' },
+          { value: 'left', label: 'Left' },
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+        ]}
+      />
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>

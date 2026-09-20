@@ -96,16 +96,14 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       </div>
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={config.label || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Equipment label"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Equipment label"
+      />
 
       {/* Rotation selector */}
       <div>

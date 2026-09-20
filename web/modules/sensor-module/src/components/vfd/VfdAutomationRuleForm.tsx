@@ -199,21 +199,14 @@ export function VfdAutomationRuleForm({ rule, onSubmit, onCancel }: VfdAutomatio
         </div>
 
         {/* Description */}
-        <div>
-          <label
-            htmlFor="rule-desc"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description
-          </label>
-          <Textarea
-            fullWidth
-            id="rule-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          id="rule-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+        />
 
         {/* Target devices */}
         <div>

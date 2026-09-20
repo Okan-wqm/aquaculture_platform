@@ -310,34 +310,26 @@ const HmiWidgetPanel: React.FC = () => {
         {activeTab === 'trend' && (
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Ayarlari</h4>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Saklama Suresi (gun)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={1}
-                value={trendConfig.retentionDays}
-                onChange={(e) =>
-                  updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Ornekleme Araligi (sn)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={1}
-                value={trendConfig.sampleIntervalSec}
-                onChange={(e) =>
-                  updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
-                }
-              />
-            </div>
+            <Input
+              label="Saklama Suresi (gun)"
+              fullWidth
+              type="number"
+              min={1}
+              value={trendConfig.retentionDays}
+              onChange={(e) =>
+                updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
+              }
+            />
+            <Input
+              label="Ornekleme Araligi (sn)"
+              fullWidth
+              type="number"
+              min={1}
+              value={trendConfig.sampleIntervalSec}
+              onChange={(e) =>
+                updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
+              }
+            />
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-gray-500 dark:text-gray-400">Tag'ler</label>

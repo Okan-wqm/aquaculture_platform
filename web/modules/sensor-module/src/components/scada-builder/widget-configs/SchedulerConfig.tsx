@@ -80,16 +80,14 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
   return (
     <div className="space-y-3">
       {/* Title */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <Input
-          fullWidth
-          type="text"
-          value={title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Schedule"
-        />
-      </div>
+      <Input
+        label="Title"
+        fullWidth
+        type="text"
+        value={title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Schedule"
+      />
 
       {/* Show Hour Labels */}
       <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
@@ -226,30 +224,22 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Optional: Tag Name + Tag Value */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Tag Name (optional)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={entry.tagName ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
-                    placeholder="e.g. pump1.schedule"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Tag Value (optional)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={entry.tagValue ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
-                    placeholder="e.g. ON"
-                  />
-                </div>
+                <Input
+                  label="Tag Name (optional)"
+                  fullWidth
+                  type="text"
+                  value={entry.tagName ?? ''}
+                  onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
+                  placeholder="e.g. pump1.schedule"
+                />
+                <Input
+                  label="Tag Value (optional)"
+                  fullWidth
+                  type="text"
+                  value={entry.tagValue ?? ''}
+                  onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
+                  placeholder="e.g. ON"
+                />
               </div>
             </div>
           ))}

@@ -232,32 +232,24 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
           Zamanlama
         </legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Timeout (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={100}
-              max={10000}
-              value={values.timeout || 1000}
-              onChange={(e) => onChange('timeout', parseInt(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Retry Count
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              max={10}
-              value={values.retryCount || 3}
-              onChange={(e) => onChange('retryCount', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Timeout (ms)"
+            fullWidth
+            type="number"
+            min={100}
+            max={10000}
+            value={values.timeout || 1000}
+            onChange={(e) => onChange('timeout', parseInt(e.target.value))}
+          />
+          <Input
+            label="Retry Count"
+            fullWidth
+            type="number"
+            min={0}
+            max={10}
+            value={values.retryCount || 3}
+            onChange={(e) => onChange('retryCount', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>
@@ -290,19 +282,15 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
               placeholder="192.168.1.100"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Port
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={1}
-              max={65535}
-              value={values.port || 502}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Port"
+            fullWidth
+            type="number"
+            min={1}
+            max={65535}
+            value={values.port || 502}
+            onChange={(e) => onChange('port', parseInt(e.target.value))}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
@@ -338,32 +326,24 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
           Timeout Ayarları
         </legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Bağlantı Timeout (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={1000}
-              max={30000}
-              value={values.connectionTimeout || 5000}
-              onChange={(e) => onChange('connectionTimeout', parseInt(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Yanıt Timeout (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={500}
-              max={10000}
-              value={values.responseTimeout || 3000}
-              onChange={(e) => onChange('responseTimeout', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Bağlantı Timeout (ms)"
+            fullWidth
+            type="number"
+            min={1000}
+            max={30000}
+            value={values.connectionTimeout || 5000}
+            onChange={(e) => onChange('connectionTimeout', parseInt(e.target.value))}
+          />
+          <Input
+            label="Yanıt Timeout (ms)"
+            fullWidth
+            type="number"
+            min={500}
+            max={10000}
+            value={values.responseTimeout || 3000}
+            onChange={(e) => onChange('responseTimeout', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>
@@ -409,30 +389,22 @@ function ProfinetFields({
               placeholder="192.168.1.100"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Subnet Mask
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={(values.subnetMask as string) || '255.255.255.0'}
-              onChange={(e) => onChange('subnetMask', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Update Rate (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={1}
-              max={512}
-              value={(values.updateRate as number) || 32}
-              onChange={(e) => onChange('updateRate', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Subnet Mask"
+            fullWidth
+            type="text"
+            value={(values.subnetMask as string) || '255.255.255.0'}
+            onChange={(e) => onChange('subnetMask', e.target.value)}
+          />
+          <Input
+            label="Update Rate (ms)"
+            fullWidth
+            type="number"
+            min={1}
+            max={512}
+            value={(values.updateRate as number) || 32}
+            onChange={(e) => onChange('updateRate', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>
@@ -466,45 +438,33 @@ function EthernetIpFields({
               placeholder="192.168.1.100"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Port
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              value={(values.port as number) || 44818}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              RPI (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={2}
-              max={3200}
-              value={(values.rpi as number) || 10}
-              onChange={(e) => onChange('rpi', parseInt(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Connection Type
-            </label>
-            <Select
-              fullWidth
-              options={[
-                { value: 'exclusive', label: 'Exclusive Owner' },
-                { value: 'inputOnly', label: 'Input Only' },
-                { value: 'listenOnly', label: 'Listen Only' },
-              ]}
-              value={(values.connectionType as string) || 'exclusive'}
-              onChange={(e) => onChange('connectionType', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Port"
+            fullWidth
+            type="number"
+            value={(values.port as number) || 44818}
+            onChange={(e) => onChange('port', parseInt(e.target.value))}
+          />
+          <Input
+            label="RPI (ms)"
+            fullWidth
+            type="number"
+            min={2}
+            max={3200}
+            value={(values.rpi as number) || 10}
+            onChange={(e) => onChange('rpi', parseInt(e.target.value))}
+          />
+          <Select
+            label="Connection Type"
+            fullWidth
+            options={[
+              { value: 'exclusive', label: 'Exclusive Owner' },
+              { value: 'inputOnly', label: 'Input Only' },
+              { value: 'listenOnly', label: 'Listen Only' },
+            ]}
+            value={(values.connectionType as string) || 'exclusive'}
+            onChange={(e) => onChange('connectionType', e.target.value)}
+          />
         </div>
       </fieldset>
     </div>
@@ -557,19 +517,15 @@ function CanopenFields({
               placeholder="can0"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Heartbeat Time (ms)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              max={65535}
-              value={(values.heartbeatProducerTime as number) || 1000}
-              onChange={(e) => onChange('heartbeatProducerTime', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Heartbeat Time (ms)"
+            fullWidth
+            type="number"
+            min={0}
+            max={65535}
+            value={(values.heartbeatProducerTime as number) || 1000}
+            onChange={(e) => onChange('heartbeatProducerTime', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>
@@ -603,17 +559,13 @@ function BacnetIpFields({
               placeholder="192.168.1.100"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Port
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              value={(values.port as number) || 47808}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Port"
+            fullWidth
+            type="number"
+            value={(values.port as number) || 47808}
+            onChange={(e) => onChange('port', parseInt(e.target.value))}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Device Instance <span className="text-error-500">*</span>
@@ -627,17 +579,13 @@ function BacnetIpFields({
               onChange={(e) => onChange('deviceInstance', parseInt(e.target.value))}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Max APDU Length
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              value={(values.maxApduLength as number) || 1476}
-              onChange={(e) => onChange('maxApduLength', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Max APDU Length"
+            fullWidth
+            type="number"
+            value={(values.maxApduLength as number) || 1476}
+            onChange={(e) => onChange('maxApduLength', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>
@@ -678,19 +626,15 @@ function ProfibusDpFields({
             value={(values.baudRate as number) || 1500000}
             onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
           />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Master Address
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              max={125}
-              value={(values.masterAddress as number) || 0}
-              onChange={(e) => onChange('masterAddress', parseInt(e.target.value))}
-            />
-          </div>
+          <Input
+            label="Master Address"
+            fullWidth
+            type="number"
+            min={0}
+            max={125}
+            value={(values.masterAddress as number) || 0}
+            onChange={(e) => onChange('masterAddress', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
     </div>

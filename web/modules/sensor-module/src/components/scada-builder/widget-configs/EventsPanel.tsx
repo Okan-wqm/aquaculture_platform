@@ -242,38 +242,32 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
 
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={(ev.params.width as number) ?? ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, {
-                      width: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  placeholder="px"
-                  min={100}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Height
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  value={(ev.params.height as number) ?? ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, {
-                      height: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  placeholder="px"
-                  min={100}
-                />
-              </div>
+              <Input
+                label="Width"
+                fullWidth
+                type="number"
+                value={(ev.params.width as number) ?? ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, {
+                    width: e.target.value === '' ? undefined : Number(e.target.value),
+                  })
+                }
+                placeholder="px"
+                min={100}
+              />
+              <Input
+                label="Height"
+                fullWidth
+                type="number"
+                value={(ev.params.height as number) ?? ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, {
+                    height: e.target.value === '' ? undefined : Number(e.target.value),
+                  })
+                }
+                placeholder="px"
+                min={100}
+              />
             </div>
           )}
 
@@ -355,16 +349,14 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
                   placeholder="Select target tag..."
                 />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={ev.params.value != null ? String(ev.params.value) : ''}
-                  onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
-                  placeholder="Value to set"
-                />
-              </div>
+              <Input
+                label="Value"
+                fullWidth
+                type="text"
+                value={ev.params.value != null ? String(ev.params.value) : ''}
+                onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
+                placeholder="Value to set"
+              />
             </>
           )}
 
@@ -427,57 +419,47 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({
              Enables interactive patterns like: click button -> change color. */}
           {ev.action === 'setProperty' && (
             <div className="space-y-2" data-testid="setproperty-config">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Target Widget ID
-                </label>
-                <Input
-                  className="font-mono"
-                  fullWidth
-                  type="text"
-                  value={(ev.params.targetWidgetId as string) || ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })
-                  }
-                  placeholder="widget-uuid-here"
-                  data-testid="target-widget-id-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  Property Path
-                </label>
-                <Input
-                  className="font-mono"
-                  fullWidth
-                  type="text"
-                  value={(ev.params.propertyPath as string) || ''}
-                  onChange={(e) =>
-                    updateEventParams(ev.id, { propertyPath: e.target.value || undefined })
-                  }
-                  placeholder="fill, config.opacity, etc."
-                  data-testid="property-path-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    // Auto-detect type: boolean, number, or string
-                    let parsed: string | number | boolean = raw;
-                    if (raw === 'true') parsed = true;
-                    else if (raw === 'false') parsed = false;
-                    else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
-                    updateEventParams(ev.id, { propertyValue: parsed });
-                  }}
-                  placeholder="Value (auto-detects type)"
-                  data-testid="property-value-input"
-                />
-              </div>
+              <Input
+                label="Target Widget ID"
+                className="font-mono"
+                fullWidth
+                type="text"
+                value={(ev.params.targetWidgetId as string) || ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })
+                }
+                placeholder="widget-uuid-here"
+                data-testid="target-widget-id-input"
+              />
+              <Input
+                label="Property Path"
+                className="font-mono"
+                fullWidth
+                type="text"
+                value={(ev.params.propertyPath as string) || ''}
+                onChange={(e) =>
+                  updateEventParams(ev.id, { propertyPath: e.target.value || undefined })
+                }
+                placeholder="fill, config.opacity, etc."
+                data-testid="property-path-input"
+              />
+              <Input
+                label="Value"
+                fullWidth
+                type="text"
+                value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  // Auto-detect type: boolean, number, or string
+                  let parsed: string | number | boolean = raw;
+                  if (raw === 'true') parsed = true;
+                  else if (raw === 'false') parsed = false;
+                  else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
+                  updateEventParams(ev.id, { propertyValue: parsed });
+                }}
+                placeholder="Value (auto-detects type)"
+                data-testid="property-value-input"
+              />
             </div>
           )}
 

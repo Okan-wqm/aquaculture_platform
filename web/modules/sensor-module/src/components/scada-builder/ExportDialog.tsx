@@ -353,18 +353,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         </div>
 
         {/* Filename */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Filename
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            value={filename}
-            onChange={(e) => setFilename(e.target.value)}
-            placeholder="scada-export"
-          />
-        </div>
+        <Input
+          label="Filename"
+          fullWidth
+          type="text"
+          value={filename}
+          onChange={(e) => setFilename(e.target.value)}
+          placeholder="scada-export"
+        />
 
         {/* Error */}
         {error && (

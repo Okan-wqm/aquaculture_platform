@@ -9,30 +9,26 @@ interface WidgetConfigProps {
 
 export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => (
   <div className="space-y-3">
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <Select
-        fullWidth
-        options={[
-          { value: 'horizontal', label: 'Horizontal' },
-          { value: 'vertical', label: 'Vertical' },
-        ]}
-        value={(config.direction as string) || 'horizontal'}
-        onChange={(e) => onChange({ direction: e.target.value })}
-      />
-    </div>
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Flow Direction</label>
-      <Select
-        fullWidth
-        options={[
-          { value: 'forward', label: 'Forward' },
-          { value: 'reverse', label: 'Reverse' },
-        ]}
-        value={(config.flowDirection as string) || 'forward'}
-        onChange={(e) => onChange({ flowDirection: e.target.value })}
-      />
-    </div>
+    <Select
+      label="Direction"
+      fullWidth
+      options={[
+        { value: 'horizontal', label: 'Horizontal' },
+        { value: 'vertical', label: 'Vertical' },
+      ]}
+      value={(config.direction as string) || 'horizontal'}
+      onChange={(e) => onChange({ direction: e.target.value })}
+    />
+    <Select
+      label="Flow Direction"
+      fullWidth
+      options={[
+        { value: 'forward', label: 'Forward' },
+        { value: 'reverse', label: 'Reverse' },
+      ]}
+      value={(config.flowDirection as string) || 'forward'}
+      onChange={(e) => onChange({ flowDirection: e.target.value })}
+    />
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <ColorInput
         label="Pipe Color"
@@ -46,31 +42,25 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
       />
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pipe Width</label>
-        <Input
-          fullWidth
-          type="number"
-          min={4}
-          max={32}
-          value={(config.pipeWidth as number) || 12}
-          onChange={(e) => onChange({ pipeWidth: Number(e.target.value) })}
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Flow Speed (s)
-        </label>
-        <Input
-          fullWidth
-          type="number"
-          min={0.1}
-          max={5}
-          step={0.1}
-          value={(config.flowSpeed as number) || 0.6}
-          onChange={(e) => onChange({ flowSpeed: Number(e.target.value) })}
-        />
-      </div>
+      <Input
+        label="Pipe Width"
+        fullWidth
+        type="number"
+        min={4}
+        max={32}
+        value={(config.pipeWidth as number) || 12}
+        onChange={(e) => onChange({ pipeWidth: Number(e.target.value) })}
+      />
+      <Input
+        label="Flow Speed (s)"
+        fullWidth
+        type="number"
+        min={0.1}
+        max={5}
+        step={0.1}
+        value={(config.flowSpeed as number) || 0.6}
+        onChange={(e) => onChange({ flowSpeed: Number(e.target.value) })}
+      />
     </div>
   </div>
 );

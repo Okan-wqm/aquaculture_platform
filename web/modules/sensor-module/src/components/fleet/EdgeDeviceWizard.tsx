@@ -213,34 +213,26 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               Opsiyonel - otomatik oluşturulur
             </p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Seri Numarasi
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.serialNumber}
-              onChange={handleInputChange('serialNumber')}
-              placeholder="123456789"
-            />
-          </div>
+          <Input
+            label="Seri Numarasi"
+            fullWidth
+            type="text"
+            value={formData.serialNumber}
+            onChange={handleInputChange('serialNumber')}
+            placeholder="123456789"
+          />
         </div>
 
         {/* Description */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Açıklama (Opsiyonel)
-          </label>
-          <Textarea
-            className="resize-none"
-            fullWidth
-            value={formData.description}
-            onChange={handleInputChange('description')}
-            placeholder="Ana RAS sistemini kontrol eden edge controller..."
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Açıklama (Opsiyonel)"
+          className="resize-none"
+          fullWidth
+          value={formData.description}
+          onChange={handleInputChange('description')}
+          placeholder="Ana RAS sistemini kontrol eden edge controller..."
+          rows={2}
+        />
       </Modal>
 
       {/* Installer Command Modal */}

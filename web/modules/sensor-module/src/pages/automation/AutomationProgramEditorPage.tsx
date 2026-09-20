@@ -1530,31 +1530,23 @@ const AutomationProgramEditorPage: React.FC = () => {
       {activeTab === 'info' && (
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Program Code *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.programCode}
-                onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
-                disabled={!isNew}
-                placeholder="PRG_001"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Program Name *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Feeding Automation"
-              />
-            </div>
+            <Input
+              label="Program Code *"
+              fullWidth
+              type="text"
+              value={formData.programCode}
+              onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
+              disabled={!isNew}
+              placeholder="PRG_001"
+            />
+            <Input
+              label="Program Name *"
+              fullWidth
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="Feeding Automation"
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Type
@@ -1563,18 +1555,15 @@ const AutomationProgramEditorPage: React.FC = () => {
                 Structured Text (ST)
               </div>
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Description
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                placeholder="Program description..."
-              />
-            </div>
+            <Textarea
+              label="Description"
+              className="sm:col-span-2"
+              fullWidth
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={3}
+              placeholder="Program description..."
+            />
           </div>
         </div>
       )}

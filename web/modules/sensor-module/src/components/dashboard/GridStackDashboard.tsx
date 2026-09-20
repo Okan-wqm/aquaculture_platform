@@ -177,31 +177,23 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Layout Name
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter dashboard name"
-          />
-        </div>
+        <Input
+          label="Layout Name"
+          fullWidth
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Enter dashboard name"
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Description (Optional)
-          </label>
-          <Textarea
-            fullWidth
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Layout description"
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Description (Optional)"
+          fullWidth
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Layout description"
+          rows={2}
+        />
 
         <label className="flex items-center gap-2 cursor-pointer">
           <input

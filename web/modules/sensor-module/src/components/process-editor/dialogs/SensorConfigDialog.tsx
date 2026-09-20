@@ -266,18 +266,14 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
         {(selectedSensor || isEditing) && (
           <>
             {/* Custom Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Node Adı
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={config.customName || ''}
-                onChange={(e) => setConfig((prev) => ({ ...prev, customName: e.target.value }))}
-                placeholder="Örn: Havuz 1 - pH"
-              />
-            </div>
+            <Input
+              label="Node Adı"
+              fullWidth
+              type="text"
+              value={config.customName || ''}
+              onChange={(e) => setConfig((prev) => ({ ...prev, customName: e.target.value }))}
+              placeholder="Örn: Havuz 1 - pH"
+            />
 
             {/* Display Type */}
             <div>
@@ -307,42 +303,32 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 Değer Aralığı
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    value={config.minValue ?? 0}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    value={config.maxValue ?? 100}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, maxValue: Number(e.target.value) }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Birim
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={config.displayUnit || ''}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, displayUnit: e.target.value }))
-                    }
-                    placeholder="pH, °C, mg/L..."
-                  />
-                </div>
+                <Input
+                  label="Min"
+                  fullWidth
+                  type="number"
+                  value={config.minValue ?? 0}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))
+                  }
+                />
+                <Input
+                  label="Max"
+                  fullWidth
+                  type="number"
+                  value={config.maxValue ?? 100}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, maxValue: Number(e.target.value) }))
+                  }
+                />
+                <Input
+                  label="Birim"
+                  fullWidth
+                  type="text"
+                  value={config.displayUnit || ''}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, displayUnit: e.target.value }))}
+                  placeholder="pH, °C, mg/L..."
+                />
               </div>
             </div>
 
@@ -369,78 +355,62 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <div className="space-y-3">
                   {/* Warning */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-warning-600 dark:text-warning-400 mb-1 font-medium">
-                        Warning Low
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        step="0.1"
-                        value={config.warningLow ?? ''}
-                        onChange={(e) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            warningLow: e.target.value ? Number(e.target.value) : undefined,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-warning-600 dark:text-warning-400 mb-1 font-medium">
-                        Warning High
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        step="0.1"
-                        value={config.warningHigh ?? ''}
-                        onChange={(e) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            warningHigh: e.target.value ? Number(e.target.value) : undefined,
-                          }))
-                        }
-                      />
-                    </div>
+                    <Input
+                      label="Warning Low"
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={config.warningLow ?? ''}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          warningLow: e.target.value ? Number(e.target.value) : undefined,
+                        }))
+                      }
+                    />
+                    <Input
+                      label="Warning High"
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={config.warningHigh ?? ''}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          warningHigh: e.target.value ? Number(e.target.value) : undefined,
+                        }))
+                      }
+                    />
                   </div>
 
                   {/* Critical */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-error-600 dark:text-error-400 mb-1 font-medium">
-                        Critical Low
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        step="0.1"
-                        value={config.criticalLow ?? ''}
-                        onChange={(e) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            criticalLow: e.target.value ? Number(e.target.value) : undefined,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-error-600 dark:text-error-400 mb-1 font-medium">
-                        Critical High
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        step="0.1"
-                        value={config.criticalHigh ?? ''}
-                        onChange={(e) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            criticalHigh: e.target.value ? Number(e.target.value) : undefined,
-                          }))
-                        }
-                      />
-                    </div>
+                    <Input
+                      label="Critical Low"
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={config.criticalLow ?? ''}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          criticalLow: e.target.value ? Number(e.target.value) : undefined,
+                        }))
+                      }
+                    />
+                    <Input
+                      label="Critical High"
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={config.criticalHigh ?? ''}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          criticalHigh: e.target.value ? Number(e.target.value) : undefined,
+                        }))
+                      }
+                    />
                   </div>
                 </div>
               )}

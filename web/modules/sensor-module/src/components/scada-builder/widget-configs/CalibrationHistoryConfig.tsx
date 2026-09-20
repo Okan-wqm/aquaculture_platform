@@ -9,16 +9,14 @@ interface WidgetConfigProps {
 export const CalibrationHistoryConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
   return (
     <div className="space-y-3">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <Input
-          fullWidth
-          type="text"
-          value={config.title || ''}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Calibration History"
-        />
-      </div>
+      <Input
+        label="Title"
+        fullWidth
+        type="text"
+        value={config.title || ''}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Calibration History"
+      />
     </div>
   );
 };

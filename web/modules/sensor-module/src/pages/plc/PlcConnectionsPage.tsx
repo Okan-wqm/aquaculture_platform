@@ -234,51 +234,39 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* Basic Info */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Bağlantı Adı *
-            </label>
+          <Input
+            label="Bağlantı Adı *"
+            fullWidth
+            type="text"
+            required
+            minLength={2}
+            maxLength={255}
+            value={form.name}
+            onChange={(e) => updateField('name', e.target.value)}
+            placeholder="PLC-Tank-01"
+          />
+          {!connection && (
             <Input
+              label="Site ID *"
               fullWidth
               type="text"
               required
-              minLength={2}
-              maxLength={255}
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              placeholder="PLC-Tank-01"
+              value={form.siteId}
+              onChange={(e) => updateField('siteId', e.target.value)}
+              placeholder="Site UUID"
             />
-          </div>
-          {!connection && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Site ID *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                required
-                value={form.siteId}
-                onChange={(e) => updateField('siteId', e.target.value)}
-                placeholder="Site UUID"
-              />
-            </div>
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Açıklama
-          </label>
-          <Textarea
-            fullWidth
-            value={form.description}
-            onChange={(e) => updateField('description', e.target.value)}
-            maxLength={1000}
-            rows={2}
-            placeholder="Bağlantı açıklaması..."
-          />
-        </div>
+        <Textarea
+          label="Açıklama"
+          fullWidth
+          value={form.description}
+          onChange={(e) => updateField('description', e.target.value)}
+          maxLength={1000}
+          rows={2}
+          placeholder="Bağlantı açıklaması..."
+        />
 
         {/* Connection Settings */}
         <div>
@@ -348,78 +336,58 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
             <div
               className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Guvenlik Modu
-                </label>
-                <Select
-                  fullWidth
-                  options={[
-                    { value: 'None', label: 'Yok' },
-                    { value: 'Sign', label: 'Imzali' },
-                    { value: 'SignAndEncrypt', label: 'Imzali & Sifreli' },
-                  ]}
-                  value={form.securityMode}
-                  onChange={(e) => updateField('securityMode', e.target.value)}
-                />
-              </div>
+              <Select
+                label="Guvenlik Modu"
+                fullWidth
+                options={[
+                  { value: 'None', label: 'Yok' },
+                  { value: 'Sign', label: 'Imzali' },
+                  { value: 'SignAndEncrypt', label: 'Imzali & Sifreli' },
+                ]}
+                value={form.securityMode}
+                onChange={(e) => updateField('securityMode', e.target.value)}
+              />
               {form.securityMode !== 'None' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Guvenlik Politikasi
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: 'Basic256Sha256', label: 'Basic256Sha256' },
-                      { value: 'Aes128_Sha256_RsaOaep', label: 'Aes128_Sha256_RsaOaep' },
-                      { value: 'Aes256_Sha256_RsPss', label: 'Aes256_Sha256_RsPss' },
-                    ]}
-                    value={form.securityPolicy}
-                    onChange={(e) => updateField('securityPolicy', e.target.value)}
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Kimlik Dogrulama
-                </label>
                 <Select
+                  label="Guvenlik Politikasi"
                   fullWidth
                   options={[
-                    { value: 'Anonymous', label: 'Anonim' },
-                    { value: 'Username', label: 'Kullanici Adi' },
-                    { value: 'Certificate', label: 'Sertifika' },
+                    { value: 'Basic256Sha256', label: 'Basic256Sha256' },
+                    { value: 'Aes128_Sha256_RsaOaep', label: 'Aes128_Sha256_RsaOaep' },
+                    { value: 'Aes256_Sha256_RsPss', label: 'Aes256_Sha256_RsPss' },
                   ]}
-                  value={form.authMode}
-                  onChange={(e) => updateField('authMode', e.target.value)}
+                  value={form.securityPolicy}
+                  onChange={(e) => updateField('securityPolicy', e.target.value)}
                 />
-              </div>
+              )}
+              <Select
+                label="Kimlik Dogrulama"
+                fullWidth
+                options={[
+                  { value: 'Anonymous', label: 'Anonim' },
+                  { value: 'Username', label: 'Kullanici Adi' },
+                  { value: 'Certificate', label: 'Sertifika' },
+                ]}
+                value={form.authMode}
+                onChange={(e) => updateField('authMode', e.target.value)}
+              />
             </div>
             {form.authMode === 'Username' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Kullanici Adi
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={form.username}
-                    onChange={(e) => updateField('username', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Sifre
-                  </label>
-                  <Input
-                    fullWidth
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => updateField('password', e.target.value)}
-                  />
-                </div>
+                <Input
+                  label="Kullanici Adi"
+                  fullWidth
+                  type="text"
+                  value={form.username}
+                  onChange={(e) => updateField('username', e.target.value)}
+                />
+                <Input
+                  label="Sifre"
+                  fullWidth
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => updateField('password', e.target.value)}
+                />
               </div>
             )}
             {form.authMode === 'Certificate' && (
@@ -548,45 +516,33 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Zamanlama</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Yayinlama (ms)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={100}
-                max={60000}
-                value={form.publishingIntervalMs}
-                onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Ornekleme (ms)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={50}
-                max={60000}
-                value={form.samplingIntervalMs}
-                onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Oturum Zamani (ms)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={5000}
-                max={3600000}
-                value={form.sessionTimeoutMs}
-                onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
-              />
-            </div>
+            <Input
+              label="Yayinlama (ms)"
+              fullWidth
+              type="number"
+              min={100}
+              max={60000}
+              value={form.publishingIntervalMs}
+              onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
+            />
+            <Input
+              label="Ornekleme (ms)"
+              fullWidth
+              type="number"
+              min={50}
+              max={60000}
+              value={form.samplingIntervalMs}
+              onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
+            />
+            <Input
+              label="Oturum Zamani (ms)"
+              fullWidth
+              type="number"
+              min={5000}
+              max={3600000}
+              value={form.sessionTimeoutMs}
+              onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
+            />
           </div>
         </div>
 
@@ -596,58 +552,42 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
             OPC UA Node ID&apos;leri
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Parametre Node
-              </label>
-              <Input
-                className="font-mono"
-                fullWidth
-                type="text"
-                value={form.parametersNodeId}
-                onChange={(e) => updateField('parametersNodeId', e.target.value)}
-                placeholder="ns=2;s=Parameters"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Telemetri Node
-              </label>
-              <Input
-                className="font-mono"
-                fullWidth
-                type="text"
-                value={form.telemetryNodeId}
-                onChange={(e) => updateField('telemetryNodeId', e.target.value)}
-                placeholder="ns=2;s=Telemetry"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Alarm Node
-              </label>
-              <Input
-                className="font-mono"
-                fullWidth
-                type="text"
-                value={form.alarmsNodeId}
-                onChange={(e) => updateField('alarmsNodeId', e.target.value)}
-                placeholder="ns=2;s=Alarms"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Durum Node
-              </label>
-              <Input
-                className="font-mono"
-                fullWidth
-                type="text"
-                value={form.statusNodeId}
-                onChange={(e) => updateField('statusNodeId', e.target.value)}
-                placeholder="ns=2;s=Status"
-              />
-            </div>
+            <Input
+              label="Parametre Node"
+              className="font-mono"
+              fullWidth
+              type="text"
+              value={form.parametersNodeId}
+              onChange={(e) => updateField('parametersNodeId', e.target.value)}
+              placeholder="ns=2;s=Parameters"
+            />
+            <Input
+              label="Telemetri Node"
+              className="font-mono"
+              fullWidth
+              type="text"
+              value={form.telemetryNodeId}
+              onChange={(e) => updateField('telemetryNodeId', e.target.value)}
+              placeholder="ns=2;s=Telemetry"
+            />
+            <Input
+              label="Alarm Node"
+              className="font-mono"
+              fullWidth
+              type="text"
+              value={form.alarmsNodeId}
+              onChange={(e) => updateField('alarmsNodeId', e.target.value)}
+              placeholder="ns=2;s=Alarms"
+            />
+            <Input
+              label="Durum Node"
+              className="font-mono"
+              fullWidth
+              type="text"
+              value={form.statusNodeId}
+              onChange={(e) => updateField('statusNodeId', e.target.value)}
+              placeholder="ns=2;s=Status"
+            />
           </div>
         </div>
 
@@ -682,51 +622,37 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
                   </label>
                   {form.autoReconnect && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Maks Deneme (-1=sinirsiz)
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          min={-1}
-                          max={1000}
-                          value={form.maxReconnectAttempts}
-                          onChange={(e) =>
-                            updateField('maxReconnectAttempts', parseInt(e.target.value))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Baslangic Gecikme (ms)
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          min={100}
-                          max={60000}
-                          value={form.reconnectDelayMs}
-                          onChange={(e) =>
-                            updateField('reconnectDelayMs', parseInt(e.target.value))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Maks Gecikme (ms)
-                        </label>
-                        <Input
-                          fullWidth
-                          type="number"
-                          min={1000}
-                          max={300000}
-                          value={form.maxReconnectDelayMs}
-                          onChange={(e) =>
-                            updateField('maxReconnectDelayMs', parseInt(e.target.value))
-                          }
-                        />
-                      </div>
+                      <Input
+                        label="Maks Deneme (-1=sinirsiz)"
+                        fullWidth
+                        type="number"
+                        min={-1}
+                        max={1000}
+                        value={form.maxReconnectAttempts}
+                        onChange={(e) =>
+                          updateField('maxReconnectAttempts', parseInt(e.target.value))
+                        }
+                      />
+                      <Input
+                        label="Baslangic Gecikme (ms)"
+                        fullWidth
+                        type="number"
+                        min={100}
+                        max={60000}
+                        value={form.reconnectDelayMs}
+                        onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
+                      />
+                      <Input
+                        label="Maks Gecikme (ms)"
+                        fullWidth
+                        type="number"
+                        min={1000}
+                        max={300000}
+                        value={form.maxReconnectDelayMs}
+                        onChange={(e) =>
+                          updateField('maxReconnectDelayMs', parseInt(e.target.value))
+                        }
+                      />
                     </div>
                   )}
                 </div>
@@ -738,45 +664,33 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
                   Zaman Asimlari
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Baglanti (ms)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min={1000}
-                      max={60000}
-                      value={form.connectTimeoutMs}
-                      onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Istek (ms)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min={5000}
-                      max={300000}
-                      value={form.requestTimeoutMs}
-                      onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Keep-Alive (ms)
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      min={1000}
-                      max={60000}
-                      value={form.keepAliveIntervalMs}
-                      onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
-                    />
-                  </div>
+                  <Input
+                    label="Baglanti (ms)"
+                    fullWidth
+                    type="number"
+                    min={1000}
+                    max={60000}
+                    value={form.connectTimeoutMs}
+                    onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
+                  />
+                  <Input
+                    label="Istek (ms)"
+                    fullWidth
+                    type="number"
+                    min={5000}
+                    max={300000}
+                    value={form.requestTimeoutMs}
+                    onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
+                  />
+                  <Input
+                    label="Keep-Alive (ms)"
+                    fullWidth
+                    type="number"
+                    min={1000}
+                    max={60000}
+                    value={form.keepAliveIntervalMs}
+                    onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
+                  />
                 </div>
               </div>
 

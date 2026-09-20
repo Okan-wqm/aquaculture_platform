@@ -20,46 +20,38 @@ export const TankLevelConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           placeholder="Select tag..."
         />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={config.label || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Tank Level"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={config.label || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Tank Level"
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <Input
-            fullWidth
-            type="number"
-            value={config.min ?? 0}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <Input
-            fullWidth
-            type="number"
-            value={config.max ?? 100}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-          />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
         <Input
+          label="Min"
           fullWidth
-          type="text"
-          value={config.unit || ''}
-          onChange={(e) => onChange({ unit: e.target.value })}
-          placeholder="L"
+          type="number"
+          value={config.min ?? 0}
+          onChange={(e) => onChange({ min: Number(e.target.value) })}
+        />
+        <Input
+          label="Max"
+          fullWidth
+          type="number"
+          value={config.max ?? 100}
+          onChange={(e) => onChange({ max: Number(e.target.value) })}
         />
       </div>
+      <Input
+        label="Unit"
+        fullWidth
+        type="text"
+        value={config.unit || ''}
+        onChange={(e) => onChange({ unit: e.target.value })}
+        placeholder="L"
+      />
     </div>
   );
 };

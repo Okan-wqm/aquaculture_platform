@@ -48525,6 +48525,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/long-gate-concurrency.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
       "prettier_managed": true
     },

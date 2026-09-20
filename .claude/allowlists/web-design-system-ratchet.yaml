@@ -120,7 +120,7 @@ rawTable:
 rawMutation:
   entries:
     - package: web/modules/farm-module
-      ceiling: 177
+      ceiling: 176
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-086
@@ -152,7 +152,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/dashboard
-      ceiling: 2
+      ceiling: 1
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -188,7 +188,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 31
+      ceiling: 29
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -281,7 +281,7 @@ unnamedIconButton:
 silentStateButton:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 39
+      ceiling: 33
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -302,7 +302,7 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 52
+      ceiling: 50
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -316,7 +316,7 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 2
+      ceiling: 1
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -330,14 +330,14 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 135
+      ceiling: 113
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 14
+      ceiling: 12
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -351,7 +351,7 @@ silentStateButton:
       reason: >-
         buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; declare aria-pressed or aria-selected or aria-current from the same prop that paints it, then lower this ceiling
     - package: web/shared-ui
-      ceiling: 8
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-159
@@ -360,13 +360,13 @@ silentStateButton:
 rawField:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 24
+      ceiling: 23
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 122
+      ceiling: 119
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -396,7 +396,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 269
+      ceiling: 266
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -438,25 +438,25 @@ inlineIconSvg:
 hardcodedText:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 616
+      ceiling: 610
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/dashboard
-      ceiling: 90
+      ceiling: 89
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 2614
+      ceiling: 2612
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 559
+      ceiling: 558
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -468,25 +468,25 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3251
+      ceiling: 3221
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 503
+      ceiling: 500
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shared-ui
-      ceiling: 194
+      ceiling: 110
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shell
-      ceiling: 154
+      ceiling: 153
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

@@ -246,7 +246,92 @@ const NAMES_THE_CONTROL = /\baria-label\b|\baria-labelledby\b|\btitle=/;
  */
 const DECLARES_ITS_STATE =
   /\baria-pressed\b|\baria-selected\b|\baria-current\b|\baria-checked\b|\baria-expanded\b/;
-const PAINTS_A_STATE = /className=\{`[^`]*\$\{[^}]*\?|className=\{[^}]*\?[^}]*:/;
+/**
+ * A `?` that opens a ternary, not one that spells `??` or `?.`. Without the
+ * guards, `${bulkActionStyles[action.variant ?? 'primary']}` — a lookup, the
+ * very shape this ratchet pushes variant classes into — read as a branch and
+ * the class attribute counted itself as an undeclared state.
+ */
+const PAINTS_A_STATE =
+  /className=\{`[^`]*\$\{[^}]*(?<![?.])\?(?![?.])|className=\{[^}]*(?<![?.])\?(?![?.])[^}]*:/;
+
+/** The source of a braced JSX attribute (`disabled={…}`), brace- and quote-aware. */
+function bracedAttribute(openTag: string, attribute: string): string | null {
+  const at = new RegExp(`\\b${attribute}=\\{`).exec(openTag);
+  if (at === null) return null;
+  let i = at.index + at[0].length;
+  const from = i;
+  let depth = 1;
+  let quote: string | null = null;
+  for (; i < openTag.length && depth > 0; i += 1) {
+    const c = openTag[i] as string;
+    if (quote !== null) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+    } else if (c === '{') {
+      depth += 1;
+    } else if (c === '}') {
+      depth -= 1;
+    }
+  }
+  return openTag.slice(from, i - 1);
+}
+
+/**
+ * Every condition a className expression branches on. Walking back from each
+ * `?` to the start of its condition is what makes the disabled-look exemption
+ * below decidable: the predicate above only says THAT the class branches.
+ */
+function classConditions(className: string): string[] {
+  const found: string[] = [];
+  for (let k = className.indexOf('?'); k !== -1; k = className.indexOf('?', k + 1)) {
+    if (className[k + 1] === '?' || className[k + 1] === '.' || className[k - 1] === '?') continue;
+    let j = k - 1;
+    while (j >= 0 && /\s/.test(className[j] as string)) j -= 1;
+    const end = j + 1;
+    let depth = 0;
+    for (; j >= 0; j -= 1) {
+      const c = className[j] as string;
+      if (c === ')' || c === ']' || c === '}') depth += 1;
+      else if (c === '(' || c === '[' || c === '{') {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (depth === 0 && (c === ',' || c === '`' || c === '\n' || c === ':' || c === "'"))
+        break;
+    }
+    const condition = className.slice(j + 1, end).trim();
+    if (condition !== '') found.push(condition);
+  }
+  return found;
+}
+
+const withoutSpaceOrNot = (expression: string): string =>
+  expression.replace(/\s+/g, '').replace(/^!+/, '');
+
+/**
+ * A button whose class branches on nothing but the expression its `disabled`
+ * attribute is bound to is not painting a silent state: `disabled` already puts
+ * that state in the accessibility tree, and `aria-pressed` would be a lie there.
+ * Measuring the corpus turned up 33 of them — a Deploy button greyed while
+ * `!selectedDeviceId || isDeploying`, a suggested-action chip that goes solid
+ * once `isAdded`, the alignment toolbar's distribute pair on `canDistribute`.
+ * Counting those is the same mistake as the missing aria-checked/aria-expanded
+ * cut above, in the other direction: they inflate the ceiling with work that
+ * must not be done.
+ */
+function paintsOnlyTheDisabledLook(openTag: string): boolean {
+  const className = bracedAttribute(openTag, 'className');
+  const disabled = bracedAttribute(openTag, 'disabled');
+  if (className === null || disabled === null) return false;
+  const conditions = classConditions(className);
+  if (conditions.length === 0) return false;
+  const declared = new Set([withoutSpaceOrNot(disabled)]);
+  for (const operand of disabled.split(/\|\||&&/)) {
+    if (operand.trim().length > 2) declared.add(withoutSpaceOrNot(operand));
+  }
+  return conditions.every((condition) => declared.has(withoutSpaceOrNot(condition)));
+}
 
 /**
  * FE-HIGH-158 — a button with no words in it and no accessible name. A screen
@@ -269,7 +354,12 @@ function unnamedIconButtons(source: string): number {
 function silentStateButtons(source: string): number {
   let count = 0;
   for (const { openTag } of buttonElements(source)) {
-    if (PAINTS_A_STATE.test(openTag) && !DECLARES_ITS_STATE.test(openTag)) count += 1;
+    if (
+      PAINTS_A_STATE.test(openTag) &&
+      !DECLARES_ITS_STATE.test(openTag) &&
+      !paintsOnlyTheDisabledLook(openTag)
+    )
+      count += 1;
   }
   return count;
 }
@@ -501,8 +591,28 @@ function sourceFiles(roots: readonly string[] = ROOTS): string[] {
     );
 }
 
+/**
+ * Source as the ratchets measure it: code, with prose taken out.
+ *
+ * Every counter in this file reads through here, which is why the strip lives
+ * here and not in one of them. A comment is not a class attribute, not a raw
+ * hex, and not a user-visible string, but each counter is a regex and none of
+ * them can tell — writing `Bulk-action kind -> class.` above a lookup table was
+ * enough to add one to shared-ui's hardcoded-string count, because `>` followed
+ * by words followed by `<` is exactly what JSX text looks like. Dodging that by
+ * rewording the comment would leave the next author to trip over it; taking
+ * prose out of the corpus is the thing that stops being wrong.
+ *
+ * Block comments go whole (JSDoc, including the `{/* ... *\/}` form JSX uses).
+ * Line comments go only when the line holds nothing else, so a `https://` in a
+ * string and a trailing `// why` beside real code are both left alone — an
+ * over-eager strip would hide genuine occurrences, and a ratchet that undercounts
+ * is a ratchet that stops ratcheting.
+ */
 function read(relativePath: string): string {
-  return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+  return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/[^\n]*$/gm, ' ');
 }
 
 /** `web/modules/<name>`, `web/shell`, `web/apps/<name>` or `web/shared-ui` — the unit a ceiling is granted to. */

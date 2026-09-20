@@ -167,6 +167,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         aria-required={required || undefined}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left
@@ -252,6 +254,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                   type="button"
                   onClick={() => !isDisabled && handleSelectDate(date)}
                   disabled={isDisabled}
+                  aria-pressed={isSelected}
+                  aria-current={isTodayDate ? 'date' : undefined}
                   className={`
                     p-2 text-sm rounded-lg transition-colors
                     ${

@@ -256,6 +256,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 type="button"
                 onClick={() => !isDisabled && handleDateClick(date)}
                 disabled={isDisabled}
+                aria-pressed={isStart || isEnd || inRange}
                 className={`
                   p-2 text-sm transition-colors
                   ${isStart ? 'bg-primary-600 text-white rounded-l-lg' : ''}
@@ -294,6 +295,8 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         aria-required={required || undefined}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left

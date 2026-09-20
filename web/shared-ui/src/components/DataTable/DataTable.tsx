@@ -11,6 +11,7 @@ import { useI18n } from '../../i18n';
 
 import { Spinner } from '../Loading/Loading';
 import { EmptyState } from '../EmptyState/EmptyState';
+import { ToggleButton } from '../ToggleButton/ToggleButton';
 import {
   ArrowUpDown,
   ChevronDown,
@@ -25,6 +26,19 @@ import {
   RefreshCw,
   Search as SearchIcon,
 } from 'lucide-react';
+
+/**
+ * Bulk-action kind -> class. A variant is a descriptor of the ACTION, not a
+ * state of the control, so it belongs in a lookup like Button's variantStyles
+ * rather than in a className ternary — a class attribute that branches is the
+ * shape the silent-state ratchet (FE-HIGH-159) reads as an undeclared state.
+ */
+const bulkActionStyles: Record<'primary' | 'secondary' | 'danger', string> = {
+  primary:
+    'text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/40',
+  secondary: 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700',
+  danger: 'text-error-700 hover:bg-error-100 dark:text-error-300 dark:hover:bg-error-900/40',
+};
 
 // ============================================================================
 // Types
@@ -648,11 +662,7 @@ export function DataTable<T>({
                       key={action.key}
                       onClick={() => action.onClick(selectedRows)}
                       className={`inline-flex items-center gap-1 px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                        action.variant === 'danger'
-                          ? 'text-error-700 hover:bg-error-100 dark:text-error-300 dark:hover:bg-error-900/40'
-                          : action.variant === 'secondary'
-                            ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
-                            : 'text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/40'
+                        bulkActionStyles[action.variant ?? 'primary']
                       }`}
                     >
                       {action.icon}
@@ -664,17 +674,16 @@ export function DataTable<T>({
 
               {/* Filter Toggle */}
               {filterable && (
-                <button
+                <ToggleButton
+                  pressed={showFilterPanel || Object.keys(filters).length > 0}
                   onClick={() => setShowFilterPanel(!showFilterPanel)}
-                  className={`p-2 rounded-lg border transition-colors ${
-                    showFilterPanel || Object.keys(filters).length > 0
-                      ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
-                      : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
-                  }`}
+                  className="p-2 rounded-lg border transition-colors"
+                  pressedClassName="border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"
+                  idleClassName="border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                   title={t('table.toggleFilters')}
                 >
                   <FilterIcon className="w-5 h-5" aria-hidden="true" />
-                </button>
+                </ToggleButton>
               )}
 
               {/* Column Visibility */}

@@ -88,6 +88,10 @@ export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
 export { Tabs, TabPanel, tabId, panelId } from './Tabs';
 export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
 
+// ToggleButton
+export { ToggleButton } from './ToggleButton';
+export type { ToggleButtonProps } from './ToggleButton';
+
 // Severity + tag quality — one vocabulary, one palette
 export {
   SeverityBadge,

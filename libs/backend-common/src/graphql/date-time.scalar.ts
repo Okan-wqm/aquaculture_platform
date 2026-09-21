@@ -19,6 +19,10 @@
  * birebir); timestamptz ISO kalır.
  */
 
+import { createRequire } from 'node:module';
+
+const nodeRequire = createRequire(__filename);
+
 interface PatchableScalar {
   serialize: (value: unknown) => unknown;
   parseValue: (value: unknown) => unknown;
@@ -57,15 +61,12 @@ export function installDateOnlyDateTimeScalar(): void {
   // örnek — paket kök index'inden dışa açılmadığı için derin modül yolu).
   try {
     // Paketin exports haritası derin require'u (ERR_PACKAGE_PATH_NOT_EXPORTED)
-    // engelliyor — mutlak yol require bu kısıtı aşar ve TypeMapper'ın
+    // engelliyor — createRequire + mutlak yol bu kısıtı aşar ve TypeMapper'ın
     // kullandığı gerçek singleton'a ulaşır.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require('path') as typeof import('path');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkgEntry = require.resolve('@nestjs/graphql') as string;
+    const path = nodeRequire('path') as typeof import('path');
+    const pkgEntry = nodeRequire.resolve('@nestjs/graphql') as string;
     const scalarsModulePath = path.join(path.dirname(pkgEntry), 'scalars');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nestScalars = require(scalarsModulePath) as Record<string, unknown>;
+    const nestScalars = nodeRequire(scalarsModulePath) as Record<string, unknown>;
     if (patchInstance(nestScalars.GraphQLISODateTime as PatchableScalar | undefined, 'nestjs')) {
       patched.push('@nestjs/graphql GraphQLISODateTime');
     }
@@ -76,8 +77,7 @@ export function installDateOnlyDateTimeScalar(): void {
 
   // graphql-scalars örneği (bazı modüller doğrudan bunu kaydediyor).
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const gs = require('graphql-scalars') as Record<string, unknown>;
+    const gs = nodeRequire('graphql-scalars') as Record<string, unknown>;
     if (patchInstance(gs.GraphQLDateTime as PatchableScalar | undefined, 'graphql-scalars')) {
       patched.push('graphql-scalars GraphQLDateTime');
     }

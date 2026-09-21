@@ -23,16 +23,16 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 // Entities
 import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity';
 
 // Service
-import {
-  HarvestPlanService,
-  HarvestPlanStats,
-} from '../services/harvest-plan.service';
+import { HarvestPlanService, HarvestPlanStats } from '../services/harvest-plan.service';
 import { QueryBus } from '@platform/cqrs';
 import { GetHarvestPlanQuery } from '../queries/get-harvest-plan.query';
 import { GetHarvestPlanByCodeQuery } from '../queries/get-harvest-plan-by-code.query';
@@ -191,9 +191,7 @@ export class HarvestPlanResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('activeOnly', { nullable: true, defaultValue: false }) activeOnly: boolean,
   ): Promise<HarvestPlan[]> {
-    return this.queryBus.execute(
-      new ListHarvestPlansByBatchQuery(tenantId, batchId, activeOnly),
-    );
+    return this.queryBus.execute(new ListHarvestPlansByBatchQuery(tenantId, batchId, activeOnly));
   }
 
   /**
@@ -213,9 +211,7 @@ export class HarvestPlanResolver {
    */
   @Query(() => [HarvestPlan], { description: 'Get overdue harvest plans' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async overdueHarvestPlans(
-    @Tenant() tenantId: string,
-  ): Promise<HarvestPlan[]> {
+  async overdueHarvestPlans(@Tenant() tenantId: string): Promise<HarvestPlan[]> {
     return this.queryBus.execute(new ListOverdueHarvestPlansQuery(tenantId));
   }
 
@@ -224,9 +220,7 @@ export class HarvestPlanResolver {
    */
   @Query(() => HarvestPlanStatsResponse, { description: 'Get harvest plan statistics' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async harvestPlanStats(
-    @Tenant() tenantId: string,
-  ): Promise<HarvestPlanStats> {
+  async harvestPlanStats(@Tenant() tenantId: string): Promise<HarvestPlanStats> {
     return this.queryBus.execute(new GetHarvestPlanStatsQuery(tenantId));
   }
 
@@ -343,7 +337,7 @@ export class HarvestPlanResolver {
       actualBiomass,
       actualAvgWeight,
       user.sub,
-      (user.roles ?? []) as never,
+      (user.roles ?? []).filter((r): r is Role => Object.values(Role).includes(r as Role)),
       user.assignedSiteIds ?? [],
     );
   }
@@ -418,10 +412,7 @@ export class HarvestPlanResolver {
    */
   @ResolveField(() => Boolean)
   canEdit(@Parent() plan: HarvestPlan): boolean {
-    return ![
-      HarvestPlanStatus.COMPLETED,
-      HarvestPlanStatus.CANCELLED,
-    ].includes(plan.status);
+    return ![HarvestPlanStatus.COMPLETED, HarvestPlanStatus.CANCELLED].includes(plan.status);
   }
 
   /**
@@ -510,8 +501,7 @@ export class HarvestPlanResolver {
     if (!plan.actualBiomassHarvested || !plan.estimates?.estimatedBiomass) {
       return null;
     }
-    const accuracy =
-      (Number(plan.actualBiomassHarvested) / plan.estimates.estimatedBiomass) * 100;
+    const accuracy = (Number(plan.actualBiomassHarvested) / plan.estimates.estimatedBiomass) * 100;
     return Math.round(accuracy * 100) / 100; // Round to 2 decimal places
   }
 }

@@ -2376,7 +2376,11 @@ export const HarvestPlansPage: React.FC = () => {
       ? (fromGraphqlEnumName(String(p.harvestType)) as HarvestPlan['harvestType'])
       : p.harvestType,
     ...(p.harvestMethod
-      ? { harvestMethod: fromGraphqlEnumName(String(p.harvestMethod)) as HarvestPlan['harvestMethod'] }
+      ? {
+          harvestMethod: fromGraphqlEnumName(
+            String(p.harvestMethod),
+          ) as HarvestPlan['harvestMethod'],
+        }
       : {}),
     ...(p.productForm
       ? { productForm: fromGraphqlEnumName(String(p.productForm)) as HarvestPlan['productForm'] }

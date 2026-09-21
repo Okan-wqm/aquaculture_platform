@@ -251,20 +251,20 @@ export class MaintenanceSchedule {
   @Column({ type: 'jsonb' })
   recurrenceRule!: RecurrenceRule;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   startDate!: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   endDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   @Index()
   nextDueDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   lastExecutedDate?: Date;
 

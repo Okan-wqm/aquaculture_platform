@@ -124,10 +124,11 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        // `reason` is a CullReason enum value whose string literal
-        // (e.g. `'small_size'`) matches the hook's `CullReason` union
-        // type exactly — no cast required.
-        reason,
+        // GraphQL enum girişleri enumun ADINI bekler (SMALL_SIZE), select ise
+        // DEĞERİ ('small_size') tutar — value→name eşlemesi büyük harfe çevirmeyle
+        // birebir (poor_growth → POOR_GROWTH dahil). Değer gönderilince şema
+        // reddediyordu (mortality ile aynı canlı bulgu sınıfı, 2026-09-21).
+        reason: reason.toUpperCase() as unknown as typeof reason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         culledAt,
         notes,

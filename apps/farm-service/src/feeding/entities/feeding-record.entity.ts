@@ -153,7 +153,7 @@ export class FeedingRecord {
   // YEMLEME BİLGİLERİ
   // -------------------------------------------------------------------------
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   @Index()
   feedingDate!: Date;

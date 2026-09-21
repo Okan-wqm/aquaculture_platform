@@ -152,7 +152,7 @@ export class TankOperation {
   })
   operationType!: OperationType;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   operationDate!: Date;
 

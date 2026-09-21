@@ -302,7 +302,7 @@ export class HealthEvent {
   @Index()
   eventType!: HealthEventType;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   @Index()
   eventDate!: Date;
@@ -363,7 +363,7 @@ export class HealthEvent {
   @Column({ default: false })
   isUnderTreatment!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   treatmentEndDate?: Date;
 
@@ -371,7 +371,7 @@ export class HealthEvent {
   @Column({ type: 'int', nullable: true })
   withdrawalPeriodDays?: number;     // Hasat öncesi bekleme
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   earliestHarvestDate?: Date;        // En erken hasat tarihi
 
@@ -383,11 +383,11 @@ export class HealthEvent {
   @Column({ default: false })
   isQuarantined!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   quarantineStartDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   quarantineEndDate?: Date;
 
@@ -444,7 +444,7 @@ export class HealthEvent {
   @Index()
   status!: HealthEventStatus;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   resolvedDate?: Date;
 
@@ -509,7 +509,7 @@ export class HealthEvent {
   @Column({ default: false })
   followUpRequired!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   nextFollowUpDate?: Date;
 

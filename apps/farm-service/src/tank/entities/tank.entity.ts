@@ -518,15 +518,15 @@ export class Tank {
   // EK BİLGİLER
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   installationDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   lastMaintenanceDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   nextMaintenanceDate?: Date;
 

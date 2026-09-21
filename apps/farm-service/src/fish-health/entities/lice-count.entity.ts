@@ -48,7 +48,7 @@ export class LiceCount {
   @Column('uuid', { nullable: true })
   batchId?: string;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   countDate!: string;
 

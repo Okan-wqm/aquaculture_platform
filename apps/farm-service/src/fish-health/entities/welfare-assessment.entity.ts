@@ -44,7 +44,7 @@ export class WelfareAssessment {
   @Column('uuid', { nullable: true })
   batchId?: string;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   assessedAt!: string;
 

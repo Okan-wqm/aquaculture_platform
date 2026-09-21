@@ -274,12 +274,12 @@ export class WorkOrder {
   // PLANLAMA
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   @Index()
   plannedStartDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   @Index()
   dueDate?: Date;

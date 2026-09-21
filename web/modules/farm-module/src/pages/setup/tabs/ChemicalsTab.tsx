@@ -516,7 +516,10 @@ export const ChemicalsTab: React.FC = () => {
     if (!formData.name) errors.name = 'Please enter a name.';
     if (!formData.code) errors.code = 'Please enter a code.';
     if (!formData.type) errors.type = 'Please select a chemical type.';
-    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    // site yalnızca CREATE'te input'un parçası; EDIT siteId'yi hiç göndermez ve
+    // site ilişkisi chemical_sites join tablosunda tutulduğundan forma hiç
+    // yüklenmez — edit'te bu şart formu sessizce kilitliyordu (canlı bulgu).
+    if (!editingId && !formData.siteId) errors.siteId = 'Please select a site.';
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -607,7 +610,10 @@ export const ChemicalsTab: React.FC = () => {
     setFormData({
       name: chemical.name,
       code: chemical.code,
-      type: chemical.type,
+      // GraphQL enum ADI olarak gelir (ör. DISINFECTANT); select'in değerleri
+      // chemical_types tablosunun küçük harf kodları — eşleşmesi için çevir
+      // (pH_ADJUSTER -> ph_adjuster dahil, toLowerCase birebir eşleşiyor).
+      type: chemical.type ? (String(chemical.type).toLowerCase() as ChemicalType) : '',
       supplierId: chemical.supplierId || '',
       description: chemical.description || '',
       activeIngredient: chemical.activeIngredient || '',
@@ -943,9 +949,12 @@ export const ChemicalsTab: React.FC = () => {
                     />
                   </div>
                   <div>
+                    {/* Site yalnızca CREATE'te gönderilir; EDIT'te ilişki chemical_sites
+                        join tablosundadır ve forma yüklenmez — HTML required bu yüzden
+                        edit'te submit'i sessizce engelliyordu (canlı bulgu). */}
                     <Select
                       label="Site"
-                      required
+                      required={!editingId}
                       placeholder="Select Site"
                       value={formData.siteId}
                       onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}

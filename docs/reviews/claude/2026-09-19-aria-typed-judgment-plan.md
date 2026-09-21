@@ -659,3 +659,18 @@ absent_or_not_object` at `requeue_count 2`. The ref came from
 - **Proof:** `tests/test_finding_driven_evidence.py` — the promoted shape converts to the two
   repo-verified `path:line` refs, the self-output envelope is dropped, the surface is the code
   path (red before the fix: `None`).
+
+## ARIA-HIGH-184 — the runner's kept node tree did not follow the lockfile
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-28
+- **Evidence:** run 35561261187, cycle `cyc-20260921T044120Z-auto` on main `1d2f2ba0d` — the first
+  cycle after ARIA-MEDIUM-178 merged: `non_ok_tools: [{tool_id: lint-rules-adapter, status:
+crash}]`, `overall_status: degraded`, exit 2, no plan request minted. The self-hosted runner's
+  checkout carried `eslint-plugin-sonarjs` in `package.json` and not in `node_modules`:
+  `ensure-node-deps` ran `npm ci` only when `node_modules/ts-node/dist/bin.js` was absent, so a
+  tree installed before the lockfile changed was taken as current.
+- **Rule:** a kept dependency tree is provisioned from the lockfile it must match, not from the
+  presence of one binary; a manifest's runner is proven present before the manifest runs.
+- **Fix:** the action stamps `node_modules/.aria-lockfile-sha256` and re-runs `npm ci` when the
+  lockfile's digest differs from the stamp or ts-node is absent; both are asserted before it
+  returns.

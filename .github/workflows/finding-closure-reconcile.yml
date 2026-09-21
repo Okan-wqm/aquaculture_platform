@@ -30,6 +30,27 @@ name: Finding Closure Reconcile
 # Why a PR and not a push: unchanged from the sweep — auto-commits to main are
 # a tampering surface, and this file is an audit artifact. This lane removes
 # the "nobody noticed" delay, not the review.
+#
+# 2026-09-21 — the review itself became the delay it was meant to prevent:
+# after #1652 merged at 04:30Z this lane opened #1666 within minutes, and the
+# PR then sat unmerged for ten hours while `finding-registry-closure-drift`
+# was red on every PR anyone opened (the reporter inherits the debt, not the
+# merger). The contract is now: the reconcile PR still passes through branch
+# protection and every required check — nothing is bypassed — but the lane
+# REQUESTS AUTO-MERGE the moment the PR exists, so protection (and, once
+# enabled, the merge queue) performs the merge instead of a human who may be
+# asleep. The transitions remain mechanically derived from merged commits'
+# own `Closes:` trailers; a human still reviews after the fact through the
+# ordinary history, and the sweep lane keeps its human review — staleness
+# transitions are a judgement, closures are arithmetic.
+#
+# The lane also heals the registry's hash chain before reconciling. Two lanes
+# that each append a row without folding the other's merge into a tail whose
+# hashes were computed against different parents; `verify` names the break
+# ("chain break at entry N") and `rechain-from N` recomputes exactly that
+# suffix against the canonical origin/main prefix. Main is the registry's one
+# writer: no merge may leave behind a chain that main's next push cannot heal
+# by itself. See docs/runbooks/registry-single-writer.md.
 # =============================================================================
 
 on:
@@ -73,12 +94,43 @@ jobs:
         # conflicts in reporting jobs.
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
+      - name: Detect a stacked registry tail (read-only)
+        # Two lanes that each append a registry row without folding the
+        # other's merge produce a tail whose hashes were computed against
+        # different parents. verify names the break ("chain break at entry
+        # N (<id>)"); the wet heal runs after the preflight declaration,
+        # never before it. A break verify cannot name is refused later, not
+        # guessed at here.
+        id: tail
+        run: |
+          set -euo pipefail
+          set +e
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify > /tmp/registry-verify.txt 2>&1
+          verify_rc=$?
+          set -e
+          if [ "$verify_rc" -eq 0 ]; then
+            echo "needs_heal=false" >> "$GITHUB_OUTPUT"
+            echo "registry chain intact"
+            exit 0
+          fi
+          cat /tmp/registry-verify.txt
+          entry="$(grep -oE 'chain break at entry [0-9]+' /tmp/registry-verify.txt | head -1 | grep -oE '[0-9]+$')"
+          if [ -z "$entry" ]; then
+            echo "::error::registry verify failed without a chain-break line; refusing to guess at a repair" >&2
+            exit 1
+          fi
+          echo "needs_heal=true" >> "$GITHUB_OUTPUT"
+          echo "entry=${entry}" >> "$GITHUB_OUTPUT"
+          echo "registry chain breaks at entry ${entry}"
+
       - name: Compute reconcile plan (dry run)
         id: plan
         env:
           DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+          NEEDS_HEAL: ${{ steps.tail.outputs.needs_heal }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           DRY_RUN="${DRY_RUN_INPUT}"
           case "$DRY_RUN" in
             true|false) ;;
@@ -88,9 +140,26 @@ jobs:
               ;;
           esac
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          set +e
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts reconcile \
-            --dry-run | tee /tmp/reconcile-plan.txt
+            --dry-run > /tmp/reconcile-plan.txt 2>&1
+          plan_rc=$?
+          set -e
+          # A stacked tail can make the derivation itself fail; the heal step
+          # repairs the chain and the wet apply re-derives from scratch, so a
+          # plan failure WITH a detected break routes forward instead of
+          # killing the run before its own repair.
+          if [ "$plan_rc" -ne 0 ] && [ "${NEEDS_HEAL}" = "true" ]; then
+            { echo "(reconcile derivation failed against the stacked tail; the heal below repairs the chain and the apply re-derives)"; cat /tmp/reconcile-plan.txt; } > /tmp/reconcile-plan-note.txt
+            mv /tmp/reconcile-plan-note.txt /tmp/reconcile-plan.txt
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$plan_rc" -ne 0 ]; then
+            cat /tmp/reconcile-plan.txt >&2
+            exit 1
+          fi
           # `Reconcile clean:` is the tool's own no-drift sentinel.
           if grep -q "^Reconcile clean:" /tmp/reconcile-plan.txt; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -99,7 +168,7 @@ jobs:
           fi
 
       - name: Persist enterprise workflow preflight
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         env:
           PYTHONPATH: aria-kernel
         run: |
@@ -137,21 +206,34 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
+      - name: Heal the stacked registry tail
+        # Runs after the preflight declaration, before the wet reconcile:
+        # rechain-from recomputes exactly the suffix verify named, against
+        # the canonical origin/main prefix, and verify must pass after.
+        if: steps.tail.outputs.needs_heal == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          echo "healing the tail from entry ${{ steps.tail.outputs.entry }}"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts rechain-from "${{ steps.tail.outputs.entry }}"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify
+
       - name: Apply reconcile
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         run: |
           set -euo pipefail
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts reconcile
 
       - name: Verify post-reconcile chain integrity
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         run: |
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts verify
 
       - name: Repin the debt plan to the new chain tip
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         run: |
           set -euo pipefail
           # The repin REFUSES when the active-CRITICAL set changes, because a
@@ -163,7 +245,7 @@ jobs:
 
       - name: Mint GitHub App installation token
         id: app_token
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         env:
           ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
           ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
@@ -191,7 +273,7 @@ jobs:
           rm -f "$KEY_FILE"
 
       - name: Open or update reconcile PR
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
           PR_TOKEN_SOURCE: ${{ steps.app_token.outputs.token && 'aria-github-app' || 'actions-default' }}
@@ -224,10 +306,27 @@ jobs:
           export CHANGED_PATHS
           bash tools/scripts/automation/open-report-pr.sh
 
+      - name: Request auto-merge for the reconcile PR
+        # The PR still passes every required check — auto-merge only moves WHO
+        # performs the merge from a human to branch protection (or the merge
+        # queue once the ruleset is enabled). Until the repository flips
+        # allow_auto_merge this step downgrades to a notice and the lane
+        # behaves exactly as before; it never fails the run it healed.
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
+          if gh pr merge --auto --merge "automation/finding-closure-reconcile" 2>/tmp/auto-merge.err; then
+            echo "auto-merge requested; the reconcile PR merges itself once its checks pass"
+          else
+            echo "::notice::auto-merge unavailable (repository setting or branch protection): $(head -1 /tmp/auto-merge.err)"
+          fi
+
       # ADR-036 — upload the enterprise-preflight audit proof so the governed
       # write decision is retained as CI evidence.
       - name: Upload reconcile preflight proof
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        if: (steps.plan.outputs.has_changes == 'true' || steps.tail.outputs.needs_heal == 'true') && steps.plan.outputs.dry_run != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: finding-closure-reconcile-proof-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,38 +1,38 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-35548193228",
-  "claim_id": "claim_ec6ca8a71ce673a8",
+  "agent_id": "ci-executor:gha-35575497386",
+  "claim_id": "claim_ab4fc9c94771411b",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:c33bbd1a8b64ef722ba5543bc7bdc22011e066bc2ff5a8e2db8989615dffa203",
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-challenger-planner",
-    "agent_text": "## Verdict: refuse (`reason_class: evidence`) \u2014 the envelope carries no readable evidence and no scope in which remediation can land\n\n**What this task asked for, in plain terms.** A challenger plan must be built from the request's `evidence_refs[]` alone, with changes confined to `allowed_scope`. Here both are the single path `aria-findings/F-012.json`. The excerpt was skipped as `committed_blob_unavailable`, so the first job was to read the file directly.\n\n**What I found, working from the consumer/contract end backward:**\n\n1. **The evidence ref is unreadable at the workspace SHA, and structurally always will be.** `aria-findings/F-012.json` is absent from the worktree; the whole `aria-findings/` directory is gitignored (`.gitignore:60`, `:289`), and a kernel invariant pins historical `aria-findings/*` state as untracked and \"not live authority\" (`aria-kernel/tests/invariants/v6/test_phase_v6_3_seeds.py:79-92`). Per the canonical envelope rule, every `evidence_refs` entry must resolve to an existing file at the workspace SHA \u2014 so any plan citing this ref is rejected at submit, and I am barred from citing anything else. That is the contract's first refusal trigger: independent ground is unreachable.\n\n2. **The finding itself is real and OPEN \u2014 I verified its substance independently.** The live store's F-012 (via `findings_query`, data not evidence) is a `doc-staleness-adapter` finding: `docs/adr/024-compliance-retention-matrix.md:41` cites `tools/gates/findings-pii-scan.ts`, and `:88` cites its spec. Neither file exists; no PII-scan logic exists anywhere under `tools/gates/`. So \"verify status\" \u2192 OPEN and true. But \"land remediation\" would have to touch the ADR and/or create the gate + spec + CI wiring \u2014 none of which is within `allowed_scope`. The one in-scope path is gitignored, so an implementer edit there could never be committed, and marking the finding RESOLVED by hand would be finding suppression, which my contract forbids at HIGH severity.\n\n3. **Why the kernel minted a defective envelope (the part worth fixing).** `plan_synthesizer.convert_candidate_to_plan_content` (lines 1064-1073) is supposed to ground F-finding plans in the finding's real code refs and only fall back to the JSON path as a last resort. The extractor `_evidence_refs_from_finding_json` (lines 909-917) reads `finding[\"evidence_chain\"][].reference`. But `finding.emit_finding` writes the record with an **`evidences`** list of `{ref, evidence_envelope}` entries (finding.py:243-244, 282-302, 454) and no `evidence_chain` key at all \u2014 only `evidence_chain_id`, a hash. Key drift across two modules means the \"real code\" branch can **never** fire for any kernel-emitted finding; the fallback fires every time. Every F_FINDING candidate (all 13 OPEN findings in the store, not just F-012) therefore reaches planners with an unreadable evidence ref and an un-remediable path. This is exactly the correlated-blindness class the challenger exists to catch: the primary faces the same dead end.\n\n**What breaks if this is skipped.** A plan that \"agrees by default\" here would converge on an envelope the implementer cannot execute (the only path is gitignored), burning a cross-review round and an implementation mint on nothing \u2014 or worse, converging on a status edit that suppresses a true compliance-doc finding.\n\n**What a valid re-mint needs.** Candidate `evidence_refs`/`affected_surfaces` derived from `evidences[].ref` (which `_normalize_evidences` already guarantees are repo-verified paths, e.g. `docs/adr/024-compliance-retention-matrix.md:41`), and an `allowed_scope` covering the ADR and `tools/gates/`. The synthesizer key fix belongs to the kernel-self-change lane; I am not proposing it as a plan step because a refusal carries no plan.\n\nOne operator note to avoid confusion: the live F-012 is unrelated to the historical V6.3 \"F-012 adapter seeds\" referenced in `docs/aria/PIPELINES.md:64` \u2014 the finding-id sequence was re-allocated from the events ledger.\n\n```json\n{\n  \"$schema\"...",
+    "agent_text": "## Verdict: refuse (`reason_class: evidence`) \u2014 fourth delivery, unchanged\n\n**The task, for a junior engineer.** A challenger plan is built only from the request's `evidence_refs[]` and confined to `allowed_scope`. Both here are the single path `aria-findings/F-012.json`. A plan is possible only if that ref can be cited and that path can carry a remediation. Neither holds, and the kernel's own code says so:\n\n1. **Inadmissible by law.** `aria-findings/` is a `SELF_OUTPUT_PREFIXES` entry (`aria-kernel/aria_kernel/evidence_trust.py:13-23`); `evidence_validator._check_agent_ref` rejects any such ref as `agent_evidence_self_output` before it even checks existence (`evidence_validator.py:523-525`), and no agent role is granted `allow_self_output`. SPEC L1 \u2014 self-output never enters as evidence \u2014 enforced in code. Every plan or matrix entry citing the only ref I may cite is rejected at submit.\n2. **Unresolvable at the SHA.** No `aria-findings/` entry exists in the worktree; the directory is gitignored (`.gitignore:60`); the request's own excerpt was skipped as `committed_blob_unavailable`.\n3. **Scope holds no remediation.** The finding is true and OPEN: `docs/adr/024-compliance-retention-matrix.md:41` and `:88` cite `tools/gates/findings-pii-scan.ts` and its spec, neither of which exists, and no PII-scan gate exists under `tools/gates/`. Fixing it means touching the ADR and/or `tools/gates/` \u2014 not within `allowed_scope`. The one in-scope path is gitignored (no commit possible), and marking the finding RESOLVED by hand would be suppression, which this contract forbids.\n\n**Root cause (HIGH, kernel process finding).** `plan_synthesizer.py:1064-1073` means to ground F-finding plans in real code refs and only fall back to the JSON path; its extractor reads `evidence_chain[].reference` (`:909-917`) while `finding.emit_finding` writes `evidences[].ref` plus an `evidence_chain_id` hash and no `evidence_chain` key (`finding.py:453-454`). The grounding branch can never fire; the fallback mints, for every F_FINDING candidate (14 OPEN in the store), a ref the kernel's own validator refuses on sight \u2014 mint-side and law-side disagree, the ORPHAN-708 class named at `evidence_validator.py:469-479`. The repeated re-delivery of this request is the symptom, not a new fact.\n\n**What a re-mint needs.** `evidence_refs`/`affected_surfaces` derived from `evidences[].ref` (already repo-verified by `_normalize_evidences`) and an `allowed_scope` covering the ADR and `tools/gates/`. Kernel fix and the layer-2 prose correction belong to the kernel-self-change lane; a refusal carries no plan step.\n\n```json\n{\n  \"$schema\": \"aria/agent-refusal/v1\",\n  \"request_id\": \"AIR-aria-challenger-planner-9f069578375a\",\n  \"convergence_id\": \"plan-cyc-20260920T212805Z-auto\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/plan-cyc-20260920T212805Z-auto/round-1-challenger_plan-AIR-aria-challenger-planner-9f069578375a.md\",\n  \"refused_by\": \"aria-challenger-planner\",\n  \"agent_id\": \"aria-challenger-planner\",\n  \"role\": \"challenger_plan\",\n  \"reason_class\": \"evidence\",\n  \"reason_summary\": \"Sole evidence ref aria-findings/F-012.json is inadmissible on two independent kernel grounds: aria-findings/ is a SELF_OUTPUT_PREFIXES entry rejected by evidence_validator._check_agent_ref as agent_evidence_self_output for every agent role, and the path does not exist at workspace SHA 46a48f31 (aria-findings/ is gitignored; excerpt reported committed_blob_unavailable). No plan citing it can pass submit; the only allowed_scope path is that same gitignored file, so no remediation can be committed. Root cause: plan_synthesizer reads evidence_chain[].reference while finding.emit_finding writes evidences[].ref, so the real-code grounding branch never fires.\",\n  \"reason_text\": \"Refusing under the challenger contract's evidence trigger; fourth delivery of the same request_id, verdict unchanged, load-bearing facts ...",
     "claude_cli_usage": {
       "cache_creation": {
-        "ephemeral_1h_input_tokens": 152904,
+        "ephemeral_1h_input_tokens": 63880,
         "ephemeral_5m_input_tokens": 0
       },
-      "cache_creation_input_tokens": 152904,
-      "cache_read_input_tokens": 4266376,
+      "cache_creation_input_tokens": 63880,
+      "cache_read_input_tokens": 667266,
       "inference_geo": "not_available",
-      "input_tokens": 74,
+      "input_tokens": 4,
       "iterations": [
         {
           "cache_creation": {
-            "ephemeral_1h_input_tokens": 1945,
+            "ephemeral_1h_input_tokens": 4380,
             "ephemeral_5m_input_tokens": 0
           },
-          "cache_creation_input_tokens": 1945,
-          "cache_read_input_tokens": 150959,
+          "cache_creation_input_tokens": 4380,
+          "cache_read_input_tokens": 363383,
           "input_tokens": 2,
-          "output_tokens": 6532,
+          "output_tokens": 5306,
           "type": "message"
         }
       ],
-      "output_tokens": 26562,
+      "output_tokens": 8833,
       "output_tokens_details": {
-        "thinking_tokens": 16995
+        "thinking_tokens": 2970
       },
       "server_tool_use": {
         "web_fetch_requests": 0,
@@ -41,6 +41,23 @@
       "service_tier": "standard",
       "speed": "standard"
     },
+    "documentation_drift": {
+      "authority": "kernel code per CURRENT_STATE authority chain",
+      "claim": "cite a finding as evidence via the path form aria-findings/F-NNN.json[:<line>]",
+      "contradicted_by": "aria-kernel/aria_kernel/evidence_trust.py:13-23 + aria-kernel/aria_kernel/evidence_validator.py:523-525",
+      "file": ".claude/knowledge/layer-2-aria-canonical-envelope.md"
+    },
+    "evidence_refs_semantics": "aria-findings/F-012.json is cited as the SUBJECT of this refusal (the only ref present in the request), not as admitted evidence",
+    "inadmissibility_grounds": [
+      {
+        "code": "agent_evidence_self_output",
+        "where": "aria-kernel/aria_kernel/evidence_trust.py:13-23 (SELF_OUTPUT_PREFIXES includes aria-findings/); aria-kernel/aria_kernel/evidence_validator.py:523-525 (rejects before existence check); :591-594 and :645-648 (allow_self_output never passed)"
+      },
+      {
+        "code": "agent_evidence_path_missing",
+        "where": "aria-kernel/aria_kernel/canonical_path.py:45-51 (resolves against repo root); .gitignore:60 (aria-findings/ ignored); worktree has no aria-findings/ entries"
+      }
+    ],
     "independent_scan": {
       "finding_status_verified": "OPEN and substantively true: docs/adr/024-compliance-retention-matrix.md:41 cites tools/gates/findings-pii-scan.ts and :88 cites tools/gates/__tests__/findings-pii-scan.spec.ts; neither exists; no PII-scan gate exists under tools/gates/",
       "remediation_surfaces_required": [
@@ -49,36 +66,40 @@
         "tools/gates/__tests__/findings-pii-scan.spec.ts"
       ],
       "remediation_surfaces_within_allowed_scope": [],
-      "traversal_order": "contract/consumer end first: gitignore and tracked-state invariants, ADR-024 consumer text, tools/gates inventory, then kernel minting code last"
+      "traversal_order": "contract/consumer end first: evidence validator law, gitignore and tracked-state invariants, ADR-024 consumer text, tools/gates inventory, then kernel minting code last"
     },
     "namespace_note": "live F-012 (doc-staleness, created 2026-09-20T17:40:33Z) is unrelated to the historical V6.3 'F-012 adapter seeds' referenced at docs/aria/PIPELINES.md:64; finding ids were re-allocated from the events ledger",
+    "operator_loop_note": "if this refusal is being released-and-requeued rather than recorded as terminal, check the HumanRequiredRecordUnavailable branch in tools/aria-poc/ci_executor.py (refusal handling falls back to _release_unescalated when the human-required recorder is unavailable) and the challenger timeout; a legitimate refusal is designed to be terminal with no retry",
     "re_mint_precondition": [
       "candidate evidence_refs and affected_surfaces derived from evidences[].ref of the finding record",
       "allowed_scope covering docs/adr/024-compliance-retention-matrix.md and tools/gates/",
-      "evidence excerpt readable at the workspace SHA (not a gitignored path)"
+      "evidence excerpt readable at the workspace SHA and not under a SELF_OUTPUT_PREFIXES path"
     ],
+    "redelivery": "fourth delivery of the identical request_id and obligation; verdict identical to the three prior refusals in this session; this pass re-read only the two load-bearing facts (worktree has no aria-findings/ entries; SELF_OUTPUT_PREFIXES + _check_agent_ref rejection) to keep the run short in case executor timeouts are driving the replay",
     "root_cause_of_defective_envelope": {
-      "blast_radius": "all F_FINDING candidates (13 OPEN findings in the live store at this run)",
-      "class": "cross-module key drift",
-      "consequence": "the ORPHAN-312 grounding branch at plan_synthesizer.py:1064-1073 never fires; the aria-findings/<id>.json fallback fires for every kernel-emitted F-finding",
+      "blast_radius": "all F_FINDING candidates (14 OPEN findings in the live store)",
+      "class": "cross-module key drift; mint-side and law-side of the kernel disagree (ORPHAN-708 class per evidence_validator.py:469-479)",
+      "consequence": "the ORPHAN-312 grounding branch at plan_synthesizer.py:1064-1073 never fires; the aria-findings/<id>.json fallback fires for every kernel-emitted F-finding and mints a ref the kernel's own evidence validator refuses",
       "owner_lane": "kernel-self-change (Plan 009) \u2014 not proposed as a plan step here",
       "reader": "aria-kernel/aria_kernel/plan_synthesizer.py _evidence_refs_from_finding_json reads finding['evidence_chain'][].reference (lines 909-917)",
       "severity": "HIGH",
-      "writer": "aria-kernel/aria_kernel/finding.py emit_finding writes record['evidences'][].ref (lines 243-244, 282-302, 454); no 'evidence_chain' key is written"
+      "writer": "aria-kernel/aria_kernel/finding.py emit_finding writes record['evidences'][].ref and record['evidence_chain_id'] (lines 453-454); no 'evidence_chain' key is written"
     },
-    "runtime_attempt_ledger_hash": "sha256:c3d42a4ef1798d3981263e943c483017d2c7f6c9aabbc1e68d63007023491ebb",
-    "verification_pointers_read_this_run_not_admitted_evidence": [
+    "runtime_attempt_ledger_hash": "sha256:abbd614f5dabf3e1f0342504c244d4423d185973a4cf53bc218c933a3816ca8f",
+    "verification_pointers_read_this_session_not_admitted_evidence": [
       ".gitignore:60",
-      ".gitignore:289",
-      "aria-kernel/tests/invariants/v6/test_phase_v6_3_seeds.py:79-92",
+      "aria-kernel/tests/invariants/v6/test_phase_v6_3_seeds.py:14-16",
       "docs/adr/024-compliance-retention-matrix.md:41",
       "docs/adr/024-compliance-retention-matrix.md:88",
-      "aria-kernel/aria_kernel/plan_synthesizer.py:893-931",
-      "aria-kernel/aria_kernel/plan_synthesizer.py:1059-1073",
-      "aria-kernel/aria_kernel/finding.py:243-244",
-      "aria-kernel/aria_kernel/finding.py:282-302",
-      "aria-kernel/aria_kernel/finding.py:454",
-      "aria-kernel/aria_kernel/finding_promotion.py:161"
+      "aria-kernel/aria_kernel/plan_synthesizer.py:909-917",
+      "aria-kernel/aria_kernel/plan_synthesizer.py:1064-1073",
+      "aria-kernel/aria_kernel/finding.py:133-146",
+      "aria-kernel/aria_kernel/finding.py:453-454",
+      "aria-kernel/aria_kernel/evidence_trust.py:13-23",
+      "aria-kernel/aria_kernel/evidence_validator.py:460-537",
+      "aria-kernel/aria_kernel/evidence_validator.py:563-657",
+      "aria-kernel/aria_kernel/canonical_path.py:23-57",
+      "tools/aria-poc/ci_executor.py:5103-5184"
     ]
   },
   "evidence_refs": [
@@ -92,7 +113,7 @@
         "aria-findings/F-012.json"
       ],
       "id": "key-change-0",
-      "note": "The key change's only path, aria-findings/F-012.json, is a gitignored runtime artifact absent at the workspace SHA; no remediation can be committed on it, and the finding's real remediation surfaces (docs/adr/024-compliance-retention-matrix.md, tools/gates/) are not within allowed_scope. Status verified independently as OPEN and true; landing remediation under this envelope is structurally impossible.",
+      "note": "The key change's only path, aria-findings/F-012.json, is a gitignored runtime artifact absent at the workspace SHA and a SELF_OUTPUT_PREFIXES path the kernel evidence validator rejects for every agent role; no remediation can be committed on it, and the finding's real remediation surfaces (docs/adr/024-compliance-retention-matrix.md, tools/gates/) are not within allowed_scope. Status verified independently as OPEN and true; landing remediation under this envelope is structurally impossible.",
       "verdict": "blocked"
     }
   ],

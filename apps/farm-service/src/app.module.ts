@@ -16,6 +16,7 @@ import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/back
 import {
   createGraphqlOperationLimitPlugin,
   ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
+  installDateOnlyDateTimeScalar,
 } from '@aquaculture/backend-common/graphql';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
@@ -603,3 +604,7 @@ export class AppModule implements NestModule {
       .forRoutes('*');
   }
 }
+
+// SSoT: TypeORM date kolonlari ('YYYY-MM-DD') icin DateTime scalar sarmalayicisi
+// (2026-09-21 canli olay; ayrinti libs/backend-common/src/graphql/date-time.scalar.ts)
+installDateOnlyDateTimeScalar();

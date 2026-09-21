@@ -271,7 +271,7 @@ export class Chemical {
   @Column({ type: 'int', nullable: true })
   shelfLifeMonths?: number;
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   expiryDate?: Date;
 

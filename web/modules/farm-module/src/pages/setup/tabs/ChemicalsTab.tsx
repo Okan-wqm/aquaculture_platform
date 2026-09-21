@@ -1,3 +1,4 @@
+import { fromGraphqlEnumName } from '../../../utils/graphql-enum';
 /**
  * Chemicals Tab Component
  * Professional chemical management with CRUD, document upload, and multi-site assignment
@@ -613,7 +614,7 @@ export const ChemicalsTab: React.FC = () => {
       // GraphQL enum ADI olarak gelir (ör. DISINFECTANT); select'in değerleri
       // chemical_types tablosunun küçük harf kodları — eşleşmesi için çevir
       // (pH_ADJUSTER -> ph_adjuster dahil, toLowerCase birebir eşleşiyor).
-      type: chemical.type ? (String(chemical.type).toLowerCase() as ChemicalType) : '',
+      type: chemical.type ? (fromGraphqlEnumName(String(chemical.type)) as ChemicalType) : '',
       supplierId: chemical.supplierId || '',
       description: chemical.description || '',
       activeIngredient: chemical.activeIngredient || '',

@@ -7,6 +7,7 @@
  * @module Harvest
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CommandBus } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
@@ -23,6 +24,11 @@ import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
+import { QualityClass } from '../entities/harvest-record.entity';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 // ============================================================================
 // INTERFACES
@@ -55,7 +61,12 @@ export class HarvestPlanService {
   constructor(
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
+    @InjectRepository(TankAllocation)
+    private readonly tankAllocationRepository: Repository<TankAllocation>,
+    @InjectRepository(TankBatch)
+    private readonly tankBatchRepository: Repository<TankBatch>,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly commandBus: CommandBus,
   ) {}
 
   // =========================================================================
@@ -450,7 +461,9 @@ export class HarvestPlanService {
     actualQuantity: number,
     actualBiomass: number,
     actualAvgWeight: number,
-    _userId: string,
+    userId: string,
+    userRoles?: Role[],
+    callerAssignedSiteIds?: string[],
   ): Promise<HarvestPlan> {
     const plan = await this.findByIdOrFail(tenantId, id);
 
@@ -460,9 +473,77 @@ export class HarvestPlanService {
       );
     }
 
+    // STOK BAĞLANTISI (2026-09-21 mimari düzeltme): plan tamamlama artık
+    // SSoT stok hareket komutunu (CreateHarvestRecordCommand — kilitler,
+    // projeksiyonlar, olaylar, uygunluk) tetikler. Bundan önce plan yalnızca
+    // kendi gerçekleşen alanlarını yazıyor, batch/tank stoğu hiç düşmüyordu.
+    // DİKKAT — sıra: hareketler plan IN_PROGRESS'ken koşar (komutun plan
+    // doğrulaması COMPLETED planı reddediyor); plan.complete en sonda.
+    // Güncel konumlar: tank_allocations HAREKET DEFTERİNİN tank başına
+    // toplamı (SSoT — batch_locations tablosu eski yollarca yazılmıyor);
+    // boşsa TankBatch primary yakınsamasına geri dönülür.
+    // Canlı konum SSoT'u: TankBatch.batchDetails (tank başına batch ayrıntı
+    // JSON'u — applyBatchDelta'nın okuduğu/yazdığı aynı veri). Hareket
+    // defteri (tank_allocations) E2E çöp veriyle canlı durumdan kopmuş
+    // olabilir; komutun kendi doğrulaması batchDetails'e göre reddediyor.
+    const tankBatches = await this.tankBatchRepository.find({ where: { tenantId } });
+    const stocked: { tankId: string; quantity: number }[] = [];
+    for (const tb of tankBatches) {
+      const details = Array.isArray(tb.batchDetails)
+        ? (tb.batchDetails as { batchId?: string; quantity?: number }[])
+        : [];
+      const entry = details.find((d) => d.batchId === plan.batchId);
+      if (entry && (entry.quantity ?? 0) > 0) {
+        stocked.push({ tankId: tb.tankId, quantity: entry.quantity ?? 0 });
+      } else if (tb.primaryBatchId === plan.batchId && tb.totalQuantity > 0) {
+        stocked.push({ tankId: tb.tankId, quantity: tb.totalQuantity });
+      }
+    }
+    if (stocked.length === 0) {
+      this.logger.warn(
+        `Harvest plan ${id} completed for batch ${plan.batchId} with no current stock location — stock not deducted.`,
+      );
+      plan.complete(actualQuantity, actualBiomass, actualAvgWeight);
+      const updatedAlone = await this.harvestPlanRepository.save(plan);
+      return updatedAlone;
+    }
+    const totalQty = stocked.reduce((sum, l) => sum + l.quantity, 0);
+    let remaining = Math.max(0, Math.min(actualQuantity, totalQty));
+    for (const [index, loc] of stocked.entries()) {
+      if (remaining <= 0) break;
+      const share =
+        index === stocked.length - 1
+          ? remaining
+          : Math.min(remaining, Math.floor(((loc.quantity ?? 0) / totalQty) * actualQuantity));
+      if (share <= 0) continue;
+      remaining -= share;
+      await this.commandBus.execute(
+        new CreateHarvestRecordCommand(
+          tenantId,
+          {
+            batchId: plan.batchId,
+            tankId: loc.tankId as string,
+            quantityHarvested: share,
+            averageWeight: actualAvgWeight,
+            totalBiomass: Number(((share * actualAvgWeight) / 1000).toFixed(3)),
+            qualityClass: QualityClass.SUPERIOR,
+            harvestDate: new Date(),
+            buyerName: `Plan ${plan.planCode}`,
+            notes: `Auto: harvest plan ${plan.planCode} completion`,
+            harvestPlanId: plan.id,
+          },
+          userId,
+          userRoles?.length ? userRoles : [Role.TENANT_ADMIN],
+          callerAssignedSiteIds ?? [],
+        ),
+      );
+    }
+
     plan.complete(actualQuantity, actualBiomass, actualAvgWeight);
     const updated = await this.harvestPlanRepository.save(plan);
-    this.logger.log(`Completed harvest for plan ${id}`);
+    this.logger.log(
+      `Completed harvest for plan ${id}; stock deducted via harvest records across ${stocked.length} location(s).`,
+    );
     return updated;
   }
 

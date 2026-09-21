@@ -25,6 +25,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Batch } from '../batch/entities/batch.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
+import { TankAllocation } from '../batch/entities/tank-allocation.entity';
 import { TankBatchModule } from '../batch/tank-batch.module';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
@@ -63,6 +64,7 @@ import { HarvestAiQueryResponder } from './responders/harvest-ai-query.responder
     FeedingProtocolCoreModule,
     TypeOrmModule.forFeature([
       HarvestPlan,
+      TankAllocation,
       HarvestRecord,
       Batch,
       Tank,

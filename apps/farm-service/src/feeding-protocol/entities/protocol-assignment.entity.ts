@@ -162,7 +162,7 @@ export class ProtocolAssignment {
   })
   status!: ProtocolAssignmentStatus;
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   effectiveFrom!: Date;
 

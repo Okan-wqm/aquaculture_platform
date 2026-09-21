@@ -329,7 +329,7 @@ export class HarvestPlanResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeHarvestPlan(
     @Tenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: { sub: string; roles?: string[]; assignedSiteIds?: string[] },
     @Args('id', { type: () => ID }) id: string,
     @Args('actualQuantity', { type: () => Int }) actualQuantity: number,
     @Args('actualBiomass', { type: () => Float }) actualBiomass: number,
@@ -342,7 +342,9 @@ export class HarvestPlanResolver {
       actualQuantity,
       actualBiomass,
       actualAvgWeight,
-      userId,
+      user.sub,
+      (user.roles ?? []) as never,
+      user.assignedSiteIds ?? [],
     );
   }
 

@@ -226,7 +226,7 @@ export class Task {
   // PLANLAMA
   // -------------------------------------------------------------------------
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   dueDate!: Date;
 

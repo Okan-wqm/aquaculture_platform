@@ -126,11 +126,11 @@ export class BatchDocument {
   // DOCUMENT METADATA
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   issueDate?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   expiryDate?: Date;
 

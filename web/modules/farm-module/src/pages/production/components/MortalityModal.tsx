@@ -129,10 +129,11 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        // `reason` is a MortalityReason enum value whose string literal
-        // (e.g. `'disease'`) matches the hook's `MortalityReason` union
-        // type exactly — no cast required.
-        reason,
+        // GraphQL enum girişleri enumun ADINI bekler (DISEASE), select ise
+        // DEĞERİ ('disease') tutar — value→name eşlemesi büyük harfe çevirmeyle
+        // birebir (water_quality → WATER_QUALITY dahil). Değer gönderilince
+        // şema reddediyordu (canlı bulgu 2026-09-21).
+        reason: reason.toUpperCase() as unknown as typeof reason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         observedAt,
         notes,

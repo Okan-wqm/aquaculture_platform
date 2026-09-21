@@ -158,15 +158,15 @@ export class FeedInventory {
   @Column({ length: 100, nullable: true })
   lotNumber?: string;                    // Parti numarası
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   manufacturingDate?: Date;              // Üretim tarihi
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   expiryDate?: Date;                     // Son kullanma tarihi
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   receivedDate?: Date;                   // Alım tarihi
 

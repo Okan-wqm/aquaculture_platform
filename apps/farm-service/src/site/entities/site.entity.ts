@@ -293,7 +293,7 @@ export class Site {
   // TARİHLER
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   establishedDate?: Date;
 

@@ -377,7 +377,7 @@ export class HarvestRecord {
   // HASAT TARİHİ VE OPERASYON
   // -------------------------------------------------------------------------
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   @Index()
   harvestDate!: Date;

@@ -125,7 +125,7 @@ export class TankAllocation {
   })
   allocationType!: AllocationType;
 
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   allocationDate!: Date;
 

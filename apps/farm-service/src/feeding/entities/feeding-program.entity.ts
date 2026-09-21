@@ -597,7 +597,7 @@ export class FeedingProgram {
   /**
    * Program start date
    */
-  @Field()
+  @Field(() => String)
   @Column({ type: 'date' })
   @IsDate({ message: 'startDate must be a valid date' })
   startDate!: Date;
@@ -605,7 +605,7 @@ export class FeedingProgram {
   /**
    * Optional program end date
    */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'date', nullable: true })
   @IsOptional()
   @IsDate({ message: 'endDate must be a valid date' })

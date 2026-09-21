@@ -590,3 +590,72 @@ control_or_transport_unavailable`, the envelope written with the verdict, the cl
   through the real executor and the fixture vendor: `ACCEPTED`, one attempt admitted
   `pending_native_submit`, no requeue, one cost row with `plan_id plan-<tail>` (red before the
   fix: the attempt was released and the state stayed PENDING).
+
+## ARIA-HIGH-182 — a successful native dispatch said nothing to the drain
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** executor run 35509466473 (main `f7ae92d48`, 2026-09-20 12:02–14:50Z), the first
+  drain with ARIA-HIGH-180 on main: `results.jsonl` gained 26 accepted adversarial judgments and
+  the state branch published them; `executor_drain_completed` said `attempted 30, succeeded 1,
+failed 26, harness_failed 26, failure_counts {child_without_summary: 26}` and the workflow went
+  red. The Claude CLI path emits its `succeeded` summary inside `invoke_claude_cli`; the native
+  runtimes (`_invoke_native_zai`, `_invoke_native_codex`, `_invoke_native_claude`) return 0 from
+  `_main` after `_reconcile_native_result` with no summary at all, and the native non-zero exit arm
+  releases the claim without one. The drain's rule (B8) is that the summary is the only evidence of
+  success, so the yield the night produced read as the night's failure — the mirror of the
+  false green B8 closed.
+- **Rule:** every terminal path of a dispatch writes its one classified summary, and the summary
+  names the route that ran (the admitted provider and model), never the profile's declared pair.
+- **Fix:** `_main` writes a `succeeded` summary after the native reconcile and a `failed`
+  `harness_unavailable` (retryable) summary on the native non-zero exit arm; both on
+  `_native_route_for_summary` — the admitted route — because the evidence judge declares
+  `anthropic/opus` and is admitted on `zai/glm-5.3`, and the drain keys its circuits by the pair
+  that answered.
+- **Proof:** `tests/test_ci_executor_native_zai.py` — the real executor process against the
+  fixture vendor writes `dispatch-result-<id>.json` with `outcome succeeded`, `provider zai`,
+  `model glm-5.3`, no failure class, and publishes its path on `GITHUB_OUTPUT` (red before the
+  fix: no file; red with the declared route: `anthropic/opus`).
+
+## ARIA-HIGH-181 — a plan minted on the kernel's own output can never be answered
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** `AIR-aria-challenger-planner-2d16fdbb749e` (convergence
+  `plan-cyc-20260918T153436Z-auto`) carries `evidence_refs: ["aria-findings/F-003.json"]` and
+  nothing else. Dispatched in executor run 35485712865 (2026-09-20 03:21–03:28Z, 27 turns, exit 0),
+  the challenger found what the kernel already knows: `aria-findings/` is under
+  `evidence_trust.SELF_OUTPUT_PREFIXES` and gitignored, so the ref resolves at no workspace SHA;
+  it refused in prose, the executor released the claim `plan_content_invalid:plan_content:
+absent_or_not_object` at `requeue_count 2`. The ref came from
+  `plan_synthesizer.convert_candidate_to_plan_content`'s F-finding branch, which fell back to the
+  finding JSON when `_evidence_refs_from_finding_json` extracted no code reference — "so the
+  validator's non-empty-evidence_refs rule still holds": a rule satisfied by a reference the
+  kernel's own trust rule names inadmissible.
+- **Rule:** a plan request is minted only on evidence a planner can resolve; a finding without a
+  code reference is skipped by name and the next ranked candidate is tried.
+- **Fix:** the fallback is removed; `convert_candidate_to_plan_content` returns `None` for an
+  F-finding whose chain yields no code reference (the caller already records
+  `plan_candidate_conversion_skipped` and iterates, as the function's contract says).
+- **Proof:** `tests/test_finding_driven_evidence.py` (empty chain → `None`; missing file →
+  `None`; a converted plan cites nothing under `SELF_OUTPUT_PREFIXES`); the plan-source invariant
+  and the origin contract now convert an F-finding through a real code reference.
+
+## ARIA-HIGH-183 — a promoted finding's evidence was invisible to the plan synthesizer
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-27
+- **Evidence:** cycle `cyc-20260920T151922Z-auto` (run 35518684705), the first with 26 adversarial
+  judgments on the ledger: 6 `ai_consensus` rows, 5 promotions (`finding_emitted` F-009…F-013),
+  `plan_candidate_source_selected` F-013 — and no plan request. The `aria/finding/v1` shape the
+  promotion writes (`finding.emit_finding`) carries its code references in
+  `evidences[].evidence_envelope` (`canonical_ref`, `line`, `trust_grade: repo_verified`);
+  `plan_synthesizer._evidence_refs_from_finding_json` read only `evidence_chain[].reference`, the
+  adapter-era shape, so every promoted finding converted to an empty chain — and, before
+  ARIA-HIGH-181, would have been minted on `aria-findings/<id>.json`. Ring 5 handed ring 6 nothing
+  it could read.
+- **Rule:** a promoted finding's repo-verified evidence is the ground a plan is minted on; the
+  synthesizer reads every shape the kernel itself writes, and skips self-output and unverified
+  refs by name.
+- **Fix:** the reader takes `evidence_chain[].reference` and `evidences[]` alike — `canonical_ref`
+  joined with `line` when the envelope is `repo_verified` and not self-output.
+- **Proof:** `tests/test_finding_driven_evidence.py` — the promoted shape converts to the two
+  repo-verified `path:line` refs, the self-output envelope is dropped, the surface is the code
+  path (red before the fix: `None`).

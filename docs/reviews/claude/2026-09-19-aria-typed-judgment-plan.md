@@ -659,3 +659,50 @@ absent_or_not_object` at `requeue_count 2`. The ref came from
 - **Proof:** `tests/test_finding_driven_evidence.py` — the promoted shape converts to the two
   repo-verified `path:line` refs, the self-output envelope is dropped, the surface is the code
   path (red before the fix: `None`).
+
+## ARIA-HIGH-184 — the runner's kept node tree did not follow the lockfile
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-28
+- **Evidence:** run 35561261187, cycle `cyc-20260921T044120Z-auto` on main `1d2f2ba0d` — the first
+  cycle after ARIA-MEDIUM-178 merged: `non_ok_tools: [{tool_id: lint-rules-adapter, status:
+crash}]`, `overall_status: degraded`, exit 2, no plan request minted. The self-hosted runner's
+  checkout carried `eslint-plugin-sonarjs` in `package.json` and not in `node_modules`:
+  `ensure-node-deps` ran `npm ci` only when `node_modules/ts-node/dist/bin.js` was absent, so a
+  tree installed before the lockfile changed was taken as current.
+- **Rule:** a kept dependency tree is provisioned from the lockfile it must match, not from the
+  presence of one binary; a manifest's runner is proven present before the manifest runs.
+- **Fix:** the action stamps `node_modules/.aria-lockfile-sha256` and re-runs `npm ci` when the
+  lockfile's digest differs from the stamp or ts-node is absent; both are asserted before it
+  returns.
+
+## ARIA-HIGH-185 — the raw-findings ledger grew one finding universe per cycle until publish refused
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-28
+- **Evidence:** the same run 35561261187 also lost its state publish:
+  `state_publish_commit_snapshot_mismatch … (state_commit_evidence_budget_exceeded)`. On
+  `origin/aria/state` `tools/raw-findings.jsonl` was 57.55 MB / 34 500 rows holding 3 253 distinct
+  `(tool_id, finding_fingerprint)` keys: every cycle re-records the whole finding universe
+  (~3 070 rows, ~5.1 MB) and nothing removed the copies — `state_compact._compact_raw_findings`
+  only stripped inline `finding` objects, which the write path stopped producing (ORPHAN-HIGH-798),
+  so every maintenance run reported `stripped_rows: 0`. The counted evidence surfaces
+  (`CAPABILITY_SPECS.count_surfaces`) summed to 79.9 MB against `_MAX_EVIDENCE_INPUT_BYTES` =
+  80 MiB; the next cycle's rows crossed it. The 64 MiB per-ledger cap and the 100 000-row cap
+  were two and twenty cycles away. The ledger had hit the same wall on 2026-08-22 (57.4 MB) and
+  was wiped by hand on 08-31 (`f5bcb194d`, 842 MB → 172 MB); with the lint-rules adapter's
+  ~5 600 findings per cycle the runway was under a week. The copies also cost judgment
+  capacity: `_sampleable_raw_findings` keys "already judged" by `(run_id, finding_id)`, so the
+  50-per-rule sample cap for `kernel-dead-wire-adapter` held 9 distinct fingerprints offered
+  through six run ids each.
+- **Rule:** a ledger that records the same identity every cycle keeps one row per identity in
+  its hot form; the state branch's growth is bounded by what the code contains, not by how many
+  cycles ran.
+- **Fix:** the canonical compactor keeps, per `(tool_id, finding_fingerprint)`, the newest row
+  and archives the older copies pristine (`archives/raw_findings-compact-*.jsonl.gz`), on top of
+  the existing inline-finding strip. Proven on a bound copy of the live branch: 34 500 → 3 253
+  rows, 57.55 → 5.42 MB, chain valid, the unique-fingerprint set and the fingerprint→rule map
+  byte-identical, `verify_runtime_artifacts` for the newest cycle unchanged, the sampler's
+  candidate set the same fingerprints without the copies. The cycle-end auto-compaction
+  (40 MB threshold) runs before publish, so the first cycle on this code compacts and publishes.
+- **Left open (noted, not this finding):** the sampler keys "already judged" by
+  `(run_id, finding_id)`, so a fingerprint judged under one run id is offered again under the
+  next cycle's; with one row per fingerprint that is now one offer per cycle instead of six.

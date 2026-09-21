@@ -7,8 +7,14 @@ runs.jsonl hit 94.5MB — both over GitHub's 50MB recommendation.
 What it does (per surface, all lossless via archives):
 - runs.jsonl: strips evidence_validation.evidence_envelopes and read_paths
   from rows older than --retain-days (keeps counts + artifact_ref)
-- raw-findings.jsonl: strips inline finding objects from rows older than
-  --retain-days (keeps finding_summary + artifact_ref)
+- raw-findings.jsonl: keeps one row per (tool_id, finding_fingerprint) —
+  the newest — and strips inline finding objects from rows older than
+  --retain-days (keeps finding_summary + artifact_ref). ARIA-HIGH-185:
+  every cycle re-records the same finding universe (~3k rows, ~5MB), so
+  without the collapse the ledger grew one universe per cycle until the
+  publish's evidence budget (80MiB across counted surfaces) refused the
+  commit; the readers resolve a fingerprint to one row and none of them
+  needs the older copies.
 - memory/beliefs.jsonl: collapses to latest row per belief_id
 - memory/learning-events.jsonl: keeps rows newer than --retain-days
 
@@ -671,26 +677,55 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
 
 def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:
     rows = load_declared_jsonl(path, expected_surface="raw_findings")
+    newest_by_fingerprint: dict[tuple[str, str], int] = {}
+    for index, row in enumerate(rows):
+        key = _raw_finding_key(row)
+        if key is None:
+            continue
+        current = newest_by_fingerprint.get(key)
+        if current is None or _raw_finding_recorded(rows[current]) <= _raw_finding_recorded(row):
+            newest_by_fingerprint[key] = index
+    surviving = set(newest_by_fingerprint.values())
     kept: list[dict[str, Any]] = []
-    stripped_rows: list[dict[str, Any]] = []
-    stripped = 0
-    for row in rows:
+    archived_rows: list[dict[str, Any]] = []
+    removed = 0
+    for index, row in enumerate(rows):
+        if _raw_finding_key(row) is not None and index not in surviving:
+            archived_rows.append(copy.deepcopy(row))
+            removed += 1
+            continue
         recorded = _parse_ts(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff and "finding" in row:
-            stripped_rows.append(copy.deepcopy(row))
+            archived_rows.append(copy.deepcopy(row))
             finding = row.pop("finding")
             if "finding_summary" not in row and isinstance(finding, dict):
                 row["finding_summary"] = {
                     "rule": str(finding.get("rule") or ""),
                     "id": str(finding.get("id") or ""),
                 }
-            stripped += 1
+            removed += 1
         kept.append(row)
-    if dry_run or stripped == 0:
-        return len(kept), stripped
-    _archive_stripped(root, "raw_findings", stripped_rows)
+    if dry_run or removed == 0:
+        return len(kept), removed
+    _archive_stripped(root, "raw_findings", archived_rows)
     rewrite_declared_jsonl(path, kept, expected_surface="raw_findings", migration_id=f"compact_raw_findings_{utc_now()}")
-    return len(kept), stripped
+    return len(kept), removed
+
+
+def _raw_finding_key(row: dict[str, Any]) -> tuple[str, str] | None:
+    """The identity a raw-finding row keeps across cycles, or None for a
+    row without a fingerprint (legacy rows stay untouched by the collapse)."""
+    tool_id = str(row.get("tool_id") or "")
+    fingerprint = str(row.get("finding_fingerprint") or "")
+    if not tool_id or not fingerprint:
+        return None
+    return tool_id, fingerprint
+
+
+def _raw_finding_recorded(row: dict[str, Any]) -> datetime:
+    """Recording time for the newest-row choice; an unparseable time sorts
+    oldest so a dated row always wins over an undated one."""
+    return _parse_ts(row.get("recorded_at")) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _compact_beliefs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:

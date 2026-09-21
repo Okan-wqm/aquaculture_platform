@@ -201,6 +201,12 @@ export async function assertTenantSchemaPrivileges(
   const existing = await existingTenantTables(executor, options.tenantSchema);
 
   await executor.query(`GRANT USAGE ON SCHEMA "${options.tenantSchema}" TO "${serviceRole}"`);
+  // RI (foreign-key) checks execute AS THE TABLE OWNER. Without schema USAGE
+  // for the owner role, the first INSERT into any tenant table whose FK points
+  // at another tenant table dies with `permission denied for schema <tenant>`
+  // even though the service role itself is fully granted (live incident:
+  // createDepartment → FK departments.siteId → sites, 2026-09-21).
+  await executor.query(`GRANT USAGE ON SCHEMA "${options.tenantSchema}" TO "${ownerRole}"`);
 
   const alignedTables: string[] = [];
   const absentTables: string[] = [];
@@ -308,6 +314,24 @@ export async function verifyTenantSchemaPrivileges(
         WHERE t.schemaname = $1 AND t.tablename = ANY($3)`,
       [tenantSchema, serviceRole, present],
     )) as PrivilegeCheckRow[];
+
+    // Same incident class as the owner-role grant above: an owner without
+    // schema USAGE breaks every RI check on its tables. Verify it alongside
+    // ownership so drift is deploy-blocking instead of a runtime surprise.
+    const ownerHasUsage = (
+      (await executor.query(
+        `SELECT has_schema_privilege($2, $1, 'USAGE') AS ok`,
+        [tenantSchema, ownerRole],
+      )) as { ok: boolean }[]
+    )[0]?.ok;
+    if (present.length > 0 && !ownerHasUsage) {
+      violations.push({
+        table: '<schema>',
+        sourceSchema,
+        kind: 'owner',
+        detail: `owner role "${ownerRole}" lacks USAGE on schema "${tenantSchema}" (RI checks would fail)`,
+      });
+    }
 
     for (const row of rows) {
       if (row.tableowner !== ownerRole) {

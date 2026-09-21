@@ -966,6 +966,9 @@ services:
       MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # Worker PII email blind index (HMAC): without it every createWorker dies
+      # with "[BlindIndex] EMPLOYEE_PII_BLIND_INDEX_KEY ... required in production".
+      EMPLOYEE_PII_BLIND_INDEX_KEY: ${EMPLOYEE_PII_BLIND_INDEX_KEY:?EMPLOYEE_PII_BLIND_INDEX_KEY required}
     depends_on:
       postgres:
         condition: service_healthy

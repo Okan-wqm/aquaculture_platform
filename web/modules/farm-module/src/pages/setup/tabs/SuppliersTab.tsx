@@ -17,7 +17,6 @@ import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSec
 import {
   FormField,
   Modal,
-  useConfirm,
   useToast,
   Spinner,
   Button,
@@ -25,6 +24,7 @@ import {
   Select,
   Textarea,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import {
   Box,
   ChevronDown,
@@ -239,7 +239,7 @@ export const SuppliersTab: React.FC = () => {
     }));
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const { toast } = useToast();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,6 +247,10 @@ export const SuppliersTab: React.FC = () => {
     const errors: Record<string, string> = {};
     if (!formData.name) errors.name = 'Please enter a supplier name.';
     if (!formData.type) errors.type = 'Please select a supplier type.';
+    // Backend sözleşmesi: code alanı String! — boş bırakılırsa frontend alanı
+    // hiç göndermiyor ve GraphQL şema doğrulaması anlaşılmaz biçimde reddediyor
+    // (`Field "code" of required type "String!" was not provided`, 2026-09-21).
+    if (!formData.code.trim()) errors.code = 'Please enter a supplier code.';
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -254,7 +258,7 @@ export const SuppliersTab: React.FC = () => {
       // Base input fields (without status - status is only for updates)
       const baseInput: CreateSupplierInput = {
         name: formData.name,
-        code: formData.code || undefined,
+        code: formData.code.trim(),
         type: formData.type as SupplierType,
         contactPerson: formData.contactPerson || undefined,
         email: formData.email || undefined,
@@ -635,12 +639,13 @@ export const SuppliersTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Code
+                    Code *
                   </label>
                   <Input
                     fullWidth
                     type="text"
                     value={formData.code}
+                    error={formData.code.trim() ? undefined : fieldErrors.code}
                     onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
                   />
                 </div>
@@ -907,6 +912,7 @@ export const SuppliersTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

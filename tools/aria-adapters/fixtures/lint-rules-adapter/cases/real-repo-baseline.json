@@ -1,0 +1,11 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["apps", "libs", "platform/libs", "web"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["lint_rules_summary"]
+  }
+}

@@ -36814,6 +36814,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-19-aria-position-and-detection-layer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-09-19-aria-typed-judgment-plan.md",
       "prettier_managed": true
     },
@@ -45639,7 +45645,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "dd772a5619bb10a6b6f01b1432ed1e9cc279d1c80fc9c118938bbc38877632a9",
+      "content_sha256": "fc470a5ebd81ea0b33c179c7c6242ee3c8934570ddd77e0bca2853cf442dafb9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -49611,6 +49617,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/cases/rule-packs.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/rule-packs/apps/sample-service/src/clean.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/rule-packs/apps/sample-service/src/flagged.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/security-boundary-adapter/cases/real-repo-baseline.json",
       "prettier_managed": true
     },
@@ -49755,6 +49785,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/kernel-dead-wire-adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.tool.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules.eslint.config.mjs",
       "prettier_managed": true
     },
     {

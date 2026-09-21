@@ -126,11 +126,17 @@ class NativeZaiLane(unittest.TestCase):
         # The child needs git (task binding) and python3; it must NOT find a
         # claude or codex binary — the fixture bin dir holds only python3 and
         # os.defpath carries neither CLI on a CI runner or this host's default path.
+        # ARIA-HIGH-182 — RUNNER_TEMP / GITHUB_OUTPUT are the drain's summary
+        # channel: what the child writes there is what the drain classifies.
+        self.runner_temp = self.root / "runner-temp"
+        self.runner_temp.mkdir(exist_ok=True)
+        self.github_output = self.runner_temp / "github-output.txt"
         self.environment = {
             **os.environ, "PATH": str(self.binary_dir) + os.pathsep + os.defpath,
             "ARIA_WORKSPACE_ROOT": str(self.repo),
             "MAX_TIMEOUT_SECONDS": "30",
             "ARIA_ZAI_API_KEY_FILE": str(key_file), "ARIA_ZAI_ENDPOINT": self.vendor.base_url,
+            "RUNNER_TEMP": str(self.runner_temp), "GITHUB_OUTPUT": str(self.github_output),
         }
         self.environment.pop("ARIA_ZAI_API_KEY", None)
 
@@ -225,6 +231,16 @@ class NativeZaiLane(unittest.TestCase):
         usage = [row for row in read_cost_attribution(base_dir=self.tools) if row.get("cycle_id") == self.request["cycle_id"]]
         self.assertEqual(len(usage), 1)
         self.assertEqual((usage[0]["model"], usage[0]["input_tokens"], usage[0]["output_tokens"]), ("glm-5.3", 1200, 90))
+        # ARIA-HIGH-182 — the accepted native verdict is a `succeeded` summary
+        # on the drain's channel, not a child that said nothing.
+        summary_path = self.runner_temp / f"dispatch-result-{self.request['request_id']}.json"
+        self.assertTrue(summary_path.is_file(), "the native path writes its dispatch summary")
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual((summary["outcome"], summary["provider"], summary["model"], summary["exit_code"]),
+                         ("succeeded", "zai", "glm-5.3", 0))
+        self.assertIsNone(summary.get("failure_class"))
+        self.assertIn(f"dispatch_summary_path={summary_path.resolve().as_posix()}",
+                      self.github_output.read_text(encoding="utf-8"))
         self.assertGreater(usage[0]["estimated_usd"], 0)
         admissions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
         self.assertEqual(admissions, [])

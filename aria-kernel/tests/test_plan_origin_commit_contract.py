@@ -273,9 +273,17 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         self.assertEqual(orphan.content["finding_id"], "ORPHAN-HIGH-104")
         self.assertEqual(commit_contract_for_plan(orphan.content, plan_id="p")["trailer"],
                          "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
+        finding_dir = Path(tempfile.mkdtemp(prefix="aria-origin-finding-"))
+        self.addCleanup(__import__("shutil").rmtree, finding_dir, True)
+        finding_path = finding_dir / "F-099.json"
+        finding_path.write_text(
+            '{"id": "F-099", "evidence_chain": [{"reference": "apps/hr-service/src/leave.ts:12"}]}',
+            encoding="utf-8",
+        )
+        # ARIA-HIGH-181 — an F-finding converts only on a code reference.
         f_finding = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
-            "mtime": 1.0, "path": "/nonexistent/F-099.json", "title_hint": "Process F-099",
+            "mtime": 1.0, "path": str(finding_path), "title_hint": "Process F-099",
         })
         self.assertEqual(f_finding.content["finding_id"], "F-099")
         ci = convert_candidate_to_plan_content({

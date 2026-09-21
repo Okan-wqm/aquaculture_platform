@@ -4239,6 +4239,18 @@ def _reconcile_native_result(
     return True
 
 
+def _native_route_for_summary(native_runtime: "_NativeRuntimePlan", request: dict[str, Any], *, target_agent: str) -> DispatchRoute:
+    """The route the native attempt actually RAN on (ARIA-HIGH-182) — the
+    admitted provider and model, never the profile's declared pair: the
+    evidence judge declares anthropic/opus and is admitted on zai/glm-5.3
+    when the ladder says so, and the drain keys its circuits by the pair
+    that answered."""
+    return DispatchRoute(
+        provider=str(native_runtime.route["provider"]), model=str(native_runtime.route["model"]),
+        role=str(request.get("role") or ""), target_agent=str(request.get("target_agent") or target_agent),
+    )
+
+
 def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     global _MOCK_MODE_AT_ENTRY
@@ -5080,6 +5092,18 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else
                     "native_runtime_execution_unavailable" if native_runtime is not None else f"claude_cli_exit_{cli_exit}"),
         )
+        if native_runtime is not None:
+            # ARIA-HIGH-182 — named, not silent: the harness's condition,
+            # retryable, so the drain reads a `failed` summary of the host's
+            # class instead of a child that said nothing.
+            _write_dispatch_summary(
+                route=_native_route_for_summary(native_runtime, request_envelope, target_agent=subagent_type),
+                request_id=request_id, outcome="failed",
+                failure=DispatchFailure(failure_class="harness_unavailable", retryable=True,
+                                        detail_code="native_runtime_execution_unavailable",
+                                        phase="runtime", exit_code=cli_exit),
+                exit_code=cli_exit,
+            )
         return 1
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
@@ -5519,6 +5543,18 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             request_envelope=request_envelope,
         ):
             return 1
+        # ARIA-HIGH-182 — the native paths' one success summary. The Claude
+        # CLI path emits its `succeeded` summary inside invoke_claude_cli;
+        # the native runtimes (Z.ai, Codex, native Claude) returned 0 here
+        # with none, and the drain — whose ONLY evidence of success is the
+        # summary (B8) — counted every accepted native verdict as
+        # `child_without_summary`: the first drain after ARIA-HIGH-180
+        # (run 35509466473) folded 26 adversarial judgments and reported
+        # attempted=30 succeeded=1 failed=26 harness_failed=26, red.
+        _write_dispatch_summary(
+            route=_native_route_for_summary(native_runtime, request_envelope, target_agent=subagent_type),
+            request_id=request_id, outcome="succeeded", failure=None, exit_code=0,
+        )
     return 0
 
 

@@ -271,6 +271,9 @@ export class HarvestPlan {
   // TARİHLER
   // -------------------------------------------------------------------------
 
+  // DATE kolonları TypeORM'dan 'YYYY-MM-DD' string döner; DateTime scalar'ı
+  // bunu serialize edemeyip null döndürüyor ve non-null plannedDate tüm
+  // harvestPlans sorgusunu çökertiyordu (batch.stockedAt ile aynı canlı bulgu).
   @Field()
   @Column({ type: 'date' })
   @Index()

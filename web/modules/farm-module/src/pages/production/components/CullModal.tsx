@@ -2,6 +2,7 @@
  * Cull Modal
  * Records fish culling in a tank with reason and biomass calculation
  */
+import { toGraphqlEnumName } from '../../../utils/graphql-enum';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { TankBatch, CullReason, CullReasonLabels } from '../types/batch.types';
@@ -124,10 +125,7 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        // `reason` is a CullReason enum value whose string literal
-        // (e.g. `'small_size'`) matches the hook's `CullReason` union
-        // type exactly — no cast required.
-        reason,
+        reason: (toGraphqlEnumName(reason) ?? reason) as CullReason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         culledAt,
         notes,

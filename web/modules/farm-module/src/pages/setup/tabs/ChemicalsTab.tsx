@@ -1,3 +1,4 @@
+import { fromGraphqlEnumName } from '../../../utils/graphql-enum';
 /**
  * Chemicals Tab Component
  * Professional chemical management with CRUD, document upload, and multi-site assignment
@@ -24,7 +25,6 @@ import {
   FormField,
   Modal,
   useToast,
-  useConfirm,
   DataTable,
   type DataTableColumn,
   Spinner,
@@ -33,6 +33,7 @@ import {
   Select,
   Textarea,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import { ChevronDown, FileText, FlaskConical, Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
@@ -115,6 +116,39 @@ const FALLBACK_CHEMICAL_CATEGORIES = [
   { id: '11', code: 'ALGAECIDE', name: 'Algaecide', isActive: true, sortOrder: 11 },
   { id: '12', code: 'OTHER', name: 'Other', isActive: true, sortOrder: 12 },
 ];
+
+/**
+ * chemical_types referans tablosundaki küçük harf kod → GraphQL ChemicalType
+ * enum ADI. GraphQL enum girişleri enumun ADINI bekler; DB kodu (enumun
+ * DEĞERİ) gönderilirse `Value "disinfectant" does not exist in "ChemicalType"`
+ * şeklinde şema reddi gelir ve kimyasal hiçbir zaman oluşturulamaz
+ * (2026-09-21 canlı olay; Fish Health sekmesi aynı mutasyonu AD ile
+ * gönderip başarıyordu). pH_ADJUSTER özel: enum adında küçük 'h' var.
+ */
+const CHEMICAL_TYPE_NAME_BY_CODE: Record<string, string> = {
+  disinfectant: 'DISINFECTANT',
+  treatment: 'TREATMENT',
+  water_conditioner: 'WATER_CONDITIONER',
+  antibiotic: 'ANTIBIOTIC',
+  antiparasitic: 'ANTIPARASITIC',
+  probiotic: 'PROBIOTIC',
+  vitamin: 'VITAMIN',
+  mineral: 'MINERAL',
+  anesthetic: 'ANESTHETIC',
+  ph_adjuster: 'pH_ADJUSTER',
+  algaecide: 'ALGAECIDE',
+  antifungal: 'ANTIFUNGAL',
+  vaccine: 'VACCINE',
+  wound_care: 'WOUND_CARE',
+  other: 'OTHER',
+};
+
+/** Formdaki kategori değerini (DB kodu veya zaten enum adı) enum adına çevirir. */
+function toChemicalTypeName(value: string): string {
+  if (CHEMICAL_TYPE_NAME_BY_CODE[value]) return CHEMICAL_TYPE_NAME_BY_CODE[value];
+  // Zaten enum adı geldiyse (fallback liste büyük harf) olduğu gibi gönder.
+  return value;
+}
 
 // ============================================================================
 // TYPES
@@ -475,7 +509,7 @@ export const ChemicalsTab: React.FC = () => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -483,7 +517,10 @@ export const ChemicalsTab: React.FC = () => {
     if (!formData.name) errors.name = 'Please enter a name.';
     if (!formData.code) errors.code = 'Please enter a code.';
     if (!formData.type) errors.type = 'Please select a chemical type.';
-    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    // site yalnızca CREATE'te input'un parçası; EDIT siteId'yi hiç göndermez ve
+    // site ilişkisi chemical_sites join tablosunda tutulduğundan forma hiç
+    // yüklenmez — edit'te bu şart formu sessizce kilitliyordu (canlı bulgu).
+    if (!editingId && !formData.siteId) errors.siteId = 'Please select a site.';
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -492,7 +529,7 @@ export const ChemicalsTab: React.FC = () => {
       const input: any = {
         name: formData.name,
         code: formData.code,
-        type: formData.type || undefined,
+        type: formData.type ? toChemicalTypeName(formData.type) : undefined,
         unit: formData.unit || 'liter',
         supplierId: formData.supplierId || undefined,
         description: formData.description || undefined,
@@ -574,7 +611,10 @@ export const ChemicalsTab: React.FC = () => {
     setFormData({
       name: chemical.name,
       code: chemical.code,
-      type: chemical.type,
+      // GraphQL enum ADI olarak gelir (ör. DISINFECTANT); select'in değerleri
+      // chemical_types tablosunun küçük harf kodları — eşleşmesi için çevir
+      // (pH_ADJUSTER -> ph_adjuster dahil, toLowerCase birebir eşleşiyor).
+      type: chemical.type ? (fromGraphqlEnumName(String(chemical.type)) as ChemicalType) : '',
       supplierId: chemical.supplierId || '',
       description: chemical.description || '',
       activeIngredient: chemical.activeIngredient || '',
@@ -910,9 +950,12 @@ export const ChemicalsTab: React.FC = () => {
                     />
                   </div>
                   <div>
+                    {/* Site yalnızca CREATE'te gönderilir; EDIT'te ilişki chemical_sites
+                        join tablosundadır ve forma yüklenmez — HTML required bu yüzden
+                        edit'te submit'i sessizce engelliyordu (canlı bulgu). */}
                     <Select
                       label="Site"
-                      required
+                      required={!editingId}
                       placeholder="Select Site"
                       value={formData.siteId}
                       onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
@@ -1292,6 +1335,7 @@ export const ChemicalsTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

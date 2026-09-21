@@ -176,6 +176,9 @@ export class CreateSiteInput {
   @Field(() => Float, { nullable: true })
   @IsOptional()
   @IsNumber()
+  /** Negatif alan fiziksel olarak anlamsız — canlıda -50 m² yazılabiliyordu. */
+  @Min(0)
+  @Max(1_000_000_000)
   totalArea?: number;
 
   @Field({ nullable: true })

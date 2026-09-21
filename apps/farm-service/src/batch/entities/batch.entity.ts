@@ -294,6 +294,11 @@ export class Batch {
   // TARİHLER
   // -------------------------------------------------------------------------
 
+  // DATE kolonları TypeORM'dan 'YYYY-MM-DD' string olarak döner; varsayılan
+  // DateTime scalar'ı bu string'i serialize edemeyip null döndürüyor ve
+  // non-null stockedAt tüm batches sorgusunu çökertiyordu (canlı bulgu
+  // 2026-09-21: hasat planının parti seçici dahil hiçbir batch listesi
+  // açılmıyordu). Site entity'sindeki kanıtlanmış desen: () => String.
   @Field()
   @Column({ type: 'date' })
   stockedAt!: Date; // Stoklama tarihi

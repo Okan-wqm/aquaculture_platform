@@ -27,13 +27,13 @@ import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
 import {
   Modal,
-  useConfirm,
   Spinner,
   Button,
   Input,
   Select,
   Textarea,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import {
   Box,
   ChartColumn,
@@ -355,7 +355,7 @@ export const SpeciesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const handleDelete = async (id: string) => {
     if (
       await confirm({
@@ -1369,6 +1369,7 @@ export const SpeciesTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

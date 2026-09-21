@@ -442,7 +442,11 @@ export const SitesTab: React.FC = () => {
               <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
                 <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                   <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
-                  <Button variant="ghost" onClick={() => navigate(`/sites/${site.id}`)}>
+                  {/* 2026-09-21: `/sites/:id` detay rotası modülde hiç tanımlı
+                      değildi — buton sessizce hiçbir yere gitmiyordu. Mevcut,
+                      çalışan düzenleme modalı tüm alanları doldurulmuş gösterdiği
+                      için "detay" ihtiyacını karşılar; rota eklenene kadar köprü. */}
+                  <Button variant="ghost" onClick={() => handleEdit(site)}>
                     View Details →
                   </Button>
                 </div>

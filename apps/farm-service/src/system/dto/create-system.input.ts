@@ -7,10 +7,13 @@ import {
   IsString,
   IsOptional,
   IsNumber,
+  IsInt,
   MaxLength,
   MinLength,
   IsEnum,
   IsUUID,
+  Min,
+  Max,
 } from 'class-validator';
 import { SystemType, SystemStatus } from '../entities/system.entity';
 
@@ -62,15 +65,23 @@ export class CreateSystemInput {
   @Field(() => Float, { nullable: true, description: 'Total water volume in m³' })
   @IsOptional()
   @IsNumber()
+  /** Negatif hacim anlamsız; üst sınır numeric overflow'u (canlı olay) önler. */
+  @Min(0)
+  @Max(1_000_000_000)
   totalVolumeM3?: number;
 
   @Field(() => Float, { nullable: true, description: 'Maximum biomass capacity in kg' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(1_000_000_000)
   maxBiomassKg?: number;
 
   @Field(() => Int, { nullable: true, description: 'Number of tanks in this system' })
   @IsOptional()
   @IsNumber()
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
   tankCount?: number;
 }

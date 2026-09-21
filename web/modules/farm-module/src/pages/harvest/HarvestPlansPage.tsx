@@ -1,3 +1,4 @@
+import { toGraphqlEnumName, fromGraphqlEnumName } from '../../utils/graphql-enum';
 /**
  * HarvestPlansPage
  *
@@ -2364,7 +2365,29 @@ export const HarvestPlansPage: React.FC = () => {
   const { data: statsData } = useHarvestPlanStats();
   const { data: batchesData } = useBatchList(undefined, { fetchAll: true });
 
-  const plans = plansData?.items ?? [];
+  // API enum'ları BÜYÜK harf AD olarak serileşiyor (DRAFT/PARTIAL/PUMP/…),
+  // tüm UI mantığı küçük harf DEĞER bekliyor — normalize edilmeden
+  // grouped[plan.status] undefined kalıp sayfa render'da çöküyordu (canlı
+  // bulgu 2026-09-21: ilk gerçek plan oluşturulduğunda liste patladı).
+  const normalizePlanEnums = (p: HarvestPlan): HarvestPlan => ({
+    ...p,
+    status: p.status ? (fromGraphqlEnumName(String(p.status)) as HarvestPlan['status']) : p.status,
+    harvestType: p.harvestType
+      ? (fromGraphqlEnumName(String(p.harvestType)) as HarvestPlan['harvestType'])
+      : p.harvestType,
+    ...(p.harvestMethod
+      ? {
+          harvestMethod: fromGraphqlEnumName(
+            String(p.harvestMethod),
+          ) as HarvestPlan['harvestMethod'],
+        }
+      : {}),
+    ...(p.productForm
+      ? { productForm: fromGraphqlEnumName(String(p.productForm)) as HarvestPlan['productForm'] }
+      : {}),
+  });
+
+  const plans: HarvestPlan[] = (plansData?.items ?? []).map(normalizePlanEnums);
   const stats: HarvestPlanStats = statsData ?? {
     total: 0,
     draft: 0,
@@ -2415,11 +2438,17 @@ export const HarvestPlansPage: React.FC = () => {
   }, []);
 
   // Helper: convert form data to CreateHarvestPlanInput
+  // GraphQL enum girişleri enumun ADINI bekler (PARTIAL, PUMP, FRESH_WHOLE);
+  // form ise DEĞERİ ('partial', 'pump', 'fresh_whole') tutar. Değer gönderilince
+  // şema doğrulaması reddediyor ve plan hiç oluşturulamıyordu (canlı bulgu
+  // 2026-09-21 — Chemicals/Mortality ile aynı sınıf). Underscore'lu adlar da
+  // toUpperCase ile birebir eşleşiyor.
+
   const toCreateInput = (planData: Partial<HarvestPlan>): CreateHarvestPlanInput => ({
     name: planData.name || '',
     description: planData.description,
     batchId: planData.batchId || '',
-    harvestType: planData.harvestType,
+    harvestType: toGraphqlEnumName(planData.harvestType) as HarvestType,
     plannedDate: planData.plannedDate || '',
     windowStartDate: planData.windowStartDate || undefined,
     windowEndDate: planData.windowEndDate || undefined,
@@ -2432,8 +2461,8 @@ export const HarvestPlansPage: React.FC = () => {
       qualityGrade: planData.criteria?.qualityGrade,
       minimumConditionFactor: planData.criteria?.minimumConditionFactor,
     },
-    harvestMethod: planData.harvestMethod,
-    productForm: planData.productForm,
+    harvestMethod: toGraphqlEnumName(planData.harvestMethod) as HarvestPlan['harvestMethod'],
+    productForm: toGraphqlEnumName(planData.productForm) as HarvestPlan['productForm'],
     estimates: {
       estimatedQuantity: planData.estimates?.estimatedQuantity ?? 0,
       estimatedBiomass: planData.estimates?.estimatedBiomass ?? 0,
@@ -2459,6 +2488,10 @@ export const HarvestPlansPage: React.FC = () => {
       : undefined,
     notes: planData.notes,
     attachments: planData.attachments,
+    // Backend CreateHarvestPlanInput DTO'su status alanını zorunlu tutuyor
+    // ve GraphQL enum ADI bekler ('DRAFT') — form değeri ise küçük harf.
+    // İkisi de eksikken plan UI'dan hiç oluşturulamıyordu (canlıda 0 plan).
+    status: toGraphqlEnumName(planData.status ?? 'draft') as HarvestPlan['status'],
   });
 
   // Handlers
@@ -2494,9 +2527,10 @@ export const HarvestPlansPage: React.FC = () => {
   const handleWorkflowAction = (plan: HarvestPlan, action: string) => {
     switch (action) {
       case 'submit':
-        // Submit for approval = update status to 'planned'
+        // Submit for approval = update status to 'planned' (GraphQL enum
+        // ADI bekler: PLANNED — küçük harf değer şema reddediyordu).
         updateMutation.mutate(
-          { id: plan.id, status: 'planned' },
+          { id: plan.id, status: 'PLANNED' as HarvestPlan['status'] },
           { onError: (err) => console.error('Failed to submit plan:', err) },
         );
         break;

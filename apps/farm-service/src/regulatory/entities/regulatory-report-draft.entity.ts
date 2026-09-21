@@ -105,7 +105,7 @@ export class RegulatoryReportDraft {
   schemaValid!: boolean;
 
   /** Official submission deadline (Oslo calendar date). */
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   dueAt?: string;
 

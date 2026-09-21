@@ -256,7 +256,7 @@ export class GrowthMeasurement {
   // ÖLÇÜM BİLGİLERİ
   // -------------------------------------------------------------------------
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   @Index()
   measurementDate!: Date;

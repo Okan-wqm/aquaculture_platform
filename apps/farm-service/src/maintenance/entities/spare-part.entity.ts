@@ -170,11 +170,11 @@ export class SparePart {
   @Column({ type: 'int', nullable: true })
   leadTimeDays?: number; // Tedarik süresi
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   lastOrderDate?: Date;
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   lastUsedDate?: Date;
 

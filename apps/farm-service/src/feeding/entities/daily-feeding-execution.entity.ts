@@ -222,7 +222,7 @@ export class DailyFeedingExecution {
   // TARİH
   // -------------------------------------------------------------------------
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   @Index()
   executionDate!: Date;

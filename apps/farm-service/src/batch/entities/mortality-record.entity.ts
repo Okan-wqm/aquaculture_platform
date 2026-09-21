@@ -179,7 +179,7 @@ export class MortalityRecord {
   // ÖLÜM DETAYLARI
   // -------------------------------------------------------------------------
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   recordDate!: Date;                      // Ölüm tarihi
 

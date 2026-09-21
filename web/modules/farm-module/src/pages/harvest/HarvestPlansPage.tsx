@@ -1,3 +1,4 @@
+import { toGraphqlEnumName, fromGraphqlEnumName } from '../../utils/graphql-enum';
 /**
  * HarvestPlansPage
  *
@@ -2370,15 +2371,15 @@ export const HarvestPlansPage: React.FC = () => {
   // bulgu 2026-09-21: ilk gerçek plan oluşturulduğunda liste patladı).
   const normalizePlanEnums = (p: HarvestPlan): HarvestPlan => ({
     ...p,
-    status: p.status ? (String(p.status).toLowerCase() as HarvestPlan['status']) : p.status,
+    status: p.status ? (fromGraphqlEnumName(String(p.status)) as HarvestPlan['status']) : p.status,
     harvestType: p.harvestType
-      ? (String(p.harvestType).toLowerCase() as HarvestPlan['harvestType'])
+      ? (fromGraphqlEnumName(String(p.harvestType)) as HarvestPlan['harvestType'])
       : p.harvestType,
     ...(p.harvestMethod
-      ? { harvestMethod: String(p.harvestMethod).toLowerCase() as HarvestPlan['harvestMethod'] }
+      ? { harvestMethod: fromGraphqlEnumName(String(p.harvestMethod)) as HarvestPlan['harvestMethod'] }
       : {}),
     ...(p.productForm
-      ? { productForm: String(p.productForm).toLowerCase() as HarvestPlan['productForm'] }
+      ? { productForm: fromGraphqlEnumName(String(p.productForm)) as HarvestPlan['productForm'] }
       : {}),
   });
 
@@ -2438,14 +2439,12 @@ export const HarvestPlansPage: React.FC = () => {
   // şema doğrulaması reddediyor ve plan hiç oluşturulamıyordu (canlı bulgu
   // 2026-09-21 — Chemicals/Mortality ile aynı sınıf). Underscore'lu adlar da
   // toUpperCase ile birebir eşleşiyor.
-  const toEnumName = (value: string | undefined): string | undefined =>
-    value ? value.toUpperCase() : undefined;
 
   const toCreateInput = (planData: Partial<HarvestPlan>): CreateHarvestPlanInput => ({
     name: planData.name || '',
     description: planData.description,
     batchId: planData.batchId || '',
-    harvestType: toEnumName(planData.harvestType) as HarvestType,
+    harvestType: toGraphqlEnumName(planData.harvestType) as HarvestType,
     plannedDate: planData.plannedDate || '',
     windowStartDate: planData.windowStartDate || undefined,
     windowEndDate: planData.windowEndDate || undefined,
@@ -2458,8 +2457,8 @@ export const HarvestPlansPage: React.FC = () => {
       qualityGrade: planData.criteria?.qualityGrade,
       minimumConditionFactor: planData.criteria?.minimumConditionFactor,
     },
-    harvestMethod: toEnumName(planData.harvestMethod) as HarvestPlan['harvestMethod'],
-    productForm: toEnumName(planData.productForm) as HarvestPlan['productForm'],
+    harvestMethod: toGraphqlEnumName(planData.harvestMethod) as HarvestPlan['harvestMethod'],
+    productForm: toGraphqlEnumName(planData.productForm) as HarvestPlan['productForm'],
     estimates: {
       estimatedQuantity: planData.estimates?.estimatedQuantity ?? 0,
       estimatedBiomass: planData.estimates?.estimatedBiomass ?? 0,
@@ -2488,7 +2487,7 @@ export const HarvestPlansPage: React.FC = () => {
     // Backend CreateHarvestPlanInput DTO'su status alanını zorunlu tutuyor
     // ve GraphQL enum ADI bekler ('DRAFT') — form değeri ise küçük harf.
     // İkisi de eksikken plan UI'dan hiç oluşturulamıyordu (canlıda 0 plan).
-    status: toEnumName(planData.status ?? 'draft') as HarvestPlan['status'],
+    status: toGraphqlEnumName(planData.status ?? 'draft') as HarvestPlan['status'],
   });
 
   // Handlers

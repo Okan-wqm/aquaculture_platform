@@ -248,11 +248,11 @@ export class FeedingTable {
   // TARİH ARALIĞI
   // -------------------------------------------------------------------------
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   startDate!: Date;
 
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   endDate!: Date;
 

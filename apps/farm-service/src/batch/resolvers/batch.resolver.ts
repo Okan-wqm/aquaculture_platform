@@ -351,7 +351,10 @@ export class BatchResolver {
   ): Promise<Batch> {
     this.logger.log(`Updating batch status: ${id} to ${status}`);
     return this.commandBus.execute(
-      new UpdateBatchStatusCommand(tenantId, id, status, user.sub, reason),
+      // Arg sırası komut sözleşmesiyle aynı olmalı: (tenantId, batchId,
+      // newStatus, reason?, updatedBy?) — user.sub'in reason'a, reason'un
+      // updatedBy (uuid kolonu) yerine kaydığı canlı hata düzeltildi.
+      new UpdateBatchStatusCommand(tenantId, id, status, reason, user.sub),
     );
   }
 

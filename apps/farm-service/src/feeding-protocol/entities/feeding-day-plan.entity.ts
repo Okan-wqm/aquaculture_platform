@@ -228,7 +228,7 @@ export class FeedingDayPlan {
   unitCode!: string;
 
   /** Site saat dilimindeki takvim günü (D-4). */
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   planDate!: string;
 

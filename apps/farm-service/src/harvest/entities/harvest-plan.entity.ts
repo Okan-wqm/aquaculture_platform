@@ -274,20 +274,20 @@ export class HarvestPlan {
   // DATE kolonları TypeORM'dan 'YYYY-MM-DD' string döner; DateTime scalar'ı
   // bunu serialize edemeyip null döndürüyor ve non-null plannedDate tüm
   // harvestPlans sorgusunu çökertiyordu (batch.stockedAt ile aynı canlı bulgu).
-  @Field(() => String)
+  @Field()
   @Column({ type: 'date' })
   @Index()
   plannedDate!: Date;
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   confirmedDate?: Date;
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   windowStartDate?: Date;            // Esnek tarih aralığı başlangıcı
 
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   windowEndDate?: Date;              // Esnek tarih aralığı bitişi
 

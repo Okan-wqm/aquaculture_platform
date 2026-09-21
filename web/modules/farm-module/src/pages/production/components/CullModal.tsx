@@ -125,7 +125,7 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        reason: toGraphqlEnumName(reason) as unknown as typeof reason,
+        reason: (toGraphqlEnumName(reason) ?? reason) as CullReason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         culledAt,
         notes,

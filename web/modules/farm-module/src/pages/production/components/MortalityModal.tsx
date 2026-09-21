@@ -130,7 +130,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        reason: toGraphqlEnumName(reason) as unknown as typeof reason,
+        reason: (toGraphqlEnumName(reason) ?? reason) as MortalityReason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         observedAt,
         notes,

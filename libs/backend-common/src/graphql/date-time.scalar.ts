@@ -30,7 +30,7 @@ interface PatchableScalar {
 
 let installed = false;
 
-function patchInstance(instance: PatchableScalar | undefined, source: string): boolean {
+function patchInstance(instance: PatchableScalar | undefined, _source: string): boolean {
   if (!instance || typeof instance.serialize !== 'function') return false;
   const originalSerialize = instance.serialize.bind(instance);
   const originalParseValue = instance.parseValue.bind(instance);
@@ -64,7 +64,7 @@ export function installDateOnlyDateTimeScalar(): void {
     // engelliyor — createRequire + mutlak yol bu kısıtı aşar ve TypeMapper'ın
     // kullandığı gerçek singleton'a ulaşır.
     const path = nodeRequire('path') as typeof import('path');
-    const pkgEntry = nodeRequire.resolve('@nestjs/graphql') as string;
+    const pkgEntry = nodeRequire.resolve('@nestjs/graphql');
     const scalarsModulePath = path.join(path.dirname(pkgEntry), 'scalars');
     const nestScalars = nodeRequire(scalarsModulePath) as Record<string, unknown>;
     if (patchInstance(nestScalars.GraphQLISODateTime as PatchableScalar | undefined, 'nestjs')) {

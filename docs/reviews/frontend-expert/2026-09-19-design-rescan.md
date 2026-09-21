@@ -660,6 +660,46 @@ the exact audit theatre the traceability rule exists to prevent. Candidate fixes
 declares itself a PARENT only a reconcile over its children may close, or a `Progresses:` trailer so
 incremental work has an honest one to use.
 
+### ARIA-HIGH-182 — six dormancy waivers shared one expiry and lapsed together
+
+**Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
+
+Six of the eight waivers in `control-reachability.dormant.json` carried the identical
+`expires_on` of 2026-09-20. They lapsed at the date rollover and
+`test_a_waiver_expires_against_the_clock_not_against_a_regex` went red — which blocks
+`aria-kernel` on every branch and on main. No code changed; only the calendar.
+
+Caught on PR #1629: the same commit tree passed `aria-kernel` at 23:05 on the 20th and failed at
+00:50 on the 21st, with a merge in between that touched no ARIA file.
+
+The file's own history records this failure mode one layer up — its test docblock notes that
+"twenty-five TypeScript waivers reached one shared expiry together", and the fix then was to give
+each waiver an owner, a reason and an id. That did not address the _clustering_, and six new
+waivers promptly rebuilt it. A cliff turns a per-control review prompt into a repo-wide outage.
+
+Unblocked by staggering the six across three dates chosen by what each actually waits on, not by
+moving them as a block. The outage is closed; **ARIA-MEDIUM-183 carries the prevention**, because
+staggering is a mitigation and nothing yet stops the next batch from sharing a date.
+
+### ARIA-MEDIUM-183 — nothing stops waivers from sharing an expiry date
+
+**Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
+
+`test_control_reachability` enforces that every waiver names an owner, a reason, a deadline and a
+finding id, and that the deadline is checked against the clock rather than a regex. It does not
+constrain the _relationship between_ deadlines, so six waivers written in one sitting shared one
+date and turned a per-control review prompt into a repo-wide outage (ARIA-HIGH-182).
+
+This is the second occurrence of one pattern — the first was the twenty-five TypeScript waivers the
+test's own docblock records — and the fix applied then (owner + reason + id per waiver) addressed
+authorship, not clustering.
+
+Two candidates, both a gate where the present arrangement is a habit: refuse a waiver whose
+`expires_on` equals another's unless both declare themselves one decision (the skill-genesis trio is
+the legitimate case and would carry that declaration, making the coupling readable instead of
+coincidental); or escalate ARIA-MEDIUM-128's seven-day doctor warning when several waivers share a
+day, so a cliff announces itself as a cliff rather than as N separate reminders.
+
 ## Order of work
 
 1. **FE-HIGH-078 + FE-HIGH-085** — retint the primitives from the tokens and ship

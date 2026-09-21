@@ -1,15 +1,15 @@
 {
   "require_capability_resolution": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-11-21",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Refuses a mission step whose required capability is unresolved. The CAPABILITY_REQUIRED flow it belongs to is PLAN Wave 6 (parent mission blocks, genesis child mission produces the capability, parent resumes); until that flow exists there is no caller with a capability to resolve."
+    "reason": "Refuses a mission step whose required capability is unresolved. The CAPABILITY_REQUIRED flow it belongs to is PLAN Wave 6 (parent mission blocks, genesis child mission produces the capability, parent resumes); until that flow exists there is no caller with a capability to resolve. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on PLAN Wave 6 (parent mission blocks, genesis child produces the capability, parent resumes)."
   },
   "require_lifecycle_state": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-11-28",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Genesis lifecycle state precondition. The genesis machine runs today through its own transition table; this helper is the alternative entry point. PLAN Wave 6 merges the genesis and tool_registry lifecycles onto one vocabulary - route it or drop it there, not before."
+    "reason": "Genesis lifecycle state precondition. The genesis machine runs today through its own transition table; this helper is the alternative entry point. PLAN Wave 6 merges the genesis and tool_registry lifecycles onto one vocabulary - route it or drop it there, not before. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on PLAN Wave 6 merging the genesis and tool_registry lifecycles onto one vocabulary. Dated a week after its Wave 6 sibling so the two do not lapse together again."
   },
   "validate_file": {
     "expires_on": "2026-10-09",
@@ -18,28 +18,28 @@
     "reason": "REASON REPLACED 2026-09-09. The previous one said 'Operator-facing CLI surface with no CLI verb attached - give it one or delete it', which reads as dead code. It is not. validate_file is the ENGINE of the V4 narrative-shape invariant: tests/invariants/v4/test_phase_v4_b_narrative_shape.py:62,66 runs it over every agent file to enforce the pedagogy contract, and that test is a real gate. pedagogy_lint.py (which does run in CI) only mentions this module in a comment; it does not import it. So the consumer is an invariant test, which is this control's INTENDED and sufficient consumer -- there is no unguarded production path here to close. The reachability gate cannot express that distinction: its rule that 'tests calling a control directly cannot count as evidence' is right for a control meant to run in production and wrong for one whose gate IS the invariant. Third instance of the CONTROL_VERBS classification problem, after record_resolution (a real control the prefix list cannot see) and check_remaining_budget (an accessor it wrongly called a control, since renamed). Open decision is whether the gate learns 'invariant-driven control' as a category, not whether to delete this."
   },
   "validate_generated_adapter": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-12-12",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Skill-genesis adapter validation. The adapter authoring loop is dispatched through the convergent drafting agents, and the kernel-side validation of their output is not yet on that path - which is precisely the shape of defect this gate exists to surface, on a lane that is not live."
+    "reason": "Skill-genesis adapter validation. The adapter authoring loop is dispatched through the convergent drafting agents, and the kernel-side validation of their output is not yet on that path - which is precisely the shape of defect this gate exists to surface, on a lane that is not live. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on the skill-genesis lane becoming live. The three sandbox checks are one decision and share a date BECAUSE they are one decision -- that is a deliberate coupling, not the accidental kind this note warns about."
   },
   "verify_adapter_imports": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-12-12",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Sandbox check for a generated adapter's import set. Same dormant skill-genesis lane as validate_generated_adapter; the three sandbox checks are one decision."
+    "reason": "Sandbox check for a generated adapter's import set. Same dormant skill-genesis lane as validate_generated_adapter; the three sandbox checks are one decision. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on the skill-genesis lane; one decision with validate_generated_adapter and verify_adapter_signature."
   },
   "verify_adapter_signature": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-12-12",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Sandbox check for a generated adapter's entry-point signature. Same dormant skill-genesis lane; wire with its siblings or not at all."
+    "reason": "Sandbox check for a generated adapter's entry-point signature. Same dormant skill-genesis lane; wire with its siblings or not at all. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on the skill-genesis lane; one decision with validate_generated_adapter and verify_adapter_imports."
   },
   "verify_branch_tip": {
-    "expires_on": "2026-09-20",
+    "expires_on": "2026-10-31",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one."
+    "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one. EXTENDED 2026-09-21. The previous deadline (2026-09-20) lapsed overnight and the reachability gate fired, which is the mechanism working: it blocked every aria-kernel run in the repository, main included, until someone looked. What it found is that the work this waiver names has not started, so the date moves and the reason now says what it is waiting for. The new date is a REVIEW CHECKPOINT, not a delivery promise. Deliberately NOT a shared expiry with its siblings: all six lapsed on one day, which is this file's own recorded failure mode -- 'twenty-five TypeScript waivers reached one shared expiry together' -- so they are staggered by the work each actually waits on. Waits on PLAN Wave 8 implementing branch_tip_lock_and_recheck as a real hard-fail check. Earliest of the three groups because the protection it duplicates already exists inline, so the risk of waiting is the lowest here."
   },
   "verify_workflow_registry": {
     "expires_on": "2026-10-09",

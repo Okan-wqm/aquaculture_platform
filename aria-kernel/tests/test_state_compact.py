@@ -163,6 +163,70 @@ class StateCompactTests(unittest.TestCase):
         self.assertTrue(all(r.get("finding_summary", {}).get("rule") == "old-rule" for r in old))
         self.assertTrue(all("finding" in r for r in new))
 
+    def _seed_recurring_raw_findings(self) -> None:
+        """Three cycles re-record the same two fingerprints (ARIA-HIGH-185);
+        one of them carries an unparseable recording time."""
+        rows = []
+        for cycle_index, recorded in enumerate((_old_ts(3), _old_ts(2), _old_ts(1))):
+            for fp in ("fp-shared-a", "fp-shared-b"):
+                rows.append({
+                    "recorded_at": recorded,
+                    "tool_id": "tool-b",
+                    "run_id": f"run-{cycle_index}",
+                    "cycle_id": f"cyc-{cycle_index}",
+                    "finding_id": f"{fp}:{cycle_index}",
+                    "finding_fingerprint": fp,
+                    "status": "raw",
+                    "finding_summary": {"rule": "shared-rule", "id": fp},
+                })
+        rows.append({
+            "recorded_at": "not-a-time",
+            "tool_id": "tool-b",
+            "run_id": "run-undated",
+            "cycle_id": "cyc-undated",
+            "finding_id": "fp-shared-a:undated",
+            "finding_fingerprint": "fp-shared-a",
+            "status": "raw",
+            "finding_summary": {"rule": "shared-rule", "id": "fp-shared-a"},
+        })
+        self._write_ledger(self.tools / "raw-findings.jsonl", rows)
+
+    def test_raw_findings_keep_only_the_newest_row_per_fingerprint(self) -> None:
+        self._seed_recurring_raw_findings()
+        compact_state(base_dir=self.tools, retain_days=7)
+        rows = load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")
+        shared = [r for r in rows if r["tool_id"] == "tool-b"]
+        self.assertEqual(
+            sorted((r["finding_fingerprint"], r["run_id"]) for r in shared),
+            [("fp-shared-a", "run-2"), ("fp-shared-b", "run-2")],
+            "one row per fingerprint survives, the newest dated one",
+        )
+        # Rows with distinct fingerprints are not collapsed — the seed's 13
+        # unique tool-a rows all remain.
+        self.assertEqual(len([r for r in rows if r["tool_id"] == "tool-a"]), 13)
+
+    def test_raw_findings_collapse_archives_the_older_copies_pristine(self) -> None:
+        self._seed_recurring_raw_findings()
+        compact_state(base_dir=self.tools, retain_days=7)
+        archive = next((self.tools / "archives").glob("raw_findings-compact-*.jsonl.gz"))
+        with gzip.open(archive, "rt", encoding="utf-8") as fh:
+            archived = [json.loads(line) for line in fh]
+        collapsed = sorted(r["run_id"] for r in archived if r["tool_id"] == "tool-b")
+        self.assertEqual(collapsed, ["run-0", "run-0", "run-1", "run-1", "run-undated"])
+        self.assertTrue(all("finding_summary" in r for r in archived if r["tool_id"] == "tool-b"))
+
+    def test_raw_findings_collapse_is_reported_and_dry_run_keeps_every_row(self) -> None:
+        self._seed_recurring_raw_findings()
+        before = len(load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings"))
+        dry = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
+        self.assertEqual(dry["surfaces"]["raw_findings"]["stripped_rows"], 10 + 5)
+        self.assertEqual(
+            len(load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")),
+            before,
+        )
+        wet = compact_state(base_dir=self.tools, retain_days=7)
+        self.assertEqual(wet["surfaces"]["raw_findings"]["after_rows"], before - 5)
+
     def test_beliefs_collapse_to_latest(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
         rows = load_declared_jsonl(self.tools / "memory" / "beliefs.jsonl", expected_surface="memory_beliefs")

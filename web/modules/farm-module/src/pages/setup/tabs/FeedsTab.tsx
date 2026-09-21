@@ -9,7 +9,6 @@ import {
   formatCurrency,
   parseMoney,
   DEFAULT_CURRENCY,
-  useConfirm,
   useToast,
   DataTable,
   type DataTableColumn,
@@ -19,6 +18,7 @@ import {
   Select,
   Textarea,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import {
   useFeedList,
   useCreateFeed,
@@ -286,7 +286,7 @@ export const FeedsTab: React.FC = () => {
     setExpandedFeed(expandedFeed === feedId ? null : feedId);
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const { toast } = useToast();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1654,6 +1654,7 @@ export const FeedsTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-35676353522",
-  "claim_id": "claim_c49f6a03240517ae",
+  "agent_id": "ci-executor:gha-35701762719",
+  "claim_id": "claim_84f62f95aeb2fda7",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:1f6de540db9584db15ec1b4b297de0a66152ae69a913f28d4a93f646775fd7e6",

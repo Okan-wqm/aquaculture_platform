@@ -1,0 +1,134 @@
+# GitHub Publish, Async Merge ve Reconciliation Sözleşmesi
+
+[Authority index](INDEX.md) · API version: `2026-03-10` · Owners: S25-S32, S50-S55.
+
+## Effective principal ve token authority
+
+Operator-owned `GitHubAuthorityManifest` ayrı Publisher/Merge App için exact App ID, installation
+account/ID, provider host, immutable repository ID/selection, allowed API endpoints, explicit
+permission allowlist ve token max TTL taşır. Token mint request'i tek exact `repository_ids` girdisi
+ve explicit downgraded `permissions` object'i gönderir; omitted/default breadth deny'dır. Persisted
+provenance yalnız non-secret returned App/installation/repository/permissions/`expires_at` claim'idir.
+
+Publisher yalnız mission branch/PR/informational check write; Merge App yalnız guarded async merge
+endpoint capability'sidir. İkisi de direct protected-base update, rules/settings, secret, workflow,
+release/deploy veya bypass capability alamaz. Token revoke provider-side denial readback ile
+kanıtlanır. PAT yoktur.
+
+Operator reader repository, organization ve enterprise effective ruleset'lerini; enforcement
+state, bypass actors, base rules, required reviews/checks ve trusted source App'lerle birlikte
+resolve edip digest'ler. App/installation/repository/permission/rules/bypass değişimi bütün current
+token/dossier/permit'i invalidate eder. Publisher denial probe otherwise merge-eligible exact PR
+üzerinde provider-denial olmalıdır; incomplete checks nedeniyle denial separation kanıtı değildir.
+
+## Pre-merge snapshot ve permit binding
+
+`MergeSnapshot` şu immutable seti içerir:
+
+- provider/repository/installation, PR number ve base/head repository IDs;
+- base ref/SHA, head SHA, merge-base/diff digest ve provider mergeability;
+- strict-up-to-date veya queue policy ve effective ruleset/bypass digest;
+- required check name + trusted App ID + suite/run ID + exact head + terminal conclusion;
+- required reviewer immutable identity, latest reviewed commit/diff, stale-dismiss/latest-push
+  settings, last pusher ve unresolved/request-changes state;
+- runtime policy/risk, dossier/attestation, capacity/restore/drill ve authority digests.
+
+Publisher informational check'i required admission check olamaz. Duplicate same-name wrong-App,
+`skipped`/`neutral`, old SHA, stale approval, approval by forbidden pusher, base/merge-base advance,
+ruleset drift veya loose policy deny'dır. `merge-authority` per-base lock altında snapshot'ı provider'dan
+yeniden okur; exact digest değişirse permit tüketilmez ve call count sıfırdır.
+
+Permit'in issuer/quorum sözleşmesi [identity authority](identity-authority-tcb.md)'dadır. Permit
+ayrıca PR, method, protected explicit `merge_action`, full options digest ve local effect ID'yi
+bağlar. Stacked PR tamamen yasaktır; stack membership non-empty/unknown ise tek-PR permit dispatch
+edemez. Daha sonraki ayrı program exact stack üyelerini tek dossier/permit altında tanımlamadıkça
+`merge_action=default` kullanılmaz.
+
+## PR/check natural identity ve reconciliation
+
+PR DB uniqueness:
+
+```text
+baseRepositoryId + baseRef + headRepositoryId + headRef + headSha + missionId + effectId
+```
+
+Provider-visible immutable marker effect ID/digest'ini taşır. Response PR node/number/URL ile
+persist edilir. Timeout reconciliation exact base/head ref'i paginate eder ve marker, both repo IDs,
+SHA, mission/effect'in tümü eşleşmeden object adopt etmez. Delete/reopen/force-update/fork swap yeni
+object yaratmak yerine `UNKNOWN`/terminal conflict üretir.
+
+### D0 bootstrap delivery readback
+
+D0 bootstrap yalnız `Okan-wqm/aquaculture_platform`, PR `#1393`, `main`, program
+`new-aria-autonomous-engineering`, work unit `D0` ve successor `S01` için geçerlidir. Bunlar CLI
+girdisi değildir. `readback_id`, GitHub'dan yeniden okunan exact reviewed head'in ilk 16 hex
+karakterinden `d0-readback-${reviewed_head_sha[0:16]}` olarak türetilir. Signed payload'ın
+base/head/merge/resulting-main değerleri live provider facts ile birebir eşleşmelidir.
+
+Verifier gerçek on iki-role dossier admission sonucunu çalıştırır. Delivery operator; verified
+producer, admission operator, target operator, on iki reviewer, oracle veya conflict principal ile
+aynı olamaz. Admission'ın reviewed base/head SHA'ları live PR base/head ile exact eşleşir. PR'da
+exact bir immutable OWNER final-note bulunmalı; raw body ve comment natural
+identity digest'leri hem signed readback'e hem admitted dossier/admission digest'lerine bağlıdır.
+Required check'ler exact trusted App kimliğiyle head üzerinde `SUCCESS` olmalı ve her
+`completed_at`, merge zamanından önce olmalıdır. Effective `main` ruleset'inde bypass actor yoktur;
+classic PR-review protection absent/null olmalı ve admin enforcement açık kalmalıdır. Bunlar yalnız
+mevcut enforceable control'lardır: GitHub API geçmiş merge için bypass kullanılmadığını kanıtlamaz.
+Signed payload'daki `bypass_used=false`, `operator_attested` external delivery-operator beyanıdır.
+Operator exact `gh pr merge --merge --match-head-commit` kullanır; `--admin` yasaktır.
+Readback `observed_at`, GitHub'ın saniye çözünürlüklü `merged_at` değerinden en az 1000 ms sonra
+olur. Canonical argv [verification evidence authority](verification-evidence.md)'dedir. Bu verifier
+yalnız D0→S01 admission gerçeğini okur; executor veya cycle sırası yetkilendirmez.
+
+Check identity; repository, head SHA, stable check name, trusted Publisher App ID, `external_id`
+effect ID ve provider check-run ID'dir. Timeout exact ref + `external_id` ile aynı run'ı bulup update
+eder; same-name başka run adopt edilmez. DB unique constraint ve readback concurrent/response-loss
+durumunda exactly one matched provider object veya fail-closed sağlar.
+
+## Async merge effect state
+
+Local `effect_id` ile provider `provider_merge_uuid` farklı alanlardır. Request option digest:
+
+```text
+repositoryId, prNumber, expectedHeadSha, method, explicitMergeAction,
+title/message digest, baseRef/baseSha, snapshotDigest, permitId
+```
+
+REST request exact API version'ı ve `sha=expectedHeadSha` taşır; caller idempotency field varmış gibi
+davranılmaz. Provider body state union'ı exact `pending|merged|enqueued|failed` değerleridir; unknown
+field veya status terminal outcome mint etmez. Ayrı local normalized state machine
+`INTENDED|DISPATCHED|RECONCILING|SUCCEEDED|FAILED|UNKNOWN` kullanır ve provider literal'ı gibi
+sunulmaz. Response contract:
+
+| HTTP  | Davranış                                                                                |
+| ----- | --------------------------------------------------------------------------------------- |
+| `200` | body `merged` veya `enqueued`; UUID/options persist + independent readback/poll gerekir |
+| `202` | body `pending`; returned provider UUID'yi durable persist et, sonra poll/reconcile et   |
+| `400` | terminal invalid request; no retry                                                      |
+| `403` | permission/rules denial + freeze/incident; no retry                                     |
+| `404` | request/PR/result ayrımı; expired result ise `UNKNOWN`                                  |
+| `409` | existing UUID/options exact ise persist/read; option mismatch terminal conflict         |
+| `422` | validation/state denial; no blind retry                                                 |
+
+Stack membership dispatch öncesi okunur: non-empty veya unknown stack permit tüketmeden ve provider
+call'dan önce deny'dır. Explicit non-default `merge_action` zorunludur; `merge_action=default` deny.
+Crash provider UUID response'undan önce/sonra ayrı kill point'tir. `200`/`202`/`409` UUID persist edilmeden
+poll/adopt yoktur. `GET .../merge-async/{uuid}` sonucu provider'ın 24 saatlik result lifetime'ı
+içinde izlenir; expiry `404` başarı/başarısızlık mint etmez. Independent PR/base/commit/check readback
+tek terminal outcome kanıtlayamazsa `UNKNOWN` + manual reconciliation kalır. `pending` polling,
+`enqueued` queue readback, queue cancellation, expired-result `404`, UUID swap, mismatched 409
+options ve response loss blind retry üretemez.
+
+## Atomic dispatch ve outcome
+
+Tek serializable transaction current snapshot/permit/issuer/quorum/freshness'i doğrular, permit'i
+tüketir ve exact `INTENDED` effect + dispatch-journal record'ını yazar. Off-host horizon ack olmadan
+external call yoktur. Provider call sonrası exact method-specific commit/tree/parents, merged SHA,
+base reachability ve required-check/review snapshot readback yapılır. Merge release değildir;
+release/deploy capability hiçbir ARIA rolünde yoktur.
+
+S31 protocolü sandbox ve disabled-dispatch contract'ıyla doğrular. S52 yalnız disposable sandbox
+repository'de bütün status/crash/expiry/stack/reconcile fixture'larını çalıştırır; production repo
+selection structurally unreachable'dır. S54 rollback/freeze/page/restore/human-owner drill'inden
+sonra S55 ilk production low-risk merge olabilir. Exact deployed SHA fresh evidence olmadan finding
+`SOLVED` olmaz.

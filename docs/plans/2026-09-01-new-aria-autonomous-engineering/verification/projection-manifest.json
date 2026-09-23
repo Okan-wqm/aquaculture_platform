@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0.0",
+  "owner": "new-aria-program-authority",
+  "reason": "Deterministic readable projections of canonical event and finding authorities.",
+  "expires_at": "S72 program closeout",
+  "input_digests": [
+    {
+      "path": "FINDING-COVERAGE.md",
+      "sha256": "9f70beeb92d5cfaf92c9e224405c521af7fa4c9fc6e76715276d64fc5c87a7a5"
+    },
+    {
+      "path": "progress/events.jsonl",
+      "sha256": "11a44957cec3e6de96de46ddd59b76a2aa0887ea464cb39c844055f50289d6f8"
+    },
+    {
+      "path": "verification/readability-policy.json",
+      "sha256": "afb9cb3e4edcdfebfe99b39a38219e9c5a11756f9a2b37608d63db40fc9de106"
+    }
+  ],
+  "generator_argv": [
+    "node",
+    "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-projections.mjs",
+    "--repo-root",
+    "."
+  ],
+  "generator_version": "1.0.0",
+  "generator_digest": "906ec0401fc003fa2709cf1cec75707d85b0ad5dcb66e7381a7a3304fe933ee8",
+  "output_digests": [
+    {
+      "path": "finding-projections/INDEX.md",
+      "sha256": "d890e95c9c3abcb43d2cafa6bb293fbb48150e005124613aa86dd38afa1715b4"
+    },
+    {
+      "path": "PROGRESS.md",
+      "sha256": "b1f1fe8ae3919021d5645c8b4ccf358ccfc38d9a915daaa3393bdd40bbd02d41"
+    },
+    {
+      "path": "finding-projections/001-011.md",
+      "sha256": "d85d5a64e5afc58049e38793adc2060f9eecf88d743a6234a810735778e85aef"
+    },
+    {
+      "path": "finding-projections/012-022.md",
+      "sha256": "f0d4826b18e2d2679cb0fdd8917fa4163fb8970804b490d78df0a5eed4569857"
+    },
+    {
+      "path": "finding-projections/023-033.md",
+      "sha256": "8199a77310656e4567e530864c3b93eab18d87e92a1d4414b6f451929feb5a10"
+    },
+    {
+      "path": "finding-projections/034-044.md",
+      "sha256": "b13bbd2c08e9776661bc7f6da0889cec7d2506d77927cbbcc348a8fe533b34a7"
+    },
+    {
+      "path": "finding-projections/045-055.md",
+      "sha256": "8ceb3b681a4bc09202c33574d915e5412eb388dc8a43e1b19766191e5acd425a"
+    },
+    {
+      "path": "finding-projections/056-066.md",
+      "sha256": "5251e5706403d9dbf8f6aff36a19e6d0f777c38e8a47578630fe3d3ebc400fdf"
+    },
+    {
+      "path": "finding-projections/067-077.md",
+      "sha256": "b5ab877346f6a3e0d84816e0316d447e137a64487b811e576618e229700b5bed"
+    },
+    {
+      "path": "finding-projections/078-088.md",
+      "sha256": "955684704a4ee019ef8a2a9242df2e1c3e49ba62df972fb4973e862d03212dc6"
+    }
+  ],
+  "deterministic_check_argv": [
+    "node",
+    "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-projections.mjs",
+    "--repo-root",
+    ".",
+    "--check"
+  ]
+}

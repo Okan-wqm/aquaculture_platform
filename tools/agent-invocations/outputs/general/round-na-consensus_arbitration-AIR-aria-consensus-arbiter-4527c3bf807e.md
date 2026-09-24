@@ -1,13 +1,13 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-35940457875",
-  "claim_id": "claim_fbb6f4519b1307cc",
+  "agent_id": "ci-executor:gha-35971223155",
+  "claim_id": "claim_893612d758c7917d",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:1f6de540db9584db15ec1b4b297de0a66152ae69a913f28d4a93f646775fd7e6",
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-consensus-arbiter",
-    "agent_text": "You've hit your weekly limit \u00b7 resets Sep 25, 6am (UTC)",
+    "agent_text": "You've hit your weekly limit \u00b7 resets 6am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 0,
@@ -35,7 +35,7 @@
   "role": "consensus_arbitration",
   "satisfaction_matrix": [
     {
-      "evidence": "You've hit your weekly limit \u00b7 resets Sep 25, 6am (UTC)",
+      "evidence": "You've hit your weekly limit \u00b7 resets 6am (UTC)",
       "evidence_refs": [],
       "id": "consensus",
       "verdict": "unverified"

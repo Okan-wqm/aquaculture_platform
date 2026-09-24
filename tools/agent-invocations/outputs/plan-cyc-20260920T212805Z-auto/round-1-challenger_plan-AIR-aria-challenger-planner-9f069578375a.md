@@ -1,13 +1,13 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-35940457875",
-  "claim_id": "claim_58440d72a05be49d",
+  "agent_id": "ci-executor:gha-35971223155",
+  "claim_id": "claim_9401105843c23148",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:c33bbd1a8b64ef722ba5543bc7bdc22011e066bc2ff5a8e2db8989615dffa203",
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-challenger-planner",
-    "agent_text": "You've hit your weekly limit \u00b7 resets Sep 25, 6am (UTC)",
+    "agent_text": "You've hit your weekly limit \u00b7 resets 6am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 0,
@@ -35,7 +35,7 @@
   "role": "challenger_plan",
   "satisfaction_matrix": [
     {
-      "evidence": "You've hit your weekly limit \u00b7 resets Sep 25, 6am (UTC)",
+      "evidence": "You've hit your weekly limit \u00b7 resets 6am (UTC)",
       "evidence_refs": [],
       "id": "key-change-0",
       "verdict": "unverified"

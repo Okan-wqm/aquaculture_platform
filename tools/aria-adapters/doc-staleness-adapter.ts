@@ -8,12 +8,16 @@
 // docs/**/*.md is resolved against the working tree; a reference to a path
 // that no longer exists is a `doc_references_missing_path` finding with the
 // doc's file:line as evidence. Globs, placeholders, and line-suffixed refs
-// are handled so the rule stays low-noise.
+// are handled so the rule stays low-noise. Point-in-time records (see
+// isPointInTimeRecord) are read but never flagged: they describe the repo as
+// it was on their date, so a path they cite that is gone since is history,
+// not staleness (ARIA-HIGH-202).
 import { relative } from 'node:path';
 
 import {
   collectFiles,
   filterFilesBySnapshot,
+  isArchivedWorkspacePath,
   normalizeWorkspacePath,
   readWorkspaceFile,
   requireScanRoots,
@@ -94,6 +98,33 @@ function candidateRef(span: string): string | undefined {
   return text.replace(/\/$/, '');
 }
 
+// Directory segments whose documents are review/audit records — findings,
+// verdicts and audits written against one revision of the code.
+const RECORD_DIR_SEGMENTS = new Set(['reviews', 'audits']);
+// A dated file or directory name (`2026-04-21-db-migrate-….md`,
+// `docs/plans/2026-04-24-deferred-items/`, `security-audit-2026-03-30.md`)
+// is the repo's spelling of "written
+// on this date": plans, specs, reports and dated ADRs cite paths that did not
+// exist yet or no longer exist, by design.
+const DATED_SEGMENT_RE = /(?:^|[^0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^0-9]|$)/;
+// The docs' own header markers for a document that is no longer live
+// authority (tests/invariants/aria-doc-runtime-ssot.spec.ts PLAN_MARKERS).
+const RECORD_MARKERS = ['ARIA-HISTORICAL', 'ARIA-SUPERSEDED'];
+const MARKER_HEAD_LINES = 5;
+
+export function isPointInTimeRecord(docRel: string, lines: readonly string[]): boolean {
+  const segments = normalizeWorkspacePath(docRel).split('/');
+  return (
+    isArchivedWorkspacePath(docRel) ||
+    segments.some(
+      (segment) => RECORD_DIR_SEGMENTS.has(segment) || DATED_SEGMENT_RE.test(segment),
+    ) ||
+    lines
+      .slice(0, MARKER_HEAD_LINES)
+      .some((line) => RECORD_MARKERS.some((marker) => line.includes(marker)))
+  );
+}
+
 export function analyzeDocStaleness(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
@@ -113,10 +144,15 @@ export function analyzeDocStaleness(
   );
 
   let refsChecked = 0;
+  let recordDocs = 0;
   for (const doc of docs) {
     const docRel = normalizeWorkspacePath(relative(workspaceRoot, doc));
     readPaths.push(docRel);
     const lines = readWorkspaceFile(doc).split('\n');
+    if (isPointInTimeRecord(docRel, lines)) {
+      recordDocs += 1;
+      continue;
+    }
     let missingInDoc = 0;
     for (let index = 0; index < lines.length; index += 1) {
       for (const match of lines[index].matchAll(BACKTICK_SPAN_RE)) {
@@ -159,7 +195,7 @@ export function analyzeDocStaleness(
     evidence_sources: sortedReadPaths,
     belief_candidates: [],
     cost_units: sortedReadPaths.length,
-    metadata: { scanMode: 'doc_staleness_v1', docCount: docs.length, refsChecked },
+    metadata: { scanMode: 'doc_staleness_v1', docCount: docs.length, recordDocs, refsChecked },
   };
 }
 

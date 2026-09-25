@@ -34,15 +34,15 @@ def pr(**overrides):
         "base_branch": "main",
         "head_ref": "feature/docs",
         "head_sha": "abc1234",
-        "changed_files": ["docs/aria/plans/008-auto-merge.md"],
+        "changed_files": ["docs/runbooks/auto-merge.md"],
         "reviews": [],
         # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
         # default fixture supplies a clean docs-only patch so existing
         # tests stay green without invasive surgery; tests that target
         # a specific suppression or empty-diff scenario override.
         "diff_text": (
-            "--- a/docs/aria/plans/008-auto-merge.md\n"
-            "+++ b/docs/aria/plans/008-auto-merge.md\n"
+            "--- a/docs/runbooks/auto-merge.md\n"
+            "+++ b/docs/runbooks/auto-merge.md\n"
             "@@ -1 +1,2 @@\n"
             " existing line\n"
             "+New paragraph added by Plan 022 H-2 fixture.\n"
@@ -459,12 +459,18 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(
+            classify_changed_files(["docs/runbooks/auto-merge.md", "tests/e2e/auto-merge.spec.ts"])["risk_class"],
+            "low",
+        )
+        # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
+        # never low risk.
+        self.assertNotEqual(
             classify_changed_files(["docs/aria/SPEC.md", "aria-kernel/tests/test_auto_merge.py"])["risk_class"],
             "low",
         )
         self.assertEqual(classify_changed_files(["aria-kernel/aria_kernel/cli.py"])["risk_class"], "forbidden")
         self.assertEqual(
-            classify_changed_files(["docs/aria/SPEC.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
+            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
             "mixed",
         )
 

@@ -33,15 +33,32 @@ from . import _helpers  # noqa: F401
 from aria_kernel import independence_check, secret_scrub
 
 
+# ARIA-HIGH-193 — a seat's principal is the agent its REQUEST was minted for
+# (`target_agent`); the claimant is the executor process that carried it. Every
+# fixture seat is carried by ONE executor run, the live shape, so a test only
+# passes or fails on the principal the kernel minted.
+_CARRIER = "ci-executor:gha-1"
+
+
+def _seed_seats(base: Path, rows: list[dict]) -> None:
+    d = base / "agent-invocations"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "claims.jsonl").write_text(
+        "\n".join(json.dumps({"request_id": r["request_id"], "claim_id": r["claim_id"],
+                              "agent_id": _CARRIER}) for r in rows) + "\n",
+        encoding="utf-8",
+    )
+    (d / "requests.jsonl").write_text(
+        "\n".join(json.dumps({"request_id": r["request_id"], "target_agent": r["target_agent"]})
+                  for r in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
 class TestVerifyClaimDisjointness(unittest.TestCase):
 
     def _seed_claims(self, base: Path, rows: list[dict]) -> None:
-        d = base / "agent-invocations"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "claims.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in rows) + "\n",
-            encoding="utf-8",
-        )
+        _seed_seats(base, rows)
 
     @staticmethod
     def _three_role_claims(base):
@@ -68,9 +85,9 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             self._seed_claims(base, [
-                {"request_id": "REQ-P", "claim_id": "claim-1", "agent_id": "agent-p"},
-                {"request_id": "REQ-C", "claim_id": "claim-2", "agent_id": "agent-c"},
-                {"request_id": "REQ-CR", "claim_id": "claim-3", "agent_id": "agent-cr"},
+                {"request_id": "REQ-P", "claim_id": "claim-1", "target_agent": "agent-p"},
+                {"request_id": "REQ-C", "claim_id": "claim-2", "target_agent": "agent-c"},
+                {"request_id": "REQ-CR", "claim_id": "claim-3", "target_agent": "agent-cr"},
             ])
             ok, reasons = independence_check.verify_principal_disjointness(
                 dispatches=self._three_role_claims(base),
@@ -84,9 +101,9 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
             base = Path(tmp)
             # Same claim_id reused — primary + challenger overlap
             self._seed_claims(base, [
-                {"request_id": "REQ-P", "claim_id": "claim-shared", "agent_id": "agent-p"},
-                {"request_id": "REQ-C", "claim_id": "claim-shared", "agent_id": "agent-c"},
-                {"request_id": "REQ-CR", "claim_id": "claim-3", "agent_id": "agent-cr"},
+                {"request_id": "REQ-P", "claim_id": "claim-shared", "target_agent": "agent-p"},
+                {"request_id": "REQ-C", "claim_id": "claim-shared", "target_agent": "agent-c"},
+                {"request_id": "REQ-CR", "claim_id": "claim-3", "target_agent": "agent-cr"},
             ])
             ok, reasons = independence_check.verify_principal_disjointness(
                 dispatches=self._three_role_claims(base),
@@ -106,6 +123,38 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
             )
             self.assertFalse(ok)
             self.assertIn("claims_jsonl_missing", reasons)
+
+
+    # ARIA-HIGH-193 — an executor-shaped identity is never a principal.
+    def test_executor_shaped_target_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            self._seed_claims(base, [
+                {"request_id": "REQ-P", "claim_id": "claim-1", "target_agent": "agent-p"},
+                {"request_id": "REQ-C", "claim_id": "claim-2", "target_agent": _CARRIER},
+            ])
+            ok, reasons = independence_check.verify_principal_disjointness(
+                dispatches=self._three_role_claims(base)[:2], base_dir=base,
+            )
+            self.assertFalse(ok)
+            self.assertIn("challenger_request_names_no_principal", reasons)
+
+    def test_missing_request_row_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            self._seed_claims(base, [
+                {"request_id": "REQ-P", "claim_id": "claim-1", "target_agent": "agent-p"},
+            ])
+            (base / "agent-invocations" / "claims.jsonl").write_text(
+                json.dumps({"request_id": "REQ-P", "claim_id": "claim-1", "agent_id": _CARRIER}) + "\n"
+                + json.dumps({"request_id": "REQ-C", "claim_id": "claim-2", "agent_id": _CARRIER}) + "\n",
+                encoding="utf-8",
+            )
+            ok, reasons = independence_check.verify_principal_disjointness(
+                dispatches=self._three_role_claims(base)[:2], base_dir=base,
+            )
+            self.assertFalse(ok)
+            self.assertIn("challenger_no_request_row", reasons)
 
 
 class TestRevisionIdDistinctness(unittest.TestCase):
@@ -183,12 +232,7 @@ class TestSecretScrubCoverage(unittest.TestCase):
 class TestVerifyIndependence(unittest.TestCase):
 
     def _seed_claims(self, base: Path, rows: list[dict]) -> None:
-        d = base / "agent-invocations"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "claims.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in rows) + "\n",
-            encoding="utf-8",
-        )
+        _seed_seats(base, rows)
 
     @staticmethod
     def _dispatch(role: str, request_id: str | None, revision_id: str | None, text: str | None):
@@ -198,9 +242,9 @@ class TestVerifyIndependence(unittest.TestCase):
 
     def _three_distinct_principals(self, base: Path) -> None:
         self._seed_claims(base, [
-            {"request_id": "REQ-P", "claim_id": "c1", "agent_id": "aria-primary-planner"},
-            {"request_id": "REQ-C", "claim_id": "c2", "agent_id": "aria-challenger-planner"},
-            {"request_id": "REQ-CR", "claim_id": "c3", "agent_id": "aria-cross-reviewer"},
+            {"request_id": "REQ-P", "claim_id": "c1", "target_agent": "aria-primary-planner"},
+            {"request_id": "REQ-C", "claim_id": "c2", "target_agent": "aria-challenger-planner"},
+            {"request_id": "REQ-CR", "claim_id": "c3", "target_agent": "aria-cross-reviewer"},
         ])
 
     def test_full_independence_pass(self):
@@ -257,9 +301,9 @@ class TestVerifyIndependence(unittest.TestCase):
             # Distinct claim_ids — the pre-fix check passed on exactly this
             # shape, because every claim gets a fresh claim_id.
             self._seed_claims(base, [
-                {"request_id": "REQ-P", "claim_id": "c1", "agent_id": "one-agent"},
-                {"request_id": "REQ-C", "claim_id": "c2", "agent_id": "one-agent"},
-                {"request_id": "REQ-CR", "claim_id": "c3", "agent_id": "one-agent"},
+                {"request_id": "REQ-P", "claim_id": "c1", "target_agent": "one-agent"},
+                {"request_id": "REQ-C", "claim_id": "c2", "target_agent": "one-agent"},
+                {"request_id": "REQ-CR", "claim_id": "c3", "target_agent": "one-agent"},
             ])
             ok, reasons = independence_check.verify_independence(
                 primary=self._dispatch(
@@ -275,8 +319,8 @@ class TestVerifyIndependence(unittest.TestCase):
             )
             self.assertFalse(ok)
             self.assertTrue(
-                any("same_agent_id" in r for r in reasons),
-                f"expected same_agent_id violation; got {reasons}",
+                any("same_principal" in r for r in reasons),
+                f"expected same_principal violation; got {reasons}",
             )
 
     # ORPHAN-HIGH-421 — absent text must not score as maximally diverse.
@@ -310,8 +354,8 @@ class TestVerifyIndependence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             self._seed_claims(base, [
-                {"request_id": "REQ-C", "claim_id": "c2", "agent_id": "aria-challenger-planner"},
-                {"request_id": "REQ-CR", "claim_id": "c3", "agent_id": "aria-cross-reviewer"},
+                {"request_id": "REQ-C", "claim_id": "c2", "target_agent": "aria-challenger-planner"},
+                {"request_id": "REQ-CR", "claim_id": "c3", "target_agent": "aria-cross-reviewer"},
             ])
             common = {
                 "primary": self._dispatch(
@@ -331,8 +375,8 @@ class TestVerifyIndependence(unittest.TestCase):
             self.assertTrue(ok, f"reasons={reasons}")
             # Same principal for the two dispatched roles → rejected.
             self._seed_claims(base, [
-                {"request_id": "REQ-C", "claim_id": "c2", "agent_id": "same-agent"},
-                {"request_id": "REQ-CR", "claim_id": "c3", "agent_id": "same-agent"},
+                {"request_id": "REQ-C", "claim_id": "c2", "target_agent": "same-agent"},
+                {"request_id": "REQ-CR", "claim_id": "c3", "target_agent": "same-agent"},
             ])
             ok, reasons = independence_check.verify_independence(
                 challenger=self._dispatch(
@@ -341,7 +385,7 @@ class TestVerifyIndependence(unittest.TestCase):
                 **common,
             )
             self.assertFalse(ok)
-            self.assertTrue(any("same_agent_id" in r for r in reasons), reasons)
+            self.assertTrue(any("same_principal" in r for r in reasons), reasons)
 
     # ORPHAN-HIGH-421 — a placeholder cannot be constructed.
     def test_blank_request_id_is_refused_at_construction(self):

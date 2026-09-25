@@ -265,7 +265,7 @@ boundary and keeps the kernel domain core strict.
 
 ## Anchors for invariants
 
-- I-V8.0-07 — orchestrator forwards `--challenger-timeout-seconds` + `--max-rounds`
+- I-V8.0-07 — orchestrator forwards `--max-rounds`; the challenger timeout is retired (ARIA-HIGH-194)
 - I-V8.1-01..05 — agent file location + bridge canonicalize helper
 - I-V8.2-CR-01..05 — submit_cross_review_v8 state transition
 - I-V8.3-CONTENT-01..03 — drainer envelope content from kernel state

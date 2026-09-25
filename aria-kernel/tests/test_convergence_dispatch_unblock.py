@@ -41,8 +41,9 @@ class RoleScopedIdentityTests(unittest.TestCase):
         self.assertFalse(hasattr(cd, "_CONVERGENCE_INLINE_DISPATCH_ROLES"))
 
     def test_shared_identity_fails_and_role_scoped_passes(self) -> None:
-        # The gate reads agent_id from the CLAIMS ledger by request_id, so
-        # this exercises the real reader against both shapes.
+        # ARIA-HIGH-193 — the gate reads each seat's principal from the
+        # REQUEST ledger (the agent it was minted for); the claimant is one
+        # executor run for every seat, the live shape.
         import json
         import tempfile
 
@@ -51,20 +52,27 @@ class RoleScopedIdentityTests(unittest.TestCase):
             verify_principal_disjointness,
         )
 
-        def _run(agent_ids: dict[str, str]) -> tuple[bool, list[str]]:
+        def _run(targets: dict[str, str]) -> tuple[bool, list[str]]:
             with tempfile.TemporaryDirectory() as tmp:
                 base = Path(tmp)
                 (base / "agent-invocations").mkdir(parents=True)
-                rows = [
-                    {"request_id": f"AIR-{role}", "claim_id": f"c-{role}", "agent_id": agent_id}
-                    for role, agent_id in agent_ids.items()
+                claims = [
+                    {"request_id": f"AIR-{role}", "claim_id": f"c-{role}", "agent_id": "ci-executor:gha-1"}
+                    for role in targets
+                ]
+                requests = [
+                    {"request_id": f"AIR-{role}", "target_agent": target}
+                    for role, target in targets.items()
                 ]
                 (base / "agent-invocations" / "claims.jsonl").write_text(
-                    "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8"
+                    "\n".join(json.dumps(r) for r in claims) + "\n", encoding="utf-8"
+                )
+                (base / "agent-invocations" / "requests.jsonl").write_text(
+                    "\n".join(json.dumps(r) for r in requests) + "\n", encoding="utf-8"
                 )
                 dispatches = [
                     RoundDispatch(role=role, request_id=f"AIR-{role}", revision_id=f"rev-{role}", agent_text="t")
-                    for role in agent_ids
+                    for role in targets
                 ]
                 return verify_principal_disjointness(dispatches=dispatches, base_dir=base)
 
@@ -73,12 +81,10 @@ class RoleScopedIdentityTests(unittest.TestCase):
             "primary": shared, "challenger": shared, "cross_review": shared,
         })
         self.assertFalse(passed_shared)
-        self.assertTrue(any("same_agent_id" in r for r in reasons), reasons)
+        self.assertTrue(any("same_principal" in r for r in reasons), reasons)
 
-        # CL-1: the drainer no longer mints identities (it no longer
-        # claims anything); role-scoped ids are the EXECUTOR's discipline.
-        # The disjointness reader's contract is unchanged — pin it with
-        # explicitly role-scoped ids of the same shape.
+        # Distinct agents minted per role pass even though one executor
+        # run carried all three seats.
         passed_scoped, reasons_scoped = _run({
             role: f"convergence:{role}"
             for role in ("primary", "challenger", "cross_review")

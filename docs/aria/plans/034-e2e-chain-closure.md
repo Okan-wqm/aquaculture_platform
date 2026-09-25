@@ -1,0 +1,286 @@
+<!-- ARIA-HISTORICAL: Historical plan document.
+Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
+# ARIA Plan 034 — Değer zincirini uçtan uca kapat, L1'de geri alınabilir self-merge
+
+> **Durum:** onaylandı 2026-09-25 (okan). Bu oturumda "PR N" birimleri
+> `claude/aria-documentation-update-vm7wyl` dalında ayrı, tek-konulu commit dizileri olarak ilerler
+> (her biri kendi `Closes:` satırıyla); ayrı PR'lara bölünmesi operatör kararıdır. İlerleme: PR 1 ✔
+> (`a104f86e`, ARIA-HIGH-186) · PR 2 ✔ (`a58c853c`, ARIA-HIGH-187) · PR 3 ✔ (`69ec7301`,
+> ARIA-HIGH-188) · PR 4 ✔ (`3de6953d`, ARIA-HIGH-189) · PR 5 ✔ (`c1bdb0d8` ARIA-HIGH-191,
+> `c37148ae` ARIA-HIGH-192, `75976295` ARIA-HIGH-190) · PR 6 ✔ (`896e1f5c`, ARIA-HIGH-202;
+> doc-staleness 2 766 → 276 bulgu) · uygulama sırasında bulunan ARIA-HIGH-203 PR 13 kapsamına
+> eklendi. **Bulgular:** ARIA-HIGH-097 (açık) ve ARIA-HIGH-186…202 —
+> `docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md`, registry
+> `docs/reviews/_registry/findings.jsonl`. **Kanıt tabanı:**
+> `docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md` §8–§9,
+> `docs/aria/reviews/2026-09-25-aria-tam-okuma/`.
+
+## Context
+
+2026-09-25 tam okuma + adversarial doğrulama
+(docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md §8–§9) gösterdi ki ARIA algılıyor
+ve yargılıyor ama zincir hiç kapanmadı: 13 OPEN / 0 RESOLVED finding, 15 plan / 0 CONVERGED, 0 ARIA
+PR'ı, 8/8 merge blocked. Kök nedenler kodda kanıtlı (panel oyu okunamıyor, challenger reddi
+4000-char kesimde kayboluyor, `change_validated` üreticisi yok, promotion yalnız CLI, `lstrip("./")`
+risk sınıflandırmasını bozuyor…).
+
+**Hedef:** bir L1 bulgusu için bulgu → plan → CONVERGED → uygulama → PR → doğrulama → **ARIA'nın
+kendi merge'ü** → merge sonrası izleme → kırmızıda **otomatik revert + self-merge dondurma**.
+
+**Kullanıcı kararları (bağlayıcı):**
+
+1. Self-merge yalnız **dar L1 şerit**: docs/tests/fixture; workflows, migrations, infra, auth,
+   billing, secrets, `aria-kernel/**`, `.claude/**`, CODEOWNERS yolları hariç.
+2. Unlock merdiveni **dürüstçe kazanılır** (L1 = 30 `observe_success`); eşik düşürme/muafiyet yok.
+3. Merge sonrası atfedilebilir CI kırmızısı veya `change_outcome=regression` → ARIA **revert PR'ını
+   kendi merge eder**, ardından self-merge **donar**; yalnız insan açar.
+4. Branch protection **önce ölçülür**; GitHub tarafı değişiklikler operatör adımıdır.
+
+**Temel ilke:** Bu plandaki 14 PR'ın hepsi `aria-kernel/`, `tools/aria-poc/`, `docs/aria/`,
+`.github/` (CODEOWNERS/L3) yollarına dokunur → **hepsi insan incelemeli ve insan merge'lüdür**. ARIA
+self-merge'ü ancak PR 14 + burn-in sonrası başlar. Her PR test-önce, tek konu, `Closes:` satırlı;
+her biri `git revert <squash>` ile geri alınabilir, hiçbiri ledger migrate etmez.
+
+## Zincir izi — ilk aday: `doc-staleness-adapter` `missing:<path>` bulgusu
+
+Neden: canlı ham bulguların %87'si; deterministik ve yeniden sınanabilir (yol var/yok); düzeltme
+CODEOWNERS dışı tek bir `docs/**.md` düzenlemesi. Bulgu canonical store'a **adaptör güveniyle**
+girer (`tool_runner.py:198,214` → `can_emit_operator_facing`), consensus ACK'i gerekmez.
+
+| #   | Adım                                                                                                                                                      | Durum                                                                                                                                                                                                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | adaptör koşusu → raw-findings                                                                                                                             | ÇALIŞIYOR                                                                                                                                                                                                                           |
+| 2   | doc-staleness gürültüsü (%53 `docs/reviews` arşivi, arşiv filtresi kullanılmıyor)                                                                         | BOZUK → ARIA-HIGH-202                                                                                                                                                                                                               |
+| 3   | adaptör CALIBRATE→ACTIVE                                                                                                                                  | Çağıran var (`autonomy_orchestrator.py:879` `attempt_auto_promotions`) ama policy `enabled:false`, yalnız `autonomous`, precision ≥0.95. Dürüst yol: readiness kapıları geçince **operatör onayı** (tasarımdaki insan yetkisi) → O3 |
+| 4   | ACTIVE → canonical `findings.jsonl`                                                                                                                       | ÇALIŞIYOR (canlıda hiç koşmadı)                                                                                                                                                                                                     |
+| 5   | `pr_tracking.py:394` ham `rewrite_jsonl`                                                                                                                  | BOZUK → ARIA-HIGH-189                                                                                                                                                                                                               |
+| 6   | cycle publish `raw_findings` bütçesi                                                                                                                      | BOZUK → ARIA-HIGH-190                                                                                                                                                                                                               |
+| 7   | `cycle_guard` checkout dizini                                                                                                                             | BOZUK → ARIA-HIGH-191                                                                                                                                                                                                               |
+| 8   | `report_ingestion` >500 satır                                                                                                                             | BOZUK → ARIA-HIGH-192                                                                                                                                                                                                               |
+| 9   | plan mint ref biçimi `path:line:snippet`                                                                                                                  | BOZUK → ARIA-HIGH-195                                                                                                                                                                                                               |
+| 10  | challenger reddi 4000-char kesimde kayboluyor                                                                                                             | BOZUK → ARIA-HIGH-194                                                                                                                                                                                                               |
+| 11  | panel principal = `ci-executor:gha-<RUN_ID>`                                                                                                              | BOZUK → ARIA-HIGH-193                                                                                                                                                                                                               |
+| 12  | HUMAN_REQUIRED panel oyu okunamıyor                                                                                                                       | BOZUK → **ARIA-HIGH-097** (açık)                                                                                                                                                                                                    |
+| 13  | native Claude exit-1 nedeni kayboluyor                                                                                                                    | BOZUK (gözlem) → ARIA-HIGH-188                                                                                                                                                                                                      |
+| 14  | CONVERGED → uygulama (V9 implementer)                                                                                                                     | ÇALIŞIYOR (`pr_create` profilinde; O2) — ARIA-HIGH-197 yeniden değerlendirildi                                                                                                                                                      |
+| 15  | V9 implementer PR açar                                                                                                                                    | O2 (profil) sonrası ÇALIŞIYOR                                                                                                                                                                                                       |
+| 16  | `change_committed` (`implementation_delivery.py:790`)                                                                                                     | ÇALIŞIYOR                                                                                                                                                                                                                           |
+| 17  | `change_validated`                                                                                                                                        | EKSİK → ARIA-HIGH-196                                                                                                                                                                                                               |
+| 18  | path normalizasyonu `lstrip("./")`                                                                                                                        | BOZUK → ARIA-HIGH-186                                                                                                                                                                                                               |
+| 19  | L1 lane sınıflandırması (fnmatch `*` `/` geçer, L1 fazla geniş)                                                                                           | BOZUK → ARIA-HIGH-187                                                                                                                                                                                                               |
+| 20  | readiness claim + rollback bundle (`aria-readiness-claim.yml` → `readiness_proofs.produce_readiness_claim` → `produce_rollback_and_retention_proofs:538`) | Kodda ÇALIŞIYOR; O1 (App Mode A) bekliyor                                                                                                                                                                                           |
+| 21  | `assert_autonomy_unlocked("L1")`                                                                                                                          | O4 burn-in bekliyor                                                                                                                                                                                                                 |
+| 22  | branch protection proof (`enterprise_readiness.py:560-612`: exact 4 check, signed, reviews, ruleset, `bypass_actors == []`)                               | ÖLÇÜLMEDİ → M1                                                                                                                                                                                                                      |
+| 23  | runner attestation (girdiler geçilmiyor; kalıcı runner ephemeral değil)                                                                                   | BOZUK → ARIA-HIGH-198                                                                                                                                                                                                               |
+| 24  | üçlü kapı + `gh pr merge --squash --match-head-commit`                                                                                                    | ÇALIŞIYOR (17'ye bağlı)                                                                                                                                                                                                             |
+| 25  | merge sonrası izleme (`own_pr_ci.scan_merged_own_prs`)                                                                                                    | ÇALIŞIYOR; kırmızı merge'e atfedilmiyor                                                                                                                                                                                             |
+| 26  | revert üreticisi + self-merge dondurma                                                                                                                    | EKSİK → ARIA-HIGH-199, -200                                                                                                                                                                                                         |
+
+## PR sırası (bağımlılık sırasıyla; her biri test-önce)
+
+Yeni ID'ler ARIA-HIGH-186…202 registry'ye kaydedildi. Kayıt yeri:
+`docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md` + registry (sahip okan/claude, son
+tarihler 2026-10-09 / 10-16 / 10-23).
+
+### Faz A — Güvenlik önkoşulları
+
+- **PR 1 · ARIA-HIGH-186 (tier 1) — tek path normalizer.**
+  `canonical_path.normalize_repo_relpath(p)`: lexical POSIX, mutlak ve `..` segmentini **strip'ten
+  önce** reddeder, yalnız baştaki `./` kaldırır (mantık `tool_health.normalize_path:641`). Beş
+  `lstrip("./")` yeri değişir: `auto_merge.py:1250`, `pr_manager.py:965`,
+  `service_dimension.py:108`, `architecture.py:450`, `convergent_skill_authoring.py:926` (burada
+  ayrıca `_canonical_evidence_path` ile containment). `tool_health`/`snapshot` kopyaları helper'a
+  bağlanır. Test önce: `aria-kernel/tests/test_repo_relpath_ssot.py` (`../x`, `./../x`,
+  `.env`→`.env`, `a/../../b`, `./docs/x.md`) + AST invariant: `aria_kernel/` ve `tools/aria-poc/`
+  içinde `.lstrip("./")` yasak.
+- **PR 2 · ARIA-HIGH-187 (tier 1) — tek glob matcher + dar L1.** `tool_health.matches_glob` (doğru
+  `**`) → `canonical_path.matches_repo_glob`; `risk_policy._matches_any:182` ve
+  `auto_merge._matches_any:1254` onu kullanır. `risk-policy.json` L1 = `docs/**`,
+  `apps|libs|web/**/__tests__/**`, `**/*.spec.ts` (apps/libs/web altında),
+  `tools/aria-adapters/fixtures/**`; `l1_excluded_globs` = `docs/aria/**`, `docs/reviews/**`,
+  `tests/invariants/**`, `aria-kernel/**`, `.claude/**`, `CLAUDE.md`, kök `*.md`;
+  `tools/aria-adapters/*.tool.json` L1'den çıkar; blok desenlerine kök `.env*`, `**/*secret*/**`,
+  `**/*credential*/**`. **`.github/CODEOWNERS` parse edilir: sahipli her yol asla L1 değil** (L1
+  yapısal olarak code-owner review gerektiremez). Test önce: `test_risk_policy_l1_lane.py` —
+  `.claude/agents/x.md`/`CLAUDE.md`/`aria-kernel/tests/x.py`/`tools/aria-adapters/x.tool.json` ≠ L1;
+  `.env` blocked; `docs/aria/x.md` L3; `docs/runbooks/x.md` L1; karışık L1+L2 diff → L2.
+
+### Faz B — Gözlem ve canlılık
+
+- **PR 3 · ARIA-HIGH-188 (tier 3).** `invoke_claude_cli` (`ci_executor.py:1805,2350-2361`) sınıflı
+  `DispatchFailure` (`dispatch_failure.py:227`) + 2 KiB, `artifact_safety.scrub_text` +
+  `_redact_lease_in_message`'tan geçmiş stderr kuyruğu döndürür; `_invoke_native_claude`
+  (`:3399-3483`) `runtime_attempt_finished`'a yazar. Release literal'i değişmez. Test: sahte CLI
+  exit 1 + auth/credit/rate-limit stderr → sınıf, redaksiyon, sınır.
+- **PR 4 · ARIA-HIGH-189.** `pr_tracking.py:388,394` → `feedback_store.load_jsonl/rewrite_jsonl`
+  (ORPHAN-670 kalıbı). Test: hash-zincirli tek satırlı beyanlı `findings.jsonl` round-trip.
+- **PR 5 · ARIA-HIGH-190/191/192.** I: `raw_findings`'i `count_surfaces`'tan çıkar
+  (`autonomy_evidence.py:1027-1032`; yalnız gösterimlik `raw_unique_fingerprints`) — test: 60 MiB
+  ham dosya publish'i bloklamaz. J: `cycle_guard.py:53-85` → `finding.findings_dir` +
+  `debt._debts_dir` — test `ARIA_REPO_STATE_ROOT` set. K: `report_ingestion.py:53` eşiği
+  cache/`backfill_limit` sonrası yalnız ingest adayına uygulanır — test 2 159 satırlık registry ile
+  hook geçer.
+- **PR 6 · ARIA-HIGH-202 — doc-staleness gürültüsü.** Adaptör arşiv filtresini kullansın
+  (`docs/reviews/**` ve tarihli arşivler taranmasın); kural sağlığı testleri fixtures'a eklenir.
+  Hedef: benzersiz parmak izi sayısında ölçülür düşüş, fixture precision.
+
+### Faz C — Yakınsama
+
+- **PR 7 · ARIA-HIGH-097 (tier 1).** Yeni
+  `adjudication_bridge.validate_adjudication_response(envelope)` (kalıp:
+  `self_change_bridge.validate_self_change_response:109-137`):
+  `details.verdict ∈ ADJUDICATOR_VERDICTS`, opsiyonel `details.disposition ∈ PANEL_DISPOSITIONS`.
+  Executor gate `ci_executor.py:1130-1136` yanında; ihlal release'i
+  `adjudication_contract_violation`. Prompt (`human_required_adjudication.py:345-366`) alanları
+  adıyla ister, disposition dahil. Tek okuyucu `panel_opinion.read_verdict(payload)` →
+  `_load_opinion`, `promotion_panel`, `belief_escalation:199`, genesis panel `:834-908`,
+  `decision_questioning:134-183`. Mock zarf (`:1897-1930`) aynı şekli üretir. Test önce:
+  `tools/aria-poc/tests/test_adjudication_envelope_roundtrip.py` — ham ajan metni **gerçek**
+  `_build_envelope_from_claude_output` → `_load_opinion` → fold → `adjudicated`. Elle üst-düzey
+  verdict yazan fixture'lar (`test_y7_*`, `test_human_required_agent_panel.py`, `test_jj2_*`,
+  `test_jj3_*`, `test_y8_*`, `test_x4_*`) gerçek builder'ı çağıran ortak yardımcıya taşınır.
+- **PR 8 · ARIA-HIGH-193 (tier 1).**
+  `independence_check.panel_seat_principal(request, accepted_result)` →
+  `(target_agent, dispatch_model)` (executor damgası `ci_executor.py:2683-2704`); `ci-executor:*`
+  reddi `judgment_bridge:333-352`'den buraya taşınır; `verify_principal_disjointness:136-200` ve
+  `plan_convergence_bridge:634,735` kullanır. L1 panelleri için farklı model zorunlu değil (açıkça
+  belgelenir). Test: aynı run, farklı `target_agent` → disjoint; aynı → değil.
+- **PR 9 · ARIA-HIGH-194.** `_build_envelope_from_claude_output` parse ettiği reddi (`:2626`)
+  `details.agent_refusal` olarak taşır; dedektör (`:5150-5158`) onu okur.
+  `force_plan_human_required` (`plan_convergence.py:1004-1023`) `gate`/`max_rounds_reached`'ı
+  `reason_codes`'tan türetir. `--challenger-timeout-seconds` drainer'a iletilir
+  (`convergence_drainer.py:569`). Kabul edilemez kanıtla basılmış açık istekleri iptal eden süpürme
+  (`control.record_control` + ARIA-HIGH-181 predikatı). Test:
+  `test_phase_v8_13_refusal_terminal.py`'ye 6 000 char'lık ret, gerçek builder'dan → terminal ret,
+  bütçe yanmaz.
+- **PR 10 · ARIA-HIGH-195.** `plan_synthesizer.py:368,~424` refleri `evidence_trust._split_ref`
+  gramerinde (`path:line`, snippet ayrı alan); `_AGENT_REF_RE` (`evidence_validator.py:47`)
+  `path[:line]`'a döner. Test: sentez planın refleri `repo_verified`;
+  `test_phase_v8_0_regex_redos.py` güncellenir.
+- **PR 11 · ARIA-HIGH-197 — yeniden değerlendirildi, kod yok.** Uygulama sırasında okunan kod öncülü
+  yanlışlıyor: CONVERGED → uygulama zaten otonom. `autonomy_orchestrator.run_autonomy_orchestrator`
+  CONVERGED sonrası `v9_implementation_runner.run(...)` çağırır; `select_v9_implementation_runner`
+  `pr_create` yetkili her profilde (`strict`, `autonomous`) `AutonomousV9ImplementationRunner`
+  seçer; o da `stage_converged_plan_for_pr` + `issue_implementation_envelope` ile implementer
+  zarfını basar (`allowed_scope` = planın `affected_surfaces` − `READONLY_PATHS`; `docs/**` dahil).
+  Operatör komutu isteyen `promote_converged_plan_to_dispatch` ayrı `aria-worker` şerididir, L1
+  zincirinin yolunda değildir. İkinci bir otonom terfi yolu yetkiyi gereksiz genişletirdi;
+  yapılmadı. L1 sınırını merge otoritesi (PR 2 risk sınıflandırması) uygular. Zincir için gereken
+  tek şey profilin `pr_create` taşımasıdır (operatör adımı O2).
+
+### Faz D — Doğrulama ve merge
+
+- **PR 12 · ARIA-HIGH-196 (tier 2).** `cli.py:3714-3722` ref eşlemesi
+  `validation_runs_ledger.refs_for_change`'e taşınır (`list_validation_runs_for_change:555` yanına);
+  `implementation_delivery` `emit_change_committed` (`:788-797`) hemen ardından
+  `emit_change_validated` çağırır; CLI aynı helper'ı kullanır. Test: sahte doğrulama koşulu teslimat
+  → committed + validated, üçlü kapı geçer.
+- **PR 13 · ARIA-HIGH-198 + ARIA-HIGH-201 — dürüst attestation + protection ölçümü.** Kalıcı
+  self-hosted runner asla ephemeral sayılmaz. Merge yürütmesi yeni `aria-merge-runner.yml`'e
+  (`ubuntu-latest`, `workflow_run: aria-readiness-claim` success, tek PR için `RealAutoMergeRunner`)
+  taşınır. `ephemeral_runner` GitHub'ın `RUNNER_ENVIRONMENT == "github-hosted"` ölçümünden;
+  `approved_runner_group` policy allowlist'inden; `claude_auth` bu şeritte `not_required` (LLM yok,
+  şema enum'u açık). `aria-auto-cycle.yml:557`, `aria-agent-executor.yml:562` dört girdiyi ölçülü
+  geçer (onlar merge için reddedilmeye devam eder). Protection proof
+  `required_approving_review_count` + `require_code_owner_reviews`'ı da kaydeder; verifier
+  code-owner review'ı ister, L1 CODEOWNERS dışı olduğundan 0 onayı kabul eder. Test: `self-hosted` →
+  red, `github-hosted` → kabul.
+
+- **PR 13 ek kapsamı · ARIA-HIGH-203 — self-merge ana anahtarı.**
+  `auto_merge.DEFAULT_POLICY["enabled"]=False` ve runner `merge_pr_if_ready`'ye politika geçmiyor →
+  hiçbir otonom merge uygun olamaz. Anahtar operatör kontrollü, denetimli bir kaynaktan okunur (ör.
+  `aria-config/` altında imzalı/`operator_approval_ref`'li bir kayıt); runner onu açıkça geçer;
+  açma/kapama governance satırı yazar. Test: anahtar kapalıyken L1 PR `auto_merge_disabled`, açıkken
+  diğer kapılara ilerler. Operatör adımı O2 ile birlikte açılır.
+
+### Faz E — Geri alınabilirlik
+
+- **PR 14 · ARIA-HIGH-199 (revert) + ARIA-HIGH-200 (dondurma).** Yeni `aria_kernel/self_revert.py`.
+  - **Tetik:** (a) ARIA'nın merge ettiği PR için `ci/merge-outcomes` `red` — yalnız
+    **atfedilebilir** ise: kırmızı her job `merge_sha^` üzerinde yeşildi (main'in önceden kırmızı
+    lane'leri revert tetiklemez); (b) o merge'e bağlı change_id için `change_outcome` verdict
+    `regression`.
+  - **İdempotensi:** anahtar `revert:<merge_sha>`, beyanlı ledger `enterprise/self-reverts.jsonl`
+    (state_manifest'e yüzey olarak eklenir). Revert commit'inde kırmızı → revert-of-revert yok;
+    dondurma sürer + bildirim.
+  - **Mekanizma:** `main`'den `aria/revert/<sha12>`, `git revert --no-edit <merge_sha>`; çakışma →
+    iptal + dondurma + HUMAN_REQUIRED. **Saflık kanıtı:** revert'ün `git patch-id`'si
+    `merge_sha^..merge_sha` tersinin patch-id'sine eşit ve dosya kümesi aynı. Ardından PR 12
+    helper'ıyla committed/validated, `pr_manager` ile PR. Aynı L1 dosyaları → normal policy ile L1;
+    özel şerit yok.
+  - **Dondurma:** revert açılmadan önce `self_merge_frozen` satırı; `merge_pr_if_ready`'de
+    `assert_merge_not_watchdog_frozen`'ın hemen ardından
+    `assert_self_merge_not_frozen(pr, head_sha)` — donukken **yalnız** o merge_sha için saflık
+    kanıtlı `self-reverts` satırıyla eşleşen head_sha kabul edilir. Görünürlük için GitHub issue
+    (watchdog imza kalıbı).
+  - **İnsan açar:** `aria-kernel merge unfreeze --freeze-id … --operator-approval-ref …`
+    (`operator_approval.verify_operator_approval_ref`); ARIA workflow'larında operatör onay yetkisi
+    yok. Başarılı revert merge'ü `rollback_success` kabul olayı yazar.
+  - Test: `test_self_revert.py` — önceden kırmızı → revert yok; atfedilebilir kırmızı → tek revert,
+    ikinci tetik no-op; saf olmayan diff red; donukken normal PR red / revert PR kabul; onaysız
+    unfreeze red.
+  - Rollback bundle zaten PR başına `aria-readiness-claim.yml` ile otomatik (felaket kurtarma
+    artefaktı); operasyonel geri alma revert PR'ıdır.
+
+## Operatör adımları (yalnız sen)
+
+- **M1 — protection ölçümü (PR 13'ten önce):** `aria-readiness-claim` `workflow_dispatch` (→
+  `produce_branch_protection_proof`/`_probe_branch_rules`) veya
+  `gh api repos/Okan-wqm/aquaculture_platform/branches/main/protection` + `/rules/branches/main`.
+  Kayıt: checks, signatures, review bloğu, code-owner, bypass actors, ruleset.
+- **O1 — GitHub App Mode A:** `docs/runbooks/aria-github-app-setup.md`;
+  `ARIA_GH_APP_ID/INSTALLATION_ID/PRIVATE_KEY`.
+- **O1b — branch protection:** 4 required check tam eşleşme
+  (`sens-enterprise-summary, merge-gate, aria-merge-authority, build-status`), imzalı commit,
+  code-owner review, force-push/silme kapalı, ruleset; **bypass actor yok** (proof yasaklar); onay
+  sayısı 0 + code-owner (M1 değişiklik mi karar verir).
+- **O3 — doc-staleness ACTIVE:** PR 6 sonrası readiness kapıları (≥5 kararlı SHADOW, fixture,
+  precision) geçince operatör onayıyla `tool promote` (tasarımdaki insan yetkisi; eşik düşürülmez).
+- **O4 — burn-in:** `aria-auto-cycle.yml` `mode=burn-in-observe, mock=false` →
+  `enterprise/acceptance-events.jsonl` ≥30 `observe_success`.
+- **O2b — self-merge ana anahtarı (ARIA-HIGH-203):** O2 ile aynı anda, operatör onay referansıyla
+  açılır.
+- **O2 — profil tavanı:** yalnız PR 1–14 merge + O4 bitince
+  `aria-kernel profile set --scheduler-ceiling autonomous --operator-approval-ref <ref>`.
+
+**Takvim (tahmini):** Hf 1–2: PR 1–6, M1 · Hf 3: PR 7–11 · Hf 4: PR 12–14, O1/O1b · Hf 5: O3, O4,
+mock E2E · Hf 6: O2, ilk canlı E2E.
+
+## Doğrulama
+
+**Her PR:** `bash scripts/ci/aria-suite-run.sh <yeni testler>` ardından tam suite ·
+`python -m pytest tools/aria-poc/tests -q` · `npx nx affected --target=test` ve `--target=lint` ·
+`npx jest --config tests/invariants/jest.config.ts` (aria-\*, claude-md-accuracy,
+test-target-ci-reachability) · banned-phrase + banned-construct gate (range) ·
+`npx tsx tools/gates/aria-authority-hash.ts --write` (docs/aria değişirse).
+
+**Mock E2E (PR 14 sonrası):** geçici tools dir, tek ACTIVE doc-staleness bulgusu, `ci_executor` mock
+→ sırasıyla: principal-disjoint CONVERGED plan; V9 implementer zarfı; committed + validated; sahte
+adapter ile `merged`; enjekte atfedilebilir kırmızı → tek saf revert + freeze satırı; donukken
+ikinci PR red, revert PR kabul.
+
+**İlk canlı E2E başarı ölçütü** (`git show origin/aria/state:tools/…`): doc-staleness
+`findings.jsonl` satırı · CONVERGED plan · change_id için committed + validated ·
+`enterprise/readiness-claims.jsonl`, `rollback-bundles.jsonl`, github-hosted runner attestation ·
+`auto-merge-decisions.jsonl` `decision=merged` · `ci/merge-outcomes.jsonl` `green` · 0
+`self-reverts`. Revert yolu canlıda kışkırtılmaz; mock'ta kanıtlanır.
+
+## Riskler
+
+- M1 ≥1 zorunlu onay gösterirse operatör "0 + code-owner" seçmeli; bypass actor proof'u düşürür.
+- doc-staleness readiness kapılarını geçemezse zincir 3. adımda dürüstçe bekler; muafiyet yok.
+- S12 kredi/auth yanlış pozitifleri (`claude_runtime.py:1771-1816`) gece breaker'ını tetikleyebilir;
+  PR 3 teşhis ettirir, düzeltmez (ayrı finding).
+- Aynı dokümana sonraki commit dokunursa revert çakışır → tasarım gereği dondur + insan.
+
+## Kapsam dışı
+
+S2 skill genesis sandbox (runner'a erişilemez kalmalı) · mission yaşam döngüsü (G; zincir mission
+kullanmıyor) · ölü kod temizliği · L2/L3 self-merge · eşik düşürme.
+
+## Kritik dosyalar
+
+`aria-kernel/aria_kernel/{canonical_path,risk_policy,auto_merge,merge_authority,human_required_adjudication,independence_check,plan_convergence,promotion_controller,implementation_delivery,validation_runs_ledger,runner_attestation,own_pr_ci,self_revert(yeni)}.py`
+· `tools/aria-poc/ci_executor.py` · `docs/aria/policy/risk-policy.json` ·
+`.github/workflows/{aria-auto-cycle,aria-agent-executor,aria-merge-runner(yeni)}.yml`

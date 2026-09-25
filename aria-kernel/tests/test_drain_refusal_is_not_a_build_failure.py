@@ -178,8 +178,10 @@ class ByDesignExitsNameThemselves(LivePathFetchTests):
             MagicMock(returncode=0, stdout="{}", stderr=""),  # human-required record
             self.release_response_ok,
         )
+        # ARIA-HIGH-194 — the detector reads the builder's refusal record
+        # (details.agent_refusal) through the one refusal predicate.
         refusal = {"$schema": "aria/agent-refusal/v1", "reason_class": "scope_unclear", "reason_summary": "no"}
-        with patch.object(ci_executor, "_extract_envelope_json", return_value=refusal):
+        with patch.object(ci_executor, "_agent_refusal_block", return_value=refusal):
             exit_code, summary = self._run_with_summary_channel(fake_run)
         self.assertEqual(exit_code, 0)
         self._assert_refused(summary, "agent_refused")

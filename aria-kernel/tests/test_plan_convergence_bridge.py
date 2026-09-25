@@ -106,10 +106,11 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         from aria_kernel.plan_convergence_bridge import _canonicalize_revision_payload
 
         response = {
-            "request_id": "AIR-aria-primary-planner-f3c9a608e939", "agent_id": "chain-f-primary_plan-1",
+            "request_id": "AIR-aria-primary-planner-f3c9a608e939", "agent_id": "ci-executor:gha-7",
             "plan_content": {"schema_version": 2, "title": "t", "summary": "s", "affected_surfaces": [],
                              "key_changes": ["k"], "validation_commands": [], "evidence_refs": ["a.ts:1"]},
-            "details": {"revision": {"round": 2, "parent_revision_hash": "sha256:" + "b" * 64,
+            "details": {"agent_subagent_type": "aria-primary-planner",
+                        "revision": {"round": 2, "parent_revision_hash": "sha256:" + "b" * 64,
                                      "revision_id": "rev-agent-label", "prior_round_artifacts_found": False}},
         }
         with patch(
@@ -123,7 +124,9 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertEqual(payload["round"], 1)
         self.assertEqual(payload["parent_revision_hash"], "sha256:" + "a" * 64)
         self.assertEqual(payload["revision_id"], "rev-agent-label")
-        self.assertEqual(payload["revised_by_agent"], "chain-f-primary_plan-1")
+        # ARIA-HIGH-193 — the author is the executor-stamped subagent, never
+        # the envelope's executor-shaped agent_id.
+        self.assertEqual(payload["revised_by_agent"], "aria-primary-planner")
 
     def test_primary_plan_on_draft_raises_bridge_contract_violation(self) -> None:
         """Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-06) — DRAFT state refuses
@@ -165,9 +168,9 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         response = {
             "role": "challenger_plan",
             "request_id": "AIR-ch-001",
-            "agent_id": "aria-challenger-planner",
+            "agent_id": "ci-executor:gha-7",
             "plan_content": canonical_pc,
-            "details": {},
+            "details": {"agent_subagent_type": "aria-challenger-planner"},
         }
         kernel_state = {
             "latest_revision": {

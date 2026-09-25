@@ -61,19 +61,22 @@ SCHEMA_VERSION = 1
 DEBT_ID_RE = re.compile(r"^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$")
 
 
-def _debts_dir(repo_root: Path) -> Path:
-    # Same seam as findings: one resolver, so the two roots cannot drift.
+def debts_dir(repo_root: str | Path) -> Path:
+    """SSoT for where committed debts live — the debt twin of
+    ``finding.findings_dir`` (ARIA-HIGH-191). PUBLIC so a reader never
+    rebuilds ``repo_root / "aria-debts"`` by hand; one resolver, so the two
+    roots cannot drift."""
     from .workspace import repo_state_root
 
     return repo_state_root(Path(repo_root)) / "aria-debts"
 
 
 def _index_path(repo_root: Path) -> Path:
-    return _debts_dir(repo_root) / "_index.json"
+    return debts_dir(repo_root) / "_index.json"
 
 
 def _events_path(repo_root: Path) -> Path:
-    return _debts_dir(repo_root) / "debt-events.jsonl"
+    return debts_dir(repo_root) / "debt-events.jsonl"
 
 
 def _utc_now() -> datetime:
@@ -193,7 +196,7 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
         # E21-d audit catch (ORPHAN-693) — twin of finding.py's fix: under
         # ARIA_REPO_STATE_ROOT the store lives outside the repo tree.
         "source_ledger": _events_path(repo_root).relative_to(
-            _debts_dir(repo_root).parent
+            debts_dir(repo_root).parent
         ).as_posix(),
         "source_ledger_tip_hash": source_tip,
         "debts": [],
@@ -272,10 +275,10 @@ def emit_debt(
         short_term_action, repo_root=repo_path, probe_session=GitProbeSession(),
     )
 
-    debts_dir = _debts_dir(repo_path)
-    debts_dir.mkdir(parents=True, exist_ok=True)
+    debts_root = debts_dir(repo_path)
+    debts_root.mkdir(parents=True, exist_ok=True)
     from .file_lock import with_exclusive_lock
-    with with_exclusive_lock(debts_dir / ".alloc.lock", timeout_seconds=5.0):
+    with with_exclusive_lock(debts_root / ".alloc.lock", timeout_seconds=5.0):
         debt_id = _allocate_debt_id(repo_path, when=now)
         record = {
             "$schema": "aria/architectural-debt/v1",
@@ -321,7 +324,7 @@ def emit_debt(
         )
         record["source_event_id"] = event.get("event_id")
         record["source_ledger_hash"] = event.get("ledger_hash")
-        output_path = _debts_dir(repo_path) / f"{debt_id}.json"
+        output_path = debts_root / f"{debt_id}.json"
         if output_path.exists():
             raise GovernanceError(f"debt {debt_id} already exists at {output_path}")
         _atomic_write_json(output_path, record)
@@ -337,7 +340,7 @@ def emit_debt(
             "due_date": record["due_date"],
             "permanent_fix_owner": permanent_fix_owner,
             # E21-d audit catch (ORPHAN-693) — twin of finding.py's fix.
-            "path": output_path.relative_to(_debts_dir(repo_path).parent).as_posix(),
+            "path": output_path.relative_to(debts_root.parent).as_posix(),
         },
     )
     return record

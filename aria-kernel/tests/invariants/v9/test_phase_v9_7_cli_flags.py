@@ -29,8 +29,10 @@ class TestV9CliAutonomyRun(unittest.TestCase):
     def test_cycle_deadline_seconds_present(self):
         self.assertIn('--cycle-deadline-seconds', self.src)
 
-    def test_challenger_timeout_seconds_present(self):
-        self.assertIn('--challenger-timeout-seconds', self.src)
+    def test_challenger_timeout_seconds_retired(self):
+        # ARIA-HIGH-194 — the resumable drainer waits on nothing; the flag
+        # was parsed and discarded, so it is gone.
+        self.assertNotIn('--challenger-timeout-seconds', self.src)
 
     def test_max_rounds_present(self):
         self.assertIn('--max-rounds', self.src)

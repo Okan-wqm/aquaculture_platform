@@ -1992,7 +1992,7 @@ class RootsBindToTheStore(StateStoreTestCase):
 
     def test_the_binding_is_one_definition_and_the_seams_honour_it(self) -> None:
         from aria_kernel.finding import _findings_dir
-        from aria_kernel.debt import _debts_dir
+        from aria_kernel.debt import debts_dir
         from aria_kernel.workspace import workspace_paths
 
         store = self._bootstrap()
@@ -2005,7 +2005,7 @@ class RootsBindToTheStore(StateStoreTestCase):
                 state_store.findings_root(store) / "aria-findings",
             )
             self.assertEqual(
-                _debts_dir(self.repo),
+                debts_dir(self.repo),
                 state_store.findings_root(store) / "aria-debts",
             )
             # ...and the workspace lands exactly where store_roots says the

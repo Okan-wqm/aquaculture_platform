@@ -45,7 +45,7 @@ from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 _THIS_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _THIS_DIR.parents[1]
@@ -1134,6 +1134,20 @@ def _pre_submit_validate_envelope(
             request=request or {},
             response={**envelope, "role": role},
         )
+    # ARIA-HIGH-097 — an adjudicator answer is gated on the kernel's own
+    # reader (human_required_adjudication.read_adjudication's contract), so
+    # an envelope the fold cannot read is released here instead of sealed as
+    # an accepted opinion that counts toward panel_incomplete forever.
+    from aria_kernel.human_required_adjudication import (
+        ADJUDICATION_ROLE as _adjudication_role,
+        validate_adjudication_response,
+    )
+
+    if role == _adjudication_role:
+        return validate_adjudication_response(
+            request={**(request or {}), "role": role},
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -1361,6 +1375,25 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
     if not lease_token:
         return message
     return message.replace(lease_token, "<lease-token-redacted>")
+
+
+STDERR_TAIL_MAX_CHARS = 2000
+
+
+def _bounded_stderr_tail(stderr: str | None) -> str | None:
+    """The child's last words, safe to persist (ARIA-HIGH-188).
+
+    The LAST ``STDERR_TAIL_MAX_CHARS`` characters, with the lease this
+    executor holds (``LEASE_TOKEN_ENV_VAR``) redacted and every secret
+    shape ``artifact_safety`` knows scrubbed. ``None`` when there is nothing
+    to say, so a row never carries an empty cause.
+    """
+    if not stderr:
+        return None
+    from aria_kernel.artifact_safety import scrub_text
+
+    tail = _redact_lease_in_message(stderr[-STDERR_TAIL_MAX_CHARS:], os.environ.get(LEASE_TOKEN_ENV_VAR))
+    return scrub_text(tail)[-STDERR_TAIL_MAX_CHARS:]
 
 
 def _max_turns() -> int:
@@ -1834,6 +1867,11 @@ def invoke_claude_cli(
     # with it, so the agent's git can commit in the request worktree and
     # sign through the kernel-held agent. None for every other role.
     git_containment: Any | None = None,
+    # ARIA-HIGH-188 — the caller that records the attempt (the native lane)
+    # observes the ONE terminal summary this call writes: outcome, failure
+    # class, detail code and the bounded stderr tail. The int return stays
+    # the exit code every other caller branches on.
+    on_outcome: Callable[[dict[str, Any]], None] | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1899,6 +1937,52 @@ def invoke_claude_cli(
             )
         envelope_role = role
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        from aria_kernel.human_required_adjudication import (
+            ADJUDICATION_DETAILS_KEY,
+            ADJUDICATION_ROLE,
+            INSUFFICIENT_VERDICT,
+        )
+
+        mock_details: dict[str, Any]
+        if envelope_role == ADJUDICATION_ROLE:
+            # ARIA-HIGH-097 — the adjudicator mock satisfies the SAME contract
+            # the pre-submit gate enforces, with the one verdict that can never
+            # clear an escalation: a mock opinion must not resolve anything.
+            mock_details = {
+                "agent_subagent_type": subagent_type,
+                ADJUDICATION_DETAILS_KEY: {
+                    "verdict": INSUFFICIENT_VERDICT,
+                    "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
+                },
+            }
+        else:
+            mock_details = {
+                # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
+                # judge contract the pre-submit gate enforces (verdict in
+                # the closed set + resolvable ids), exactly like the eval
+                # fixtures do. The old "uncertain" placeholder was an
+                # envelope the bridge could never fold — the measured
+                # defect class this contract exists to keep out. Mock
+                # mode is env-gated and never on in production lanes;
+                # the ci-mock fallbacks only fire when the request row
+                # itself carries no judgment identity (test fixtures).
+                "agent_subagent_type": subagent_type,
+                "verdict": {
+                    "verdict": "false_positive",
+                    "confidence": 0.5,
+                    "judge_id": subagent_type,
+                    "model": "mock",
+                    "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
+                    "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
+                    "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
+                    "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
+                    "evidence_refs": [],
+                    "judgment_group_id": str(
+                        (request_envelope or {}).get("judgment_group_id") or "ci-mock"
+                    ),
+                    "severity": "low",
+                },
+            }
         mock_envelope = {
                 "$schema": "aria/agent-response/v1",
                 "request_id": request_id,
@@ -1908,33 +1992,7 @@ def invoke_claude_cli(
                 "status": "submitted",
                 "satisfaction_matrix": matrix,
                 "evidence_refs": [],
-                "details": {
-                    # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
-                    # judge contract the pre-submit gate enforces (verdict in
-                    # the closed set + resolvable ids), exactly like the eval
-                    # fixtures do. The old "uncertain" placeholder was an
-                    # envelope the bridge could never fold — the measured
-                    # defect class this contract exists to keep out. Mock
-                    # mode is env-gated and never on in production lanes;
-                    # the ci-mock fallbacks only fire when the request row
-                    # itself carries no judgment identity (test fixtures).
-                    "agent_subagent_type": subagent_type,
-                    "verdict": {
-                        "verdict": "false_positive",
-                        "confidence": 0.5,
-                        "judge_id": subagent_type,
-                        "model": "mock",
-                        "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
-                        "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
-                        "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
-                        "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
-                        "evidence_refs": [],
-                        "judgment_group_id": str(
-                            (request_envelope or {}).get("judgment_group_id") or "ci-mock"
-                        ),
-                        "severity": "low",
-                    },
-                },
+                "details": mock_details,
             }
         _write_sanitized_envelope(output_path, mock_envelope)
         resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
@@ -1955,6 +2013,10 @@ def invoke_claude_cli(
             + "\n",
             encoding="utf-8",
         )
+        if on_outcome is not None:
+            # ARIA-HIGH-188 — every terminal path reports once, the mock too.
+            on_outcome({"outcome": "succeeded", "failure_class": None, "detail_code": None,
+                        "retryable": None, "exit_code": 0, "stderr_tail": None})
         return 0
 
     request_prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
@@ -2023,6 +2085,7 @@ def invoke_claude_cli(
 
     def _emit_dispatch_summary(
         *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+        stderr_tail: str | None = None,
     ) -> None:
         """Exactly one sanitized classified summary per terminal path."""
         nonlocal _summary_emitted
@@ -2033,6 +2096,15 @@ def invoke_claude_cli(
             route=_dispatch_route, request_id=request_id, outcome=outcome,
             failure=failure, exit_code=exit_code,
         )
+        if on_outcome is not None:
+            on_outcome({
+                "outcome": outcome,
+                "failure_class": failure.failure_class if failure is not None else None,
+                "detail_code": failure.detail_code if failure is not None else None,
+                "retryable": failure.retryable if failure is not None else None,
+                "exit_code": exit_code,
+                "stderr_tail": stderr_tail,
+            })
     # ARIA-HIGH-124 — NO delivery credential enters the spawn. The scoped
     # GitHub token (`delivery_credentials`) used to be minted here and
     # exported into this spawn's environment so the agent could push and
@@ -2348,16 +2420,19 @@ def invoke_claude_cli(
                 signer_key_fp=signer_key_fp,
                 usage=completed.usage,
             )
+    # The child's own last words, bounded and redacted: a non-zero exit with
+    # no cause is the operator reading four ledgers to learn that the
+    # limiter could not reach a bus. They go to the job log AND, through
+    # the summary seam, to the caller that records the attempt.
+    _stderr_tail = _bounded_stderr_tail(completed.stderr) if completed.returncode != 0 else None
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
         exit_code=completed.returncode,
+        stderr_tail=_stderr_tail,
     )
-    if completed.returncode != 0 and completed.stderr:
-        # The child's own last words, bounded and lease-redacted: a non-zero
-        # exit with no cause is the operator reading four ledgers to learn
-        # that the limiter could not reach a bus.
-        sys.stderr.write("claude_stderr_tail: " + _redact_lease_in_message(completed.stderr[-2000:], None) + "\n")
+    if _stderr_tail:
+        sys.stderr.write("claude_stderr_tail: " + _stderr_tail + "\n")
     return completed.returncode
 
 
@@ -2539,6 +2614,32 @@ def _record_claude_cli_usage(
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+AGENT_REFUSAL_SUMMARY_MAX_CHARS = 500
+
+
+def _agent_refusal_block(parsed: Any) -> dict[str, Any] | None:
+    """The bounded refusal record for an ``aria/agent-refusal/v1`` answer, else None.
+
+    ARIA-HIGH-194 — the ONE refusal predicate. The builder parses the agent's
+    full reply; the detector used to re-parse ``details.agent_text``, an
+    excerpt cut at 4 000 characters, and both live round-1 challengers wrote
+    4 003-character replies whose refusal JSON sat past the cut. The builder
+    now records what it parsed and the detector reads that record.
+    """
+    from aria_kernel.agent_contract import REFUSAL_SCHEMA
+
+    if not isinstance(parsed, dict) or REFUSAL_SCHEMA not in (
+        parsed.get("$schema"), parsed.get("envelope"), parsed.get("schema"),
+    ):
+        return None
+    summary = str(parsed.get("reason_summary") or parsed.get("reason") or "agent refused without summary")
+    return {
+        "$schema": REFUSAL_SCHEMA,
+        "reason_class": str(parsed.get("reason_class") or "unspecified")[:64],
+        "reason_summary": _safe_agent_text_excerpt(summary, limit=AGENT_REFUSAL_SUMMARY_MAX_CHARS),
+    }
+
+
 def _extract_envelope_json(text: str) -> dict[str, Any] | None:
     """Find the agent's embedded envelope JSON in a natural-language reply.
 
@@ -2702,6 +2803,13 @@ def _build_envelope_from_claude_output(
     else:
         details.pop("agent_dispatch_model", None)
     details["agent_confidence_source"] = confidence_source
+    # ARIA-HIGH-194 — FORCE-set from the parse of the FULL reply, like the
+    # stamps above: the agent's own spelling of the key is never trusted.
+    refusal = _agent_refusal_block(extracted)
+    if refusal is not None:
+        details["agent_refusal"] = refusal
+    else:
+        details.pop("agent_refusal", None)
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     if usage is None:
         usage = extract_usage(parse_claude_jsonl(raw_stdout))
@@ -3437,8 +3545,10 @@ def _invoke_native_claude(
     result_admission = _NATIVE_CLAUDE_ADMISSION_UNNAMED
     usage_row_hash: str | None = None
     contract_row: dict[str, Any] | None = None
+    dispatch_outcome: dict[str, Any] = {}
     try:
         cli_exit = invoke_claude_cli(
+            on_outcome=dispatch_outcome.update,
             request_id=request_id, subagent_type=target_agent, session_id=session_id, resume=resume,
             prompt_file=prompt_file, output_path=output_path, transcript_path=transcript_path,
             timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
@@ -3481,6 +3591,9 @@ def _invoke_native_claude(
             "exit_code": cli_exit, "observed_effort": None,
             "usage_ledger_hash": usage_row_hash, "result_admission": result_admission,
             **({"agent_contract": contract_row} if contract_row else {}),
+            # ARIA-HIGH-188 — WHY a non-zero or refused attempt ended, on the
+            # row that records it, not only on the job's stderr.
+            **({"dispatch_outcome": dict(dispatch_outcome)} if dispatch_outcome.get("outcome") != "succeeded" and dispatch_outcome else {}),
         })
 
 
@@ -5145,25 +5258,19 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         _envelope_for_validation = json.loads(expected_output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as _exc:
         _envelope_for_validation = None
-    # Refusal detection: look at the agent's raw text body, NOT the
-    # ci_executor-built outer wrapper. The agent's refusal JSON is
-    # nested inside `details.agent_text`. We parse the embedded JSON
-    # block ourselves to spot the `$schema = aria/agent-refusal/v1`
-    # marker independently of the outer envelope's claimed schema.
+    # Refusal detection (ARIA-HIGH-194): read the record the builder made
+    # from the agent's FULL reply (`details.agent_refusal`), never a re-parse
+    # of `details.agent_text` — that is an excerpt, and a refusal past its
+    # cut was missed and billed to the request's budget.
     if isinstance(_envelope_for_validation, dict):
-        _agent_text = (_envelope_for_validation.get("details") or {}).get("agent_text") or ""
-        _inner_refusal = _extract_envelope_json(_agent_text) if isinstance(_agent_text, str) else None
-        if isinstance(_inner_refusal, dict) and (
-            _inner_refusal.get("$schema") == "aria/agent-refusal/v1"
-            or _inner_refusal.get("envelope") == "aria/agent-refusal/v1"
-            or _inner_refusal.get("schema") == "aria/agent-refusal/v1"
-        ):
-            _reason_class = str(_inner_refusal.get("reason_class") or "unspecified")
-            _reason_summary = str(
-                _inner_refusal.get("reason_summary")
-                or _inner_refusal.get("reason")
-                or "agent refused without summary"
-            )[:500]
+        _details_for_refusal = _envelope_for_validation.get("details")
+        _inner_refusal = (
+            _agent_refusal_block(_details_for_refusal.get("agent_refusal"))
+            if isinstance(_details_for_refusal, dict) else None
+        )
+        if _inner_refusal is not None:
+            _reason_class = _inner_refusal["reason_class"]
+            _reason_summary = _inner_refusal["reason_summary"]
             _stage(f"agent_refusal_detected class={_reason_class!r} request_id={request_id}")
             # Persist HUMAN_REQUIRED through the kernel's recorder (one
             # recorder, shared with the delivery refusals — ARIA-HIGH-124)
@@ -5389,6 +5496,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             )
 
             from aria_kernel.agent_surface import JUDGE_ROLES as _gated_judge_roles
+            from aria_kernel.human_required_adjudication import (
+                ADJUDICATION_CONTRACT_RELEASE_REASON as _adjudication_release_reason,
+                ADJUDICATION_ROLE as _adjudication_role_for_release,
+            )
             if _role_for_validation in _gated_judge_roles:
                 # ARIA-MEDIUM-166 — the arbiter is gated with the judges and
                 # released under the same harness-class reason.
@@ -5397,6 +5508,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 # B6 — same harness-class pricing as the judge contract: a
                 # missing `details.problem` says nothing about the mission.
                 _release_reason = SELF_CHANGE_CONTRACT_RELEASE_REASON
+            elif _role_for_validation == _adjudication_role_for_release:
+                # ARIA-HIGH-097 — same harness-class pricing: a missing
+                # details.adjudication block says nothing about the escalation.
+                _release_reason = _adjudication_release_reason
             else:
                 _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
+from .canonical_path import normalize_repo_relpath
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
     HardFailContext,
@@ -804,7 +805,7 @@ def plan_pr_split(
     if max_files_per_pr <= 0:
         raise GovernanceError("max_files_per_pr must be positive")
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
-    files = [_normalize_path(path) for path in changed_files if isinstance(path, str) and path.strip()]
+    files = [normalize_repo_relpath(path) for path in changed_files if isinstance(path, str) and path.strip()]
     if not files:
         raise GovernanceError("PR split planning requires changed_files")
     grouped: dict[str, list[str]] = {}
@@ -960,7 +961,3 @@ def _git(cwd: Path, args: list[str]) -> str:
 
 def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
-
-
-def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")

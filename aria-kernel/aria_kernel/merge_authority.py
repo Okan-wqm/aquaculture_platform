@@ -50,6 +50,16 @@ def merge_pr_if_ready(
     immediately before invoking ``adapter.merge_pr``.
     """
     profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ARIA-HIGH-203 — the auto-merge master switch IS this gate. The policy's
+    # `enabled` flag defaults to False (auto_merge.DEFAULT_POLICY) so an
+    # evaluation outside merge authority is never eligible, and the runner
+    # passed no policy: every real merge read the code constant and could
+    # never be eligible, whatever the operator had authorized. The operator's
+    # audited switch is the runtime profile (`set_profile` with an approval
+    # ref, history in the profile ledger); reaching this line means it
+    # grants `pr_merge`, so the evaluation below runs switched on. A caller
+    # cannot switch a merge on or off with its own policy literal.
+    policy = {**(policy or {}), "enabled": True}
     # ORPHAN-MEDIUM-562 — the external watchdog reports a stalled ARIA memory
     # and cannot freeze anything itself, because freezing needs the kernel it
     # is watching. The alarm is read HERE, at the single real-merge authority:

@@ -1150,6 +1150,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             ".github/workflows/aria-agent-executor.yml",
             ".github/workflows/aria-agent-eval.yml",
             ".github/workflows/aria-readiness-claim.yml",
+            ".github/workflows/aria-merge-runner.yml",
         ),
         producer_paths=(
             f"{_KERNEL}gh_token_factory.py",
@@ -1163,6 +1164,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             ".github/workflows/aria-agent-executor.yml",
             ".github/workflows/aria-agent-eval.yml",
             ".github/workflows/aria-readiness-claim.yml",
+            ".github/workflows/aria-merge-runner.yml",
         ),
         authorizing_consumer_paths=(
             f"{_KERNEL}auto_merge_runners.py",

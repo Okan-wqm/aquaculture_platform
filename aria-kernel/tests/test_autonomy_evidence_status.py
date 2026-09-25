@@ -187,6 +187,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         ".github/workflows/aria-agent-executor.yml",
         ".github/workflows/aria-agent-eval.yml",
         ".github/workflows/aria-readiness-claim.yml",
+        ".github/workflows/aria-merge-runner.yml",
     ),
     "autonomy_unlock": (
         f"{KERNEL}acceptance_reconciler.py",
@@ -246,6 +247,7 @@ EXPECTED_PRODUCERS = {
         ".github/workflows/aria-agent-executor.yml",
         ".github/workflows/aria-agent-eval.yml",
         ".github/workflows/aria-readiness-claim.yml",
+        ".github/workflows/aria-merge-runner.yml",
     ),
     "autonomy_unlock": (
         f"{KERNEL}acceptance_reconciler.py", f"{KERNEL}autonomy_unlock.py",

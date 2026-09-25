@@ -50,7 +50,7 @@ runs:
         PYTHONPATH=aria-kernel python3 -m aria_kernel runner-attestation probe \
           --repo "${GITHUB_REPOSITORY}" \
           --target-ref "${GITHUB_REF_NAME:-main}" \
-          --lane "${ARIA_ATTESTATION_LANE}" \
+          --attestation-lane "${ARIA_ATTESTATION_LANE}" \
           --tools-dir "${ARIA_TOOLS}" | tee /tmp/runner-attestation.json
         python3 - <<'PY'
         import json

@@ -1068,8 +1068,14 @@ def build_parser() -> argparse.ArgumentParser:
     attestation_probe.add_argument("--repo", required=True)
     attestation_probe.add_argument("--target-ref", required=True)
     # ARIA-HIGH-198 — what the attested host will do. `merge` runs no model
-    # and no agent code; `agent` is every lane that spawns one.
-    attestation_probe.add_argument("--lane", choices=("agent", "merge"), default="agent")
+    # and no agent code; `agent` is every lane that spawns one. Named
+    # --attestation-lane, not --lane: the change lane (L1..L3) is
+    # kernel-derived and never a CLI flag (Plan ARIA-V3 §2c); this is the
+    # host's role, a different axis, and one spelling for both would let the
+    # two be confused at the command line.
+    attestation_probe.add_argument(
+        "--attestation-lane", choices=("agent", "merge"), default="agent",
+    )
 
     # ARIA-HIGH-198 — the merge lane's own entry point. The merge ran inside
     # the autonomy cycle on the persistent self-hosted host, which can never
@@ -3714,7 +3720,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             repo=args.repo,
             target_ref=args.target_ref,
-            lane=args.lane,
+            lane=args.attestation_lane,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

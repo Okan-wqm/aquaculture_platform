@@ -230,7 +230,8 @@ tarihler 2026-10-09 / 10-16 / 10-23).
   `gh api repos/Okan-wqm/aquaculture_platform/branches/main/protection` + `/rules/branches/main`.
   Kayıt: checks, signatures, review bloğu, code-owner, bypass actors, ruleset.
 - **O1 — GitHub App Mode A:** `docs/runbooks/aria-github-app-setup.md`;
-  `ARIA_GH_APP_ID/INSTALLATION_ID/PRIVATE_KEY`.
+  `ARIA_GH_APP_ID/INSTALLATION_ID/PRIVATE_KEY`. `aria-merge-runner.yml` de bu üç secret'a
+  bağlıdır: merge App token'ıyla yapılır (`ARIA_REQUIRE_MODE_A`), O1 yoksa şerit adıyla düşer.
 - **O1b — branch protection:** 4 required check tam eşleşme
   (`sens-enterprise-summary, merge-gate, aria-merge-authority, build-status`), imzalı commit,
   code-owner review, force-push/silme kapalı, ruleset; **bypass actor yok** (proof yasaklar); onay

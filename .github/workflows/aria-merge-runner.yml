@@ -1,0 +1,208 @@
+name: aria-merge-runner
+
+# ARIA-HIGH-198 — the merge lane runs where it can attest what it is.
+# verify_runner_attestation is mandatory at merge, and since the attestation
+# measures the runner's identity from RUNNER_ENVIRONMENT, the persistent
+# self-hosted host that ran merges inside aria-auto-cycle can never attest
+# ephemeral: every merge it attempted was refused by construction. This lane
+# runs the SAME auto-merge runner and merge authority
+# (`aria_kernel merge-lane run`) on a GitHub-hosted runner, which is ephemeral
+# and in the approved group by measurement, and which runs no model and no
+# agent code (`lane: merge` ⇒ claude_auth not_required, no sandbox needed).
+#
+# It fires after aria-readiness-claim completes, so the claim it consumes was
+# independently produced by another lane at another time.
+#
+# THE MERGE CREDENTIAL IS THE GITHUB APP INSTALLATION TOKEN, never
+# GITHUB_TOKEN: a merge made with GITHUB_TOKEN triggers no push workflows on
+# main, which would blind the post-merge monitoring that attributes a red main
+# to the merge that caused it. ARIA_REQUIRE_MODE_A makes the mint fail loudly
+# instead of falling back to a PAT (docs/runbooks/aria-github-app-setup.md).
+
+on:
+  workflow_run:
+    workflows: ['aria-readiness-claim']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: >-
+          Merge only this PR (it must hold a readiness claim). Empty: every
+          PR holding a readiness claim.
+        required: false
+        default: ''
+
+permissions:
+  # Same transport as aria-readiness-claim: append-only FF push to aria/state.
+  # The merge itself uses the App installation token, not this one.
+  contents: write
+  actions: read
+
+concurrency:
+  group: aria-merge-runner
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          # A kernel workspace is a whole clone: the kernel reads this
+          # checkout's history (twin churn/co-change, anchor existence) and
+          # refuses a shallow one by name. Pinned on every kernel lane by
+          # aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py;
+          # aria-auto-cycle.yml carries the full account.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          allowed = [".aria-state-store"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-merge-runner",
+              job_id="merge",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_api", "github_artifact", "github_git"],
+              network_enforcement_evidence=(
+                  "PR/check/merge calls over the GitHub API with the App "
+                  "installation token; aria/state fetch+push over the "
+                  "repository remote"
+              ),
+              token_provenance="github_app:installation",
+              require_github_app=True,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="merge PRs holding a readiness claim from an attestable host",
+              audit_artifact_path=runner_temp / "aria-merge-runner-preflight.json",
+              external_root_allowlist=[str(runner_temp)],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Restore ARIA state from the aria/state branch
+        id: restore_state
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+
+      # The attestation describes THIS host — the one that runs the merge.
+      - name: Probe runner attestation
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+          lane: merge
+
+      - name: Run the merge lane
+        env:
+          PYTHONPATH: aria-kernel
+          # The merge credential is the App installation token; a PAT
+          # fallback is a weaker isolation mode. Fail loudly until the
+          # operator completes the GitHub App setup.
+          ARIA_REQUIRE_MODE_A: 'true'
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # ubuntu-latest has no operator home dir; materialize the PEM
+          # content from the secret into an ephemeral 0600 file, and hold
+          # the minted token in a private 0700 directory outside the
+          # workspace (the factory refuses any other).
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          TOKEN_DIR="$RUNNER_TEMP/aria-merge-token"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+          mkdir -m 700 "$TOKEN_DIR"
+          MERGE_TOKEN=""
+          cleanup() {
+            # Revoke with the lease's own token; the provider expiry is the
+            # backstop when the DELETE fails.
+            if [ -n "$MERGE_TOKEN" ]; then
+              GH_TOKEN="$MERGE_TOKEN" gh api -X DELETE /installation/token >/dev/null \
+                || echo "::warning::installation token revoke failed; provider expiry applies"
+            fi
+            rm -f "$KEY_FILE"
+            rm -rf "$TOKEN_DIR"
+          }
+          trap cleanup EXIT
+          MERGE_TOKEN="$(TOKEN_DIR="$TOKEN_DIR" python3 -c "
+          import os
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(
+              cycle_id='merge-runner-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'],
+              workspace_root=os.environ['GITHUB_WORKSPACE'],
+              token_dir=os.environ['TOKEN_DIR'],
+          )
+          print(Path(lease.token_file).read_text(encoding='utf-8').strip())
+          ")"
+          echo "::add-mask::${MERGE_TOKEN}"
+          # GH_TOKEN reaches the merge command only, never the job env.
+          # Both invocations are spelled out so the CLI-contract invariant
+          # (test_workflow_kernel_cli_contract) parses each one.
+          if [ -n "$PR_NUMBER" ]; then
+            GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
+              --pr "$PR_NUMBER" \
+              --tools-dir "$ARIA_TOOLS_DIR" \
+              --workspace-root "$GITHUB_WORKSPACE"
+          else
+            GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
+              --tools-dir "$ARIA_TOOLS_DIR" \
+              --workspace-root "$GITHUB_WORKSPACE"
+          fi
+
+      # The credential is minted here and consumed by the next step only.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ARIA state to the aria/state branch
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "merge-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "merge-runner-${GITHUB_RUN_ID}"
+
+      - name: Upload merge-runner preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-merge-runner-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-merge-runner-preflight.json
+          if-no-files-found: error
+          retention-days: 7

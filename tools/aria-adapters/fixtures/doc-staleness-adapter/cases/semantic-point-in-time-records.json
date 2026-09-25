@@ -1,0 +1,20 @@
+{
+  "name": "semantic-point-in-time-records",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": ["tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-202 doc-staleness record exclusion (live measurement 2026-09-25: 2766 -> 276 findings)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 3,
+      "false_positive_classes": ["review_record", "dated_plan_record", "archived_plan"]
+    }
+  }
+}

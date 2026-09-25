@@ -244,23 +244,31 @@ class PanelFold(unittest.TestCase):
         self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
         self.assertIn("insufficient_evidence_votes", verdict.reason)
 
-    # I-PANEL-10
-    def test_i_panel_10_shared_principal_stays_escalated(self) -> None:
+    # I-PANEL-10 — ARIA-HIGH-193: a seat's principal is the agent the kernel
+    # minted it for. One executor run carrying every seat (the live shape:
+    # every claim reads `ci-executor:gha-<run>`) is NOT a shared principal.
+    def test_i_panel_10_one_carrier_for_every_seat_is_still_independent(self) -> None:
         request_ids = self._open()
         for request_id in request_ids:
             self._seed_opinion(
-                request_id, agent_id="one-agent", verdict=hra.RESOLVE_VERDICT,
+                request_id, agent_id="ci-executor:gha-1", verdict=hra.RESOLVE_VERDICT,
+                disposition=hra.DISPOSITION_RE_MINT,
             )
         verdict = hra.fold_adjudication(
             escalation_request_id=self.escalation_id, base_dir=self.tools,
         )
-        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
-        self.assertIn("panel_not_independent", verdict.reason)
-        self.assertFalse(verdict.independence_ok)
-        self.assertTrue(
-            any("same_agent_id" in r for r in verdict.independence_reasons),
-            verdict.independence_reasons,
-        )
+        self.assertTrue(verdict.independence_ok, verdict.independence_reasons)
+        self.assertEqual(verdict.outcome, hra.OUTCOME_RESOLVED, verdict.reason)
+
+    # I-PANEL-10b — a shared principal cannot be minted: a role whose target
+    # list names one agent twice is short of distinct seats and refused.
+    def test_i_panel_10b_shared_principal_panel_cannot_be_minted(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(hra, "allowed_targets_for_role", return_value=("judge-x", "judge-x", "judge-x")):
+            with self.assertRaises(GovernanceError) as ctx:
+                self._open()
+        self.assertIn("adjudication_panel_targets_insufficient", str(ctx.exception))
 
     # I-PANEL-11
     def test_i_panel_11_independent_quorum_clears_escalation(self) -> None:

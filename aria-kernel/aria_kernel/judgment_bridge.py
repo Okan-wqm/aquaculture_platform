@@ -38,6 +38,7 @@ from .feedback_store import (
     generate_ai_consensus,
     record_operator_feedback,
 )
+from .independence_check import is_executor_identity
 from .model_fleet import provider_reports_confidence
 from .typed_judgment import (
     PRIMITIVES,
@@ -343,7 +344,7 @@ def record_judge_verdict_from_response(
             "judge bridge requires details.agent_subagent_type "
             "(or details.verdict.judge_id)"
         )
-    if str(judge_id).startswith("ci-executor:"):
+    if is_executor_identity(judge_id):
         # Refuse loudly instead of silently repairing: an executor-shaped
         # identity means the producer regressed, and a repaired row would
         # hide that while still poisoning per-judge calibration.

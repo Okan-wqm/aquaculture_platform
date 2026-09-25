@@ -4,21 +4,8 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  Settings,
-  Send,
-  ChevronDown,
-  AlertCircle,
-} from 'lucide-react';
-import {
-  useState,
-  useCallback,
-  useMemo,
-  useEffect,
-  useRef,
-  type JSX,
-} from 'react';
+import { ArrowLeft, Settings, Send, ChevronDown, AlertCircle } from 'lucide-react';
+import { useState, useCallback, useMemo, useEffect, useRef, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
@@ -40,6 +27,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
+import { useI18n } from '@/i18n';
 import { putPendingBlob } from '@/pwa/offline-queue';
 import type { Message } from '@/types/messaging';
 import { runAsyncAction } from '@/utils/async-action';
@@ -54,9 +42,7 @@ import { messagesFamilyKey } from '@/utils/messaging-query-keys';
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
 /** Group messages by date for rendering date separators. */
-function groupMessagesByDate(
-  messages: Message[],
-): Array<{ date: string; messages: Message[] }> {
+function groupMessagesByDate(messages: Message[]): Array<{ date: string; messages: Message[] }> {
   const groups: Array<{ date: string; messages: Message[] }> = [];
   let currentDate = '';
 
@@ -84,14 +70,14 @@ function senderColorIndex(senderId: string): number {
 
 /** ChatRoomPage renders a full-screen chat interface for a specific channel. */
 export function ChatRoomPage(): JSX.Element {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
   const { user, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   // Real hooks -- wired to backend
-  const { isConnected, joinChannel, leaveChannel, socketRef } =
-    useMessageSocket();
+  const { isConnected, joinChannel, leaveChannel, socketRef } = useMessageSocket();
   const {
     messages,
     isLoading: messagesLoading,
@@ -103,11 +89,7 @@ export function ChatRoomPage(): JSX.Element {
   const { sendMessage, isSending } = useSendMessage(channelId);
   const { editMessage } = useEditMessage(channelId);
   const { markRead } = useMarkRead(channelId);
-  const { stopTyping, typingUsers } = useTypingIndicator(
-    channelId,
-    socketRef,
-    user?.id,
-  );
+  const { stopTyping, typingUsers } = useTypingIndicator(channelId, socketRef, user?.id);
   const { uploadMedia, isUploading } = useMediaUpload(channelId);
   const isOnline = useNetworkStatus();
   const { addToQueue } = useOfflineQueue();
@@ -170,17 +152,13 @@ export function ChatRoomPage(): JSX.Element {
   // Track foreground visibility — a backgrounded tab must not mark messages read.
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    const onVisibility = (): void =>
-      setIsDocVisible(document.visibilityState === 'visible');
+    const onVisibility = (): void => setIsDocVisible(document.visibilityState === 'visible');
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
   // Group messages by date
-  const messageGroups = useMemo(
-    () => groupMessagesByDate(messages),
-    [messages],
-  );
+  const messageGroups = useMemo(() => groupMessagesByDate(messages), [messages]);
 
   // Newest server-persisted message id. Optimistic sends (_status
   // 'pending'/'failed') are skipped — they have no server row yet, so
@@ -201,8 +179,7 @@ export function ChatRoomPage(): JSX.Element {
   // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop =
-        scrollContainerRef.current.scrollHeight;
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
       // We just pinned the view to the newest message — record at-bottom
       // deterministically rather than relying on the programmatic scroll to
       // re-fire onScroll.
@@ -247,30 +224,39 @@ export function ChatRoomPage(): JSX.Element {
   }, [hasNextPage, fetchNextPage]);
 
   // Context menu actions
-  const handleReply = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (msg) {
-      setReplyingTo(msg);
-    }
-  }, [messages]);
+  const handleReply = useCallback(
+    (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (msg) {
+        setReplyingTo(msg);
+      }
+    },
+    [messages],
+  );
 
-  const handleCopy = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (msg?.content) {
-      navigator.clipboard.writeText(msg.content).catch(() => {
-        /* intentional no-op: clipboard copy is a best-effort convenience;
+  const handleCopy = useCallback(
+    (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (msg?.content) {
+        navigator.clipboard.writeText(msg.content).catch(() => {
+          /* intentional no-op: clipboard copy is a best-effort convenience;
            a denied/unsupported Clipboard API must not surface an error. */
-      });
-    }
-  }, [messages]);
+        });
+      }
+    },
+    [messages],
+  );
 
   /** Open ForwardModal for the selected message. */
-  const handleForward = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (msg) {
-      setForwardingMessage(msg);
-    }
-  }, [messages]);
+  const handleForward = useCallback(
+    (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (msg) {
+        setForwardingMessage(msg);
+      }
+    },
+    [messages],
+  );
 
   const handleOpenImage = useCallback(
     (attachmentId: string) => {
@@ -286,35 +272,41 @@ export function ChatRoomPage(): JSX.Element {
    * active reply. The next text submitted via MessageInput is routed to the
    * editMessage producer (online mutation or offline queue) in onSend below.
    */
-  const handleEdit = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (msg) {
-      setReplyingTo(null);
-      setEditingMessage(msg);
-    }
-  }, [messages]);
+  const handleEdit = useCallback(
+    (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (msg) {
+        setReplyingTo(null);
+        setEditingMessage(msg);
+      }
+    },
+    [messages],
+  );
 
   /** Delete a message via deleteMessage GraphQL mutation (soft-delete). */
-  const handleDelete = useCallback(async (messageId: string) => {
-    if (!channelId) return;
-    if (isOnline) {
-      const { graphqlRequest } = await import('@/services/authenticated-fetch');
-      const { DELETE_MESSAGE } = await import('@/graphql/messaging-operations');
-      await graphqlRequest(DELETE_MESSAGE, { id: messageId });
-      // Invalidate the message cache so the deleted message disappears. The
-      // refetch is fire-and-forget — the UI updates reactively once the cache
-      // settles. MSG-CRITICAL-055: use the messages-FAMILY prefix, not
-      // `(...,'messages',channelId)` — the latter puts channelId in the user.id
-      // slot and prefix-fails to match the reader key, so the invalidation never
-      // fired. `messagesFamilyKey` prefix-matches every user/channel variant.
-      void queryClient.invalidateQueries({
-        queryKey: messagesFamilyKey(tenantId),
-      });
-    } else {
-      // Queue for offline sync — the main queue supports 'deleteMessage'
-      await addToQueue('deleteMessage', { id: messageId });
-    }
-  }, [channelId, isOnline, addToQueue, queryClient, tenantId]);
+  const handleDelete = useCallback(
+    async (messageId: string) => {
+      if (!channelId) return;
+      if (isOnline) {
+        const { graphqlRequest } = await import('@/services/authenticated-fetch');
+        const { DELETE_MESSAGE } = await import('@/graphql/messaging-operations');
+        await graphqlRequest(DELETE_MESSAGE, { id: messageId });
+        // Invalidate the message cache so the deleted message disappears. The
+        // refetch is fire-and-forget — the UI updates reactively once the cache
+        // settles. MSG-CRITICAL-055: use the messages-FAMILY prefix, not
+        // `(...,'messages',channelId)` — the latter puts channelId in the user.id
+        // slot and prefix-fails to match the reader key, so the invalidation never
+        // fired. `messagesFamilyKey` prefix-matches every user/channel variant.
+        void queryClient.invalidateQueries({
+          queryKey: messagesFamilyKey(tenantId),
+        });
+      } else {
+        // Queue for offline sync — the main queue supports 'deleteMessage'
+        await addToQueue('deleteMessage', { id: messageId });
+      }
+    },
+    [channelId, isOnline, addToQueue, queryClient, tenantId],
+  );
 
   /**
    * MSG-MEDIUM-055: enqueue a media blob on the binary offline lane. Persists the
@@ -359,32 +351,35 @@ export function ChatRoomPage(): JSX.Element {
    * upload-and-send op for replay on reconnect — instead of the old blocking
    * alert() that discarded the attachment.
    */
-  const handleFileSelect = useCallback(async (file: File) => {
-    if (!channelId) return;
-    // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
-    const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
-    if (!isOnline) {
-      try {
-        await enqueueOfflineMedia(file, contentType, file.name, file.type);
-        setOfflineMediaNotice('Attachment queued — it will send when you are back online.');
-      } catch (err) {
-        setOfflineMediaNotice(
-          err instanceof Error ? err.message : 'Could not queue attachment for offline send.',
-        );
+  const handleFileSelect = useCallback(
+    async (file: File) => {
+      if (!channelId) return;
+      // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+      const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
+      if (!isOnline) {
+        try {
+          await enqueueOfflineMedia(file, contentType, file.name, file.type);
+          setOfflineMediaNotice('Attachment queued — it will send when you are back online.');
+        } catch (err) {
+          setOfflineMediaNotice(
+            err instanceof Error ? err.message : 'Could not queue attachment for offline send.',
+          );
+        }
+        return;
       }
-      return;
-    }
-    try {
-      const storageKey = await uploadMedia(file);
-      await sendMessage({
-        content: null,
-        contentType,
-        attachmentKeys: [storageKey],
-      });
-    } catch {
-      // uploadMedia already sets error state — the UI will show it
-    }
-  }, [channelId, isOnline, enqueueOfflineMedia, uploadMedia, sendMessage]);
+      try {
+        const storageKey = await uploadMedia(file);
+        await sendMessage({
+          content: null,
+          contentType,
+          attachmentKeys: [storageKey],
+        });
+      } catch {
+        // uploadMedia already sets error state — the UI will show it
+      }
+    },
+    [channelId, isOnline, enqueueOfflineMedia, uploadMedia, sendMessage],
+  );
 
   /**
    * Handle completed voice recording. Online: upload then send. Offline
@@ -393,7 +388,11 @@ export function ChatRoomPage(): JSX.Element {
   const handleVoiceRecordingComplete = useCallback(
     async (blob: Blob, durationSeconds: number, mimeType: string) => {
       if (!channelId) return;
-      const extension = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mp4';
+      const extension = mimeType.includes('webm')
+        ? 'webm'
+        : mimeType.includes('ogg')
+          ? 'ogg'
+          : 'mp4';
       const filename = `voice-note.${extension}`;
       if (!isOnline) {
         try {
@@ -439,11 +438,14 @@ export function ChatRoomPage(): JSX.Element {
     return other?.user?.isOnline ?? false;
   }, [channel, user?.id]);
 
-  const statusText = channel?.type === 'direct'
-    ? (isOtherOnline ? 'Online' : 'Offline')
-    : channel
-      ? `${channel.memberCount ?? 0} members`
-      : '';
+  const statusText =
+    channel?.type === 'direct'
+      ? isOtherOnline
+        ? 'Online'
+        : 'Offline'
+      : channel
+        ? `${channel.memberCount ?? 0} members`
+        : '';
 
   const avatarType = channel?.type === 'direct' ? 'dm' : channel?.type === 'ai' ? 'ai' : 'group';
 
@@ -458,17 +460,18 @@ export function ChatRoomPage(): JSX.Element {
 
   const loading = messagesLoading || channelLoading;
   const errorMsg = messagesError
-    ? (messagesError instanceof Error ? messagesError.message : 'Failed to load messages')
+    ? messagesError instanceof Error
+      ? messagesError.message
+      : 'Failed to load messages'
     : null;
 
   return (
-    <div
-      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
-    >
+    <div className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
           <button
+            aria-label={t('a11y.back')}
             onClick={() => navigate('/messages')}
             className="min-w-[48px] min-h-[48px] p-3 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
           >
@@ -499,14 +502,13 @@ export function ChatRoomPage(): JSX.Element {
                 {displayName}
               </h1>
               {statusText && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                  {statusText}
-                </p>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">{statusText}</p>
               )}
             </div>
           </div>
 
           <button
+            aria-label={t('a11y.channelSettings')}
             onClick={() => navigate(`/messages/${channelId}/settings`)}
             className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
           >
@@ -518,13 +520,17 @@ export function ChatRoomPage(): JSX.Element {
       {/* Message list */}
       <div
         ref={scrollContainerRef}
-        onScroll={() => { void handleScroll(); }}
+        onScroll={() => {
+          void handleScroll();
+        }}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
         {hasNextPage && (
           <div className="flex justify-center py-3">
             <button
-              onClick={() => { void fetchNextPage(); }}
+              onClick={() => {
+                void fetchNextPage();
+              }}
               className="text-xs text-ocean-500 font-medium touch-feedback flex items-center gap-1"
             >
               <ChevronDown size={14} className="rotate-180" />
@@ -564,9 +570,7 @@ export function ChatRoomPage(): JSX.Element {
                     !isOwn &&
                     (!prevMsg || prevMsg.senderId !== msg.senderId);
 
-                  const senderName = msg.sender
-                    ? getUserDisplayName(msg.sender)
-                    : undefined;
+                  const senderName = msg.sender ? getUserDisplayName(msg.sender) : undefined;
 
                   // Build reply preview from parentId
                   const replyPreview = msg.parentId
@@ -574,9 +578,7 @@ export function ChatRoomPage(): JSX.Element {
                         const parent = messages.find((m) => m.id === msg.parentId);
                         if (!parent) return undefined;
                         return {
-                          senderName: parent.sender
-                            ? getUserDisplayName(parent.sender)
-                            : 'Unknown',
+                          senderName: parent.sender ? getUserDisplayName(parent.sender) : 'Unknown',
                           text: parent.content ?? '',
                         };
                       })()
@@ -603,15 +605,16 @@ export function ChatRoomPage(): JSX.Element {
                       : undefined;
 
                   // Map optimistic status to delivery status
-                  const status = msg._status === 'pending'
-                    ? 'pending' as const
-                    : msg._status === 'failed'
-                      ? 'pending' as const
-                      : msg.receipts?.some((r) => r.status === 'READ')
-                        ? 'read' as const
-                        : msg.receipts?.some((r) => r.status === 'DELIVERED')
-                          ? 'delivered' as const
-                          : 'sent' as const;
+                  const status =
+                    msg._status === 'pending'
+                      ? ('pending' as const)
+                      : msg._status === 'failed'
+                        ? ('pending' as const)
+                        : msg.receipts?.some((r) => r.status === 'READ')
+                          ? ('read' as const)
+                          : msg.receipts?.some((r) => r.status === 'DELIVERED')
+                            ? ('delivered' as const)
+                            : ('sent' as const);
 
                   return (
                     <MessageBubble
@@ -646,7 +649,9 @@ export function ChatRoomPage(): JSX.Element {
                       }
                       onDelete={
                         isOwn
-                          ? (messageId) => { void handleDelete(messageId); }
+                          ? (messageId) => {
+                              void handleDelete(messageId);
+                            }
                           : undefined
                       }
                     />
@@ -717,14 +722,12 @@ export function ChatRoomPage(): JSX.Element {
                 text: editingMessage.content ?? '',
               }
             : replyingTo
-            ? {
-                messageId: replyingTo.id,
-                senderName: replyingTo.sender
-                  ? getUserDisplayName(replyingTo.sender)
-                  : 'Unknown',
-                text: replyingTo.content ?? '',
-              }
-            : null
+              ? {
+                  messageId: replyingTo.id,
+                  senderName: replyingTo.sender ? getUserDisplayName(replyingTo.sender) : 'Unknown',
+                  text: replyingTo.content ?? '',
+                }
+              : null
         }
         onCancelReply={() => {
           setReplyingTo(null);
@@ -739,7 +742,9 @@ export function ChatRoomPage(): JSX.Element {
       <AttachmentPicker
         isOpen={isAttachmentPickerOpen}
         onClose={() => setIsAttachmentPickerOpen(false)}
-        onFileSelect={(file) => { void handleFileSelect(file); }}
+        onFileSelect={(file) => {
+          void handleFileSelect(file);
+        }}
       />
 
       {/* Forward modal */}

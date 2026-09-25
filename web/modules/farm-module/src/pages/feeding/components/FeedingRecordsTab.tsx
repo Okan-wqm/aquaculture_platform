@@ -517,36 +517,28 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
 
           {/* Date */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Feeding Date *
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                name="feedingDate"
-                value={formData.feedingDate}
-                onChange={handleChange}
-                required
-              />
-            </div>
+            <Input
+              label="Feeding Date"
+              fullWidth
+              type="date"
+              name="feedingDate"
+              value={formData.feedingDate}
+              onChange={handleChange}
+              required
+            />
           )}
 
           {/* Time */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Feeding Time *
-              </label>
-              <Input
-                fullWidth
-                type="time"
-                name="feedingTime"
-                value={formData.feedingTime}
-                onChange={handleChange}
-                required
-              />
-            </div>
+            <Input
+              label="Feeding Time"
+              fullWidth
+              type="time"
+              name="feedingTime"
+              value={formData.feedingTime}
+              onChange={handleChange}
+              required
+            />
           )}
 
           {/* Sequence */}
@@ -577,77 +569,61 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
 
           {/* Method */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Method
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: 'MANUAL', label: 'Manual' },
-                  { value: 'AUTOMATIC', label: 'Automatic' },
-                  { value: 'DEMAND', label: 'Demand' },
-                  { value: 'BROADCAST', label: 'Broadcast' },
-                  { value: 'SPOT', label: 'Spot' },
-                ]}
-                name="feedingMethod"
-                value={formData.feedingMethod}
-                onChange={handleChange}
-              />
-            </div>
+            <Select
+              label="Method"
+              fullWidth
+              options={[
+                { value: 'MANUAL', label: 'Manual' },
+                { value: 'AUTOMATIC', label: 'Automatic' },
+                { value: 'DEMAND', label: 'Demand' },
+                { value: 'BROADCAST', label: 'Broadcast' },
+                { value: 'SPOT', label: 'Spot' },
+              ]}
+              name="feedingMethod"
+              value={formData.feedingMethod}
+              onChange={handleChange}
+            />
           )}
 
           {/* Planned Amount */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Planned Amount (kg) *
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                name="plannedAmount"
-                value={formData.plannedAmount}
-                onChange={handleChange}
-                required
-                step="0.1"
-                min="0"
-              />
-            </div>
-          )}
-
-          {/* Actual Amount */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Actual Amount (kg) *
-            </label>
             <Input
+              label="Planned Amount (kg)"
               fullWidth
               type="number"
-              name="actualAmount"
-              value={formData.actualAmount}
+              name="plannedAmount"
+              value={formData.plannedAmount}
               onChange={handleChange}
               required
               step="0.1"
               min="0"
             />
-          </div>
+          )}
+
+          {/* Actual Amount */}
+          <Input
+            label="Actual Amount (kg)"
+            fullWidth
+            type="number"
+            name="actualAmount"
+            value={formData.actualAmount}
+            onChange={handleChange}
+            required
+            step="0.1"
+            min="0"
+          />
 
           {/* Waste Amount */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Waste Amount (kg)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              name="wasteAmount"
-              value={formData.wasteAmount}
-              onChange={handleChange}
-              step="0.1"
-              min="0"
-            />
-          </div>
+          <Input
+            label="Waste Amount (kg)"
+            fullWidth
+            type="number"
+            name="wasteAmount"
+            value={formData.wasteAmount}
+            onChange={handleChange}
+            step="0.1"
+            min="0"
+          />
 
           {/* Feed Cost */}
           {!isEdit && (
@@ -682,19 +658,15 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
         </div>
 
         {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Notes
-          </label>
-          <Textarea
-            fullWidth
-            name="notes"
-            value={formData.notes}
-            onChange={handleChange}
-            rows={2}
-            placeholder="Optional notes..."
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          fullWidth
+          name="notes"
+          value={formData.notes}
+          onChange={handleChange}
+          rows={2}
+          placeholder="Optional notes..."
+        />
 
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">

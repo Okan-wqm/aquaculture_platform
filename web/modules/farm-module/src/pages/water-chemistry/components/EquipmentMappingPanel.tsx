@@ -6,12 +6,14 @@
  */
 import React, { useState, useMemo } from 'react';
 import {
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
   Button,
+  Checkbox,
+  DataTable,
+  Modal,
   Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
@@ -190,17 +192,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       header: 'Alert',
       align: 'center',
       render: (_value, mapping) => (
-        <button
+        <ToggleButton
           onClick={() => void handleToggleAlert(mapping)}
           disabled={updateMutation.isPending}
-          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-            mapping.alertEnabled
-              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-          }`}
+          pressed={mapping.alertEnabled}
+          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+          pressedClassName="bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60"
+          idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           {mapping.alertEnabled ? 'On' : 'Off'}
-        </button>
+        </ToggleButton>
       ),
     },
     {
@@ -209,6 +210,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       align: 'center',
       render: (_value, mapping) => (
         <button
+          aria-label={mapping.equipment?.name ?? mapping.equipmentId}
           onClick={() => void handleToggleActive(mapping)}
           disabled={updateMutation.isPending}
           className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
@@ -360,20 +362,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
               {/* Alert toggle */}
               <div className="flex items-end">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={addForm.alertEnabled}
-                    onChange={(e) =>
-                      setAddForm((prev) => ({
-                        ...prev,
-                        alertEnabled: e.target.checked,
-                      }))
-                    }
-                    className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Enable Alerts</span>
-                </label>
+                <Checkbox
+                  label="Enable Alerts"
+                  checked={addForm.alertEnabled}
+                  onChange={(e) =>
+                    setAddForm((prev) => ({
+                      ...prev,
+                      alertEnabled: e.target.checked,
+                    }))
+                  }
+                />
               </div>
             </div>
 

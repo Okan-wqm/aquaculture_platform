@@ -64,7 +64,7 @@ import {
   Globe,
 } from 'lucide-react';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, ToggleButton } from '@aquaculture/shared-ui';
 
 import {
   PALETTE_CATEGORIES,
@@ -610,20 +610,26 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
       {/* Tab toggle */}
       <div className="px-2 pt-2 pb-1.5">
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-          <button
+          <ToggleButton
             onClick={() => setTab('scene')}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'scene' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
+            pressed={tab === 'scene'}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors"
+            pressedClassName="bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             <FolderTree className="w-3.5 h-3.5" />
             Scene
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setTab('palette')}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'palette' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
+            pressed={tab === 'palette'}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors"
+            pressedClassName="bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             <Palette className="w-3.5 h-3.5" />
             Palette
-          </button>
+          </ToggleButton>
         </div>
       </div>
 

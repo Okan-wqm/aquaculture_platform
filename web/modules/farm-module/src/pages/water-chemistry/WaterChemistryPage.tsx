@@ -7,11 +7,12 @@
  */
 import {
   buildDeffeyesData,
+  Button,
   computeWaterChemistryOutputs,
+  PageHeader,
+  ToggleButton,
   useCanMutate,
   type WaterChemistryInputs,
-  PageHeader,
-  Button,
 } from '@aquaculture/shared-ui';
 import {
   alkMgToMeq,
@@ -320,17 +321,16 @@ const WaterChemistryPage: React.FC = () => {
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="-mb-px flex space-x-8" aria-label="Tabs">
             {tabs.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.id
-                    ? 'border-info-500 text-info-600 dark:text-info-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                }`}
+                pressed={activeTab === tab.id}
+                className="py-4 px-1 border-b-2 font-medium text-sm"
+                pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+                idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
               >
                 {tab.name}
-              </button>
+              </ToggleButton>
             ))}
           </nav>
         </div>

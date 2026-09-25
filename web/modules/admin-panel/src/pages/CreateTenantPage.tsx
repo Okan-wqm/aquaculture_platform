@@ -10,15 +10,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Select,
   Alert,
-  RadioGroup,
-  Spinner,
+  Badge,
+  Button,
+  Card,
+  Input,
   PageHeader,
+  RadioGroup,
+  Select,
+  Spinner,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
@@ -302,18 +303,17 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
       {/* Module Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3">
-          <button
+          <ToggleButton
             type="button"
             aria-label={`${config.enabled ? 'Disable' : 'Enable'} ${config.moduleName}`}
             onClick={onToggle}
-            className={`mt-1 w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-              config.enabled
-                ? 'bg-primary-600 border-primary-600'
-                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-            }`}
+            pressed={config.enabled}
+            className="mt-1 w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors"
+            pressedClassName="bg-primary-600 border-primary-600"
+            idleClassName="border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
           >
             {config.enabled && <Check className="w-4 h-4 text-white" aria-hidden="true" />}
-          </button>
+          </ToggleButton>
           <div>
             <h4 className="font-semibold text-gray-900 dark:text-gray-100">{config.moduleName}</h4>
             <p className="text-xs text-gray-500 dark:text-gray-400">{config.moduleCode}</p>

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Modal, Spinner } from '@aquaculture/shared-ui';
 import { Monitor, Wifi, WifiOff, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { useEdgeDevices, EdgeDevice, formatLastSeen } from '../../hooks/useEdgeDevices';
 
@@ -162,15 +162,11 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Select Edge Device
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showOnlineOnly}
-              onChange={(e) => setShowOnlineOnly(e.target.checked)}
-              className={classes.checkbox}
-            />
-            Online only
-          </label>
+          <Checkbox
+            label="Online only"
+            checked={showOnlineOnly}
+            onChange={(e) => setShowOnlineOnly(e.target.checked)}
+          />
         </div>
 
         {/* Loading state */}

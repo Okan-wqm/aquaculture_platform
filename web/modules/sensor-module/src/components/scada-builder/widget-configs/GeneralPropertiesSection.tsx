@@ -10,6 +10,7 @@
 
 import React, { useCallback } from 'react';
 import type { ScreenWidget } from '../../../types/scada-package.types';
+import { Checkbox, Input, NumberInput } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -31,9 +32,6 @@ interface GeneralPropertiesSectionProps {
 /* ------------------------------------------------------------------ */
 /*  Shared styles                                                      */
 /* ------------------------------------------------------------------ */
-
-const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 const LABEL_CLASS =
   'block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5 uppercase tracking-wide';
@@ -115,20 +113,14 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
       data-testid="general-properties"
     >
       {/* Widget name */}
-      <div>
-        <label htmlFor={`widget-name-${widgetId}`} className={LABEL_CLASS}>
-          Name
-        </label>
-        <input
-          id={`widget-name-${widgetId}`}
-          type="text"
-          value={name}
-          onChange={handleNameChange}
-          placeholder={typeLabel}
-          className={INPUT_CLASS}
-          data-testid="widget-name-input"
-        />
-      </div>
+      <Input
+        label="Name"
+        id={`widget-name-${widgetId}`}
+        value={name}
+        onChange={handleNameChange}
+        placeholder={typeLabel}
+        data-testid="widget-name-input"
+      />
 
       {/* Widget type badge (read-only) */}
       <div>
@@ -143,94 +135,62 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
 
       {/* Position (col / row) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label htmlFor={`widget-x-${widgetId}`} className={LABEL_CLASS}>
-            X (col)
-          </label>
-          <input
-            id={`widget-x-${widgetId}`}
-            type="number"
-            min={0}
-            step={1}
-            value={x}
-            onChange={(e) => handlePositionChange('col', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-x-input"
-          />
-        </div>
-        <div>
-          <label htmlFor={`widget-y-${widgetId}`} className={LABEL_CLASS}>
-            Y (row)
-          </label>
-          <input
-            id={`widget-y-${widgetId}`}
-            type="number"
-            min={0}
-            step={1}
-            value={y}
-            onChange={(e) => handlePositionChange('row', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-y-input"
-          />
-        </div>
+        <NumberInput
+          label="X (col)"
+          id={`widget-x-${widgetId}`}
+          min={0}
+          step={1}
+          value={x}
+          onChange={(e) => handlePositionChange('col', Number(e.target.value))}
+          data-testid="widget-x-input"
+        />
+        <NumberInput
+          label="Y (row)"
+          id={`widget-y-${widgetId}`}
+          min={0}
+          step={1}
+          value={y}
+          onChange={(e) => handlePositionChange('row', Number(e.target.value))}
+          data-testid="widget-y-input"
+        />
       </div>
 
       {/* Size (w / h) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label htmlFor={`widget-w-${widgetId}`} className={LABEL_CLASS}>
-            W (cols)
-          </label>
-          <input
-            id={`widget-w-${widgetId}`}
-            type="number"
-            min={1}
-            step={1}
-            value={w}
-            onChange={(e) => handleSizeChange('w', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-w-input"
-          />
-        </div>
-        <div>
-          <label htmlFor={`widget-h-${widgetId}`} className={LABEL_CLASS}>
-            H (rows)
-          </label>
-          <input
-            id={`widget-h-${widgetId}`}
-            type="number"
-            min={1}
-            step={1}
-            value={h}
-            onChange={(e) => handleSizeChange('h', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-h-input"
-          />
-        </div>
+        <NumberInput
+          label="W (cols)"
+          id={`widget-w-${widgetId}`}
+          min={1}
+          step={1}
+          value={w}
+          onChange={(e) => handleSizeChange('w', Number(e.target.value))}
+          data-testid="widget-w-input"
+        />
+        <NumberInput
+          label="H (rows)"
+          id={`widget-h-${widgetId}`}
+          min={1}
+          step={1}
+          value={h}
+          onChange={(e) => handleSizeChange('h', Number(e.target.value))}
+          data-testid="widget-h-input"
+        />
       </div>
 
       {/* Locked + Visible toggles in a single row */}
       <div className="flex items-center gap-4">
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={locked}
-            onChange={handleLockedChange}
-            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
-            data-testid="widget-locked-checkbox"
-          />
-          <span className="text-xs text-gray-600 dark:text-gray-400">Locked</span>
-        </label>
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={visible}
-            onChange={handleVisibleChange}
-            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
-            data-testid="widget-visible-checkbox"
-          />
-          <span className="text-xs text-gray-600 dark:text-gray-400">Visible</span>
-        </label>
+        <Checkbox
+          label="Locked"
+          checked={locked}
+          onChange={handleLockedChange}
+          data-testid="widget-locked-checkbox"
+        />
+        <Checkbox
+          label="Visible"
+          checked={visible}
+          onChange={handleVisibleChange}
+          data-testid="widget-visible-checkbox"
+        />
       </div>
     </div>
   );

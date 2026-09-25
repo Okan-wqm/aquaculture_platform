@@ -4,6 +4,8 @@ import type { ReactElement } from 'react';
 import { ChannelAvatar } from './ChannelAvatar';
 import { UnreadBadge } from './UnreadBadge';
 
+import { ToggleButton } from '@/components/ui/ToggleButton';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,14 +91,12 @@ export function ChannelListItem({
   onPress,
 }: ChannelListItemProps): ReactElement {
   return (
-    <button
+    <ToggleButton
       onClick={() => onPress(channelId)}
-      className={clsx(
-        'w-full flex items-center gap-3 px-4 py-3 min-h-[64px] text-left transition-colors touch-feedback',
-        isActive
-          ? 'bg-ocean-50 dark:bg-ocean-950/30'
-          : 'bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/60',
-      )}
+      pressed={isActive}
+      className="w-full flex items-center gap-3 px-4 py-3 min-h-[64px] text-left transition-colors touch-feedback"
+      pressedClassName="bg-ocean-50 dark:bg-ocean-950/30"
+      idleClassName="bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/60"
     >
       {/* Avatar */}
       <ChannelAvatar
@@ -149,6 +149,6 @@ export function ChannelListItem({
           {unreadCount > 0 && <UnreadBadge count={unreadCount} size="md" color="blue" />}
         </div>
       </div>
-    </button>
+    </ToggleButton>
   );
 }

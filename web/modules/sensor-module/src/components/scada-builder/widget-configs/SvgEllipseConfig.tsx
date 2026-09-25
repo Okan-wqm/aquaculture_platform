@@ -32,16 +32,13 @@ import type {
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
@@ -86,17 +83,13 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       />
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Optional label"
-          className={INPUT_CLASS}
-          aria-label="Widget label"
-        />
-      </div>
+      <Input
+        label="Label"
+        value={(config.label as string) || ''}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Optional label"
+        aria-label="Widget label"
+      />
 
       {/* SVG filter effects -- blur, shadow, glow */}
       <SvgFilterEditor

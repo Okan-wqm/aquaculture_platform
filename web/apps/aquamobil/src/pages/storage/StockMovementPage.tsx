@@ -35,6 +35,7 @@ import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader, type PageHeaderTone } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToggleButton } from '@/components/ui/ToggleButton';
 import { VirtualList } from '@/components/VirtualList';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -79,10 +80,37 @@ interface StorageInventoryItem {
 // WHY: Movement type determines the header color, icon, and which fields are
 // mandatory. WASTE requires a reason (for audit), Feed/Chemical require lot
 // numbers (for traceability in food safety audits).
-const MOVEMENT_CONFIG: Record<StockMovementType, { label: string; color: string; gradient: string; tone: PageHeaderTone; icon: typeof ArrowDownToLine }> = {
-  IN: { label: 'Stock In', color: 'text-green-600', gradient: 'from-green-600 to-green-500', tone: 'green', icon: ArrowDownToLine },
-  OUT: { label: 'Stock Out', color: 'text-red-600', gradient: 'from-red-600 to-red-500', tone: 'red', icon: ArrowUpFromLine },
-  WASTE: { label: 'Write Off', color: 'text-gray-600 dark:text-gray-400', gradient: 'from-gray-600 to-gray-500', tone: 'gray', icon: Trash2 },
+const MOVEMENT_CONFIG: Record<
+  StockMovementType,
+  {
+    label: string;
+    color: string;
+    gradient: string;
+    tone: PageHeaderTone;
+    icon: typeof ArrowDownToLine;
+  }
+> = {
+  IN: {
+    label: 'Stock In',
+    color: 'text-green-600',
+    gradient: 'from-green-600 to-green-500',
+    tone: 'green',
+    icon: ArrowDownToLine,
+  },
+  OUT: {
+    label: 'Stock Out',
+    color: 'text-red-600',
+    gradient: 'from-red-600 to-red-500',
+    tone: 'red',
+    icon: ArrowUpFromLine,
+  },
+  WASTE: {
+    label: 'Write Off',
+    color: 'text-gray-600 dark:text-gray-400',
+    gradient: 'from-gray-600 to-gray-500',
+    tone: 'gray',
+    icon: Trash2,
+  },
 };
 
 const ITEM_TYPES: Array<{ type: StorageItemType; label: string; emoji: string }> = [
@@ -129,7 +157,7 @@ export function StockMovementPage(): JSX.Element {
 
   // Parse movement type from URL, default to IN for safety
   const rawType = searchParams.get('type') ?? 'IN';
-  const movementType: StockMovementType = (rawType === 'OUT' || rawType === 'WASTE') ? rawType : 'IN';
+  const movementType: StockMovementType = rawType === 'OUT' || rawType === 'WASTE' ? rawType : 'IN';
   const config = MOVEMENT_CONFIG[movementType];
   const MovementIcon = config.icon;
 
@@ -165,10 +193,7 @@ export function StockMovementPage(): JSX.Element {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        STORAGE_INVENTORY_ITEMS,
-        { itemType: selectedItemType },
-      );
+      const result = await graphqlRequest(STORAGE_INVENTORY_ITEMS, { itemType: selectedItemType });
       return toStorageItems(result.storageInventory ?? []);
     },
     // Data fetches when online; when offline, React Query serves the stale cache
@@ -186,9 +211,7 @@ export function StockMovementPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        STORAGE_LOCATIONS,
-      );
+      const result = await graphqlRequest(STORAGE_LOCATIONS);
       return result.storageLocations?.items ?? [];
     },
     // Same offline strategy as items: serve stale cache when offline
@@ -201,14 +224,22 @@ export function StockMovementPage(): JSX.Element {
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
-  const selectedLocation = useMemo(() => locations.find((l) => l.id === selectedLocationId), [locations, selectedLocationId]);
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === selectedItemId),
+    [items, selectedItemId],
+  );
+  const selectedLocation = useMemo(
+    () => locations.find((l) => l.id === selectedLocationId),
+    [locations, selectedLocationId],
+  );
 
   // Filtered items for the searchable list
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
     const q = itemSearch.toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+    return items.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q),
+    );
   }, [items, itemSearch]);
 
   // WHY: Lot number is required for feed and chemicals to satisfy food safety
@@ -231,10 +262,14 @@ export function StockMovementPage(): JSX.Element {
 
   const canAdvance = useCallback((): boolean => {
     switch (step) {
-      case 1: return selectedItemType !== null;
-      case 2: return selectedItemId !== '';
-      case 3: return quantity !== '' && parseFloat(quantity) > 0;
-      case 4: return selectedLocationId !== '';
+      case 1:
+        return selectedItemType !== null;
+      case 2:
+        return selectedItemId !== '';
+      case 3:
+        return quantity !== '' && parseFloat(quantity) > 0;
+      case 4:
+        return selectedLocationId !== '';
       case 5: {
         if (needsLot && !lotNumber.trim()) return false;
         if (needsExpiry && !expiryDate) return false;
@@ -244,10 +279,24 @@ export function StockMovementPage(): JSX.Element {
         if (needsNotes && !notes.trim()) return false;
         return true;
       }
-      case 7: return true;
-      default: return false;
+      case 7:
+        return true;
+      default:
+        return false;
     }
-  }, [step, selectedItemType, selectedItemId, quantity, selectedLocationId, lotNumber, expiryDate, notes, needsLot, needsExpiry, needsNotes]);
+  }, [
+    step,
+    selectedItemType,
+    selectedItemId,
+    quantity,
+    selectedLocationId,
+    lotNumber,
+    expiryDate,
+    notes,
+    needsLot,
+    needsExpiry,
+    needsNotes,
+  ]);
 
   const handleNext = useCallback(() => {
     if (!canAdvance()) return;
@@ -345,8 +394,18 @@ export function StockMovementPage(): JSX.Element {
       setIsSubmitting(false);
     }
   }, [
-    selectedItem, selectedLocation, movementType, selectedItemType, selectedItemId,
-    quantity, selectedLocationId, lotNumber, expiryDate, notes, addToQueue, navigate,
+    selectedItem,
+    selectedLocation,
+    movementType,
+    selectedItemType,
+    selectedItemId,
+    quantity,
+    selectedLocationId,
+    lotNumber,
+    expiryDate,
+    notes,
+    addToQueue,
+    navigate,
   ]);
 
   // ---- Success screen ------------------------------------------------------
@@ -367,7 +426,9 @@ export function StockMovementPage(): JSX.Element {
             <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
               <Package size={48} className="text-amber-600" />
             </div>
-            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
+              Saved to device
+            </h2>
             <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
               This movement is not recorded until it reaches the server.
             </p>
@@ -432,34 +493,44 @@ export function StockMovementPage(): JSX.Element {
         {/* Step 1: Item Type */}
         {step === 1 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">What type of item?</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              What type of item?
+            </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              Select the category of the stock item you are {movementType === 'IN' ? 'receiving' : movementType === 'OUT' ? 'dispensing' : 'writing off'}.
+              Select the category of the stock item you are{' '}
+              {movementType === 'IN'
+                ? 'receiving'
+                : movementType === 'OUT'
+                  ? 'dispensing'
+                  : 'writing off'}
+              .
             </p>
             <div className="grid grid-cols-2 gap-3">
               {ITEM_TYPES.map((it) => (
-                <button
+                <ToggleButton
                   key={it.type}
                   onClick={() => {
                     setSelectedItemType(it.type);
                     setSelectedItemId('');
                     setItemSearch('');
                   }}
-                  className={clsx(
-                    'p-5 rounded-2xl border-2 transition-all touch-feedback active:scale-[0.97]',
-                    selectedItemType === it.type
-                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
-                      : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                  )}
+                  pressed={selectedItemType === it.type}
+                  className="p-5 rounded-2xl border-2 transition-all touch-feedback active:scale-[0.97]"
+                  pressedClassName="border-teal-500 bg-teal-50 dark:bg-teal-900/20"
+                  idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                 >
                   <span className="text-3xl block mb-2">{it.emoji}</span>
-                  <span className={clsx(
-                    'text-sm font-bold',
-                    selectedItemType === it.type ? 'text-teal-700 dark:text-teal-300' : 'text-gray-700 dark:text-gray-300',
-                  )}>
+                  <span
+                    className={clsx(
+                      'text-sm font-bold',
+                      selectedItemType === it.type
+                        ? 'text-teal-700 dark:text-teal-300'
+                        : 'text-gray-700 dark:text-gray-300',
+                    )}
+                  >
                     {it.label}
                   </span>
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>
@@ -490,12 +561,16 @@ export function StockMovementPage(): JSX.Element {
             {itemsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading items...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">
+                  Loading items...
+                </span>
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                 <Package size={40} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">{items.length === 0 ? 'No items found for this type' : 'No matches'}</p>
+                <p className="text-sm">
+                  {items.length === 0 ? 'No items found for this type' : 'No matches'}
+                </p>
               </div>
             ) : (
               /* MOB-MEDIUM-012: virtualized — inventories can be hundreds of SKUs. */
@@ -506,25 +581,27 @@ export function StockMovementPage(): JSX.Element {
                 gapPx={8}
                 className="max-h-[50vh]"
                 renderItem={(item) => (
-                  <button
+                  <ToggleButton
                     onClick={() => setSelectedItemId(item.id)}
-                    className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
-                      selectedItemId === item.id
-                        ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                    )}
+                    pressed={selectedItemId === item.id}
+                    className="w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback"
+                    pressedClassName="border-teal-500 bg-teal-50 dark:bg-teal-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                   >
-                    <span className={clsx(
-                      'text-sm font-bold block',
-                      selectedItemId === item.id ? 'text-teal-700 dark:text-teal-300' : 'text-gray-900 dark:text-white',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-sm font-bold block',
+                        selectedItemId === item.id
+                          ? 'text-teal-700 dark:text-teal-300'
+                          : 'text-gray-900 dark:text-white',
+                      )}
+                    >
                       {item.name}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                       {item.code} &middot; {item.unit}
                     </span>
-                  </button>
+                  </ToggleButton>
                 )}
               />
             )}
@@ -536,7 +613,13 @@ export function StockMovementPage(): JSX.Element {
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Enter quantity</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              How much are you {movementType === 'IN' ? 'receiving' : movementType === 'OUT' ? 'dispensing' : 'writing off'}?
+              How much are you{' '}
+              {movementType === 'IN'
+                ? 'receiving'
+                : movementType === 'OUT'
+                  ? 'dispensing'
+                  : 'writing off'}
+              ?
             </p>
             <div className="relative">
               <input
@@ -576,7 +659,9 @@ export function StockMovementPage(): JSX.Element {
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading locations...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">
+                  Loading locations...
+                </span>
               </div>
             ) : locations.length === 0 ? (
               <div className="text-center py-12 text-gray-400 dark:text-gray-500">
@@ -585,24 +670,26 @@ export function StockMovementPage(): JSX.Element {
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {locations.map((loc) => (
-                  <button
+                  <ToggleButton
                     key={loc.id}
                     onClick={() => setSelectedLocationId(loc.id)}
-                    className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
-                      selectedLocationId === loc.id
-                        ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
-                    )}
+                    pressed={selectedLocationId === loc.id}
+                    className="w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback"
+                    pressedClassName="border-teal-500 bg-teal-50 dark:bg-teal-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                   >
-                    <span className={clsx(
-                      'text-sm font-bold block',
-                      selectedLocationId === loc.id ? 'text-teal-700 dark:text-teal-300' : 'text-gray-900 dark:text-white',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-sm font-bold block',
+                        selectedLocationId === loc.id
+                          ? 'text-teal-700 dark:text-teal-300'
+                          : 'text-gray-900 dark:text-white',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             )}
@@ -612,7 +699,9 @@ export function StockMovementPage(): JSX.Element {
         {/* Step 5: Lot Number + Expiry Date */}
         {step === 5 && (needsLot || needsExpiry) && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Traceability details</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              Traceability details
+            </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               Required for food safety and pharmaceutical compliance.
             </p>
@@ -656,7 +745,9 @@ export function StockMovementPage(): JSX.Element {
             </p>
             <textarea
               ref={notesInputRef}
-              placeholder={needsNotes ? 'e.g. Feed damaged by water ingress...' : 'Optional notes...'}
+              placeholder={
+                needsNotes ? 'e.g. Feed damaged by water ingress...' : 'Optional notes...'
+              }
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
@@ -668,7 +759,9 @@ export function StockMovementPage(): JSX.Element {
         {/* Step 7: Confirm + Submit */}
         {step === 7 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Confirm details</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              Confirm details
+            </h2>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Type</span>
@@ -676,7 +769,9 @@ export function StockMovementPage(): JSX.Element {
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Item</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedItem?.name ?? '-'}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {selectedItem?.name ?? '-'}
+                </span>
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
@@ -686,23 +781,31 @@ export function StockMovementPage(): JSX.Element {
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-sm text-gray-500 dark:text-gray-400">Location</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedLocation?.name ?? '-'}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {selectedLocation?.name ?? '-'}
+                </span>
               </div>
               {lotNumber && (
                 <div className="p-4 flex justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400">Lot Number</span>
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{lotNumber}</span>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    {lotNumber}
+                  </span>
                 </div>
               )}
               {expiryDate && (
                 <div className="p-4 flex justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400">Expiry Date</span>
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{expiryDate}</span>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    {expiryDate}
+                  </span>
                 </div>
               )}
               {notes && (
                 <div className="p-4">
-                  <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">{movementType === 'WASTE' ? 'Reason' : 'Notes'}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">
+                    {movementType === 'WASTE' ? 'Reason' : 'Notes'}
+                  </span>
                   <span className="text-sm text-gray-900 dark:text-white">{notes}</span>
                 </div>
               )}
@@ -718,7 +821,9 @@ export function StockMovementPage(): JSX.Element {
             )}
 
             <button
-              onClick={() => { void handleSubmit(); }}
+              onClick={() => {
+                void handleSubmit();
+              }}
               disabled={isSubmitting}
               className={clsx(
                 'w-full mt-6 py-4 rounded-2xl font-bold text-white text-base shadow-card transition-all active:scale-[0.98] touch-feedback',

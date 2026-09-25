@@ -3,16 +3,17 @@
  */
 import React, { useState } from 'react';
 import {
-  Modal,
-  useToast,
-  formatCurrency,
-  DEFAULT_CURRENCY,
-  DataTable,
-  type DataTableColumn,
   Button,
+  DataTable,
+  DEFAULT_CURRENCY,
+  formatCurrency,
   Input,
+  Modal,
   Select,
   Textarea,
+  ToggleButton,
+  useToast,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import {
   useCreatePurchaseOrder,
@@ -253,64 +254,51 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
             </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
-                <button
+                <ToggleButton
                   key={cat.value}
                   type="button"
                   onClick={() => {
                     setCategory(cat.value);
                     setItems([]);
                   }}
-                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                    category === cat.value
-                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={category === cat.value}
+                  className="px-3 py-2 text-sm rounded-lg border transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {cat.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>
 
           {/* Supplier */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Supplier Name *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                required
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Contact
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={supplierContact}
-                onChange={(e) => setSupplierContact(e.target.value)}
-              />
-            </div>
+            <Input
+              label="Supplier Name"
+              fullWidth
+              type="text"
+              required
+              value={supplierName}
+              onChange={(e) => setSupplierName(e.target.value)}
+            />
+            <Input
+              label="Contact"
+              fullWidth
+              type="text"
+              value={supplierContact}
+              onChange={(e) => setSupplierContact(e.target.value)}
+            />
           </div>
 
           {/* Expected Delivery */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Expected Delivery Date
-            </label>
-            <Input
-              fullWidth
-              type="date"
-              value={expectedDeliveryDate}
-              onChange={(e) => setExpectedDeliveryDate(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Expected Delivery Date"
+            fullWidth
+            type="date"
+            value={expectedDeliveryDate}
+            onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+          />
 
           {/* Add Items */}
           <div>
@@ -360,12 +348,13 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           )}
 
           {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Notes
-            </label>
-            <Textarea fullWidth rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
+          <Textarea
+            label="Notes"
+            fullWidth
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">

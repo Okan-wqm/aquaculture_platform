@@ -128,6 +128,284 @@ const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
 const RAW_BUTTON = /<button\b/g;
 const RAW_FIELD = /<(?:input|select|textarea)\b/g;
 /**
+ * Element-aware reading of `<button>` (FE-HIGH-158, FE-HIGH-159). The two
+ * counters below ask what is INSIDE a button and what its opening tag declares,
+ * which a `/<button\b/` match cannot answer.
+ *
+ * The opening tag cannot be found by scanning to the first `>`: an arrow
+ * function in a prop (`onClick={() => close()}`) carries one. Four hand-rolled
+ * passes over this corpus each produced a different total because of exactly
+ * that, so the scan tracks brace depth and quotes and only accepts a `>` at
+ * depth zero. Nested `<button>` is not legal HTML, but the body scan counts
+ * depth anyway rather than trusting the corpus.
+ */
+function* buttonElements(
+  source: string,
+  tag: 'button' | 'ToggleButton' = 'button',
+): Generator<{ openTag: string; body: string }> {
+  const OPEN = new RegExp(`<${tag}\\b`, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = OPEN.exec(source)) !== null) {
+    const start = match.index;
+    let i = start + tag.length + 1;
+    let depth = 0;
+    let quote: string | null = null;
+    let tagEnd = -1;
+    for (; i < source.length; i += 1) {
+      const c = source[i] as string;
+      if (quote !== null) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "'" || c === '`') {
+        quote = c;
+      } else if (c === '{') {
+        depth += 1;
+      } else if (c === '}') {
+        depth -= 1;
+      } else if (c === '>' && depth === 0) {
+        tagEnd = i + 1;
+        break;
+      }
+    }
+    if (tagEnd === -1) return;
+    const openTag = source.slice(start, tagEnd);
+    if (openTag.endsWith('/>')) {
+      yield { openTag, body: '' };
+      OPEN.lastIndex = tagEnd;
+      continue;
+    }
+    let bodyDepth = 1;
+    let j = tagEnd;
+    while (j < source.length && bodyDepth > 0) {
+      if (source.startsWith(`<${tag}`, j)) {
+        bodyDepth += 1;
+        j += tag.length + 1;
+      } else if (source.startsWith(`</${tag}>`, j)) {
+        bodyDepth -= 1;
+        j += tag.length + 3;
+      } else {
+        j += 1;
+      }
+    }
+    yield { openTag, body: source.slice(tagEnd, Math.max(tagEnd, j - (tag.length + 3))) };
+    OPEN.lastIndex = tagEnd;
+  }
+}
+
+/**
+ * Does the body put any words on screen? Tags are blanked to a sentinel first.
+ * The sentinel is U+E000, a private-use code point: it cannot occur in TSX
+ * source, so it can never collide with real content, and unlike NUL it is not
+ * a control character — `no-control-regex` rejects those, which is how the
+ * first cut of this failed lint after passing every test.
+ * so an icon's own props never read as text. What is left is literal JSX text
+ * plus expressions, and an expression is judged by what it can PRODUCE:
+ *
+ *   {open ? <X /> : <Menu />}            two elements  -> no words
+ *   {isLoading ? loadingText : confirm}  two values    -> words
+ *   {date.getDate()}                     a call        -> words
+ *   {count > 0 && <Badge />}             a guarded element -> no words
+ *
+ * Both halves of that distinction were learned the hard way. Reading only the
+ * condition counted the first line as text and hid every icon-only toggle;
+ * requiring a bare identifier counted the second and third as icons, which
+ * inflated shared-ui's ceiling by four buttons that render a day number or a
+ * confirm label.
+ */
+function rendersText(body: string): boolean {
+  const blanked = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/<[^>]*>/g, '\uE000');
+  /** An operand that can only yield an element, nothing, or an empty string. */
+  const yieldsNoWords = (operand: string): boolean =>
+    /^[\s\uE000]*$/.test(operand) ||
+    /^[\s]*(null|undefined|false|''|""|``)[\s]*$/.test(operand) ||
+    /^[\s\uE000()]*$/.test(operand);
+  for (const expr of blanked.match(/\{[^{}]*\}/g) ?? []) {
+    const inner = expr.slice(1, -1).trim();
+    if (inner === '') continue;
+    const ternary = /^([^?]*)\?([^:]*):(.*)$/s.exec(inner);
+    if (ternary) {
+      if (yieldsNoWords(ternary[2] ?? '') && yieldsNoWords(ternary[3] ?? '')) continue;
+      return true;
+    }
+    const guarded = /^(.*?)(?:&&|\|\|)(.*)$/s.exec(inner);
+    if (guarded) {
+      if (yieldsNoWords(guarded[2] ?? '')) continue;
+      return true;
+    }
+    if (yieldsNoWords(inner)) continue;
+    return true;
+  }
+  return blanked.replace(/\{[^{}]*\}/g, '').replace(/[\s\uE000]/g, '') !== '';
+}
+
+const NAMES_THE_CONTROL = /\baria-label\b|\baria-labelledby\b|\btitle=/;
+/**
+ * Every attribute that actually declares a button's state, not just the three
+ * a toggle happens to use most. `aria-checked` is the correct one for
+ * role="switch", role="radio", role="checkbox" and role="menuitemradio", and
+ * `aria-expanded` for a disclosure. Leaving them out counted 15 controls that
+ * state themselves correctly — a switch on the report settings modal, the week
+ * pickers in scheduling, two water-chemistry toggles — as defects, and an
+ * inflated ceiling is as wrong as a missing one.
+ */
+const DECLARES_ITS_STATE =
+  /\baria-pressed\b|\baria-selected\b|\baria-current\b|\baria-checked\b|\baria-expanded\b/;
+/**
+ * A `?` that opens a ternary, not one that spells `??` or `?.`. Without the
+ * guards, `${bulkActionStyles[action.variant ?? 'primary']}` — a lookup, the
+ * very shape this ratchet pushes variant classes into — read as a branch and
+ * the class attribute counted itself as an undeclared state.
+ */
+const PAINTS_A_STATE =
+  /className=\{`[^`]*\$\{[^}]*(?<![?.])\?(?![?.])|className=\{[^}]*(?<![?.])\?(?![?.])[^}]*:/;
+
+/** The source of a braced JSX attribute (`disabled={…}`), brace- and quote-aware. */
+function bracedAttribute(openTag: string, attribute: string): string | null {
+  const at = new RegExp(`\\b${attribute}=\\{`).exec(openTag);
+  if (at === null) return null;
+  let i = at.index + at[0].length;
+  const from = i;
+  let depth = 1;
+  let quote: string | null = null;
+  for (; i < openTag.length && depth > 0; i += 1) {
+    const c = openTag[i] as string;
+    if (quote !== null) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+    } else if (c === '{') {
+      depth += 1;
+    } else if (c === '}') {
+      depth -= 1;
+    }
+  }
+  return openTag.slice(from, i - 1);
+}
+
+/**
+ * Every condition a className expression branches on. Walking back from each
+ * `?` to the start of its condition is what makes the disabled-look exemption
+ * below decidable: the predicate above only says THAT the class branches.
+ */
+function classConditions(className: string): string[] {
+  const found: string[] = [];
+  for (let k = className.indexOf('?'); k !== -1; k = className.indexOf('?', k + 1)) {
+    if (className[k + 1] === '?' || className[k + 1] === '.' || className[k - 1] === '?') continue;
+    let j = k - 1;
+    while (j >= 0 && /\s/.test(className[j] as string)) j -= 1;
+    const end = j + 1;
+    let depth = 0;
+    for (; j >= 0; j -= 1) {
+      const c = className[j] as string;
+      if (c === ')' || c === ']' || c === '}') depth += 1;
+      else if (c === '(' || c === '[' || c === '{') {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (depth === 0 && (c === ',' || c === '`' || c === '\n' || c === ':' || c === "'"))
+        break;
+    }
+    const condition = className.slice(j + 1, end).trim();
+    if (condition !== '') found.push(condition);
+  }
+  return found;
+}
+
+const withoutSpaceOrNot = (expression: string): string =>
+  expression.replace(/\s+/g, '').replace(/^!+/, '');
+
+/**
+ * A button whose class branches on nothing but the expression its `disabled`
+ * attribute is bound to is not painting a silent state: `disabled` already puts
+ * that state in the accessibility tree, and `aria-pressed` would be a lie there.
+ * Measuring the corpus turned up 33 of them — a Deploy button greyed while
+ * `!selectedDeviceId || isDeploying`, a suggested-action chip that goes solid
+ * once `isAdded`, the alignment toolbar's distribute pair on `canDistribute`.
+ * Counting those is the same mistake as the missing aria-checked/aria-expanded
+ * cut above, in the other direction: they inflate the ceiling with work that
+ * must not be done.
+ */
+function paintsOnlyTheDisabledLook(openTag: string): boolean {
+  const className = bracedAttribute(openTag, 'className');
+  const disabled = bracedAttribute(openTag, 'disabled');
+  if (className === null || disabled === null) return false;
+  const conditions = classConditions(className);
+  if (conditions.length === 0) return false;
+  const declared = new Set([withoutSpaceOrNot(disabled)]);
+  for (const operand of disabled.split(/\|\||&&/)) {
+    if (operand.trim().length > 2) declared.add(withoutSpaceOrNot(operand));
+  }
+  return conditions.every((condition) => declared.has(withoutSpaceOrNot(condition)));
+}
+
+/**
+ * FE-HIGH-158 — a button with no words in it and no accessible name. A screen
+ * reader announces it as "button", whether it deletes a row, logs the operator
+ * out or expands a table.
+ */
+function unnamedIconButtons(source: string): number {
+  let count = 0;
+  /**
+   * ToggleButton is scanned too. Moving a toggle onto the primitive takes it
+   * out of `<button`'s reach, and an icon-only toggle with no aria-label is
+   * still announced as "button" — a migration that lowered this count without
+   * naming anything would be the ratchet lying about work it had not done.
+   * The silent-state counter needs no such clause: ToggleButton declares
+   * aria-pressed by construction, so it cannot paint a state silently.
+   */
+  for (const tag of ['button', 'ToggleButton'] as const) {
+    for (const { openTag, body } of buttonElements(source, tag)) {
+      if (!rendersText(body) && !NAMES_THE_CONTROL.test(openTag)) count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * FE-HIGH-159 — a button whose class attribute switches on a selected state
+ * while its opening tag never declares that state. The selection is visible and
+ * inaudible: colour alone, which WCAG 1.4.1 rejects.
+ */
+/**
+ * A button whose accessible name branches on the same condition its class does
+ * is not communicating by colour alone — the state is in the name, which is
+ * what a screen reader reads first. `aria-label={isRecording ? 'Stop recording'
+ * : 'Start recording'}` says more than `aria-pressed` would, and adding
+ * aria-pressed beside it makes the control announce its state twice, in two
+ * vocabularies.
+ *
+ * Only `aria-label` and `title` count. An earlier cut also looked at the
+ * element's body and matched 13 buttons, but eight of those were matching a
+ * className ternary on a knob `<span>` or an icon swap — markup, not words.
+ * A detector that reads a switch's translate-x class as an accessible name is
+ * not measuring anything.
+ */
+function nameDeclaresTheSameState(openTag: string): boolean {
+  const className = bracedAttribute(openTag, 'className');
+  if (className === null) return false;
+  const painted = classConditions(className).map(withoutSpaceOrNot);
+  if (painted.length === 0) return false;
+  const spoken = new Set<string>();
+  for (const attribute of ['aria-label', 'title']) {
+    const expression = bracedAttribute(openTag, attribute);
+    if (expression === null) continue;
+    for (const condition of classConditions(expression)) spoken.add(withoutSpaceOrNot(condition));
+  }
+  return spoken.size > 0 && painted.every((condition) => spoken.has(condition));
+}
+
+function silentStateButtons(source: string): number {
+  let count = 0;
+  for (const { openTag } of buttonElements(source)) {
+    if (
+      PAINTS_A_STATE.test(openTag) &&
+      !DECLARES_ITS_STATE.test(openTag) &&
+      !paintsOnlyTheDisabledLook(openTag) &&
+      !nameDeclaresTheSameState(openTag)
+    )
+      count += 1;
+  }
+  return count;
+}
+/**
  * A class attribute that fixes `grid-cols-N` (N in 2–6 or 8–11) with no
  * breakpoint variant (FE-HIGH-088): on a 375 px phone the N columns share the
  * width and every cell wraps or overflows. Seven (a week) and twelve (a layout
@@ -321,8 +599,25 @@ interface PackageCeiling {
   reason: string;
 }
 
+interface RaiseGrant {
+  /** Ratchet block the grant applies to, or 'overlays' for the overlay ceiling. */
+  block: string;
+  /** Package the grant applies to; 'overlays' blocks use the literal '*'. */
+  package: string;
+  /** The ceiling on the base ref. A grant that does not match it authorises nothing. */
+  from: number;
+  /** The ceiling this change moves to. */
+  to: number;
+  owner: string;
+  expiry: string | Date;
+  findingId: string;
+  reason: string;
+}
+
 interface Allowlist {
   version: number;
+  /** Explicit, single-use authorisations for a ceiling that must RISE (see the one-way test). */
+  raises?: RaiseGrant[];
   overlays: { ceiling: number; entries: OverlayEntry[] };
   rawHex: { entries: PackageCeiling[] };
   rawPalette: { entries: PackageCeiling[] };
@@ -330,6 +625,8 @@ interface Allowlist {
   rawTable: { entries: PackageCeiling[] };
   rawMutation: { entries: PackageCeiling[] };
   rawButton: { entries: PackageCeiling[] };
+  unnamedIconButton: { entries: PackageCeiling[] };
+  silentStateButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
   fixedGrid: { entries: PackageCeiling[] };
   inlineIconSvg: { entries: PackageCeiling[] };
@@ -353,8 +650,28 @@ function sourceFiles(roots: readonly string[] = ROOTS): string[] {
     );
 }
 
+/**
+ * Source as the ratchets measure it: code, with prose taken out.
+ *
+ * Every counter in this file reads through here, which is why the strip lives
+ * here and not in one of them. A comment is not a class attribute, not a raw
+ * hex, and not a user-visible string, but each counter is a regex and none of
+ * them can tell — writing `Bulk-action kind -> class.` above a lookup table was
+ * enough to add one to shared-ui's hardcoded-string count, because `>` followed
+ * by words followed by `<` is exactly what JSX text looks like. Dodging that by
+ * rewording the comment would leave the next author to trip over it; taking
+ * prose out of the corpus is the thing that stops being wrong.
+ *
+ * Block comments go whole (JSDoc, including the `{/* ... *\/}` form JSX uses).
+ * Line comments go only when the line holds nothing else, so a `https://` in a
+ * string and a trailing `// why` beside real code are both left alone — an
+ * over-eager strip would hide genuine occurrences, and a ratchet that undercounts
+ * is a ratchet that stops ratcheting.
+ */
 function read(relativePath: string): string {
-  return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+  return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/[^\n]*$/gm, ' ');
 }
 
 /** `web/modules/<name>`, `web/shell`, `web/apps/<name>` or `web/shared-ui` — the unit a ceiling is granted to. */
@@ -392,6 +709,43 @@ function assertGoverned(
   expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
   expect(entry.reason.length).toBeGreaterThan(20);
   expect(expiryIso(entry.expiry) > today).toBe(true);
+}
+
+/**
+ * The merged baseline this file's ceilings are compared against. `origin/main`
+ * in CI (checkout uses `fetch-depth: 0`); a local clone may only have `main`.
+ * Same idiom as `finding-registry-closure-drift.spec.ts`, and the same refusal:
+ * a gate that certifies "only ever falls" against nothing certifies nothing.
+ */
+function resolveBaseRef(): string {
+  for (const ref of ['origin/main', 'main']) {
+    try {
+      execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', '--verify', `${ref}^{commit}`], {
+        stdio: 'ignore',
+      });
+      return ref;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    'Neither origin/main nor main is readable in this clone. This gate compares ' +
+      'ceilings against merged history and refuses to certify blind — fetch the ' +
+      'base ref (CI uses fetch-depth: 0) and re-run.',
+  );
+}
+
+/** Every ceiling in a parsed allowlist, keyed `<block>/<package>`. */
+function ceilingsOf(doc: Allowlist): Map<string, number> {
+  const out = new Map<string, number>();
+  out.set('overlays/*', doc.overlays.ceiling);
+  for (const [block, value] of Object.entries(doc)) {
+    if (block === 'overlays' || block === 'version' || block === 'raises') continue;
+    const entries = (value as { entries?: PackageCeiling[] }).entries;
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) out.set(`${block}/${entry.package}`, entry.ceiling);
+  }
+  return out;
 }
 
 describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-system adoption ratchet', () => {
@@ -557,6 +911,64 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.rawButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets buttons with no words and no accessible name per package (FE-HIGH-158)', () => {
+    // shared-ui is included, unlike the rawButton ratchet above, which reads
+    // ROOTS alone. A primitive is allowed to render a raw <button>; it is not
+    // allowed to render one a screen reader cannot name, because every consumer
+    // inherits that name — or its absence.
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])],
+      unnamedIconButtons,
+    );
+    const ceilings = new Map(doc.unnamedIconButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} unnamed icon buttons, no ceiling` : '').toBe(
+        '',
+      );
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} buttons with no text and no accessible name, ceiling ${entry.ceiling}. Give the control a name (aria-label from useI18n, or aria-labelledby pointing at visible text) and lower the ceiling when you fix one.`,
+        );
+      }
+    }
+    for (const entry of doc.unnamedIconButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets buttons that paint a state without declaring it per package (FE-HIGH-159)', () => {
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])],
+      silentStateButtons,
+    );
+    const ceilings = new Map(doc.silentStateButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} silent state buttons, no ceiling` : '').toBe(
+        '',
+      );
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} buttons whose class switches on a selected state with no aria-pressed / aria-selected / aria-current, ceiling ${entry.ceiling}. Declare the state on the same prop that paints it and lower the ceiling when you fix one.`,
+        );
+      }
+    }
+    for (const entry of doc.silentStateButton.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling
@@ -807,6 +1219,79 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
         (actual.get(entry.package) ?? 0) === entry.ceiling
           ? ''
           : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  /**
+   * The ceilings above only ever fall (FE-HIGH-065).
+   *
+   * The allowlist's own header has always said the counts are "pinned here so
+   * they can only shrink", and until this test nothing enforced it: every
+   * assertion above compares a ceiling to the LIVE count, so raising a ceiling
+   * and the count together passes. That is the one move which quietly undoes a
+   * migration — under "just make CI green" a ceiling goes up, a plausible
+   * reason goes in beside it, and the suite stays green while the adoption work
+   * unwinds. `assertGoverned` asks for an owner, a finding, a reason and a
+   * future expiry, which is a speed bump, not a direction.
+   *
+   * So the comparison is against the merged baseline, not against this file's
+   * own contents. A ceiling that rises is refused unless the same change
+   * declares it in `raises:` — pinned to the exact from/to pair, so a grant
+   * cannot be reused for a second rise, and governed like every other entry.
+   * A grant that authorises nothing is refused too: a licence with no rise
+   * behind it is either stale or speculative, and both are how an escape hatch
+   * becomes a habit. Once the rise is merged the grant reads as already
+   * applied (`to` equals the live ceiling) and sits harmlessly until its
+   * expiry forces the cleanup.
+   */
+  it('ceilings only ever fall; a rise needs an explicit, single-use grant (FE-HIGH-065)', () => {
+    const baseRef = resolveBaseRef();
+    const baselineSource = execFileSync(
+      'git',
+      ['-C', REPO_ROOT, 'show', `${baseRef}:${ALLOWLIST}`],
+      { encoding: 'utf8' },
+    );
+    const baselineDoc = yaml.load(baselineSource) as Allowlist;
+    const baseline = ceilingsOf(baselineDoc);
+    const current = ceilingsOf(doc);
+    const grants = doc.raises ?? [];
+
+    // A block the baseline does not have at all is a NEW COUNTER, not a rise.
+    // Introducing one records debt that was never measured before, which is the
+    // opposite of a regression, and it can only add measurement — it cannot
+    // relax a count that already exists. Its opening ceilings are the survey,
+    // so they are exempt; every later change to them is compared normally.
+    const baselineBlocks = new Set(Object.keys(baselineDoc));
+
+    // Within a block the baseline HAS, a package with no entry starts from
+    // zero: adding one with a non-zero ceiling is new debt, which is a rise
+    // like any other.
+    const rises = [...current]
+      .map(([key, to]) => ({ key, from: baseline.get(key) ?? 0, to }))
+      .filter((r) => r.to > r.from && baselineBlocks.has(r.key.slice(0, r.key.indexOf('/'))));
+
+    const ungranted = rises
+      .filter(
+        (r) =>
+          !grants.some(
+            (g) => `${g.block}/${g.package}` === r.key && g.from === r.from && g.to === r.to,
+          ),
+      )
+      .map((r) => `${r.key}: ${r.from} -> ${r.to} with no matching raises: grant`);
+    expect(ungranted.sort()).toEqual([]);
+
+    for (const grant of grants) {
+      assertGoverned(grant, today);
+      const key = `${grant.block}/${grant.package}`;
+      expect(current.has(key) ? '' : `raises: names ${key}, which has no ceiling`).toBe('');
+      const active = rises.some((r) => r.key === key && r.from === grant.from && r.to === grant.to);
+      const applied = current.get(key) === grant.to;
+      expect(
+        active || applied
+          ? ''
+          : `raises: grant for ${key} (${grant.from} -> ${grant.to}) authorises no rise in this change ` +
+              `and is not already applied (live ${current.get(key)}); remove it`,
       ).toBe('');
     }
   });

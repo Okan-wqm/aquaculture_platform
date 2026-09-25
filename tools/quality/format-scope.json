@@ -37678,6 +37678,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-20-aria-suite-changed-merge-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -48291,6 +48297,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-repin-wiring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
       "prettier_managed": true
     },
@@ -48520,6 +48532,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/long-gate-concurrency.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49228,6 +49246,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/structured-logger-single-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/suderra-console-contrast.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51753,6 +51777,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/ToggleButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
       "prettier_managed": true
     },
@@ -51826,6 +51856,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/Switch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ToggleButton.tsx",
       "prettier_managed": true
     },
     {
@@ -60696,6 +60732,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useScadaConnectionState.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts",
       "prettier_managed": true
     },
@@ -61225,6 +61267,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.heartbeat.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.shared-ownership.test.ts",
       "prettier_managed": true
     },
     {
@@ -62670,6 +62718,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Form/ColorInput.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Form/DatePicker.tsx",
       "prettier_managed": true
     },
@@ -62683,6 +62737,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Form/DynamicSpecificationForm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/fieldLabel.ts",
       "prettier_managed": true
     },
     {
@@ -62748,6 +62808,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Form/Slider.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/index.ts",
       "prettier_managed": true
     },
@@ -62778,6 +62844,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/SuderraSidebar.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/DesktopOnlyNotice.tsx",
       "prettier_managed": true
     },
@@ -62796,6 +62868,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/navIcons.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
       "prettier_managed": true
     },
@@ -62803,6 +62881,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/SuderraSidebar.tsx",
       "prettier_managed": true
     },
     {
@@ -62965,6 +63049,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/__tests__/ToggleButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/ToggleButton/ToggleButton.tsx",
       "prettier_managed": true
     },
     {

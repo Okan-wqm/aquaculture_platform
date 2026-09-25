@@ -29,16 +29,19 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
-import { colors as themeColors, Button } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
   onChange: (updates: Record<string, unknown>) => void;
   deviceId?: string | null;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Default triangle path used when resetting to defaults */
 const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
@@ -76,16 +79,12 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
       {/* Closed path toggle */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={closed}
-            onChange={(e) => onChange({ closed: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            aria-label="Close path"
-          />
-          Closed path (connects last point to first)
-        </label>
+        <Checkbox
+          label="Closed path (connects last point to first)"
+          checked={closed}
+          onChange={(e) => onChange({ closed: e.target.checked })}
+          aria-label="Close path"
+        />
       </div>
 
       {/* Point count (read-only) */}
@@ -106,34 +105,23 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
             Fill
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill</label>
-              <input
-                type="color"
-                value={(config.fill as string) || themeColors.info[500]}
-                onChange={(e) => onChange({ fill: e.target.value })}
-                className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-                aria-label="Fill color"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Fill Opacity
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={(config.fillOpacity as number) ?? 0.3}
-                onChange={(e) => onChange({ fillOpacity: Number(e.target.value) })}
-                className="w-full"
-                aria-label="Fill opacity"
-              />
-              <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-                {Math.round(((config.fillOpacity as number) ?? 0.3) * 100)}%
-              </div>
-            </div>
+            <ColorInput
+              label="Fill"
+              aria-label="Fill color"
+              value={(config.fill as string) || themeColors.info[500]}
+              onChange={(e) => onChange({ fill: e.target.value })}
+            />
+            <Slider
+              size="xs"
+              label="Fill Opacity"
+              readout="below"
+              formatValue={(v) => `${Math.round(v * 100)}%`}
+              min={0}
+              max={1}
+              step={0.05}
+              value={(config.fillOpacity as number) ?? 0.3}
+              onChange={(fillOpacity) => onChange({ fillOpacity })}
+            />
           </div>
         </div>
       )}

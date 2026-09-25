@@ -24,7 +24,14 @@ import {
   Activity,
 } from 'lucide-react';
 import { useAlerts, AlertHistoryItem, AlertSeverity, AlertStatusFilter } from '../hooks/useAlerts';
-import { Spinner, PageHeader, severityClasses, Button, Select } from '@aquaculture/shared-ui';
+import {
+  Button,
+  PageHeader,
+  Select,
+  severityClasses,
+  Spinner,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -384,17 +391,16 @@ const AlertsPage: React.FC = () => {
           {/* Status Tabs */}
           <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
             {STATUS_TABS.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.value}
                 onClick={() => updateFilters({ status: tab.value })}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  filters.status === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
+                pressed={filters.status === tab.value}
+                className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+                pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
 

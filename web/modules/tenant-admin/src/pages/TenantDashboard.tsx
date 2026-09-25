@@ -8,6 +8,7 @@ import {
   parseMoney,
   PageHeader,
   Button,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import {
   Users,
@@ -142,6 +143,7 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({ status }) =
  */
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
 
   // Use TanStack Query for stats (PERF-001)
@@ -213,7 +215,7 @@ const TenantDashboard: React.FC = () => {
           id: `activity-${idx}`,
           type: 'login' as const,
           description: `${u.firstName || ''} ${u.lastName || ''} (${u.email}) logged in`,
-          timestamp: u.lastLoginAt ? formatRelativeTime(u.lastLoginAt) : 'Unknown',
+          timestamp: u.lastLoginAt ? formatRelativeTime(u.lastLoginAt) : t('common.unknown'),
           user: u.email,
         })),
     [users],
@@ -240,34 +242,34 @@ const TenantDashboard: React.FC = () => {
     () => [
       {
         id: 'users',
-        title: 'Total Users',
+        title: t('tenantDashboard.totalUsers'),
         value: totalUsers,
-        changeLabel: `${activeUsers} active`,
+        changeLabel: t('tenantDashboard.nActive', { count: activeUsers }),
         icon: <Users className="w-6 h-6" />,
         color: 'green',
       },
       {
         id: 'modules',
-        title: 'Active Modules',
+        title: t('tenantDashboard.activeModules'),
         value: activeModules,
-        changeLabel: `of ${totalModules} assigned`,
+        changeLabel: t('tenantDashboard.ofAssigned', { total: totalModules }),
         icon: <Package className="w-6 h-6" />,
         color: 'blue',
       },
       {
         id: 'activity',
-        title: 'Active Sessions',
+        title: t('tenantDashboard.activeSessions'),
         value: tenantStats?.activeSessions ?? activeUsers,
-        changeLabel: 'users online',
+        changeLabel: t('tenantDashboard.usersOnline'),
         icon: <Activity className="w-6 h-6" />,
         color: 'yellow',
       },
       {
         id: 'growth',
-        title: 'This Month',
+        title: t('tenantDashboard.thisMonth'),
         value: monthlyGrowth > 0 ? `+${monthlyGrowth}%` : '0%',
         change: monthlyGrowth,
-        changeLabel: 'user growth',
+        changeLabel: t('tenantDashboard.userGrowth'),
         icon: <TrendingUp className="w-6 h-6" />,
         color: 'purple',
       },
@@ -289,13 +291,13 @@ const TenantDashboard: React.FC = () => {
           className="w-8 h-8 animate-spin text-success-600 dark:text-success-400"
           aria-hidden="true"
         />
-        <span className="sr-only">Dashboard loading...</span>
+        <span className="sr-only">{t('tenantDashboard.loading')}</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page">
       {/* Page Header */}
       <PageHeader
         title="Dashboard"
@@ -312,7 +314,7 @@ const TenantDashboard: React.FC = () => {
               <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </Button>
             <Button variant="primary" onClick={() => navigate('/tenant/users')}>
-              Add User
+              {t('tenantDashboard.addUser')}
             </Button>
           </div>
         }
@@ -320,11 +322,11 @@ const TenantDashboard: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+        <div className="sd-banner sd-banner--error">
           <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-error-800 dark:text-error-200">
-              Failed to load data
+              {t('tenantDashboard.loadFailed')}
             </p>
             <p className="text-sm text-error-600 dark:text-error-400">{(error as Error).message}</p>
           </div>
@@ -359,22 +361,22 @@ const TenantDashboard: React.FC = () => {
                     }`}
                   >
                     {subscription.status === 'trial'
-                      ? 'Trial'
+                      ? t('billing.status.trial')
                       : subscription.status === 'active'
                         ? 'Active'
                         : subscription.status === 'past_due'
-                          ? 'Past Due'
+                          ? t('billing.status.pastDue')
                           : subscription.status.charAt(0).toUpperCase() +
                             subscription.status.slice(1)}
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                   {subscription.billingCycle === 'monthly'
-                    ? 'Monthly'
+                    ? t('billing.cycle.monthly')
                     : subscription.billingCycle === 'quarterly'
-                      ? 'Quarterly'
+                      ? t('billing.cycle.quarterly')
                       : subscription.billingCycle === 'annual'
-                        ? 'Annual'
+                        ? t('billing.cycle.annual')
                         : subscription.billingCycle}{' '}
                   billing
                 </p>
@@ -387,12 +389,14 @@ const TenantDashboard: React.FC = () => {
                   <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Next billing: {formatDate(subscription.currentPeriodEnd)}
+                  {t('tenantDashboard.nextBilling')}: {formatDate(subscription.currentPeriodEnd)}
                 </p>
               </div>
               {subscription.status === 'trial' && subscription.trialEndDate && (
                 <div className="px-4 py-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
-                  <p className="text-xs font-medium text-info-700 dark:text-info-300">Trial ends</p>
+                  <p className="text-xs font-medium text-info-700 dark:text-info-300">
+                    {t('tenantDashboard.trialEnds')}
+                  </p>
                   <p className="text-sm font-semibold text-info-800 dark:text-info-200">
                     {formatDate(subscription.trialEndDate)}
                   </p>
@@ -404,14 +408,11 @@ const TenantDashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="sd-stat-grid">
         {statsData.map((stat) => {
           const colors = colorClasses[stat.color];
           return (
-            <div
-              key={stat.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
-            >
+            <div key={stat.id} className="sd-card sd-card--dash sd-stat-card">
               <div className="flex items-start justify-between">
                 <div className={`p-3 rounded-xl ${colors.icon}`}>{stat.icon}</div>
                 {stat.change !== undefined && stat.change > 0 && (
@@ -440,16 +441,16 @@ const TenantDashboard: React.FC = () => {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="sd-main-grid">
         {/* Modules Status - Takes 2 columns */}
-        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className="sd-card sd-card--flush sd-span-2">
+          <div className="sd-card-head">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Module Status
+                {t('tenantDashboard.moduleStatus')}
               </h2>
               <Button variant="ghost" onClick={() => navigate('/tenant/modules')}>
-                View All
+                {t('tenantDashboard.viewAll')}
               </Button>
             </div>
           </div>
@@ -457,14 +458,14 @@ const TenantDashboard: React.FC = () => {
             <div className="p-8 text-center">
               <Package className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-                No modules assigned yet
+                {t('tenantDashboard.noModules')}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Contact your administrator to get modules assigned
+                {t('tenantDashboard.noModulesHint')}
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            <div className="sd-mod-list-body">
               {modules.map((module) => (
                 <div
                   key={module.id}
@@ -498,18 +499,20 @@ const TenantDashboard: React.FC = () => {
         </div>
 
         {/* Recent Activity - Takes 1 column */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className="sd-card sd-card--flush">
+          <div className="sd-card-head">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Recent Activity
+                {t('tenantDashboard.recentActivity')}
               </h2>
             </div>
           </div>
           {activities.length === 0 ? (
             <div className="p-8 text-center">
               <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">No recent activity</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
+                {t('tenantDashboard.noActivity')}
+              </p>
             </div>
           ) : (
             <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
@@ -553,7 +556,7 @@ const TenantDashboard: React.FC = () => {
       <div className="bg-gradient-to-r from-success-600 to-success-700 rounded-xl p-6 text-white">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold">Need to add more users?</h3>
+            <h3 className="text-lg font-semibold">{t('tenantDashboard.needMoreUsers')}</h3>
             <p className="text-success-100 text-sm mt-1">
               Invite team members to collaborate on your aquaculture operations.
             </p>
@@ -563,13 +566,13 @@ const TenantDashboard: React.FC = () => {
               onClick={() => navigate('/tenant/modules')}
               className="px-4 py-2 text-sm font-medium text-success-600 bg-white dark:bg-gray-900 rounded-lg hover:bg-success-50 transition-colors"
             >
-              View Modules
+              {t('tenantDashboard.viewModules')}
             </button>
             <button
               onClick={() => navigate('/tenant/users')}
               className="px-4 py-2 text-sm font-medium text-white bg-success-800 rounded-lg hover:bg-success-900 transition-colors"
             >
-              Invite Users
+              {t('tenantDashboard.inviteUsers')}
             </button>
           </div>
         </div>

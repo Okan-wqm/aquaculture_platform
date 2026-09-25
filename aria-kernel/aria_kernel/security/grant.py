@@ -42,11 +42,30 @@ class GrantError(ValueError):
 
 
 def _backend() -> Any:
+    # A backend that is INSTALLED BUT BROKEN is exactly as unavailable as a missing
+    # one, and this module's contract is to fail closed either way. `except ImportError`
+    # alone does not deliver that: a native binding built for another interpreter does
+    # not raise ImportError, it PANICS, and pyo3's PanicException derives from
+    # BaseException — so it escaped both this handler and `backend_available`'s. The
+    # predicate whose whole job is to answer "can we sign?" propagated the panic to its
+    # callers instead of answering, which took down `unittest.skipUnless(
+    # backend_available(), "... not installed — grant lane is fail-closed here")` at
+    # import time: the guard written for this exact case could not run. Observed under
+    # full-suite discovery on 2026-09-20 with Debian's cryptography 41.0.7 (built for
+    # python3.12) imported by python3.11. ARIA-HIGH-186.
     try:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ed25519
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise SigningBackendUnavailable("cryptography with Ed25519 is required for CampaignGrant") from exc
+    except (KeyboardInterrupt, SystemExit):
+        # Never swallow an operator interrupt or a deliberate exit to call it a
+        # missing backend; those are the process ending, not the lane degrading.
+        raise
+    except BaseException as exc:  # pragma: no cover - environment dependent
+        raise SigningBackendUnavailable(
+            "cryptography is importable but its native binding is unusable for CampaignGrant"
+        ) from exc
     return serialization, ed25519
 
 

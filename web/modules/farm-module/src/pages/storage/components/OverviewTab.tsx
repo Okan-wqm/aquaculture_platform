@@ -4,16 +4,17 @@
  */
 import React, { useState, useMemo, useRef } from 'react';
 import {
+  Button,
+  colors,
+  DataTable,
+  DEFAULT_CURRENCY,
   DonutChart,
   formatCurrency,
   parseMoney,
-  DEFAULT_CURRENCY,
-  useClickOutside,
-  colors,
-  DataTable,
-  type DataTableColumn,
   Spinner,
-  Button,
+  ToggleButton,
+  useClickOutside,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import {
@@ -386,19 +387,18 @@ export const OverviewTab: React.FC = () => {
               {(overview?.categoryTotals || [])
                 .filter((cat) => visibleCategories.has(cat.category.toUpperCase()))
                 .map((cat) => (
-                  <button
+                  <ToggleButton
                     key={cat.category}
                     onClick={() =>
                       setDrillDownCategory(drillDownCategory === cat.category ? null : cat.category)
                     }
-                    className={`text-xs px-3 py-1 rounded-full border transition-all ${
-                      drillDownCategory === cat.category
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
+                    pressed={drillDownCategory === cat.category}
+                    className="text-xs px-3 py-1 rounded-full border transition-all"
+                    pressedClassName="bg-gray-900 text-white border-gray-900"
+                    idleClassName="border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     {CATEGORY_CONFIG[cat.category]?.label || cat.category}: {cat.itemCount} items
-                  </button>
+                  </ToggleButton>
                 ))}
             </div>
           )}

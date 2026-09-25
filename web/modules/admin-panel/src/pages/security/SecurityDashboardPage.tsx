@@ -6,12 +6,14 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  DataTable,
-  Modal,
   chartChrome,
   colors,
-  type DataTableColumn,
+  DataTable,
+  Modal,
   PageHeader,
+  Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
@@ -805,17 +807,16 @@ export const SecurityDashboardPage: React.FC = () => {
         description="Real-time security monitoring and threat intelligence"
         actions={
           <div className="flex items-center gap-3">
-            <button
+            <ToggleButton
               onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border ${
-                autoRefresh
-                  ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800'
-                  : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700'
-              }`}
+              pressed={autoRefresh}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border"
+              pressedClassName="bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800"
+              idleClassName="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700"
             >
               {autoRefresh ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
-            </button>
+            </ToggleButton>
             <button
               onClick={() => void loadData()}
               disabled={loading}
@@ -979,17 +980,17 @@ export const SecurityDashboardPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Recent Security Events
               </h3>
-              <select
+              <Select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
-              >
-                <option value="all">All Severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Severities' },
+                  { value: 'critical', label: 'Critical' },
+                  { value: 'high', label: 'High' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'low', label: 'Low' },
+                ]}
+              />
             </div>
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">

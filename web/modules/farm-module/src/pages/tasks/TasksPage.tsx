@@ -26,7 +26,7 @@ import { RecurringTab } from './components/RecurringTab';
 import { AutoRulesTab } from './components/AutoRulesTab';
 import { CalendarTab } from './components/CalendarTab';
 import { CompletedTab } from './components/CompletedTab';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { Calendar, CircleCheck, Clipboard, Clock, RefreshCw, Zap } from 'lucide-react';
 
 // ============================================================================
@@ -274,21 +274,17 @@ const TasksPage: React.FC = () => {
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-1 overflow-x-auto">
             {tabs.map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors
-                  ${
-                    activeTab === tab.id
-                      ? 'border-info-500 text-info-600 dark:text-info-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                  }
-                `}
+                pressed={activeTab === tab.id}
+                className="flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors"
+                pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+                idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
               >
                 {tab.icon}
                 {tab.name}
-              </button>
+              </ToggleButton>
             ))}
           </nav>
         </div>

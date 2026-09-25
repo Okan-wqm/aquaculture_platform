@@ -46,9 +46,24 @@ permissions:
   contents: read
 
 concurrency:
-  # Plan ARIA-V2 INFRA-HIGH-001 — unified key so PR + push on the same
-  # SHA share the group (no 2x CI minutes charge).
-  group: aria-kernel-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  # Plan ARIA-V2 INFRA-HIGH-001 — unified key so PR + push on the same SHA
+  # share the group (no 2x CI minutes charge). That is what the key MEANS, so
+  # that is what it now SAYS: the group is the commit, not the branch.
+  #
+  # Branch-scoped it also cancelled across DIFFERENT commits, and this suite
+  # runs ~60 min, so any branch pushing more often than that never saw a
+  # verdict: 17 consecutive runs on claude/wonderful-archimedes-msrlg9
+  # completed as `cancelled`, none as success or failure, while the branch
+  # carried a real change to aria_kernel/security/grant.py. A `cancelled` run
+  # is not a red check, so nothing blocked the merge — a gate whose normal
+  # outcome is `cancelled` proves nothing (INFRA-HIGH-189).
+  #
+  # Per-SHA keeps the dedup the original key was added for (a PR event and a
+  # push event for one commit still share a group) and drops the cancellation
+  # it was never meant to cause. A superseded commit's run does finish on its
+  # own minutes; that is the price of a gate that reaches a verdict, and its
+  # result stays attached to its own SHA so it cannot be read as the new one's.
+  group: aria-kernel-${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:

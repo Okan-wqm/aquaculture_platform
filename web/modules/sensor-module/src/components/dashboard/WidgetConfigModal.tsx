@@ -6,7 +6,15 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  colors as themeColors,
+  Input,
+  Modal,
+  Select,
+  ToggleButton,
+} from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -344,17 +352,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           /* Step 1: Widget Type Selection */
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {WIDGET_TYPES.map((type) => (
-              <button
+              <ToggleButton
                 key={type.type}
                 onClick={() => handleTypeSelect(type.type)}
-                className={`
-                      flex items-start gap-4 p-4 border-2 rounded-lg text-left transition-all
-                      ${
-                        selectedType === type.type
-                          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }
-                    `}
+                pressed={selectedType === type.type}
+                className="flex items-start gap-4 p-4 border-2 rounded-lg text-left transition-all"
+                pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <div
                   className={`
@@ -374,25 +378,21 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     {type.description}
                   </p>
                 </div>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         ) : (
           /* Step 2: Widget Configuration */
           <div className="space-y-6">
             {/* Title */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Widget Title
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter widget title"
-              />
-            </div>
+            <Input
+              label="Widget Title"
+              fullWidth
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Enter widget title"
+            />
 
             {/* Process Selection (for process-view widget) */}
             {isProcessView ? (
@@ -611,55 +611,39 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     Y-Axis Configuration
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={yAxisEnabled}
-                      onChange={(e) => setYAxisEnabled(e.target.checked)}
-                      className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-                    />
-                    <span className="text-gray-600 dark:text-gray-400">Custom Range</span>
-                  </label>
+                  <Checkbox
+                    label="Custom Range"
+                    checked={yAxisEnabled}
+                    onChange={(e) => setYAxisEnabled(e.target.checked)}
+                  />
                 </div>
 
                 {yAxisEnabled && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Min Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMin}
-                        onChange={(e) => setYAxisMin(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Max Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMax}
-                        onChange={(e) => setYAxisMax(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Axis Label
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={yAxisLabel}
-                        onChange={(e) => setYAxisLabel(e.target.value)}
-                        placeholder="e.g., Temperature (°C)"
-                      />
-                    </div>
+                    <Input
+                      label="Min Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMin}
+                      onChange={(e) => setYAxisMin(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Max Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMax}
+                      onChange={(e) => setYAxisMax(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Axis Label"
+                      fullWidth
+                      type="text"
+                      value={yAxisLabel}
+                      onChange={(e) => setYAxisLabel(e.target.value)}
+                      placeholder="e.g., Temperature (°C)"
+                    />
                   </div>
                 )}
               </div>
@@ -667,39 +651,22 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
 
             {/* Time Range */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Time Range
-                </label>
-                <select
-                  value={timeRange}
-                  onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
-                >
-                  {TIME_RANGES.map((range) => (
-                    <option key={range.value} value={range.value}>
-                      {range.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Time Range"
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+                options={TIME_RANGES.map((range) => ({ value: range.value, label: range.label }))}
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Refresh Interval
-                </label>
-                <select
-                  value={refreshInterval}
-                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
-                >
-                  {REFRESH_INTERVALS.map((interval) => (
-                    <option key={interval.value} value={interval.value}>
-                      {interval.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Refresh Interval"
+                value={refreshInterval}
+                onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                options={REFRESH_INTERVALS.map((interval) => ({
+                  value: interval.value,
+                  label: interval.label,
+                }))}
+              />
             </div>
           </div>
         )}

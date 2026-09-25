@@ -19,7 +19,7 @@ import {
   AlertCircle,
   Download,
 } from 'lucide-react';
-import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import { Button, DataTable, Select, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSimulation } from './useSimulation';
 import type { SimValue } from './st-interpreter';
 import type { SimulationState } from './useSimulation';
@@ -484,17 +484,11 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           {/* Scan cycle interval selector */}
           <span className="inline-flex items-center gap-1 text-gray-600 dark:text-gray-500">
             Scan:
-            <select
+            <Select
               value={scanCycleMs}
               onChange={(e) => setScanCycleMs(Number(e.target.value))}
-              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
-            >
-              {SCAN_CYCLE_OPTIONS.map((ms) => (
-                <option key={ms} value={ms}>
-                  {ms}ms
-                </option>
-              ))}
-            </select>
+              options={SCAN_CYCLE_OPTIONS.map((ms) => ({ value: ms, label: `${ms}ms` }))}
+            />
           </span>
 
           {/* Status indicator */}

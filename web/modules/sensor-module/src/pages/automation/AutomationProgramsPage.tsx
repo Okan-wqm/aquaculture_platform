@@ -35,16 +35,19 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import {
-  useAuth,
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-  useConfirm,
-  usePrompt,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
   Button,
+  createTenantInvalidationKey,
+  createTenantQueryKey,
+  DataTable,
+  PageHeader,
+  Select,
+  Spinner,
+  ToggleButton,
+  useAuth,
+  useConfirm,
+  useI18n,
+  usePrompt,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
@@ -279,6 +282,7 @@ const ProgramCard: React.FC<{
 // ============================================================================
 
 const AutomationProgramsPage: React.FC = () => {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const navigate = useNavigate();
@@ -642,51 +646,59 @@ const AutomationProgramsPage: React.FC = () => {
           />
         </div>
 
-        <select
+        <Select
+          aria-label="All Statuses"
+          fullWidth={false}
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value as ProgramStatus | '');
             setPage(1);
           }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-        >
-          <option value="">All Statuses</option>
-          {Object.values(ProgramStatus).map((status) => (
-            <option key={status} value={status}>
-              {getStatusText(status)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'All Statuses' },
+            ...Object.values(ProgramStatus).map((status) => ({
+              value: status,
+              label: getStatusText(status),
+            })),
+          ]}
+        />
 
-        <select
+        <Select
+          aria-label="All Types"
+          fullWidth={false}
           value={typeFilter}
           onChange={(e) => {
             setTypeFilter(e.target.value as ProgramType | '');
             setPage(1);
           }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-        >
-          <option value="">All Types</option>
-          {Object.values(ProgramType).map((type) => (
-            <option key={type} value={type}>
-              {getProgramTypeText(type)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'All Types' },
+            ...Object.values(ProgramType).map((type) => ({
+              value: type,
+              label: getProgramTypeText(type),
+            })),
+          ]}
+        />
 
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-          <button
+          <ToggleButton
+            aria-label={t('a11y.gridView')}
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            pressed={viewMode === 'grid'}
+            className="p-2 rounded"
+            pressedClassName="bg-white dark:bg-gray-900 shadow"
           >
             <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
+            aria-label={t('a11y.listView')}
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            pressed={viewMode === 'list'}
+            className="p-2 rounded"
+            pressedClassName="bg-white dark:bg-gray-900 shadow"
           >
             <List className="h-4 w-4" />
-          </button>
+          </ToggleButton>
         </div>
 
         <Button variant="secondary" iconOnly aria-label="Refresh" onClick={() => refetch()}>

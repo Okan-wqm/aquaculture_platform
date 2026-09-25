@@ -28,6 +28,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   Tags,
@@ -243,41 +244,35 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
           altında operatör ekranlarına canlı akar.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
-            Sensör
-            <select
-              value={linkSensorId}
-              onChange={(e) => {
-                setLinkSensorId(e.target.value);
-                setLinkChannelId('');
-              }}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
-            >
-              <option value="">— bağlantı yok —</option>
-              {(sensors ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
-            Kanal
-            <select
-              value={linkChannelId}
-              onChange={(e) => setLinkChannelId(e.target.value)}
-              disabled={!linkSensorId}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-500"
-            >
-              <option value="">— tüm kanallar —</option>
-              {sensorChannels.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.displayLabel || c.channelKey}
-                  {c.unit ? ` (${c.unit})` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            id="tag-link-sensor"
+            label="Sensör"
+            size="sm"
+            value={linkSensorId}
+            onChange={(e) => {
+              setLinkSensorId(e.target.value);
+              setLinkChannelId('');
+            }}
+            options={[
+              { value: '', label: '— bağlantı yok —' },
+              ...(sensors ?? []).map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+          <Select
+            id="tag-link-channel"
+            label="Kanal"
+            size="sm"
+            value={linkChannelId}
+            onChange={(e) => setLinkChannelId(e.target.value)}
+            disabled={!linkSensorId}
+            options={[
+              { value: '', label: '— tüm kanallar —' },
+              ...sensorChannels.map((c) => ({
+                value: c.id,
+                label: `${c.displayLabel || c.channelKey}${c.unit ? ` (${c.unit})` : ''}`,
+              })),
+            ]}
+          />
         </div>
       </div>
 
@@ -503,22 +498,20 @@ const TagRegistryPage: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <select
+          <Select
+            aria-label="Edge cihazı"
+            size="sm"
+            fullWidth={false}
             value={deviceId}
             onChange={(e) => {
               setDeviceId(e.target.value);
               setPage(1);
             }}
-            className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
-            aria-label="Edge cihazı"
-          >
-            <option value="">Tüm cihazlar</option>
-            {(devices?.items ?? []).map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.deviceCode}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'Tüm cihazlar' },
+              ...(devices?.items ?? []).map((d) => ({ value: d.id, label: d.deviceCode })),
+            ]}
+          />
           <Button
             variant="primary"
             size="sm"

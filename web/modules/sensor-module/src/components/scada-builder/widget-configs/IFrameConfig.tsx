@@ -13,6 +13,7 @@
 
 import React, { useMemo } from 'react';
 import { validateIFrameUrl } from '../widget-renderers/IFrameRenderer';
+import { Checkbox, Input, NumberInput } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -57,16 +58,12 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
       </div>
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="External Dashboard"
-          className={INPUT_CLS}
-        />
-      </div>
+      <Input
+        label="Label"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="External Dashboard"
+      />
 
       {/* Sandbox Permissions */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
@@ -77,33 +74,21 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           The iframe is sandboxed by default. Enable permissions only when needed.
         </p>
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowScripts}
-              onChange={(e) => onChange({ allowScripts: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Scripts
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowForms}
-              onChange={(e) => onChange({ allowForms: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Forms
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowPopups}
-              onChange={(e) => onChange({ allowPopups: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Allow Popups
-          </label>
+          <Checkbox
+            label="Allow Scripts"
+            checked={allowScripts}
+            onChange={(e) => onChange({ allowScripts: e.target.checked })}
+          />
+          <Checkbox
+            label="Allow Forms"
+            checked={allowForms}
+            onChange={(e) => onChange({ allowForms: e.target.checked })}
+          />
+          <Checkbox
+            label="Allow Popups"
+            checked={allowPopups}
+            onChange={(e) => onChange({ allowPopups: e.target.checked })}
+          />
           <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
@@ -125,30 +110,20 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           Appearance
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Border Radius
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={32}
-              value={borderRadius}
-              onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
-              className={INPUT_CLS}
-            />
-          </div>
+          <NumberInput
+            label="Border Radius"
+            min={0}
+            max={32}
+            value={borderRadius}
+            onChange={(e) => onChange({ borderRadius: Number(e.target.value) })}
+          />
         </div>
         <div className="mt-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showBorder}
-              onChange={(e) => onChange({ showBorder: e.target.checked })}
-              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-            />
-            Show Border
-          </label>
+          <Checkbox
+            label="Show Border"
+            checked={showBorder}
+            onChange={(e) => onChange({ showBorder: e.target.checked })}
+          />
         </div>
       </div>
     </div>

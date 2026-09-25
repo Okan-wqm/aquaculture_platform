@@ -18,7 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
 import { formatRelativeTime } from '../utils/date-utils';
-import { PageHeader, Button, Select } from '@aquaculture/shared-ui';
+import { Button, PageHeader, Select, ToggleButton } from '@aquaculture/shared-ui';
 
 const stateColors: Record<string, string> = {
   active: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
@@ -182,20 +182,19 @@ const EdgeDevicesPage: React.FC = () => {
             { label: 'Online', value: true },
             { label: 'Offline', value: false },
           ].map((opt) => (
-            <button
+            <ToggleButton
               key={opt.label}
               onClick={() => {
                 setOnlineFilter(opt.value);
                 setPage(1);
               }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                onlineFilter === opt.value
-                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-              }`}
+              pressed={onlineFilter === opt.value}
+              className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+              pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+              idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
             >
               {opt.label}
-            </button>
+            </ToggleButton>
           ))}
         </div>
 

@@ -8,6 +8,7 @@
 import React, { useEffect } from 'react';
 import { Workflow, LayoutDashboard, Code2, Play, Bug } from 'lucide-react';
 import { EditorMode, useEditorModeStore } from '../../store/editorModeStore';
+import { ToggleButton } from '@aquaculture/shared-ui';
 
 interface ModeTab {
   mode: EditorMode;
@@ -54,19 +55,18 @@ const ModeTabBar: React.FC = () => {
         const isActive = mode === tab.mode;
         const Icon = tab.icon;
         return (
-          <button
+          <ToggleButton
             key={tab.mode}
             onClick={() => setMode(tab.mode)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-              isActive
-                ? 'bg-white dark:bg-gray-900 text-info-700 shadow-sm'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+            pressed={isActive}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+            pressedClassName="bg-white dark:bg-gray-900 text-info-700 shadow-sm"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600"
             title={`${tab.label} (Ctrl+${tab.shortcutKey})`}
           >
             <Icon className="w-3.5 h-3.5" />
             {tab.label}
-          </button>
+          </ToggleButton>
         );
       })}
     </div>

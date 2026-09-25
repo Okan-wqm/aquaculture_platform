@@ -8,7 +8,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Check, ChevronDown, X } from 'lucide-react';
 import { useActiveTenants, type TenantOption } from '../hooks/useTenants';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -141,13 +141,13 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
               filteredTenants.map((tenant: TenantOption) => {
                 const isSelected = value === tenant.id;
                 return (
-                  <button
+                  <ToggleButton
                     key={tenant.id}
                     type="button"
                     onClick={() => handleSelect(tenant.id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      isSelected ? 'bg-info-50 dark:bg-info-900/20' : ''
-                    }`}
+                    pressed={isSelected}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                    pressedClassName="bg-info-50 dark:bg-info-900/20"
                   >
                     <div className="flex-1 min-w-0">
                       <span className="text-gray-900 dark:text-gray-100 truncate block">
@@ -160,7 +160,7 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
                     {isSelected && (
                       <Check size={14} className="text-info-600 dark:text-info-400 flex-shrink-0" />
                     )}
-                  </button>
+                  </ToggleButton>
                 );
               })
             )}

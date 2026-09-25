@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  colors,
+  Input,
+  Modal,
+  Select,
+  type SelectOption,
+} from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
@@ -37,24 +45,6 @@ const SENSOR_TYPE_OPTIONS: { value: SensorType; label: string }[] = [
   { value: SensorType.CO2, label: 'CO2' },
   { value: SensorType.CHLORINE, label: 'Chlorine' },
   { value: SensorType.MULTI_PARAMETER, label: 'Other / Multi-parameter' },
-];
-
-const WIDGET_TYPES = [
-  { value: 'gauge', label: 'Gauge' },
-  { value: 'sparkline', label: 'Sparkline' },
-  { value: 'number', label: 'Number' },
-  { value: 'status', label: 'Status' },
-];
-
-const COLORS = [
-  { value: colors.info[500], label: 'Blue' },
-  { value: colors.success[500], label: 'Green' },
-  { value: colors.warning[500], label: 'Orange' },
-  { value: colors.error[500], label: 'Red' },
-  { value: colors.primary[700], label: 'Purple' },
-  { value: colors.accent[500], label: 'Pink' },
-  { value: colors.primary[400], label: 'Cyan' },
-  { value: colors.gray[400], label: 'Gray' },
 ];
 
 export function ChildSensorFormModal({
@@ -259,99 +249,66 @@ export function ChildSensorFormModal({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Data Type <span className="text-error-500">*</span>
-                </label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => handleChange('type', e.target.value as SensorType)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                  required
-                >
-                  {SENSOR_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Unit
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  value={formData.unit || ''}
-                  onChange={(e) => handleChange('unit', e.target.value || undefined)}
-                  placeholder="e.g., °C, mg/L, pH"
-                />
-              </div>
+              <Select
+                id="child-sensor-type"
+                label="Data Type"
+                required
+                value={formData.type}
+                onChange={(e) => handleChange('type', e.target.value as SensorType)}
+                options={SENSOR_TYPE_OPTIONS}
+              />
+              <Input
+                label="Unit"
+                fullWidth
+                type="text"
+                value={formData.unit || ''}
+                onChange={(e) => handleChange('unit', e.target.value || undefined)}
+                placeholder="e.g., °C, mg/L, pH"
+              />
             </div>
 
             {/* SENSOR-MEDIUM-071: optional custom type-definition picker. When
                     set, the backend bootstraps its default channels for this child. */}
             {typeDefinitions.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Custom Type (optional)
-                </label>
-                <select
-                  value={formData.typeDefinitionId || ''}
-                  onChange={handleTypeDefinitionChange}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                >
-                  <option value="">None — use the data type above</option>
-                  {typeDefinitions.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.icon ? `${t.icon} ` : ''}
-                      {t.displayName}
-                      {t.isSystem ? '' : ' (custom)'}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Attaches a predefined channel set; its parameters are created automatically.
-                </p>
-              </div>
+              <Select
+                id="child-sensor-type-definition"
+                label="Custom Type (optional)"
+                value={formData.typeDefinitionId || ''}
+                onChange={handleTypeDefinitionChange}
+                helperText="Attaches a predefined channel set; its parameters are created automatically."
+                options={[
+                  { value: '', label: 'None — use the data type above' },
+                  ...typeDefinitions.map(
+                    (t): SelectOption => ({
+                      value: t.id,
+                      label: `${t.icon ? `${t.icon} ` : ''}${t.displayName}${t.isSystem ? '' : ' (custom)'}`,
+                    }),
+                  ),
+                ]}
+              />
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Min Value
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="any"
-                  value={formData.minValue ?? ''}
-                  onChange={(e) =>
-                    handleChange(
-                      'minValue',
-                      e.target.value ? parseFloat(e.target.value) : undefined,
-                    )
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Max Value
-                </label>
-                <Input
-                  fullWidth
-                  type="number"
-                  step="any"
-                  value={formData.maxValue ?? ''}
-                  onChange={(e) =>
-                    handleChange(
-                      'maxValue',
-                      e.target.value ? parseFloat(e.target.value) : undefined,
-                    )
-                  }
-                />
-              </div>
+              <Input
+                label="Min Value"
+                fullWidth
+                type="number"
+                step="any"
+                value={formData.minValue ?? ''}
+                onChange={(e) =>
+                  handleChange('minValue', e.target.value ? parseFloat(e.target.value) : undefined)
+                }
+              />
+              <Input
+                label="Max Value"
+                fullWidth
+                type="number"
+                step="any"
+                value={formData.maxValue ?? ''}
+                onChange={(e) =>
+                  handleChange('maxValue', e.target.value ? parseFloat(e.target.value) : undefined)
+                }
+              />
             </div>
           </div>
 
@@ -359,17 +316,11 @@ export function ChildSensorFormModal({
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Calibration</h3>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.calibrationEnabled}
-                  onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
-                  Enable calibration
-                </span>
-              </label>
+              <Checkbox
+                label="Enable calibration"
+                checked={formData.calibrationEnabled}
+                onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
+              />
             </div>
 
             {formData.calibrationEnabled && (
@@ -432,30 +383,22 @@ export function ChildSensorFormModal({
                   Warning
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      Low
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="any"
-                      value={formData.alertThresholds?.warning?.low ?? ''}
-                      onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      High
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="any"
-                      value={formData.alertThresholds?.warning?.high ?? ''}
-                      onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
-                    />
-                  </div>
+                  <Input
+                    label="Low"
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.alertThresholds?.warning?.low ?? ''}
+                    onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
+                  />
+                  <Input
+                    label="High"
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.alertThresholds?.warning?.high ?? ''}
+                    onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -465,30 +408,22 @@ export function ChildSensorFormModal({
                   Critical
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      Low
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="any"
-                      value={formData.alertThresholds?.critical?.low ?? ''}
-                      onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      High
-                    </label>
-                    <Input
-                      fullWidth
-                      type="number"
-                      step="any"
-                      value={formData.alertThresholds?.critical?.high ?? ''}
-                      onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
-                    />
-                  </div>
+                  <Input
+                    label="Low"
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.alertThresholds?.critical?.low ?? ''}
+                    onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
+                  />
+                  <Input
+                    label="High"
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.alertThresholds?.critical?.high ?? ''}
+                    onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
+                  />
                 </div>
               </div>
             </div>

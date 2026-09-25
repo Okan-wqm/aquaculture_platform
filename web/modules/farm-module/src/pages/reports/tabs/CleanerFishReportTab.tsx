@@ -502,48 +502,37 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
                 </Button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Count
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={fish.count || ''}
-                    onChange={(e) => updateSpecies(index, { count: parseInt(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Source
-                  </label>
-                  <Select
-                    fullWidth
-                    options={[
-                      { value: 'farmed', label: 'Farmed' },
-                      { value: 'wild_caught', label: 'Wild Caught' },
-                    ]}
-                    value={fish.source}
-                    onChange={(e) =>
-                      updateSpecies(index, { source: e.target.value as 'wild_caught' | 'farmed' })
-                    }
-                  />
-                </div>
+                <Input
+                  label="Count"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={fish.count || ''}
+                  onChange={(e) => updateSpecies(index, { count: parseInt(e.target.value) || 0 })}
+                  placeholder="0"
+                />
+                <Select
+                  label="Source"
+                  fullWidth
+                  options={[
+                    { value: 'farmed', label: 'Farmed' },
+                    { value: 'wild_caught', label: 'Wild Caught' },
+                  ]}
+                  value={fish.source}
+                  onChange={(e) =>
+                    updateSpecies(index, { source: e.target.value as 'wild_caught' | 'farmed' })
+                  }
+                />
                 {fish.source === 'wild_caught' && (
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Capture Location
-                    </label>
-                    <Input
-                      fullWidth
-                      type="text"
-                      value={fish.sourceLocation || ''}
-                      onChange={(e) => updateSpecies(index, { sourceLocation: e.target.value })}
-                      placeholder="Location where fish were caught"
-                    />
-                  </div>
+                  <Input
+                    label="Capture Location"
+                    className="sm:col-span-2"
+                    fullWidth
+                    type="text"
+                    value={fish.sourceLocation || ''}
+                    onChange={(e) => updateSpecies(index, { sourceLocation: e.target.value })}
+                    placeholder="Location where fish were caught"
+                  />
                 )}
               </div>
             </div>
@@ -956,49 +945,34 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                 </Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Date
-                  </label>
-                  <Input
-                    fullWidth
-                    type="date"
-                    value={deployment.date.toISOString().split('T')[0]}
-                    onChange={(e) => updateDeployment(index, { date: new Date(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor={`cleaner-fish-species-${index}`}
-                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                  >
-                    Species
-                  </label>
-                  <Select
-                    id={`cleaner-fish-species-${index}`}
-                    size="sm"
-                    value={deployment.species}
-                    onChange={(e) =>
-                      updateDeployment(index, { species: e.target.value as CleanerFishSpecies })
-                    }
-                    options={CLEANER_FISH_SPECIES.map((s) => ({ value: s.value, label: s.label }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    Quantity
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    min="0"
-                    value={deployment.quantity || ''}
-                    onChange={(e) =>
-                      updateDeployment(index, { quantity: parseInt(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                  />
-                </div>
+                <Input
+                  label="Date"
+                  fullWidth
+                  type="date"
+                  value={deployment.date.toISOString().split('T')[0]}
+                  onChange={(e) => updateDeployment(index, { date: new Date(e.target.value) })}
+                />
+                <Select
+                  label="Species"
+                  id={`cleaner-fish-species-${index}`}
+                  size="sm"
+                  value={deployment.species}
+                  onChange={(e) =>
+                    updateDeployment(index, { species: e.target.value as CleanerFishSpecies })
+                  }
+                  options={CLEANER_FISH_SPECIES.map((s) => ({ value: s.value, label: s.label }))}
+                />
+                <Input
+                  label="Quantity"
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={deployment.quantity || ''}
+                  onChange={(e) =>
+                    updateDeployment(index, { quantity: parseInt(e.target.value) || 0 })
+                  }
+                  placeholder="0"
+                />
                 <div>
                   <label
                     htmlFor={`cleaner-fish-target-cage-${index}`}

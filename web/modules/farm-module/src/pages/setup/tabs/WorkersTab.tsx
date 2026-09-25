@@ -12,15 +12,16 @@ import {
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
 import {
+  Button,
+  Checkbox,
+  DataTable,
   FormField,
+  Input,
   Modal,
+  Spinner,
   useConfirm,
   useToast,
-  DataTable,
   type DataTableColumn,
-  Spinner,
-  Button,
-  Input,
 } from '@aquaculture/shared-ui';
 import { Plus, Search as SearchIcon, Users } from 'lucide-react';
 
@@ -364,17 +365,13 @@ export const WorkersTab: React.FC = () => {
                 />
               </FormField>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Phone
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.phone}
-                onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-              />
-            </div>
+            <Input
+              label="Phone"
+              fullWidth
+              type="text"
+              value={formData.phone}
+              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Position *
@@ -394,39 +391,29 @@ export const WorkersTab: React.FC = () => {
               </FormField>
             </div>
             <div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={formData.isVeterinarian}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
-                  }
-                  className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-                />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Veterinarian (can be attributed to treatments)
-                </span>
-              </label>
+              <Checkbox
+                label="Veterinarian (can be attributed to treatments)"
+                checked={formData.isVeterinarian}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
+                }
+              />
             </div>
             {formData.isVeterinarian && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Veterinary licence number
-                </label>
-                <Input
-                  fullWidth
-                  type="text"
-                  maxLength={50}
-                  value={formData.veterinaryLicenseNumber}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      veterinaryLicenseNumber: e.target.value,
-                    }))
-                  }
-                  placeholder="Professional licence / registration number"
-                />
-              </div>
+              <Input
+                label="Veterinary licence number"
+                fullWidth
+                type="text"
+                maxLength={50}
+                value={formData.veterinaryLicenseNumber}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    veterinaryLicenseNumber: e.target.value,
+                  }))
+                }
+                placeholder="Professional licence / registration number"
+              />
             )}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">

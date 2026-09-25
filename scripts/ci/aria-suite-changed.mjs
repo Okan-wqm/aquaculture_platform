@@ -91,7 +91,42 @@ if (base === null) {
   process.exit(0);
 }
 
-const changed = git(['diff', '--name-only', `${base}...HEAD`, '--', ...ARIA_SURFACES]);
+function surfacesChangedSince(ref) {
+  const out = git(['diff', '--name-only', `${ref}...HEAD`, '--', ...ARIA_SURFACES]);
+  return out === '' ? [] : out.split('\n');
+}
+
+// A file that arrived by MERGING THE BASE BRANCH IN is not something this push
+// authored — it is already on main and already verified by main's own lane. The
+// base ref above cannot see that: after `git merge origin/main`, every ARIA file
+// main has touched since the last push reads as new in `origin/<branch>...HEAD`,
+// so a conflict-resolution merge selected the whole kernel suite (4963 tests) for
+// a branch that changes no ARIA file at all. That is not the "what THIS push
+// adds" semantic this gate was built for — it is the accumulated-debt failure
+// mode the clippy gate's docblock above rejects, arriving through the base
+// instead of through the branch's own history.
+//
+// The honest "already verified" point is therefore the UNION of what the remote
+// has for this branch and what main has. A file counts as unverified only when it
+// differs from BOTH. Coverage is unchanged for anything the branch actually
+// touches: a real ARIA edit differs from main too, so it still selects its tests.
+const changedSinceBase = surfacesChangedSince(base);
+const changedSinceMain =
+  base === 'origin/main' || !resolves('origin/main')
+    ? null
+    : new Set(surfacesChangedSince('origin/main'));
+const changedFiles =
+  changedSinceMain === null
+    ? changedSinceBase
+    : changedSinceBase.filter((f) => changedSinceMain.has(f));
+const mergedInOnly = changedSinceBase.length - changedFiles.length;
+if (mergedInOnly > 0) {
+  process.stdout.write(
+    `aria-suite-changed: ${mergedInOnly} ARIA-surface file(s) reached this branch by merging origin/main; already verified there, not selected here.\n`,
+  );
+}
+
+const changed = changedFiles.join('\n');
 if (changed === '') {
   process.stdout.write(
     `aria-suite-changed: no ARIA surface touched since ${base}; suite skipped.\n`,

@@ -256,62 +256,41 @@ const ParamFormModal: React.FC<ParamFormProps> = ({
         {/* Basic Info */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {!parameter && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                PLC Bağlantı *
-              </label>
-              <select
-                required
-                value={form.plcConnectionId}
-                onChange={(e) => updateField('plcConnectionId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-              >
-                <option value="">Bağlantı seçin...</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Parametre Adı *
-            </label>
-            <Input
-              fullWidth
-              type="text"
+            <Select
+              id="plc-feeding-connection"
+              label="PLC Bağlantı"
               required
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              placeholder="Tank-01 Yaz Parametreleri"
+              value={form.plcConnectionId}
+              onChange={(e) => updateField('plcConnectionId', e.target.value)}
+              placeholder="Bağlantı seçin..."
+              options={connections.map((c) => ({ value: c.id, label: c.name }))}
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Versiyon
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.version}
-              onChange={(e) => updateField('version', e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Açıklama
-          </label>
-          <Textarea
+          )}
+          <Input
+            label="Parametre Adı *"
             fullWidth
-            value={form.description}
-            onChange={(e) => updateField('description', e.target.value)}
-            rows={2}
+            type="text"
+            required
+            value={form.name}
+            onChange={(e) => updateField('name', e.target.value)}
+            placeholder="Tank-01 Yaz Parametreleri"
+          />
+          <Input
+            label="Versiyon"
+            fullWidth
+            type="text"
+            value={form.version}
+            onChange={(e) => updateField('version', e.target.value)}
           />
         </div>
+
+        <Textarea
+          label="Açıklama"
+          fullWidth
+          value={form.description}
+          onChange={(e) => updateField('description', e.target.value)}
+          rows={2}
+        />
 
         {/* Core Parameters */}
         <div>
@@ -319,48 +298,36 @@ const ParamFormModal: React.FC<ParamFormProps> = ({
             Temel Parametreler
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Biyokutle (kg)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={1000000}
-                step={0.01}
-                value={form.biomassKg}
-                onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                FCR
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0.1}
-                max={10}
-                step={0.01}
-                value={form.fcr}
-                onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Gunluk Hedef (kg)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={100000}
-                step={0.01}
-                value={form.targetDailyFeedKg}
-                onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
-              />
-            </div>
+            <Input
+              label="Biyokutle (kg)"
+              fullWidth
+              type="number"
+              min={0}
+              max={1000000}
+              step={0.01}
+              value={form.biomassKg}
+              onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
+            />
+            <Input
+              label="FCR"
+              fullWidth
+              type="number"
+              min={0.1}
+              max={10}
+              step={0.01}
+              value={form.fcr}
+              onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
+            />
+            <Input
+              label="Gunluk Hedef (kg)"
+              fullWidth
+              type="number"
+              min={0}
+              max={100000}
+              step={0.01}
+              value={form.targetDailyFeedKg}
+              onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
+            />
           </div>
         </div>
 
@@ -437,86 +404,66 @@ const ParamFormModal: React.FC<ParamFormProps> = ({
             Eşik Değerleri
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                O2 Min (mg/L)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={20}
-                step={0.1}
-                value={form.thresholds.oxygenMin}
-                onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                O2 Kritik (mg/L)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={20}
-                step={0.1}
-                value={form.thresholds.oxygenCritical}
-                onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Sıcaklık Max (C)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={50}
-                step={0.1}
-                value={form.thresholds.tempMax}
-                onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Sıcaklık Kritik (C)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={50}
-                step={0.1}
-                value={form.thresholds.tempCritical}
-                onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Min</label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={14}
-                step={0.1}
-                value={form.thresholds.phMin || 0}
-                onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Max</label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={14}
-                step={0.1}
-                value={form.thresholds.phMax || 0}
-                onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
-              />
-            </div>
+            <Input
+              label="O2 Min (mg/L)"
+              fullWidth
+              type="number"
+              min={0}
+              max={20}
+              step={0.1}
+              value={form.thresholds.oxygenMin}
+              onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
+            />
+            <Input
+              label="O2 Kritik (mg/L)"
+              fullWidth
+              type="number"
+              min={0}
+              max={20}
+              step={0.1}
+              value={form.thresholds.oxygenCritical}
+              onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
+            />
+            <Input
+              label="Sıcaklık Max (C)"
+              fullWidth
+              type="number"
+              min={0}
+              max={50}
+              step={0.1}
+              value={form.thresholds.tempMax}
+              onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
+            />
+            <Input
+              label="Sıcaklık Kritik (C)"
+              fullWidth
+              type="number"
+              min={0}
+              max={50}
+              step={0.1}
+              value={form.thresholds.tempCritical}
+              onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
+            />
+            <Input
+              label="pH Min"
+              fullWidth
+              type="number"
+              min={0}
+              max={14}
+              step={0.1}
+              value={form.thresholds.phMin || 0}
+              onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
+            />
+            <Input
+              label="pH Max"
+              fullWidth
+              type="number"
+              min={0}
+              max={14}
+              step={0.1}
+              value={form.thresholds.phMax || 0}
+              onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
+            />
           </div>
         </div>
 
@@ -526,58 +473,42 @@ const ParamFormModal: React.FC<ParamFormProps> = ({
             VFD Ayarları
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Blower Min Hız (%)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={100}
-                value={form.vfdSettings.blowerMinSpeed}
-                onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Blower Max Hız (%)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={100}
-                value={form.vfdSettings.blowerMaxSpeed}
-                onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Doser Min Hız (%)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={100}
-                value={form.vfdSettings.doserMinSpeed}
-                onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Doser Max Hız (%)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                max={100}
-                value={form.vfdSettings.doserMaxSpeed}
-                onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
-              />
-            </div>
+            <Input
+              label="Blower Min Hız (%)"
+              fullWidth
+              type="number"
+              min={0}
+              max={100}
+              value={form.vfdSettings.blowerMinSpeed}
+              onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
+            />
+            <Input
+              label="Blower Max Hız (%)"
+              fullWidth
+              type="number"
+              min={0}
+              max={100}
+              value={form.vfdSettings.blowerMaxSpeed}
+              onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
+            />
+            <Input
+              label="Doser Min Hız (%)"
+              fullWidth
+              type="number"
+              min={0}
+              max={100}
+              value={form.vfdSettings.doserMinSpeed}
+              onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
+            />
+            <Input
+              label="Doser Max Hız (%)"
+              fullWidth
+              type="number"
+              min={0}
+              max={100}
+              value={form.vfdSettings.doserMaxSpeed}
+              onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
+            />
           </div>
         </div>
 
@@ -890,17 +821,19 @@ const PlcFeedingParamsPage: React.FC = () => {
 
       {/* Filters */}
       <div className="mb-4 flex gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-          <input
+        <div className="flex-1">
+          <Input
+            aria-label="Parametre ara"
             type="text"
             placeholder="Parametre ara..."
+            leftIcon={<Search className="h-4 w-4" />}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
         <Select
+          aria-label="Tüm Durumlar"
+          fullWidth={false}
           options={[
             { value: '', label: 'Tüm Durumlar' },
             { value: 'DRAFT', label: 'Taslak' },
@@ -912,18 +845,16 @@ const PlcFeedingParamsPage: React.FC = () => {
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')}
         />
-        <select
+        <Select
+          aria-label="Tüm Bağlantılar"
+          fullWidth={false}
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-        >
-          <option value="">Tüm Bağlantılar</option>
-          {connections?.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'Tüm Bağlantılar' },
+            ...(connections ?? []).map((c) => ({ value: c.id, label: c.name })),
+          ]}
+        />
       </div>
 
       {/* Table */}

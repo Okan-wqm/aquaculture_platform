@@ -5,7 +5,7 @@ import {
   PRIORITY_CONFIG,
   FREQUENCY_CONFIG,
 } from '../types/task.types';
-import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import { Button, DataTable, ToggleButton, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Search } from 'lucide-react';
 
 interface RecurringTabProps {
@@ -136,18 +136,20 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       header: 'Durum',
       render: (_value, tmpl) => (
         <>
-          <button
+          <ToggleButton
+            aria-label={tmpl.title}
             onClick={() => onToggleActive(tmpl.id)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              tmpl.isActive ? 'bg-success-500' : 'bg-gray-300'
-            }`}
+            pressed={tmpl.isActive}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+            pressedClassName="bg-success-500"
+            idleClassName="bg-gray-300"
           >
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                 tmpl.isActive ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
-          </button>
+          </ToggleButton>
         </>
       ),
     },

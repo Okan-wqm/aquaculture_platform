@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, Slider, useI18n } from '@aquaculture/shared-ui';
 import { Grid3X3, Magnet, ZoomIn, ZoomOut, Maximize2, Image, X, Moon, Sun } from 'lucide-react';
 import { useThemeSafe } from '../../engine/theme/useThemeSafe';
 
@@ -52,6 +52,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
   onBackgroundImageChange,
   onBackgroundOpacityChange,
 }) => {
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Theme toggle — useThemeSafe returns null when ThemeProvider is not mounted
@@ -212,15 +213,16 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
           {backgroundImage && (
             <>
-              <input
-                type="range"
+              <Slider
+                size="xs"
+                aria-label={t('scada.canvas.backgroundOpacity')}
+                fullWidth={false}
+                className="w-16"
                 min={0.1}
                 max={1}
                 step={0.1}
                 value={backgroundOpacity ?? 0.3}
-                onChange={(e) => onBackgroundOpacityChange?.(Number(e.target.value))}
-                className="w-16 h-4 accent-info-600"
-                title={`Opacity: ${Math.round((backgroundOpacity ?? 0.3) * 100)}%`}
+                onChange={(opacity) => onBackgroundOpacityChange?.(opacity)}
               />
               <Button
                 variant="ghost"

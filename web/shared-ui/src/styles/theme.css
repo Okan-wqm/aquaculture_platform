@@ -46,7 +46,12 @@
    Checkboxes, radios, ranges, files and colour pickers keep their native
    rendering, which `color-scheme: dark` on <html> already darkens. */
 @layer base {
-  [data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea) {
+  [data-theme='dark']
+    :where(
+      input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+      select,
+      textarea
+    ) {
     @apply bg-gray-800 text-gray-100 border-gray-600;
   }
   [data-theme='dark'] :where(input, textarea)::placeholder {
@@ -65,6 +70,54 @@
    both ratios. */
 [data-theme='dark'] {
   --color-gray-400: #9ca3af;
+
+  /* ── SUDERRA tenant console, dark ──────────────────────────────────────
+     The console sheet is 1058 lines of rules that read ONLY `--color-sd-*`
+     and carry zero raw hex, so redefining the tokens here gives the whole
+     surface a dark mode. That is what tokenising it bought: without it the
+     console would be the one page in the product that ignores the theme
+     switch, and no ratchet would notice — `darkSurface` counts Tailwind
+     light classes with no `dark:` sibling, and these are plain classes.
+
+     The dark surfaces come from the rail's own gradient rather than a
+     neutral gray, so the page and the rail beside it read as one product.
+     Contrast is asserted by `suderra-console-contrast.spec.ts`; every ink
+     and accent here clears AA on both surfaces, which is stricter than the
+     light theme's own faint/hint tokens (decorative at 1.6–2.5:1). */
+  --color-sd-paper: #0a1c28;
+  --color-sd-parchment: #0f2533;
+  --color-sd-paper-lit: #123040;
+  --color-sd-paper-deep: #071621;
+  --color-sd-white: #0f2533;
+
+  --color-sd-ink: #eaf4f7;
+  --color-sd-ink-body: #cfe3ea;
+  --color-sd-ink-soft: #a8c6d1;
+  --color-sd-ink-muted: #8fb0bd;
+  --color-sd-ink-faint: #6d8d9a;
+  --color-sd-ink-hint: #7e9daa;
+  --color-sd-ink-hint-soft: #6a8794;
+  --color-sd-ink-disabled: #587584;
+
+  /* Accents lighten so they stay legible AS TEXT on a dark surface; the
+     `-ink` tokens are text colours, which is why they invert rather than
+     keeping their light-theme value. */
+  --color-sd-teal: #5cc2d6;
+  --color-sd-teal-deep: #8fd8e4;
+  --color-sd-teal-mid: #7ccbdc;
+  --color-sd-mint-ink: #6ee7c7;
+  --color-sd-mint-deep: #4abba2;
+  --color-sd-danger-ink: #f0a68c;
+  --color-sd-amber-ink: #f0c987;
+  --color-sd-violet-ink: #c3b0e8;
+
+  /* Tinted surfaces invert to the same hue at low alpha over the dark page,
+     so a success or warning panel stays recognisable without becoming a
+     light patch in a dark layout. */
+  --color-sd-mint-paper: #0e2f31;
+  --color-sd-cyan-faint: #0d2a36;
+  --color-sd-amber-surface: #2b2413;
+  --color-sd-rule: rgba(234, 244, 247, 0.12);
 }
 
 @theme {
@@ -250,6 +303,31 @@
   --color-sd-ink-hint: #8aa0aa; /* placeholder / empty-state hint text */
   --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
   --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
+
+  /* Completing the set for the console's own components (rail, page
+     primitives, tables, toolbars, tabs): the ported stylesheet writes 39
+     distinct colours, of which 19 already resolve to the tokens above.
+     These are the other 20. Light theme only, as the port is. */
+  --color-sd-mint-ink: #166f5a; /* ledger/success text on paper */
+  --color-sd-mint-deep: #4abba2; /* mint accent on paper (dot, focus ring, progress) */
+  --color-sd-mint-light: #7cedd0; /* progress gradient stop */
+  --color-sd-on-mint: #f4fbf9; /* text on a mint fill */
+  --color-sd-cyan: #4fb6c8; /* secondary accent beside teal (dot, eyebrow rule) */
+  --color-sd-cyan-light: #8fd8e4; /* brand caption on the dark rail */
+  --color-sd-cyan-faint: #eaf6f8; /* brand name on the dark rail, avatar text */
+  --color-sd-on-teal: #f4fbfc; /* text on a teal fill */
+  --color-sd-teal-mid: #14606f; /* avatar gradient stop */
+  --color-sd-amber-ink: #8a5e10; /* pending/HR tile text on paper */
+  --color-sd-amber: #a97514; /* amber status dot */
+  --color-sd-amber-surface: #fbf3dc; /* check-row background on paper */
+  --color-sd-violet-ink: #4a3766; /* AI channel icon */
+  --color-sd-violet: #7a63b4; /* AI author mark */
+  --color-sd-paper-lit: #fcf9f1; /* content gradient stop 1 (lit) */
+  --color-sd-paper-deep: #f0f2e9; /* content gradient stop 3 (deep) */
+  --color-sd-ink-body: #1c4353; /* message body text */
+  --color-sd-ink-disabled: #9fbfc9; /* disabled send button */
+  --color-sd-ink-hint-soft: #b7c7cd; /* faint hint text, lighter than ink-hint */
+  --color-sd-white: #ffffff; /* pure white tiles and hover surfaces */
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
 }
 
@@ -321,5 +399,1480 @@
      :where() keeps specificity at 0 so an explicit text-* utility still wins. */
   .surface-glass :where(label) {
     color: var(--surface-label-fg);
+  }
+}
+
+/* ============================================================================
+   SUDERRA tenant-console rail (`SuderraSidebar`)
+   ============================================================================
+   WHY plain classes and not utilities: the rail is rendered by a federated
+   remote, and the shell's Tailwind scan does not reach a remote's source — a
+   utility written there would simply not be emitted. A class the host document
+   carries works for every remote, which is the same reason the glass surface
+   above is a class. Every colour is a `--color-sd-*` @theme token; the mockup's
+   raw hex does not survive into the repository.
+
+   @layer components, not @theme: these are rules, not tokens. A second @theme
+   block under web/ is what the theme-parity invariant forbids (Batch 33).
+   ============================================================================ */
+@layer components {
+  .sd-rail {
+    flex-shrink: 0;
+    width: 68px;
+    transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .sd-rail[data-open='true'] {
+    width: 264px;
+  }
+
+  .sd-rail-drawer {
+    position: sticky;
+    top: 0;
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: linear-gradient(
+      180deg,
+      var(--color-sd-rail-top) 0%,
+      var(--color-sd-rail-mid) 46%,
+      var(--color-sd-rail-bottom) 100%
+    );
+    border-right: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    height: 64px;
+    padding: 0 18px;
+    border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-logo {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--color-sd-white);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+  }
+  .sd-rail-logo img {
+    display: block;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
+  .sd-rail-brand {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    line-height: 1;
+  }
+  .sd-rail-brand-name {
+    overflow: hidden;
+    color: var(--color-sd-cyan-faint);
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sd-rail-brand-sub {
+    margin-top: 5px;
+    color: var(--color-sd-cyan-light);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .sd-rail-pin {
+    display: flex;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--color-sd-rail-icon);
+    background: transparent;
+    cursor: pointer;
+    transform: rotate(35deg);
+    transition:
+      transform 0.2s ease,
+      background 0.2s ease,
+      color 0.2s ease;
+  }
+  .sd-rail-pin--pinned {
+    background: rgb(110 231 199 / 0.16);
+    color: var(--color-sd-mint);
+    transform: rotate(0deg);
+  }
+
+  .sd-rail-nav {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 14px 12px 12px;
+  }
+
+  .sd-rail-section {
+    margin-bottom: 18px;
+  }
+
+  .sd-rail-section-label {
+    padding: 0 8px 9px;
+    color: var(--color-sd-rail-child);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .sd-rail-hairline {
+    height: 1px;
+    margin: 0 6px 11px;
+    background: rgb(255 255 255 / 0.09);
+  }
+
+  .sd-rail-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 11px;
+    border: 0;
+    border-radius: 9px;
+    color: var(--color-sd-rail-item);
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .sd-rail[data-open='false'] .sd-rail-item {
+    justify-content: center;
+  }
+  .sd-rail-item:hover {
+    background: rgb(255 255 255 / 0.08);
+  }
+  .sd-rail-item--active {
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.14);
+    font-weight: 600;
+  }
+
+  .sd-rail-item-main {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .sd-rail-icon {
+    color: var(--color-sd-rail-icon);
+  }
+  .sd-rail-icon--active {
+    color: var(--color-sd-mint);
+  }
+  .sd-rail-icon--child {
+    color: var(--color-sd-rail-child-icon);
+  }
+
+  .sd-rail-item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sd-rail-meta {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border: 1px solid rgb(110 231 199 / 0.24);
+    border-radius: 999px;
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.14);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .sd-rail-toggle {
+    flex-shrink: 0;
+    padding: 0 3px;
+    color: var(--color-sd-rail-icon);
+    font-size: 14.5px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .sd-rail-children {
+    display: flex;
+    margin: 3px 0 7px 16px;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 14px;
+    border-left: 1px solid rgb(255 255 255 / 0.11);
+  }
+
+  .sd-rail-child {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--color-sd-rail-child);
+    background: transparent;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .sd-rail-child:hover {
+    color: var(--color-sd-cyan-faint);
+    background: rgb(255 255 255 / 0.08);
+  }
+  .sd-rail-child--active {
+    color: var(--color-sd-mint-soft);
+    background: rgb(110 231 199 / 0.12);
+    font-weight: 600;
+  }
+  .sd-rail-child--active .sd-rail-icon--child {
+    color: var(--color-sd-mint);
+  }
+
+  .sd-rail-child-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sd-rail-footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 11px;
+    padding: 14px 18px 16px;
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .sd-rail-status-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-sd-mint);
+    animation: sdRailPulse 2.4s ease-in-out infinite;
+  }
+
+  .sd-rail-status-text {
+    overflow: hidden;
+    color: var(--color-sd-mint-soft);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  @keyframes sdRailPulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  /* Phone-width overlay (FE-HIGH-088). The rail opens on HOVER, which a touch
+     screen does not have, so below `md` it stops being a rail: a fixed
+     full-height drawer at its expanded width, over the backdrop the component
+     renders. `width` is set on both the outer element and the drawer because
+     the collapsed rail's 68px lives on the outer one. */
+  .sd-rail--overlay {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    width: 264px;
+    transition: none;
+  }
+  @media (min-width: 768px) {
+    .sd-rail--overlay {
+      position: sticky;
+      inset: auto;
+      z-index: auto;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sd-rail,
+    .sd-rail-pin,
+    .sd-rail-item,
+    .sd-rail-child {
+      transition: none;
+    }
+    .sd-rail-status-dot {
+      animation: none;
+    }
+  }
+}
+
+/* ============================================================================
+   SUDERRA tenant-console page primitives
+   ============================================================================
+   The cards, stat grids, tables, chat surfaces, banners and badges the console
+   pages are built from — the rail above is the chrome, this is what sits beside
+   it. Same two reasons for the shape as the rail: plain classes because a
+   federated remote's source is outside the shell's Tailwind scan, and @layer
+   components because a second @theme under web/ is what the parity invariant
+   forbids.
+
+   Every colour is a `--color-sd-*` token; the mockup's raw hex does not survive
+   into the repository. Landing the stylesheet ahead of its consumers is
+   deliberate: the twelve pages that adopt it convert one at a time, each under
+   the ratchets, and none of them can begin while the classes they need are
+   missing. Unused rules are inert until a page asks for them.
+
+   Consumers so far: none. FE-HIGH-167 tracks the page conversions and stays
+   open until a tenant sees the console end to end.
+   ============================================================================ */
+@layer components {
+  /* ============================================================================
+     SUDERRA page primitives — shared by the tenant console pages (dashboard,
+     company, messaging…). Class-based so federation remotes can use them: the
+     host document carries the styles (the shell's Tailwind scans module source
+     for utilities; these plain classes need no scanning). Values are the
+     approved Tenant Console mockup's exact constants.
+     ============================================================================ */
+
+  /* Content column: warm gradient + faint decorative overlays (mockup body) */
+  .sd-content {
+    position: relative;
+    background: linear-gradient(
+      180deg,
+      var(--color-sd-paper-lit) 0%,
+      var(--color-sd-paper) 32%,
+      var(--color-sd-paper-deep) 100%
+    );
+  }
+  .sd-content::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 58% 42% at 86% -10%, rgb(246 208 138 / 0.26), transparent 66%),
+      radial-gradient(ellipse 48% 30% at 8% -6%, rgb(186 228 229 / 0.24), transparent 70%);
+  }
+  .sd-content > * {
+    position: relative;
+  }
+
+  /* Main scroll container */
+  .sd-main {
+    flex: 1;
+    overflow: auto;
+    padding: 26px 20px 56px;
+  }
+
+  /* Page scaffold */
+  .sd-page {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    max-width: 1920px;
+    margin: 0 auto;
+  }
+
+  .sd-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 20px;
+  }
+
+  .sd-iconbtn {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid rgb(10 31 43 / 0.15);
+    border-radius: 999px;
+    color: var(--color-sd-ink-soft);
+    background: rgb(255 255 255 / 0.75);
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .sd-iconbtn:hover {
+    color: var(--color-sd-ink);
+    background: var(--color-sd-white);
+  }
+  .sd-iconbtn--spin > * {
+    animation: sdSpin 1s linear infinite;
+  }
+
+  /* Buttons */
+  .sd-btn-deep {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 999px;
+    color: var(--color-sd-paper);
+    background: var(--color-sd-teal-deep);
+    font-family: inherit;
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 10px -3px rgb(10 31 43 / 0.45);
+    transition: filter 0.15s ease;
+  }
+  .sd-btn-deep:hover {
+    filter: brightness(1.06);
+  }
+
+  .sd-btn-teal {
+    height: 40px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--color-sd-on-teal);
+    background: var(--color-sd-teal);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  .sd-btn-teal:hover {
+    filter: brightness(1.08);
+  }
+  .sd-btn-teal:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Banners */
+  .sd-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 15px 18px;
+    border-radius: 12px;
+  }
+  .sd-banner--success {
+    border: 1px solid rgb(74 187 162 / 0.36);
+    background: rgb(74 187 162 / 0.16);
+    color: var(--color-sd-mint-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .sd-banner--error {
+    border: 1px solid rgb(176 74 40 / 0.26);
+    background: rgb(176 74 40 / 0.07);
+  }
+
+  /* Cards */
+  .sd-card {
+    border: 1px solid rgb(10 31 43 / 0.1);
+    border-radius: 14px;
+    background: rgb(255 255 255 / 0.82);
+    box-shadow: 0 1px 2px rgb(10 31 43 / 0.05);
+  }
+  .sd-card--dash {
+    background: rgb(255 255 255 / 0.76);
+    box-shadow: 0 1px 2px rgb(10 31 43 / 0.04);
+  }
+  .sd-card--flush {
+    overflow: hidden;
+  }
+
+  .sd-card-label {
+    color: var(--color-sd-teal-deep);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .sd-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 19px;
+    border-bottom: 1px solid rgb(10 31 43 / 0.09);
+  }
+
+  .sd-card-body {
+    padding: 17px 19px;
+  }
+
+  .sd-textlink {
+    border: 0;
+    padding: 0;
+    color: var(--color-sd-teal);
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .sd-textlink:hover {
+    color: var(--color-sd-teal-deep);
+  }
+
+  /* Stat cards */
+  /* The dashboard's two-column body. The mockup expressed this inline
+     (`flex: '2 1 540px'`), which the inlineStyle ratchet forbids and which no
+     other console rule does; as a class it also gets a real phone breakpoint,
+     which the inline version never had. */
+  /* Rows draw their own border-top, so the list is a plain block; the class
+     exists so the markup names the region rather than leaving a bare <div>. */
+  .sd-mod-list-body {
+    display: block;
+  }
+
+  .sd-main-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 1024px) {
+    /* Rows draw their own border-top, so the list is a plain block; the class
+     exists so the markup names the region rather than leaving a bare <div>. */
+    .sd-mod-list-body {
+      display: block;
+    }
+
+    .sd-main-grid {
+      grid-template-columns: 2fr 1fr;
+    }
+    .sd-span-2 {
+      grid-column: span 1;
+    }
+  }
+
+  .sd-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 12px;
+  }
+  .sd-stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 17px 19px;
+  }
+  .sd-stat-title {
+    color: var(--color-sd-ink-soft);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+  .sd-stat-value {
+    color: var(--color-sd-ink);
+    font-family: var(--font-display, 'Instrument Serif', ui-serif, Georgia, serif);
+    font-size: 34px;
+    font-weight: 400;
+    line-height: 1;
+  }
+  .sd-stat-unit {
+    color: var(--color-sd-ink-soft);
+    font-size: 13px;
+    font-weight: 400;
+  }
+  .sd-stat-change {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--color-sd-ink-soft);
+    font-size: 13px;
+  }
+  .sd-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .sd-dot--mint {
+    background: var(--color-sd-mint-deep);
+  }
+  .sd-dot--cyan {
+    background: var(--color-sd-cyan);
+  }
+  .sd-dot--amber {
+    background: var(--color-sd-amber);
+  }
+  .sd-dot--red {
+    background: var(--color-sd-danger);
+  }
+  .sd-dot--faint {
+    background: var(--color-sd-rail-child);
+  }
+
+  /* Module rows (Assigned modules card) */
+  .sd-mod-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 15px 19px;
+    border-top: 1px solid rgb(10 31 43 / 0.07);
+  }
+  .sd-mod-row:hover {
+    background: rgb(10 31 43 / 0.025);
+  }
+  .sd-mod-tile {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    font-size: 17px;
+  }
+  .sd-mod-tile--farm {
+    border: 1px solid rgb(74 187 162 / 0.28);
+    background: rgb(74 187 162 / 0.16);
+    color: var(--color-sd-mint-ink);
+  }
+  .sd-mod-tile--sensor {
+    border: 1px solid rgb(79 182 200 / 0.3);
+    background: rgb(79 182 200 / 0.16);
+    color: var(--color-sd-teal-deep);
+  }
+  .sd-mod-tile--hr {
+    border: 1px solid rgb(169 117 20 / 0.28);
+    background: rgb(246 208 138 / 0.3);
+    color: var(--color-sd-amber-ink);
+  }
+  .sd-mod-tile--off {
+    border: 1px solid rgb(10 31 43 / 0.14);
+    background: rgb(10 31 43 / 0.06);
+    color: var(--color-sd-ink-soft);
+  }
+  .sd-mod-name {
+    overflow: hidden;
+    color: var(--color-sd-ink);
+    font-size: 14px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-mod-meta {
+    overflow: hidden;
+    color: var(--color-sd-ink-soft);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Status pills */
+  .sd-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .sd-pill--active {
+    border: 1px solid rgb(74 187 162 / 0.3);
+    color: var(--color-sd-mint-ink);
+    background: rgb(74 187 162 / 0.16);
+  }
+  .sd-pill--inactive {
+    border: 1px solid rgb(10 31 43 / 0.14);
+    color: var(--color-sd-ink-soft);
+    background: rgb(10 31 43 / 0.06);
+  }
+  .sd-pill--pending {
+    border: 1px solid rgb(169 117 20 / 0.28);
+    color: var(--color-sd-amber-ink);
+    background: rgb(246 208 138 / 0.3);
+  }
+
+  /* Definition rows (subscription card) */
+  .sd-def-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid rgb(10 31 43 / 0.07);
+  }
+  .sd-def-row:first-of-type {
+    border-top: 0;
+  }
+  .sd-def-label {
+    color: var(--color-sd-ink-soft);
+    font-size: 13.5px;
+  }
+  .sd-def-value {
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+    font-weight: 500;
+    text-align: right;
+  }
+
+  /* Progress bar */
+  .sd-progress {
+    height: 5px;
+    border-radius: 999px;
+    background: rgb(10 31 43 / 0.09);
+    overflow: hidden;
+  }
+  .sd-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-sd-mint-deep), var(--color-sd-mint-light));
+  }
+
+  /* Jump-to link cards */
+  .sd-jump-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 12px;
+  }
+  .sd-jump-card {
+    display: block;
+    padding: 17px;
+    border: 1px solid rgb(10 31 43 / 0.1);
+    border-radius: 14px;
+    background: rgb(255 255 255 / 0.62);
+    text-align: left;
+    cursor: pointer;
+    text-decoration: none;
+    transition:
+      transform 0.25s ease,
+      border-color 0.25s ease,
+      background 0.25s ease;
+  }
+  .sd-jump-card:hover {
+    border-color: rgb(20 111 132 / 0.36);
+    background: var(--color-sd-white);
+    transform: translateY(-3px);
+  }
+  .sd-jump-tile {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgb(74 187 162 / 0.3);
+    border-radius: 10px;
+    color: var(--color-sd-mint-ink);
+    background: linear-gradient(180deg, rgb(74 187 162 / 0.2), rgb(74 187 162 / 0.05));
+  }
+  .sd-jump-label {
+    margin-top: 13px;
+    color: var(--color-sd-ink);
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+  .sd-jump-desc {
+    margin-top: 4px;
+    color: var(--color-sd-ink-soft);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  /* Activity feed */
+  .sd-activity-list {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+  .sd-activity-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    border-top: 1px solid rgb(10 31 43 / 0.07);
+  }
+  .sd-activity-row:first-child {
+    border-top: 0;
+  }
+  .sd-avatar {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    color: var(--color-sd-cyan-faint);
+    background: linear-gradient(135deg, var(--color-sd-teal-mid), var(--color-sd-teal-deep));
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .sd-activity-desc {
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  .sd-activity-time {
+    margin-top: 3px;
+    color: var(--color-sd-ink-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+
+  /* Empty states */
+  .sd-empty {
+    padding: 44px 24px;
+    color: var(--color-sd-ink-muted);
+    font-size: 13.5px;
+    text-align: center;
+  }
+  .sd-empty strong {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--color-sd-ink-soft);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Form fields (Company page) */
+  .sd-fieldgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .sd-fieldgrid--address {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .sd-field--span2 {
+    grid-column: 1 / -1;
+  }
+  .sd-field > span,
+  .sd-field > label > span {
+    color: var(--color-sd-ink-muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .sd-input {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid rgb(10 31 43 / 0.16);
+    border-radius: 9px;
+    color: var(--color-sd-ink);
+    background: var(--color-sd-white);
+    font-family: inherit;
+    font-size: 13.5px;
+    outline: none;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .sd-input:focus {
+    border-color: var(--color-sd-mint-deep);
+    box-shadow: 0 0 0 3px rgb(74 187 162 / 0.18);
+  }
+
+  /* Messaging */
+  .sd-msg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  .sd-chan-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 0;
+    border-top: 1px solid rgb(10 31 43 / 0.07);
+    border-left: 3px solid transparent;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .sd-chan-row:hover {
+    background: rgb(79 182 200 / 0.08);
+  }
+  .sd-chan-row--active {
+    border-left-color: var(--color-sd-mint-deep);
+    background: rgb(74 187 162 / 0.09);
+  }
+  .sd-chan-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    color: var(--color-sd-ink-muted);
+    background: rgb(10 31 43 / 0.07);
+  }
+  .sd-chan-icon--ai {
+    color: var(--color-sd-violet-ink);
+    background: rgb(139 116 190 / 0.18);
+  }
+  .sd-chan-title {
+    overflow: hidden;
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-chan-preview {
+    overflow: hidden;
+    color: var(--color-sd-ink-hint);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-unread {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: var(--color-sd-on-teal);
+    background: var(--color-sd-teal);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .sd-chat-card {
+    display: flex;
+    flex-direction: column;
+    height: 560px;
+  }
+  .sd-chat-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 14px;
+    border-bottom: 1px solid rgb(10 31 43 / 0.09);
+  }
+  .sd-chat-head-divider {
+    width: 1px;
+    height: 16px;
+    background: rgb(10 31 43 / 0.14);
+  }
+  .sd-chat-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 15px 16px;
+  }
+  .sd-msg-row {
+    display: flex;
+    justify-content: flex-start;
+  }
+  .sd-msg-row--mine {
+    justify-content: flex-end;
+  }
+  .sd-msg {
+    max-width: 80%;
+    padding: 9px 13px;
+    border: 1px solid transparent;
+    border-radius: 16px 16px 16px 4px;
+    color: var(--color-sd-ink-body);
+    background: rgb(10 31 43 / 0.06);
+    font-size: 13.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .sd-msg--mine {
+    border-radius: 16px 16px 4px 16px;
+    color: var(--color-sd-on-mint);
+    background: linear-gradient(180deg, var(--color-sd-mint-deep), var(--color-sd-mint-ink));
+  }
+  .sd-msg--ai {
+    border-color: rgb(139 116 190 / 0.3);
+    background: rgb(139 116 190 / 0.13);
+  }
+  .sd-msg-author {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+    color: var(--color-sd-ink-hint);
+    font-size: 11.5px;
+  }
+  .sd-msg-author svg {
+    color: var(--color-sd-violet);
+  }
+  .sd-msg-time {
+    display: block;
+    margin-top: 3px;
+    color: var(--color-sd-ink-hint);
+    font-size: 11px;
+  }
+  .sd-msg-row--mine .sd-msg-time {
+    text-align: right;
+  }
+  .sd-composer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: flex-end;
+    gap: 9px;
+    padding: 11px 12px;
+    border-top: 1px solid rgb(10 31 43 / 0.09);
+  }
+  .sd-composer textarea {
+    flex: 1;
+    min-width: 0;
+    max-height: 120px;
+    padding: 9px 12px;
+    border: 1px solid rgb(10 31 43 / 0.16);
+    border-radius: 10px;
+    color: var(--color-sd-ink);
+    background: var(--color-sd-white);
+    font-family: inherit;
+    font-size: 13.5px;
+    outline: none;
+    resize: none;
+  }
+  .sd-composer textarea:focus {
+    border-color: var(--color-sd-mint-deep);
+    box-shadow: 0 0 0 3px rgb(74 187 162 / 0.18);
+  }
+  .sd-send {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--color-sd-on-mint);
+    background: var(--color-sd-teal);
+    cursor: pointer;
+  }
+  .sd-send:disabled {
+    background: var(--color-sd-ink-disabled);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .sd-hint {
+    margin: 7px 0 0;
+    color: var(--color-sd-ink-hint-soft);
+    font-size: 11px;
+  }
+
+  @keyframes sdSpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sd-iconbtn--spin > *,
+    .sd-jump-card {
+      transition: none;
+      animation: none;
+    }
+  }
+
+  /* In-page title block (mockup header pattern; moves into the sticky header
+     in the header-redesign step — same typography either way). */
+  .sd-pagehead {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sd-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--color-sd-teal-deep);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sd-eyebrow::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-sd-cyan);
+    flex-shrink: 0;
+  }
+  .sd-page-title {
+    color: var(--color-sd-ink);
+    font-family: var(--font-display, 'Instrument Serif', ui-serif, Georgia, serif);
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.26;
+  }
+  .sd-page-sub {
+    overflow: hidden;
+    color: var(--color-sd-ink-muted);
+    font-size: 11.5px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+  }
+
+  /* ==========================================================================
+     SUDERRA page primitives III — tables, toolbars, segments, bars, modals
+     (users / roles / activity pages; same token palette as earlier sd- blocks)
+     ========================================================================== */
+
+  .sd-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .sd-search {
+    position: relative;
+    flex: 1 1 250px;
+    min-width: 0;
+  }
+  .sd-search > svg {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-sd-ink-hint);
+    pointer-events: none;
+  }
+  .sd-search .sd-input {
+    padding-left: 34px;
+  }
+
+  .sd-select {
+    appearance: none;
+    width: 100%;
+    padding: 10px 36px 10px 13px;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--color-sd-ink);
+    background-color: var(--color-sd-parchment);
+    border: 1px solid rgba(10, 31, 43, 0.14);
+    border-radius: 11px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235c7783' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    cursor: pointer;
+    transition:
+      border-color 0.18s,
+      box-shadow 0.18s;
+  }
+  .sd-select:focus {
+    outline: none;
+    border-color: var(--color-sd-teal);
+    box-shadow: 0 0 0 3px rgba(110, 231, 199, 0.35);
+  }
+
+  .sd-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .sd-table th {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-sd-ink-muted);
+    text-align: left;
+    padding: 11px 16px;
+    border-bottom: 1px solid rgba(10, 31, 43, 0.09);
+    white-space: nowrap;
+  }
+  .sd-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(10, 31, 43, 0.06);
+    font-size: 13.5px;
+    color: var(--color-sd-ink);
+    vertical-align: middle;
+  }
+  .sd-table tbody tr:hover {
+    background: rgba(110, 231, 199, 0.1);
+  }
+  .sd-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .sd-table input[type='checkbox'] {
+    accent-color: var(--color-sd-teal);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+  }
+
+  .sd-rowname {
+    font-weight: 600;
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+  }
+  .sd-rowemail {
+    font-size: 12px;
+    color: var(--color-sd-ink-hint);
+  }
+  .sd-celltime {
+    color: var(--color-sd-ink-muted);
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .sd-cellmono {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    color: var(--color-sd-ink-muted);
+  }
+  .sd-iconbtn--danger:hover {
+    color: var(--color-sd-danger);
+    background: rgba(176, 74, 40, 0.1);
+  }
+
+  .sd-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    background: rgba(10, 31, 43, 0.05);
+    border: 1px solid rgba(10, 31, 43, 0.08);
+    border-radius: 11px;
+  }
+  .sd-seg-btn {
+    border: 0;
+    background: transparent;
+    padding: 6px 13px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-sd-ink-muted);
+    cursor: pointer;
+    transition:
+      color 0.18s,
+      background 0.18s,
+      box-shadow 0.18s;
+  }
+  .sd-seg-btn:hover {
+    color: var(--color-sd-ink);
+  }
+  .sd-seg-btn--on {
+    background: var(--color-sd-parchment);
+    color: var(--color-sd-teal-deep);
+    box-shadow: 0 1px 2px rgba(10, 31, 43, 0.12);
+  }
+
+  .sd-bar {
+    width: 100%;
+    border-radius: 4px 4px 2px 2px;
+    background: linear-gradient(180deg, var(--color-sd-mint-soft), var(--color-sd-mint));
+    transition: filter 0.15s;
+    min-height: 2px;
+  }
+  .sd-bar:hover {
+    filter: brightness(0.92);
+  }
+  .sd-bar--today {
+    background: linear-gradient(180deg, var(--color-sd-teal), var(--color-sd-teal-deep));
+  }
+
+  .sd-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(5, 21, 35, 0.45);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+  }
+  .sd-modal {
+    position: relative;
+    background: var(--color-sd-parchment);
+    border: 1px solid rgba(10, 31, 43, 0.08);
+    border-radius: 18px;
+    box-shadow: 0 24px 70px rgba(5, 21, 35, 0.35);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sd-modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid rgba(10, 31, 43, 0.08);
+  }
+  .sd-modal-title {
+    margin: 0;
+    font-family: var(--font-display, inherit);
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--color-sd-ink);
+  }
+  .sd-modal-sub {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--color-sd-ink-muted);
+  }
+  .sd-modal-body {
+    padding: 18px 20px;
+    overflow-y: auto;
+  }
+  .sd-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid rgba(10, 31, 43, 0.08);
+    background: rgba(247, 244, 234, 0.55);
+  }
+
+  .sd-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 11px;
+    border: 1px solid rgba(10, 31, 43, 0.14);
+    background: transparent;
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      border-color 0.18s,
+      color 0.18s,
+      background 0.18s;
+  }
+  .sd-btn-ghost:hover {
+    border-color: rgba(20, 111, 132, 0.45);
+    color: var(--color-sd-teal-deep);
+    background: rgba(20, 111, 132, 0.06);
+  }
+  .sd-btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 11px;
+    border: 1px solid rgba(176, 74, 40, 0.35);
+    background: var(--color-sd-danger);
+    color: var(--color-sd-parchment);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s;
+  }
+  .sd-btn-danger:hover {
+    background: var(--color-sd-danger-ink);
+  }
+  .sd-btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .sd-pagebtn {
+    border: 1px solid rgba(10, 31, 43, 0.12);
+    background: transparent;
+    border-radius: 9px;
+    padding: 6px 13px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--color-sd-ink-soft);
+    cursor: pointer;
+    transition:
+      color 0.18s,
+      border-color 0.18s;
+  }
+  .sd-pagebtn:hover:not(:disabled) {
+    color: var(--color-sd-teal-deep);
+    border-color: rgba(20, 111, 132, 0.4);
+  }
+  .sd-pagebtn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .sd-checkrow {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(146, 97, 10, 0.22);
+    background: var(--color-sd-amber-surface);
+  }
+  .sd-checkrow input[type='checkbox'] {
+    accent-color: var(--color-sd-teal);
+    width: 15px;
+    height: 15px;
+  }
+
+  .sd-rolepill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .sd-rolepill--super {
+    background: rgba(176, 74, 40, 0.12);
+    color: var(--color-sd-danger-ink);
+  }
+  .sd-rolepill--tenant {
+    background: rgba(20, 111, 132, 0.12);
+    color: var(--color-sd-teal-deep);
+  }
+  .sd-rolepill--manager {
+    background: rgba(110, 231, 199, 0.22);
+    color: var(--color-sd-mint-ink);
+  }
+  .sd-rolepill--user {
+    background: rgba(10, 31, 43, 0.07);
+    color: var(--color-sd-ink-soft);
+  }
+
+  .sd-input--invalid,
+  .sd-select--invalid {
+    border-color: rgba(176, 74, 40, 0.55);
+  }
+  .sd-input--invalid:focus,
+  .sd-select--invalid:focus {
+    box-shadow: 0 0 0 3px rgba(176, 74, 40, 0.18);
   }
 }

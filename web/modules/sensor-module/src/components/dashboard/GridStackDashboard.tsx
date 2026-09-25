@@ -8,13 +8,16 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
-  Modal,
-  useConfirm,
-  useClickOutside,
-  Spinner,
   Button,
+  Checkbox,
   Input,
+  Modal,
+  Slider,
+  Spinner,
   Textarea,
+  ToggleButton,
+  useClickOutside,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
@@ -175,41 +178,29 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Layout Name
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter dashboard name"
-          />
-        </div>
+        <Input
+          label="Layout Name"
+          fullWidth
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Enter dashboard name"
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Description (Optional)
-          </label>
-          <Textarea
-            fullWidth
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Layout description"
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Description (Optional)"
+          fullWidth
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Layout description"
+          rows={2}
+        />
 
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={setAsDefault}
-            onChange={(e) => setSetAsDefault(e.target.checked)}
-            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
-          />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Set as default</span>
-        </label>
+        <Checkbox
+          label="Set as default"
+          checked={setAsDefault}
+          onChange={(e) => setSetAsDefault(e.target.checked)}
+        />
       </div>
     </Modal>
   );
@@ -672,6 +663,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
           <div className="relative" ref={processDropdownRef}>
             <button
               onClick={() => setShowProcessDropdown(!showProcessDropdown)}
+              aria-expanded={showProcessDropdown}
+              aria-haspopup="listbox"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                 processBackground.processId
                   ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 hover:bg-info-200 dark:hover:bg-info-800/60'
@@ -697,36 +690,32 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
                   </span>
                 </div>
                 <div className="max-h-48 overflow-y-auto">
-                  <button
+                  <ToggleButton
                     onClick={() => {
                       setProcessBackground((prev) => ({ ...prev, processId: null }));
                       setShowProcessDropdown(false);
                       setHasUnsavedChanges(true);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      !processBackground.processId
-                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                        : ''
-                    }`}
+                    pressed={!processBackground.processId}
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                    pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
                   >
                     None
-                  </button>
+                  </ToggleButton>
                   {activeProcesses.map((process) => (
-                    <button
+                    <ToggleButton
                       key={process.id}
                       onClick={() => {
                         setProcessBackground((prev) => ({ ...prev, processId: process.id }));
                         setShowProcessDropdown(false);
                         setHasUnsavedChanges(true);
                       }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                        processBackground.processId === process.id
-                          ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                          : ''
-                      }`}
+                      pressed={processBackground.processId === process.id}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                      pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300"
                     >
                       {process.name}
-                    </button>
+                    </ToggleButton>
                   ))}
                   {activeProcesses.length === 0 && (
                     <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
@@ -741,21 +730,25 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
           {/* Opacity Slider (only shown when process background is selected and in edit mode) */}
           {processBackground.processId && isEditMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Opacity:</span>
-              <input
-                type="range"
-                min="0.1"
-                max="1"
-                step="0.1"
+              <label
+                htmlFor="process-background-opacity"
+                className="text-xs text-gray-500 dark:text-gray-400"
+              >
+                Opacity:
+              </label>
+              <Slider
+                id="process-background-opacity"
+                size="xs"
+                fullWidth={false}
+                className="w-20"
+                min={0.1}
+                max={1}
+                step={0.1}
                 value={processBackground.opacity}
-                onChange={(e) => {
-                  setProcessBackground((prev) => ({
-                    ...prev,
-                    opacity: parseFloat(e.target.value),
-                  }));
+                onChange={(opacity) => {
+                  setProcessBackground((prev) => ({ ...prev, opacity }));
                   setHasUnsavedChanges(true);
                 }}
-                className="w-20 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
               />
               <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
                 {Math.round(processBackground.opacity * 100)}%

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Checkbox, Input, Select } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -25,73 +25,53 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   return (
     <div className="space-y-3">
       {/* Stream URL */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream URL</label>
-        <Input
-          fullWidth
-          type="text"
-          value={streamUrl}
-          onChange={(e) => onChange({ streamUrl: e.target.value })}
-          placeholder="http://192.168.1.100/mjpg/video.mjpg"
-        />
-      </div>
+      <Input
+        label="Stream URL"
+        fullWidth
+        type="text"
+        value={streamUrl}
+        onChange={(e) => onChange({ streamUrl: e.target.value })}
+        placeholder="http://192.168.1.100/mjpg/video.mjpg"
+      />
 
       {/* Stream Mode */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream Mode</label>
-        <select
-          value={streamMode}
-          onChange={(e) => onChange({ streamMode: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-        >
-          {STREAM_MODE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Stream Mode"
+        value={streamMode}
+        onChange={(e) => onChange({ streamMode: e.target.value })}
+        options={STREAM_MODE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Refresh Interval (Image mode only) */}
       {streamMode === 'image' && (
-        <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-            Refresh Interval (seconds)
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            min={1}
-            max={300}
-            value={refreshInterval}
-            onChange={(e) => onChange({ refreshInterval: Math.max(1, Number(e.target.value)) })}
-          />
-        </div>
+        <Input
+          label="Refresh Interval (seconds)"
+          fullWidth
+          type="number"
+          min={1}
+          max={300}
+          value={refreshInterval}
+          onChange={(e) => onChange({ refreshInterval: Math.max(1, Number(e.target.value)) })}
+        />
       )}
 
       {/* Label */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input
-          fullWidth
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Camera 1"
-        />
-      </div>
+      <Input
+        label="Label"
+        fullWidth
+        type="text"
+        value={label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder="Camera 1"
+      />
 
       {/* Show Controls (HLS mode only) */}
       {streamMode === 'hls' && (
-        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showControls}
-            onChange={(e) => onChange({ showControls: e.target.checked })}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Show video controls
-        </label>
+        <Checkbox
+          label="Show video controls"
+          checked={showControls}
+          onChange={(e) => onChange({ showControls: e.target.checked })}
+        />
       )}
 
       {/* HLS info note */}

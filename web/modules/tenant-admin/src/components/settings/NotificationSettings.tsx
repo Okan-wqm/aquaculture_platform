@@ -156,47 +156,35 @@ const NotificationSettings: React.FC = () => {
           delivered.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Start Time
-            </label>
-            <Input
-              fullWidth
-              type="time"
-              value={notifPrefs.quietHoursStart}
-              onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              End Time
-            </label>
-            <Input
-              fullWidth
-              type="time"
-              value={notifPrefs.quietHoursEnd}
-              onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Timezone
-            </label>
-            <Select
-              fullWidth
-              options={[
-                { value: 'Europe/Istanbul', label: 'Europe/Istanbul (UTC+3)' },
-                { value: 'UTC', label: 'UTC' },
-                { value: 'America/New_York', label: 'America/New York (UTC-5)' },
-                { value: 'America/Los_Angeles', label: 'America/Los Angeles (UTC-8)' },
-                { value: 'Asia/Tokyo', label: 'Asia/Tokyo (UTC+9)' },
-                { value: 'Europe/London', label: 'Europe/London (UTC+0/+1)' },
-                { value: 'Europe/Berlin', label: 'Europe/Berlin (UTC+1/+2)' },
-              ]}
-              value={notifPrefs.quietHoursTimezone}
-              onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Start Time"
+            fullWidth
+            type="time"
+            value={notifPrefs.quietHoursStart}
+            onChange={(e) => updatePref('quietHoursStart', e.target.value)}
+          />
+          <Input
+            label="End Time"
+            fullWidth
+            type="time"
+            value={notifPrefs.quietHoursEnd}
+            onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
+          />
+          <Select
+            label="Timezone"
+            fullWidth
+            options={[
+              { value: 'Europe/Istanbul', label: 'Europe/Istanbul (UTC+3)' },
+              { value: 'UTC', label: 'UTC' },
+              { value: 'America/New_York', label: 'America/New York (UTC-5)' },
+              { value: 'America/Los_Angeles', label: 'America/Los Angeles (UTC-8)' },
+              { value: 'Asia/Tokyo', label: 'Asia/Tokyo (UTC+9)' },
+              { value: 'Europe/London', label: 'Europe/London (UTC+0/+1)' },
+              { value: 'Europe/Berlin', label: 'Europe/Berlin (UTC+1/+2)' },
+            ]}
+            value={notifPrefs.quietHoursTimezone}
+            onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
+          />
         </div>
       </div>
 

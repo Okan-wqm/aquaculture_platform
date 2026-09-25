@@ -37,7 +37,7 @@ import {
 } from '../hooks/useTenantActivity';
 import { formatRelativeTime } from '../utils/date-utils';
 import { UserAvatar } from '../components/ui/UserAvatar';
-import { PageHeader, Button } from '@aquaculture/shared-ui';
+import { Button, PageHeader, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Utilities
@@ -96,17 +96,16 @@ const PeriodSelector: React.FC<{
 }> = ({ value, onChange }) => (
   <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-0.5">
     {(['7d', '30d'] as ActivityPeriod[]).map((p) => (
-      <button
+      <ToggleButton
         key={p}
         onClick={() => onChange(p)}
-        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-          value === p
-            ? 'bg-white dark:bg-gray-900 text-success-700 shadow-sm'
-            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-        }`}
+        pressed={value === p}
+        className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+        pressedClassName="bg-white dark:bg-gray-900 text-success-700 shadow-sm"
+        idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
       >
         {p === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
-      </button>
+      </ToggleButton>
     ))}
   </div>
 );

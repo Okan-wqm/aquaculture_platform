@@ -12,12 +12,14 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  ConfirmModal,
-  Spinner,
-  PageHeader,
-  severityClasses,
   Button,
+  ConfirmModal,
   Input,
+  PageHeader,
+  Select,
+  severityClasses,
+  Spinner,
+  ToggleButton,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -209,79 +211,41 @@ const ConditionEditor: React.FC<{
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {/* Parameter */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Parametre
-              </label>
-              <select
-                value={condition.parameter}
-                onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {PARAMETER_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-parameter`}
+              label="Parametre"
+              value={condition.parameter}
+              onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
+              options={PARAMETER_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
+            />
 
-            {/* Operator */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Operator
-              </label>
-              <select
-                value={condition.operator}
-                onChange={(e) =>
-                  updateCondition(index, 'operator', e.target.value as AlertOperator)
-                }
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {OPERATOR_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.symbol} {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-operator`}
+              label="Operator"
+              value={condition.operator}
+              onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
+              options={OPERATOR_OPTIONS.map((o) => ({
+                value: o.value,
+                label: `${o.symbol} ${o.label}`,
+              }))}
+            />
 
-            {/* Threshold */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Eşik Değer
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                step="any"
-                value={condition.threshold}
-                onChange={(e) =>
-                  updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)
-                }
-              />
-            </div>
+            <Input
+              id={`alert-condition-${index}-threshold`}
+              label="Eşik Değer"
+              type="number"
+              step="any"
+              value={condition.threshold}
+              onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)}
+            />
 
-            {/* Severity */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Önem Derecesi
-              </label>
-              <select
-                value={condition.severity}
-                onChange={(e) =>
-                  updateCondition(index, 'severity', e.target.value as AlertSeverity)
-                }
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {SEVERITY_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-severity`}
+              label="Önem Derecesi"
+              value={condition.severity}
+              onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
+              options={SEVERITY_OPTIONS.map((s) => ({ value: s.value, label: s.label }))}
+            />
           </div>
         </div>
       ))}
@@ -350,59 +314,43 @@ const RuleForm: React.FC<{
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              placeholder="Kuralın kisa aciklamasi"
-              maxLength={500}
-            />
-          </div>
+          <Input
+            label="Açıklama"
+            fullWidth
+            type="text"
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            placeholder="Kuralın kisa aciklamasi"
+            maxLength={500}
+          />
         </div>
 
         {/* Farm, Pond, Sensor IDs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Farm ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.farmId}
-              onChange={(e) => updateField('farmId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Havuz ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.pondId}
-              onChange={(e) => updateField('pondId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Sensor ID
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.sensorId}
-              onChange={(e) => updateField('sensorId', e.target.value)}
-              placeholder="Opsiyonel"
-            />
-          </div>
+          <Input
+            label="Farm ID"
+            fullWidth
+            type="text"
+            value={form.farmId}
+            onChange={(e) => updateField('farmId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
+          <Input
+            label="Havuz ID"
+            fullWidth
+            type="text"
+            value={form.pondId}
+            onChange={(e) => updateField('pondId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
+          <Input
+            label="Sensor ID"
+            fullWidth
+            type="text"
+            value={form.sensorId}
+            onChange={(e) => updateField('sensorId', e.target.value)}
+            placeholder="Opsiyonel"
+          />
         </div>
 
         {/* Conditions */}
@@ -418,21 +366,20 @@ const RuleForm: React.FC<{
           </label>
           <div className="flex flex-wrap gap-2">
             {CHANNEL_OPTIONS.map((ch) => (
-              <button
+              <ToggleButton
                 key={ch.value}
                 type="button"
                 onClick={() => toggleChannel(ch.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  form.notificationChannels.includes(ch.value)
-                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800'
-                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={form.notificationChannels.includes(ch.value)}
+                className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800"
+                idleClassName="bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {form.notificationChannels.includes(ch.value) && (
                   <Check className="w-3.5 h-3.5 inline mr-1" />
                 )}
                 {ch.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>
@@ -589,15 +536,14 @@ const RuleCard: React.FC<{
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 ml-4 shrink-0">
-          <button
+          <ToggleButton
             onClick={() => onToggle(rule)}
             disabled={isToggling}
             title={rule.isActive ? 'Pasif yap' : 'Aktif yap'}
-            className={`p-2 rounded-lg transition-colors ${
-              rule.isActive
-                ? 'text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30'
-                : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-            } disabled:opacity-50`}
+            pressed={rule.isActive}
+            className="p-2 rounded-lg transition-colors disabled:opacity-50"
+            pressedClassName="text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30"
+            idleClassName="text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             {isToggling ? (
               <Spinner size="sm" color="inherit" />
@@ -606,7 +552,7 @@ const RuleCard: React.FC<{
             ) : (
               <BellOff className="w-4 h-4" />
             )}
-          </button>
+          </ToggleButton>
           <Button
             variant="ghost"
             iconOnly
@@ -897,17 +843,16 @@ const AlertRulesPage: React.FC = () => {
               { value: 'true', label: 'Aktif' },
               { value: 'false', label: 'Pasif' },
             ].map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.value}
                 onClick={() => setFilterIsActive(tab.value)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  filterIsActive === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
+                pressed={filterIsActive === tab.value}
+                className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+                pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
 

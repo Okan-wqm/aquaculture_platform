@@ -13,13 +13,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useConfirm, Spinner, DesktopOnlyNotice } from '@aquaculture/shared-ui';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  GitBranch,
-  Layers,
-  List,
-  Settings,
-  Package,
-} from 'lucide-react';
+import { GitBranch, Layers, List, Settings, Package } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore, type ScadaPackageJSON } from '../../store/scada';
@@ -77,16 +71,22 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const panelCollapse = usePanelCollapse();
   usePanelShortcuts(panelCollapse);
 
-  const leftRailIcons: RailIcon[] = useMemo(() => [
-    { id: 'scene', icon: <GitBranch className="w-4 h-4" />, label: 'Scene Tree' },
-    { id: 'palette', icon: <Layers className="w-4 h-4" />, label: 'Widget Palette' },
-    { id: 'layers', icon: <List className="w-4 h-4" />, label: 'Layers' },
-  ], []);
+  const leftRailIcons: RailIcon[] = useMemo(
+    () => [
+      { id: 'scene', icon: <GitBranch className="w-4 h-4" />, label: 'Scene Tree' },
+      { id: 'palette', icon: <Layers className="w-4 h-4" />, label: 'Widget Palette' },
+      { id: 'layers', icon: <List className="w-4 h-4" />, label: 'Layers' },
+    ],
+    [],
+  );
 
-  const rightRailIcons: RailIcon[] = useMemo(() => [
-    { id: 'properties', icon: <Settings className="w-4 h-4" />, label: 'Properties' },
-    { id: 'package', icon: <Package className="w-4 h-4" />, label: 'Package Settings' },
-  ], []);
+  const rightRailIcons: RailIcon[] = useMemo(
+    () => [
+      { id: 'properties', icon: <Settings className="w-4 h-4" />, label: 'Properties' },
+      { id: 'package', icon: <Package className="w-4 h-4" />, label: 'Package Settings' },
+    ],
+    [],
+  );
 
   // ---------------------------------------------------------------------------
   // Performans: 30+ property'li tek selector yerine amac bazli kucuk selector'lar
@@ -175,7 +175,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
   );
 
   // Effective packageId (from route or store)
-  const effectivePackageId = routePackageId && routePackageId !== 'new' ? routePackageId : storePackageId;
+  const effectivePackageId =
+    routePackageId && routePackageId !== 'new' ? routePackageId : storePackageId;
 
   // Reset store when navigating to a new package
   useEffect(() => {
@@ -288,7 +289,17 @@ const ScadaPackageBuilderPage: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-  }, [packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate, markClean]);
+  }, [
+    packageName,
+    effectivePackageId,
+    toScadaPackageJSON,
+    updateMutation,
+    createMutation,
+    processId,
+    setPackageId,
+    navigate,
+    markClean,
+  ]);
 
   // Keyboard shortcuts (Ctrl+Z/Y, Ctrl+C/V/X, Del, Ctrl+S, Esc)
   useScadaKeyboardShortcuts({
@@ -305,14 +316,26 @@ const ScadaPackageBuilderPage: React.FC = () => {
   }, [effectivePackageId, isDirty, handleSave]);
 
   // Mode change handler — syncs simulation mode with store
-  const handleModeChange = useCallback((newMode: BuilderMode) => {
-    setMode(newMode);
-    setSimulationMode(newMode === 'simulation');
-  }, [setSimulationMode]);
+  const handleModeChange = useCallback(
+    (newMode: BuilderMode) => {
+      setMode(newMode);
+      setSimulationMode(newMode === 'simulation');
+    },
+    [setSimulationMode],
+  );
 
   // Load demo template handler — replaces current package data with built-in RAS demo
   const handleLoadDemo = useCallback(async (): Promise<void> => {
-    if (isDirty && !(await confirm({ title: 'Load the demo template?', message: 'It replaces your current work.', confirmText: 'Load demo', cancelText: 'Cancel', variant: 'warning' }))) {
+    if (
+      isDirty &&
+      !(await confirm({
+        title: 'Load the demo template?',
+        message: 'It replaces your current work.',
+        confirmText: 'Load demo',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    ) {
       return;
     }
     loadFromJSON(AQUACULTURE_RAS_DEMO);
@@ -320,15 +343,19 @@ const ScadaPackageBuilderPage: React.FC = () => {
   }, [isDirty, loadFromJSON, setPackageName, confirm]);
 
   // Screen summaries for status bar
-  const screenSummaries = useMemo(() => screens.map((s) => ({
-    id: s.id,
-    name: s.name,
-    widgetCount: s.widgets.length,
-    edgeCount: s.edges.length,
-    alarmWidgetCount: s.widgets.filter(
-      (w) => w.widgetType === 'alarmBanner' || w.widgetType === 'alarmList',
-    ).length,
-  })), [screens]);
+  const screenSummaries = useMemo(
+    () =>
+      screens.map((s) => ({
+        id: s.id,
+        name: s.name,
+        widgetCount: s.widgets.length,
+        edgeCount: s.edges.length,
+        alarmWidgetCount: s.widgets.filter(
+          (w) => w.widgetType === 'alarmBanner' || w.widgetType === 'alarmList',
+        ).length,
+      })),
+    [screens],
+  );
 
   // Loading state
   if (loadingPackage && routePackageId && routePackageId !== 'new') {
@@ -385,7 +412,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         {/* Center - Canvas with Screen Tabs */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Global Alarm Banner */}
-          <GlobalAlarmBanner />
+          <GlobalAlarmBanner liveDataActive={mode !== 'edit'} />
 
           {/* Screen tabs - using ScreenTabBar component */}
           <ScreenTabBar />

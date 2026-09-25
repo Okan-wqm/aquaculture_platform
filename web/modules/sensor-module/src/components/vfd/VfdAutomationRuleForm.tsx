@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Modal, Textarea } from '@aquaculture/shared-ui';
 import { Plus, Trash2 } from 'lucide-react';
 import type { CreateAutomationRuleInput, VfdAutomationRule } from '../../types/vfd.types';
 
@@ -199,21 +199,14 @@ export function VfdAutomationRuleForm({ rule, onSubmit, onCancel }: VfdAutomatio
         </div>
 
         {/* Description */}
-        <div>
-          <label
-            htmlFor="rule-desc"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description
-          </label>
-          <Textarea
-            fullWidth
-            id="rule-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          id="rule-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+        />
 
         {/* Target devices */}
         <div>
@@ -362,15 +355,11 @@ export function VfdAutomationRuleForm({ rule, onSubmit, onCancel }: VfdAutomatio
 
         {/* Options row */}
         <div className="flex items-center gap-6">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={requiresApproval}
-              onChange={(e) => setRequiresApproval(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600"
-            />
-            Requires Approval
-          </label>
+          <Checkbox
+            label="Requires Approval"
+            checked={requiresApproval}
+            onChange={(e) => setRequiresApproval(e.target.checked)}
+          />
           <div className="flex items-center gap-2">
             <label htmlFor="rule-priority" className="text-sm text-gray-700 dark:text-gray-300">
               Priority:

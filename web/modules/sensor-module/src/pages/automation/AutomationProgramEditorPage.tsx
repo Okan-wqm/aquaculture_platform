@@ -205,7 +205,9 @@ const TabButton: React.FC<{
 }> = ({ active, onClick, icon, label, count, disabled, disabledTooltip }) => (
   <div className="relative group">
     <button
-      onClick={disabled ? undefined : onClick}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
       className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
         disabled
           ? 'border-transparent text-gray-500 dark:text-gray-400 cursor-not-allowed'
@@ -1528,31 +1530,23 @@ const AutomationProgramEditorPage: React.FC = () => {
       {activeTab === 'info' && (
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Program Code *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.programCode}
-                onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
-                disabled={!isNew}
-                placeholder="PRG_001"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Program Name *
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Feeding Automation"
-              />
-            </div>
+            <Input
+              label="Program Code *"
+              fullWidth
+              type="text"
+              value={formData.programCode}
+              onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
+              disabled={!isNew}
+              placeholder="PRG_001"
+            />
+            <Input
+              label="Program Name *"
+              fullWidth
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="Feeding Automation"
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Type
@@ -1561,18 +1555,15 @@ const AutomationProgramEditorPage: React.FC = () => {
                 Structured Text (ST)
               </div>
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Description
-              </label>
-              <Textarea
-                fullWidth
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                placeholder="Program description..."
-              />
-            </div>
+            <Textarea
+              label="Description"
+              className="sm:col-span-2"
+              fullWidth
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={3}
+              placeholder="Program description..."
+            />
           </div>
         </div>
       )}
@@ -1674,68 +1665,57 @@ const AutomationProgramEditorPage: React.FC = () => {
                     I/O Tag Binding
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Edge Device
-                      </label>
-                      <select
-                        value={ioDeviceId}
-                        onChange={(e) => {
-                          setIoDeviceId(e.target.value);
-                          setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
-                        }}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
-                      >
-                        <option value="">Select device...</option>
-                        {allActiveDevices.map((device: EdgeDevice) => (
-                          <option key={device.id} value={device.id}>
-                            {device.deviceName} ({device.deviceCode}) -{' '}
-                            {getDeviceModelText(device.deviceModel)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        I/O Tag
-                      </label>
-                      <select
-                        value={newVariable.ioConfigId}
-                        onChange={(e) => {
-                          const selectedTag = ioTags.find((t) => t.id === e.target.value);
-                          if (selectedTag) {
-                            // Auto-map hardware data type to IEC 61131-3 type so the
-                            // PLC variable matches the physical I/O channel width
-                            setNewVariable({
-                              ...newVariable,
-                              ioConfigId: selectedTag.id,
-                              ioTagName: selectedTag.tagName,
-                              dataType:
-                                IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
-                            });
-                          } else {
-                            setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
-                          }
-                        }}
-                        disabled={!ioDeviceId || ioTags.length === 0}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                      >
-                        <option value="">
-                          {!ioDeviceId
-                            ? 'Select device first...'
-                            : ioTags.length === 0
-                              ? 'No I/O tags found'
-                              : 'Select tag...'}
-                        </option>
-                        {ioTags.map((tag) => (
-                          <option key={tag.id} value={tag.id}>
-                            {tag.tagName} ({tag.ioType} - {tag.dataType})
-                            {tag.modbusRegister != null ? ` Modbus R${tag.modbusRegister}` : ''}
-                            {tag.gpioPin != null ? ` GPIO ${tag.gpioPin}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <Select
+                      id="io-binding-device"
+                      label="Edge Device"
+                      value={ioDeviceId}
+                      onChange={(e) => {
+                        setIoDeviceId(e.target.value);
+                        setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
+                      }}
+                      placeholder="Select device..."
+                      options={allActiveDevices.map((device: EdgeDevice) => ({
+                        value: device.id,
+                        label: `${device.deviceName} (${device.deviceCode}) - ${getDeviceModelText(
+                          device.deviceModel,
+                        )}`,
+                      }))}
+                    />
+                    <Select
+                      id="io-binding-tag"
+                      label="I/O Tag"
+                      value={newVariable.ioConfigId}
+                      onChange={(e) => {
+                        const selectedTag = ioTags.find((t) => t.id === e.target.value);
+                        if (selectedTag) {
+                          // Auto-map hardware data type to IEC 61131-3 type so the
+                          // PLC variable matches the physical I/O channel width
+                          setNewVariable({
+                            ...newVariable,
+                            ioConfigId: selectedTag.id,
+                            ioTagName: selectedTag.tagName,
+                            dataType:
+                              IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                          });
+                        } else {
+                          setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
+                        }
+                      }}
+                      disabled={!ioDeviceId || ioTags.length === 0}
+                      placeholder={
+                        !ioDeviceId
+                          ? 'Select device first...'
+                          : ioTags.length === 0
+                            ? 'No I/O tags found'
+                            : 'Select tag...'
+                      }
+                      options={ioTags.map((tag) => ({
+                        value: tag.id,
+                        label: `${tag.tagName} (${tag.ioType} - ${tag.dataType})${
+                          tag.modbusRegister != null ? ` Modbus R${tag.modbusRegister}` : ''
+                        }${tag.gpioPin != null ? ` GPIO ${tag.gpioPin}` : ''}`,
+                      }))}
+                    />
                   </div>
                   {newVariable.ioTagName && (
                     <div className="mt-2 text-xs text-info-600 dark:text-info-400">
@@ -1866,20 +1846,19 @@ const AutomationProgramEditorPage: React.FC = () => {
                 No active and online devices found
               </div>
             ) : (
-              <select
+              <Select
+                id="deploy-target-device"
+                aria-label="Select Edge Device"
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-              >
-                <option value="">Select device...</option>
-                {onlineDevices.map((device: EdgeDevice) => (
-                  <option key={device.id} value={device.id}>
-                    {device.deviceName} ({device.deviceCode}) -{' '}
-                    {getDeviceModelText(device.deviceModel)}
-                    {device.isOnline ? ' [Online]' : ' [Offline]'}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select device..."
+                options={onlineDevices.map((device: EdgeDevice) => ({
+                  value: device.id,
+                  label: `${device.deviceName} (${device.deviceCode}) - ${getDeviceModelText(
+                    device.deviceModel,
+                  )}${device.isOnline ? ' [Online]' : ' [Offline]'}`,
+                }))}
+              />
             )}
             {selectedDeviceId &&
               onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (

@@ -144,20 +144,13 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
       <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <form onSubmit={handleCreateCategory} className="flex items-end gap-2">
-            <div>
-              <label
-                htmlFor="hr-new-category"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                New expense category
-              </label>
-              <Input
-                id="hr-new-category"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="e.g. Uniforms"
-              />
-            </div>
+            <Input
+              label="New expense category"
+              id="hr-new-category"
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              placeholder="e.g. Uniforms"
+            />
             <Button
               variant="primary"
               size="sm"

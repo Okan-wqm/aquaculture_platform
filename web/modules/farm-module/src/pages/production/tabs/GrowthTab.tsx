@@ -10,7 +10,14 @@ import {
   type GrowthAnalysis,
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
-import { DataTable, type DataTableColumn, Select, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  Button,
+  DataTable,
+  Select,
+  Spinner,
+  ToggleButton,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { ChartColumn, Circle, CircleCheck, Plus } from 'lucide-react';
 
 // ============================================================================
@@ -462,26 +469,24 @@ export const GrowthTab: React.FC = () => {
       {/* View Toggle + Batch Selector */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex space-x-4">
-          <button
+          <ToggleButton
             onClick={() => setActiveView('overview')}
-            className={`px-4 py-2 text-sm font-medium rounded-md ${
-              activeView === 'overview'
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={activeView === 'overview'}
+            className="px-4 py-2 text-sm font-medium rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Buyume Ozeti
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setActiveView('samples')}
-            className={`px-4 py-2 text-sm font-medium rounded-md ${
-              activeView === 'samples'
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={activeView === 'samples'}
+            className="px-4 py-2 text-sm font-medium rounded-md"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300"
+            idleClassName="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Orneklemeler
-          </button>
+          </ToggleButton>
         </div>
 
         <div className="flex items-center gap-3">

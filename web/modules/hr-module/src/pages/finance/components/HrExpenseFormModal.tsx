@@ -3,7 +3,7 @@
  * Currency defaults to the tenant setting when left blank.
  */
 import React, { useState } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   type HrFinanceEntry,
@@ -87,81 +87,47 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
       }
     >
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label
-            htmlFor="hr-expense-category"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Category
-          </label>
-          <select
-            id="hr-expense-category"
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-            required
-          >
-            <option value="">Select a category…</option>
-            {bookableCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          label="Category"
+          id="hr-expense-category"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+          required
+          placeholder="Select a category…"
+          options={bookableCategories.map((c) => ({ value: c.id, label: c.name }))}
+        />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label
-              htmlFor="hr-expense-date"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Date
-            </label>
-            <Input
-              fullWidth
-              id="hr-expense-date"
-              type="date"
-              value={entryDate}
-              onChange={(e) => setEntryDate(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="hr-expense-amount"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Amount
-            </label>
-            <Input
-              fullWidth
-              id="hr-expense-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              required
-            />
-          </div>
-        </div>
-        <div>
-          <label
-            htmlFor="hr-expense-description"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description
-          </label>
-          <Textarea
+          <Input
+            label="Date"
             fullWidth
-            id="hr-expense-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            placeholder="Optional note (e.g. Q1 safety training)"
+            id="hr-expense-date"
+            type="date"
+            value={entryDate}
+            onChange={(e) => setEntryDate(e.target.value)}
+            required
+          />
+          <Input
+            label="Amount"
+            fullWidth
+            id="hr-expense-amount"
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            required
           />
         </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          id="hr-expense-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="Optional note (e.g. Q1 safety training)"
+        />
         {errorMessage && (
           <div className="rounded-md bg-error-50 p-3 text-sm text-error-700 dark:bg-error-900/30 dark:text-error-300">
             {errorMessage}

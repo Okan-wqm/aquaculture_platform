@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
@@ -137,21 +137,20 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         {step === 'type' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {PROCESS_WIDGET_TYPES.map((wt) => (
-              <button
+              <ToggleButton
                 key={wt.type}
                 onClick={() => handleTypeSelect(wt.type)}
-                className={`p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-md ${
-                  selectedType === wt.type
-                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 ring-2 ring-info-200'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
-                }`}
+                pressed={selectedType === wt.type}
+                className="p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-md"
+                pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20 ring-2 ring-info-200"
+                idleClassName="border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
               >
                 <div className="text-2xl mb-2">{WIDGET_ICONS[wt.type] || '📊'}</div>
                 <div className="font-medium text-gray-900 dark:text-gray-100">{wt.label}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   {wt.description}
                 </div>
-              </button>
+              </ToggleButton>
             ))}
           </div>
         )}
@@ -168,18 +167,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               </Button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Title
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Widget title (auto-fills from channel)"
-              />
-            </div>
+            <Input
+              label="Title"
+              fullWidth
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Widget title (auto-fills from channel)"
+            />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -276,39 +271,19 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Time Range
-              </label>
-              <select
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {TIME_RANGES.map((tr) => (
-                  <option key={tr.value} value={tr.value}>
-                    {tr.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Time Range"
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              options={TIME_RANGES.map((tr) => ({ value: tr.value, label: tr.label }))}
+            />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Refresh Interval
-              </label>
-              <select
-                value={refreshInterval}
-                onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {REFRESH_INTERVALS.map((ri) => (
-                  <option key={ri.value} value={ri.value}>
-                    {ri.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Refresh Interval"
+              value={refreshInterval}
+              onChange={(e) => setRefreshInterval(Number(e.target.value))}
+              options={REFRESH_INTERVALS.map((ri) => ({ value: ri.value, label: ri.label }))}
+            />
 
             {selectedType &&
               [
@@ -324,30 +299,22 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                     Y-Axis Range (optional)
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Min Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMin}
-                        onChange={(e) => setYAxisMin(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Max Value
-                      </label>
-                      <Input
-                        fullWidth
-                        type="number"
-                        value={yAxisMax}
-                        onChange={(e) => setYAxisMax(e.target.value)}
-                        placeholder="Auto"
-                      />
-                    </div>
+                    <Input
+                      label="Min Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMin}
+                      onChange={(e) => setYAxisMin(e.target.value)}
+                      placeholder="Auto"
+                    />
+                    <Input
+                      label="Max Value"
+                      fullWidth
+                      type="number"
+                      value={yAxisMax}
+                      onChange={(e) => setYAxisMax(e.target.value)}
+                      placeholder="Auto"
+                    />
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     Leave empty for automatic range based on data

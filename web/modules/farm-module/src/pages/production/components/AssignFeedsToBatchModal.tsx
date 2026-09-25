@@ -196,79 +196,55 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
               key={entry.key}
               className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 grid grid-cols-12 gap-2 items-end"
             >
-              <div className="col-span-5">
-                <label
-                  htmlFor={`feed-${entry.key}`}
-                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
-                >
-                  Feed
-                </label>
-                <Select
-                  id={`feed-${entry.key}`}
-                  size="sm"
-                  placeholder="— Choose a feed —"
-                  value={entry.feedId}
-                  onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  options={(feedList.data?.items ?? []).map((feed) => ({
-                    value: feed.id,
-                    label: `${feed.code} — ${feed.name}`,
-                  }))}
-                />
-              </div>
+              <Select
+                label="Feed"
+                className="col-span-5"
+                id={`feed-${entry.key}`}
+                size="sm"
+                placeholder="— Choose a feed —"
+                value={entry.feedId}
+                onChange={(e) => setField(idx, 'feedId', e.target.value)}
+                options={(feedList.data?.items ?? []).map((feed) => ({
+                  value: feed.id,
+                  label: `${feed.code} — ${feed.name}`,
+                }))}
+              />
 
-              <div className="col-span-2">
-                <label
-                  htmlFor={`min-${entry.key}`}
-                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
-                >
-                  Min (g)
-                </label>
-                <Input
-                  fullWidth
-                  id={`min-${entry.key}`}
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={entry.minWeightG || ''}
-                  onChange={(e) => setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)}
-                />
-              </div>
+              <Input
+                label="Min (g)"
+                className="col-span-2"
+                fullWidth
+                id={`min-${entry.key}`}
+                type="number"
+                min={0}
+                step="0.1"
+                value={entry.minWeightG || ''}
+                onChange={(e) => setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)}
+              />
 
-              <div className="col-span-2">
-                <label
-                  htmlFor={`max-${entry.key}`}
-                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
-                >
-                  Max (g)
-                </label>
-                <Input
-                  fullWidth
-                  id={`max-${entry.key}`}
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={entry.maxWeightG || ''}
-                  onChange={(e) => setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)}
-                />
-              </div>
+              <Input
+                label="Max (g)"
+                className="col-span-2"
+                fullWidth
+                id={`max-${entry.key}`}
+                type="number"
+                min={0}
+                step="0.1"
+                value={entry.maxWeightG || ''}
+                onChange={(e) => setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)}
+              />
 
-              <div className="col-span-2">
-                <label
-                  htmlFor={`prio-${entry.key}`}
-                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
-                >
-                  Priority
-                </label>
-                <Input
-                  fullWidth
-                  id={`prio-${entry.key}`}
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={entry.priority || ''}
-                  onChange={(e) => setField(idx, 'priority', parseInt(e.target.value, 10) || 1)}
-                />
-              </div>
+              <Input
+                label="Priority"
+                className="col-span-2"
+                fullWidth
+                id={`prio-${entry.key}`}
+                type="number"
+                min={1}
+                max={100}
+                value={entry.priority || ''}
+                onChange={(e) => setField(idx, 'priority', parseInt(e.target.value, 10) || 1)}
+              />
 
               <div className="col-span-1 flex justify-end">
                 <Button
@@ -289,22 +265,15 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
           </Button>
         </div>
 
-        <div>
-          <label
-            htmlFor="feed-assign-notes"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Notes (optional)
-          </label>
-          <Textarea
-            fullWidth
-            id="feed-assign-notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
+        <Textarea
+          label="Notes (optional)"
+          fullWidth
+          id="feed-assign-notes"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
 
         {errors.length > 0 && (
           <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">

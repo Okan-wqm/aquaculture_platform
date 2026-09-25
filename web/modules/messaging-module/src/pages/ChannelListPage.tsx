@@ -1,4 +1,4 @@
-import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, ToggleButton, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -104,10 +104,12 @@ const ChannelListPage: React.FC = () => {
           {channels?.map((channel) => {
             const active = location.pathname === `/messaging/${channel.id}`;
             return (
-              <button
+              <ToggleButton
                 key={channel.id}
                 onClick={() => navigate(`/messaging/${channel.id}`)}
-                className={`sd-chan-row${active ? ' sd-chan-row--active' : ''}`}
+                pressed={active}
+                className="sd-chan-row"
+                pressedClassName="sd-chan-row--active"
               >
                 <span className={`sd-chan-icon${channel.type === 'AI' ? ' sd-chan-icon--ai' : ''}`}>
                   <ChannelIcon channel={channel} />
@@ -123,7 +125,7 @@ const ChannelListPage: React.FC = () => {
                     {lastMessagePreview(channel, t)}
                   </span>
                 </span>
-              </button>
+              </ToggleButton>
             );
           })}
         </div>

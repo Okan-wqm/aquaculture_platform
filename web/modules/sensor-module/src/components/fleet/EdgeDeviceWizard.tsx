@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Modal, Select, Spinner, Textarea } from '@aquaculture/shared-ui';
 import { Server, CheckCircle, AlertCircle } from 'lucide-react';
 import {
   useCreateProvisionedDevice,
@@ -178,23 +178,13 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         </div>
 
         {/* Device Model */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Cihaz Modeli
-          </label>
-          <select
-            value={formData.deviceModel}
-            onChange={handleInputChange('deviceModel')}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 bg-white dark:bg-gray-900"
-          >
-            <option value="">Model seçin (opsiyonel)...</option>
-            {DEVICE_MODELS.map((model) => (
-              <option key={model.value} value={model.value}>
-                {model.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          label="Cihaz Modeli"
+          value={formData.deviceModel}
+          onChange={handleInputChange('deviceModel')}
+          placeholder="Model seçin (opsiyonel)..."
+          options={DEVICE_MODELS.map((model) => ({ value: model.value, label: model.label }))}
+        />
 
         {/* Device Name & Serial Number */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -213,34 +203,26 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               Opsiyonel - otomatik oluşturulur
             </p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Seri Numarasi
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={formData.serialNumber}
-              onChange={handleInputChange('serialNumber')}
-              placeholder="123456789"
-            />
-          </div>
+          <Input
+            label="Seri Numarasi"
+            fullWidth
+            type="text"
+            value={formData.serialNumber}
+            onChange={handleInputChange('serialNumber')}
+            placeholder="123456789"
+          />
         </div>
 
         {/* Description */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Açıklama (Opsiyonel)
-          </label>
-          <Textarea
-            className="resize-none"
-            fullWidth
-            value={formData.description}
-            onChange={handleInputChange('description')}
-            placeholder="Ana RAS sistemini kontrol eden edge controller..."
-            rows={2}
-          />
-        </div>
+        <Textarea
+          label="Açıklama (Opsiyonel)"
+          className="resize-none"
+          fullWidth
+          value={formData.description}
+          onChange={handleInputChange('description')}
+          placeholder="Ana RAS sistemini kontrol eden edge controller..."
+          rows={2}
+        />
       </Modal>
 
       {/* Installer Command Modal */}

@@ -10,13 +10,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
+  Checkbox,
   DataTable,
   Modal,
-  type DataTableColumn,
   PageHeader,
+  Select,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
@@ -95,32 +97,18 @@ const EditRetentionModal: React.FC<{
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Retention Period
-          </label>
-          <select
-            value={selectedRetention}
-            onChange={(e) => setSelectedRetention(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
-          >
-            {RETENTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          label="Retention Period"
+          value={selectedRetention}
+          onChange={(e) => setSelectedRetention(e.target.value)}
+          options={RETENTION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
 
-        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={applyToAll}
-            onChange={(e) => setApplyToAll(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          Apply to all channels (override existing channel-level settings)
-        </label>
+        <Checkbox
+          label="Apply to all channels (override existing channel-level settings)"
+          checked={applyToAll}
+          onChange={(e) => setApplyToAll(e.target.checked)}
+        />
 
         <div className="p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
           <p className="text-xs text-warning-700 dark:text-warning-300">
@@ -190,22 +178,12 @@ const AddChannelOverrideModal: React.FC<{
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
           />
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Retention Period
-          </label>
-          <select
-            value={retentionDays}
-            onChange={(e) => setRetentionDays(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
-          >
-            {RETENTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.days}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          label="Retention Period"
+          value={retentionDays}
+          onChange={(e) => setRetentionDays(Number(e.target.value))}
+          options={RETENTION_OPTIONS.map((opt) => ({ value: opt.days, label: opt.label }))}
+        />
       </div>
     </Modal>
   );

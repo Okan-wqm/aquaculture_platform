@@ -174,52 +174,40 @@ const NewTicketModal: React.FC<{
       }
     >
       <form id="create-ticket-form" onSubmit={handleSubmit} className="p-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Subject
-          </label>
-          <Input
-            fullWidth
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Brief description of your issue"
-            required
-          />
-        </div>
+        <Input
+          label="Subject"
+          fullWidth
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          placeholder="Brief description of your issue"
+          required
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Category
-          </label>
-          <Select
-            fullWidth
-            options={[
-              { value: 'technical', label: 'Technical Issue' },
-              { value: 'billing', label: 'Billing' },
-              { value: 'feature_request', label: 'Feature Request' },
-              { value: 'bug', label: 'Bug Report' },
-              { value: 'general', label: 'General Question' },
-            ]}
-            value={category}
-            onChange={(e) => setCategory(e.target.value as TicketCategory)}
-          />
-        </div>
+        <Select
+          label="Category"
+          fullWidth
+          options={[
+            { value: 'technical', label: 'Technical Issue' },
+            { value: 'billing', label: 'Billing' },
+            { value: 'feature_request', label: 'Feature Request' },
+            { value: 'bug', label: 'Bug Report' },
+            { value: 'general', label: 'General Question' },
+          ]}
+          value={category}
+          onChange={(e) => setCategory(e.target.value as TicketCategory)}
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Description
-          </label>
-          <Textarea
-            className="resize-none"
-            fullWidth
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Please provide as much detail as possible..."
-            rows={5}
-            required
-          />
-        </div>
+        <Textarea
+          label="Description"
+          className="resize-none"
+          fullWidth
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Please provide as much detail as possible..."
+          rows={5}
+          required
+        />
 
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Paperclip className="w-4 h-4" />

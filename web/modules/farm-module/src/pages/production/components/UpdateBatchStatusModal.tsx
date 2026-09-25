@@ -115,23 +115,16 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             }))}
           />
 
-          <div>
-            <label
-              htmlFor="status-reason"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Reason (optional)
-            </label>
-            <Textarea
-              fullWidth
-              id="status-reason"
-              rows={3}
-              maxLength={500}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Explain the transition (written to the audit log)"
-            />
-          </div>
+          <Textarea
+            label="Reason (optional)"
+            fullWidth
+            id="status-reason"
+            rows={3}
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Explain the transition (written to the audit log)"
+          />
         </div>
 
         {errors.length > 0 && (

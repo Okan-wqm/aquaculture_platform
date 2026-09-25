@@ -120,7 +120,7 @@ rawTable:
 rawMutation:
   entries:
     - package: web/modules/farm-module
-      ceiling: 177
+      ceiling: 176
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-086
@@ -140,55 +140,55 @@ rawMutation:
 rawButton:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 153
+      ceiling: 131
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 177
+      ceiling: 139
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/dashboard
-      ceiling: 2
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 118
+      ceiling: 70
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 46
+      ceiling: 21
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 9
+      ceiling: 8
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/messaging-module
-      ceiling: 3
+      ceiling: 2
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 237
+      ceiling: 146
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 31
+      ceiling: 22
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -199,34 +199,192 @@ rawButton:
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+unnamedIconButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/shell
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+    - package: web/shared-ui
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-158
+      reason: >-
+        buttons with no words in them and no accessible name, announced by a screen reader as bare button whether they delete a row, log the operator out or expand a table; give the control a name from useI18n or point aria-labelledby at visible text, then lower this ceiling
+silentStateButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 9
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/admin-panel
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/dashboard
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/farm-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/hr-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/hydroponics-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/messaging-module
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/sensor-module
+      ceiling: 14
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/modules/tenant-admin
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/shell
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
+    - package: web/shared-ui
+      ceiling: 0
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-159
+      reason: >-
+        buttons whose class attribute switches on a selected state while the opening tag never declares it, leaving the selection visible and inaudible against WCAG 1.4.1; render them through shared-ui ToggleButton (AquaMobil: components/ui/ToggleButton), whose required `pressed` prop paints and announces from one expression, or declare aria-selected / aria-current / aria-checked / aria-expanded where those fit better, then lower this ceiling. What remains at a non-zero ceiling is the residue the detector cannot decide from the tag alone: a class branching on a descriptor of the thing being drawn (a severity, a protocol, a test result, whether a row is read or overdue) rather than on a state of the control, and a few enablement looks whose condition is the logical complement of the disabled expression rather than its textual negation. Those are read one by one, not swept
 rawField:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 24
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-079
-      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
-    - package: web/modules/admin-panel
-      ceiling: 123
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-079
-      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
-    - package: web/modules/farm-module
-      ceiling: 120
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-079
-      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
-    - package: web/modules/hr-module
       ceiling: 23
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 74
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 100
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 14
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 3
+      ceiling: 0
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -238,19 +396,19 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 379
+      ceiling: 102
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 31
+      ceiling: 27
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/shell
-      ceiling: 4
+      ceiling: 3
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -280,25 +438,25 @@ inlineIconSvg:
 hardcodedText:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 616
+      ceiling: 610
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/dashboard
-      ceiling: 90
+      ceiling: 89
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 2614
+      ceiling: 2612
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 559
+      ceiling: 558
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -310,25 +468,25 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3279
+      ceiling: 3196
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 503
+      ceiling: 487
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shared-ui
-      ceiling: 194
+      ceiling: 84
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shell
-      ceiling: 154
+      ceiling: 146
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

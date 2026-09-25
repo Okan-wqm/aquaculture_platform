@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -213,6 +213,7 @@ export const AnnouncementsPage: React.FC = () => {
           actions={
             <div className="flex items-center gap-2">
               <button
+                aria-label="Refresh announcements"
                 onClick={() => {
                   fetchAnnouncements();
                   fetchStats();
@@ -297,29 +298,29 @@ export const AnnouncementsPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
-          <select
+          <Select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as AnnouncementStatus | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-          >
-            <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="published">Published</option>
-            <option value="expired">Expired</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'draft', label: 'Draft' },
+              { value: 'scheduled', label: 'Scheduled' },
+              { value: 'published', label: 'Published' },
+              { value: 'expired', label: 'Expired' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+          />
+          <Select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-          >
-            <option value="all">All Types</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="critical">Critical</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
+            options={[
+              { value: 'all', label: 'All Types' },
+              { value: 'info', label: 'Info' },
+              { value: 'warning', label: 'Warning' },
+              { value: 'critical', label: 'Critical' },
+              { value: 'maintenance', label: 'Maintenance' },
+            ]}
+          />
         </div>
       </div>
 
@@ -429,12 +430,14 @@ export const AnnouncementsPage: React.FC = () => {
                             Publish
                           </button>
                           <button
+                            aria-label="Edit announcement"
                             onClick={() => setSelectedAnnouncement(announcement)}
                             className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                           >
                             <Edit3 size={16} />
                           </button>
                           <button
+                            aria-label="Delete announcement"
                             onClick={() => handleDelete(announcement.id)}
                             className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600 rounded-lg hover:bg-error-50"
                           >
@@ -512,6 +515,21 @@ interface AnnouncementFormModalProps {
   onClose: () => void;
   onSave: (data: Partial<Announcement>) => void;
 }
+
+/**
+ * The tint the picker wears when a type is chosen. The severity belongs to the
+ * TYPE, not to the state of the button, so it resolves through a lookup rather
+ * than a four-deep ternary inside the class attribute.
+ */
+const announcementTypeSelected: Record<AnnouncementType, string> = {
+  info: 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300',
+  warning:
+    'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-700 dark:text-warning-300',
+  critical:
+    'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300',
+  maintenance:
+    'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300',
+};
 
 const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   announcement,
@@ -603,28 +621,20 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
         </label>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
-            <button
+            <ToggleButton
               key={t}
-              type="button"
+              pressed={type === t}
               onClick={() => setType(t)}
-              className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                type === t
-                  ? t === 'info'
-                    ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : t === 'warning'
-                      ? 'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-700 dark:text-warning-300'
-                      : t === 'critical'
-                        ? 'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
-                        : 'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors"
+              pressedClassName={announcementTypeSelected[t]}
+              idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {t === 'info' && <Info size={16} />}
               {t === 'warning' && <AlertTriangle size={16} />}
               {t === 'critical' && <AlertCircle size={16} />}
               {t === 'maintenance' && <Wrench size={16} />}
               {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>
@@ -635,30 +645,28 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           Target Audience
         </label>
         <div className="flex gap-3">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => setIsGlobal(true)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              isGlobal
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={isGlobal}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Globe size={18} />
             All Tenants
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             type="button"
             onClick={() => setIsGlobal(false)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              !isGlobal
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={!isGlobal}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Target size={18} />
             Targeted
-          </button>
+          </ToggleButton>
         </div>
       </div>
 
@@ -668,28 +676,26 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           Publishing
         </label>
         <div className="flex gap-3">
-          <button
+          <ToggleButton
             type="button"
             onClick={() => setScheduleType('now')}
-            className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'now'
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={scheduleType === 'now'}
+            className="flex-1 px-4 py-2 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Save as Draft
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             type="button"
             onClick={() => setScheduleType('scheduled')}
-            className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'scheduled'
-                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
+            pressed={scheduleType === 'scheduled'}
+            className="flex-1 px-4 py-2 rounded-lg border"
+            pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+            idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Schedule
-          </button>
+          </ToggleButton>
         </div>
         {scheduleType === 'scheduled' && (
           <input

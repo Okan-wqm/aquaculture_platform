@@ -7,15 +7,17 @@
 
 import React, { useState } from 'react';
 import {
-  Card,
-  Button,
   Badge,
+  Button,
+  Card,
+  Checkbox,
   Input,
-  Select,
   Modal,
+  PageHeader,
+  Select,
+  ToggleButton,
   useConfirm,
   usePrompt,
-  PageHeader,
 } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -414,14 +416,13 @@ export const MaintenancePage: React.FC = () => {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {(['upcoming', 'active', 'history'] as const).map((tab) => (
-            <button
+            <ToggleButton
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-3 border-b-2 font-medium text-sm capitalize transition-colors ${
-                activeTab === tab
-                  ? 'border-info-500 text-info-600 dark:text-info-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-              }`}
+              pressed={activeTab === tab}
+              className="py-3 border-b-2 font-medium text-sm capitalize transition-colors"
+              pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+              idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
             >
               {tab}
               {tab === 'active' && activeMaintenance.length > 0 && (
@@ -429,7 +430,7 @@ export const MaintenancePage: React.FC = () => {
                   {activeMaintenance.length}
                 </span>
               )}
-            </button>
+            </ToggleButton>
           ))}
         </nav>
       </div>
@@ -682,41 +683,33 @@ export const MaintenancePage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Type
-                </label>
-                <Select
-                  value={formData.type}
-                  onChange={(e) =>
-                    setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })
-                  }
-                  options={[
-                    { value: 'scheduled', label: 'Scheduled' },
-                    { value: 'emergency', label: 'Emergency' },
-                    { value: 'rolling_update', label: 'Rolling Update' },
-                    { value: 'database_migration', label: 'Database Migration' },
-                    { value: 'security_patch', label: 'Security Patch' },
-                  ]}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Scope
-                </label>
-                <Select
-                  value={formData.scope}
-                  onChange={(e) =>
-                    setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })
-                  }
-                  options={[
-                    { value: 'global', label: 'Global' },
-                    { value: 'tenant', label: 'Tenant' },
-                    { value: 'service', label: 'Service' },
-                    { value: 'region', label: 'Region' },
-                  ]}
-                />
-              </div>
+              <Select
+                label="Type"
+                value={formData.type}
+                onChange={(e) =>
+                  setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })
+                }
+                options={[
+                  { value: 'scheduled', label: 'Scheduled' },
+                  { value: 'emergency', label: 'Emergency' },
+                  { value: 'rolling_update', label: 'Rolling Update' },
+                  { value: 'database_migration', label: 'Database Migration' },
+                  { value: 'security_patch', label: 'Security Patch' },
+                ]}
+              />
+              <Select
+                label="Scope"
+                value={formData.scope}
+                onChange={(e) =>
+                  setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })
+                }
+                options={[
+                  { value: 'global', label: 'Global' },
+                  { value: 'tenant', label: 'Tenant' },
+                  { value: 'service', label: 'Service' },
+                  { value: 'region', label: 'Region' },
+                ]}
+              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -730,22 +723,18 @@ export const MaintenancePage: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Estimated Duration (minutes)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.estimatedDurationMinutes}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      estimatedDurationMinutes: parseInt(e.target.value) || 60,
-                    })
-                  }
-                  placeholder="60"
-                />
-              </div>
+              <Input
+                label="Estimated Duration (minutes)"
+                type="number"
+                value={formData.estimatedDurationMinutes}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    estimatedDurationMinutes: parseInt(e.target.value) || 60,
+                  })
+                }
+                placeholder="60"
+              />
             </div>
 
             <div>
@@ -762,32 +751,20 @@ export const MaintenancePage: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.allowReadOnlyAccess}
-                  onChange={(e) =>
-                    setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })
-                  }
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  Allow Read-Only Access
-                </span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.bypassForSuperAdmins}
-                  onChange={(e) =>
-                    setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })
-                  }
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  Bypass for Super Admins
-                </span>
-              </label>
+              <Checkbox
+                label="Allow Read-Only Access"
+                checked={formData.allowReadOnlyAccess}
+                onChange={(e) =>
+                  setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })
+                }
+              />
+              <Checkbox
+                label="Bypass for Super Admins"
+                checked={formData.bypassForSuperAdmins}
+                onChange={(e) =>
+                  setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })
+                }
+              />
             </div>
           </div>
         </Modal>

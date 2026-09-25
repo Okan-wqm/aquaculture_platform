@@ -10,7 +10,15 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { colors as themeColors, Button } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Checkbox,
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Select,
+} from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -94,28 +102,27 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
   return (
     <div className="space-y-3">
       {/* Title */}
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Site Map"
-          className={INPUT_CLASS}
-        />
-      </div>
+      <Input
+        label="Title"
+        value={title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Site Map"
+      />
 
       {/* Background Color */}
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+        <label
+          htmlFor="map-view-bg-color"
+          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+        >
           Background Color
         </label>
         <div className="flex items-center gap-2">
-          <input
-            type="color"
+          <ColorInput
+            id="map-view-bg-color"
+            variant="swatch"
             value={bgColor}
             onChange={(e) => onChange({ bgColor: e.target.value })}
-            className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
           <input
             type="text"
@@ -127,15 +134,11 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
       </div>
 
       {/* Show Grid */}
-      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={showGrid}
-          onChange={(e) => onChange({ showGrid: e.target.checked })}
-          className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-        />
-        Show grid lines
-      </label>
+      <Checkbox
+        label="Show grid lines"
+        checked={showGrid}
+        onChange={(e) => onChange({ showGrid: e.target.checked })}
+      />
 
       {/* Markers */}
       <div>
@@ -183,78 +186,42 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               </div>
 
               {/* Label */}
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  Label
-                </label>
-                <input
-                  type="text"
-                  value={marker.label}
-                  onChange={(e) => updateMarker(marker.id, 'label', e.target.value)}
-                  placeholder="Device name"
-                  className={SMALL_INPUT_CLASS}
-                />
-              </div>
+              <Input
+                label="Label"
+                value={marker.label}
+                onChange={(e) => updateMarker(marker.id, 'label', e.target.value)}
+                placeholder="Device name"
+              />
 
               {/* X / Y coordinates */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    X (0-100)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={marker.x}
-                    onChange={(e) =>
-                      updateMarker(
-                        marker.id,
-                        'x',
-                        Math.min(100, Math.max(0, Number(e.target.value))),
-                      )
-                    }
-                    className={SMALL_INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                    Y (0-100)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={marker.y}
-                    onChange={(e) =>
-                      updateMarker(
-                        marker.id,
-                        'y',
-                        Math.min(100, Math.max(0, Number(e.target.value))),
-                      )
-                    }
-                    className={SMALL_INPUT_CLASS}
-                  />
-                </div>
+                <NumberInput
+                  label="X (0-100)"
+                  min={0}
+                  max={100}
+                  value={marker.x}
+                  onChange={(e) =>
+                    updateMarker(marker.id, 'x', Math.min(100, Math.max(0, Number(e.target.value))))
+                  }
+                />
+                <NumberInput
+                  label="Y (0-100)"
+                  min={0}
+                  max={100}
+                  value={marker.y}
+                  onChange={(e) =>
+                    updateMarker(marker.id, 'y', Math.min(100, Math.max(0, Number(e.target.value))))
+                  }
+                />
               </div>
 
               {/* Status */}
-              <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-                  Status
-                </label>
-                <select
-                  value={marker.status}
-                  onChange={(e) => updateMarker(marker.id, 'status', e.target.value)}
-                  className={SMALL_INPUT_CLASS}
-                >
-                  {STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Status"
+                value={marker.status}
+                onChange={(e) => updateMarker(marker.id, 'status', e.target.value)}
+                options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
 
               {/* Tag Name (optional) */}
               <div>

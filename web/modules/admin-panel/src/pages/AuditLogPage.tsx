@@ -564,6 +564,7 @@ const AuditLogPage: React.FC = () => {
         <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center justify-between">
           <span className="text-error-700 dark:text-error-300 text-sm">{exportError}</span>
           <button
+            aria-label="Dismiss export error"
             onClick={() => setExportError(null)}
             className="text-error-400 hover:text-error-600 dark:hover:text-error-300 ml-4"
           >
@@ -643,25 +644,19 @@ const AuditLogPage: React.FC = () => {
             options={tenantOptions}
           />
 
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Start Date
-            </label>
-            <Input
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => setFilter('startDate', e.target.value)}
-            />
-          </div>
+          <Input
+            label="Start Date"
+            type="date"
+            value={filters.startDate}
+            onChange={(e) => setFilter('startDate', e.target.value)}
+          />
 
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Date</label>
-            <Input
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => setFilter('endDate', e.target.value)}
-            />
-          </div>
+          <Input
+            label="End Date"
+            type="date"
+            value={filters.endDate}
+            onChange={(e) => setFilter('endDate', e.target.value)}
+          />
         </div>
 
         {hasActiveFilters && (

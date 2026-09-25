@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, ToggleButton } from '@aquaculture/shared-ui';
 import {
   XCircle,
   AlertTriangle,
@@ -152,19 +152,18 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
               const Icon = cfg.icon;
               const active = visibleSeverities.has(sev);
               return (
-                <button
+                <ToggleButton
                   key={sev}
                   onClick={() => toggleSeverity(sev)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${
-                    active
-                      ? `${cfg.color} bg-gray-800`
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300'
-                  }`}
+                  pressed={active}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors"
+                  pressedClassName={`${cfg.color} bg-gray-800`}
+                  idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
                   title={`Toggle ${cfg.label}`}
                 >
                   <Icon className="w-3 h-3" />
                   {counts[sev]}
-                </button>
+                </ToggleButton>
               );
             })}
 

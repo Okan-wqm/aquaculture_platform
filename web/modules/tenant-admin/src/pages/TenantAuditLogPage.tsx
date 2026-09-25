@@ -27,14 +27,15 @@ import {
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
 import {
-  Modal,
-  DataTable,
-  type DataTableColumn,
-  PageHeader,
-  Button,
-  Input,
-  Select,
   Badge,
+  Button,
+  DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  ToggleButton,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -355,6 +356,7 @@ const TenantAuditLogPage: React.FC = () => {
             </Button>
             <button
               onClick={() => setShowFilters(!showFilters)}
+              aria-expanded={showFilters}
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
                   ? 'text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800'
@@ -399,69 +401,49 @@ const TenantAuditLogPage: React.FC = () => {
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Start Date
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={filters.startDate || ''}
-                onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                End Date
-              </label>
-              <Input
-                fullWidth
-                type="date"
-                value={filters.endDate || ''}
-                onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Action
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                placeholder="e.g. USER_CREATE"
-                value={filters.action || ''}
-                onChange={(e) => updateFilters({ action: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Severity
-              </label>
-              <Select
-                fullWidth
-                options={[
-                  { value: '', label: 'All' },
-                  { value: 'info', label: 'Info' },
-                  { value: 'warning', label: 'Warning' },
-                  { value: 'error', label: 'Error' },
-                  { value: 'critical', label: 'Critical' },
-                ]}
-                value={filters.severity || ''}
-                onChange={(e) => updateFilters({ severity: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                User
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                placeholder="Email or ID"
-                value={filters.performedBy || ''}
-                onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-              />
-            </div>
+            <Input
+              label="Start Date"
+              fullWidth
+              type="date"
+              value={filters.startDate || ''}
+              onChange={(e) => updateFilters({ startDate: e.target.value || null })}
+            />
+            <Input
+              label="End Date"
+              fullWidth
+              type="date"
+              value={filters.endDate || ''}
+              onChange={(e) => updateFilters({ endDate: e.target.value || null })}
+            />
+            <Input
+              label="Action"
+              fullWidth
+              type="text"
+              placeholder="e.g. USER_CREATE"
+              value={filters.action || ''}
+              onChange={(e) => updateFilters({ action: e.target.value || null })}
+            />
+            <Select
+              label="Severity"
+              fullWidth
+              options={[
+                { value: '', label: 'All' },
+                { value: 'info', label: 'Info' },
+                { value: 'warning', label: 'Warning' },
+                { value: 'error', label: 'Error' },
+                { value: 'critical', label: 'Critical' },
+              ]}
+              value={filters.severity || ''}
+              onChange={(e) => updateFilters({ severity: e.target.value || null })}
+            />
+            <Input
+              label="User"
+              fullWidth
+              type="text"
+              placeholder="Email or ID"
+              value={filters.performedBy || ''}
+              onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
+            />
           </div>
         </div>
       )}
@@ -548,17 +530,16 @@ const TenantAuditLogPage: React.FC = () => {
                       pageNum = page - 2 + i;
                     }
                     return (
-                      <button
+                      <ToggleButton
                         key={pageNum}
                         onClick={() => goToPage(pageNum)}
-                        className={`w-8 h-8 text-sm rounded-lg transition-colors ${
-                          page === pageNum
-                            ? 'bg-success-600 text-white'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        pressed={page === pageNum}
+                        className="w-8 h-8 text-sm rounded-lg transition-colors"
+                        pressedClassName="bg-success-600 text-white"
+                        idleClassName="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                       >
                         {pageNum}
-                      </button>
+                      </ToggleButton>
                     );
                   })}
                 </div>

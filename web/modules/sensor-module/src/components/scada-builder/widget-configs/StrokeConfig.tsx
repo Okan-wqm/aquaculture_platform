@@ -19,7 +19,14 @@ import {
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import {
+  ColorInput,
+  colors as themeColors,
+  Input,
+  NumberInput,
+  Select,
+  Slider,
+} from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -30,9 +37,6 @@ interface StrokeConfigProps {
   lineJoin: StrokeLineJoin;
   onChange: (updates: Record<string, string | number>) => void;
 }
-
-const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Small SVG line preview for a given dash pattern */
 const DashPreview: React.FC<{ pattern: StrokeDashPattern }> = ({ pattern }) => (
@@ -103,85 +107,62 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
 
     {/* Color + hex input */}
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
-        <input
-          type="color"
-          value={stroke}
-          onChange={(e) => onChange({ stroke: e.target.value })}
-          className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-          aria-label="Stroke color"
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hex</label>
-        <input
-          type="text"
-          value={stroke}
-          onChange={(e) => {
-            // Accept valid hex color strings only
-            const v = e.target.value;
-            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
-              onChange({ stroke: v });
-            }
-          }}
-          maxLength={7}
-          placeholder={themeColors.black}
-          className={INPUT_CLASS}
-          aria-label="Stroke hex color"
-        />
-      </div>
+      <ColorInput
+        label="Color"
+        aria-label="Stroke color"
+        value={stroke}
+        onChange={(e) => onChange({ stroke: e.target.value })}
+      />
+      <Input
+        label="Hex"
+        value={stroke}
+        onChange={(e) => {
+          // Accept valid hex color strings only
+          const v = e.target.value;
+          if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
+            onChange({ stroke: v });
+          }
+        }}
+        maxLength={7}
+        placeholder={themeColors.black}
+        aria-label="Stroke hex color"
+      />
     </div>
 
     {/* Width */}
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
-      <input
-        type="number"
-        min={0}
-        max={20}
-        step={0.5}
-        value={strokeWidth}
-        onChange={(e) => onChange({ strokeWidth: Number(e.target.value) })}
-        className={INPUT_CLASS}
-        aria-label="Stroke width"
-      />
-    </div>
+    <NumberInput
+      label="Width"
+      min={0}
+      max={20}
+      step={0.5}
+      value={strokeWidth}
+      onChange={(e) => onChange({ strokeWidth: Number(e.target.value) })}
+      aria-label="Stroke width"
+    />
 
     {/* Opacity */}
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={strokeOpacity}
-        onChange={(e) => onChange({ strokeOpacity: Number(e.target.value) })}
-        className="w-full"
-        aria-label="Stroke opacity"
-      />
-      <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-        {Math.round(strokeOpacity * 100)}%
-      </div>
-    </div>
+    <Slider
+      size="xs"
+      label="Opacity"
+      readout="below"
+      formatValue={(v) => `${Math.round(v * 100)}%`}
+      min={0}
+      max={1}
+      step={0.05}
+      value={strokeOpacity}
+      onChange={(strokeOpacity) => onChange({ strokeOpacity })}
+    />
 
     {/* Dash pattern */}
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Dash Pattern</label>
-      <select
+      <Select
         value={dashPattern}
         onChange={(e) => onChange({ dashPattern: e.target.value })}
-        className={INPUT_CLASS}
         aria-label="Dash pattern"
         data-testid="dash-pattern-select"
-      >
-        {DASH_PATTERN_OPTIONS.map((p) => (
-          <option key={p} value={p}>
-            {DASH_LABELS[p]}
-          </option>
-        ))}
-      </select>
+        options={DASH_PATTERN_OPTIONS.map((p) => ({ value: p, label: DASH_LABELS[p] }))}
+      />
       {/* Visual preview of currently selected pattern */}
       <div className="mt-1 text-gray-500 dark:text-gray-400">
         <DashPreview pattern={dashPattern} />

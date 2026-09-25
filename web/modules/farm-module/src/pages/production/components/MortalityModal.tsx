@@ -258,22 +258,15 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           />
 
           {/* Date */}
-          <div>
-            <label
-              htmlFor="observedAt"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Observation Date
-            </label>
-            <Input
-              fullWidth
-              type="date"
-              id="observedAt"
-              value={observedAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setObservedAt(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Observation Date"
+            fullWidth
+            type="date"
+            id="observedAt"
+            value={observedAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setObservedAt(e.target.value)}
+          />
 
           {/* Notes */}
           <div>

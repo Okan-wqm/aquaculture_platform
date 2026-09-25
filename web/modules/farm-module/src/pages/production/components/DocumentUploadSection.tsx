@@ -330,18 +330,14 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                 placeholder="e.g., Health Certificate 2024"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Document Number
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={newDocNumber}
-                onChange={(e) => setNewDocNumber(e.target.value)}
-                placeholder="e.g., HC-2024-001"
-              />
-            </div>
+            <Input
+              label="Document Number"
+              fullWidth
+              type="text"
+              value={newDocNumber}
+              onChange={(e) => setNewDocNumber(e.target.value)}
+              placeholder="e.g., HC-2024-001"
+            />
           </div>
 
           {/* File Drop Zone */}

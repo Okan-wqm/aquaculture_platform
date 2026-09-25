@@ -61,8 +61,7 @@ export interface HybridDataProviderContextValue {
   tagSourceMap: ReadonlyMap<string, TagSource>;
 }
 
-export const HybridDataProviderContext =
-  createContext<HybridDataProviderContextValue | null>(null);
+export const HybridDataProviderContext = createContext<HybridDataProviderContextValue | null>(null);
 HybridDataProviderContext.displayName = 'HybridDataProviderContext';
 
 /**
@@ -130,10 +129,9 @@ export function HybridDataProviderInner({
 
   const liveTagCacheRef = useRef<Map<string, TagValueChange>>(new Map());
 
-  const [liveConnectionState, setLiveConnectionState] =
-    useState<DataProviderConnectionState>(
-      () => socketRef.current.connectionState,
-    );
+  const [liveConnectionState, setLiveConnectionState] = useState<DataProviderConnectionState>(
+    () => socketRef.current.connectionState,
+  );
 
   const pendingQueriesRef = useRef<Map<string, PendingQuery>>(new Map());
   const pendingWritesRef = useRef<Map<string, WriteResolvers>>(new Map());
@@ -141,9 +139,7 @@ export function HybridDataProviderInner({
   // ── Tag routing map ───────────────────────────────────────────────────────
   // Default source is 'live'; only overrides are stored.
 
-  const [tagSourceMap, setTagSourceMap] = useState<Map<string, TagSource>>(
-    () => new Map(),
-  );
+  const [tagSourceMap, setTagSourceMap] = useState<Map<string, TagSource>>(() => new Map());
   const tagSourceMapRef = useRef(tagSourceMap);
   tagSourceMapRef.current = tagSourceMap;
 
@@ -151,21 +147,18 @@ export function HybridDataProviderInner({
     return tagSourceMapRef.current.get(tagId) ?? 'live';
   }, []);
 
-  const setTagSource = useCallback(
-    (tagId: string, source: TagSource): void => {
-      setTagSourceMap((prev) => {
-        const next = new Map(prev);
-        if (source === 'live') {
-          // Remove override → fall back to default 'live'.
-          next.delete(tagId);
-        } else {
-          next.set(tagId, source);
-        }
-        return next;
-      });
-    },
-    [],
-  );
+  const setTagSource = useCallback((tagId: string, source: TagSource): void => {
+    setTagSourceMap((prev) => {
+      const next = new Map(prev);
+      if (source === 'live') {
+        // Remove override → fall back to default 'live'.
+        next.delete(tagId);
+      } else {
+        next.set(tagId, source);
+      }
+      return next;
+    });
+  }, []);
 
   // ── Effect: wire socket listeners ─────────────────────────────────────────
 
@@ -174,6 +167,12 @@ export function HybridDataProviderInner({
     const subManager = subManagerRef.current!;
 
     socket.connect();
+
+    // Claim shared ownership of the singleton connection. The operator
+    // bootstrap owns it too; whichever unmounts first must not tear the socket
+    // down under the other, so release() disconnects only when the LAST owner
+    // lets go.
+    socket.acquire();
 
     const handleTagValues = (payload: TagValuesPayload) => {
       const now = Date.now();
@@ -226,7 +225,7 @@ export function HybridDataProviderInner({
     socket.on(ScadaSocketEvent.TAG_WRITE_ACK, handleWriteAck);
     socket.on(ScadaSocketEvent.DAQ_RESULT, handleDaqResult);
 
-    const rawSocket = (socket as unknown as { socket: { on: (e: string, cb: () => void) => void; off: (e: string, cb: () => void) => void } }).socket;
+    const rawSocket = socket.rawSocket;
     if (rawSocket) {
       rawSocket.on('connect', handleConnect);
       rawSocket.on('disconnect', handleDisconnect);
@@ -238,6 +237,10 @@ export function HybridDataProviderInner({
     setLiveConnectionState(socket.connectionState);
 
     return () => {
+      // Drop shared ownership. The socket stays up while another owner still
+      // holds it, and disconnects when this was the last one.
+      socket.release();
+
       socket.off(ScadaSocketEvent.TAG_VALUES, handleTagValues);
       socket.off(ScadaSocketEvent.TAG_WRITE_ACK, handleWriteAck);
       socket.off(ScadaSocketEvent.DAQ_RESULT, handleDaqResult);
@@ -265,7 +268,6 @@ export function HybridDataProviderInner({
       subManager.reset();
       liveTagCacheRef.current.clear();
     };
-   
   }, []);
 
   // ── Effect: tenant-isolation cache purge ──────────────────────────────────
@@ -287,15 +289,18 @@ export function HybridDataProviderInner({
 
   // ── IDataProvider implementation ──────────────────────────────────────────
 
-  const subscribeToTags = useCallback((componentId: string, tagIds: string[]): void => {
-    // Route live-destined tags to the subscription manager under the consumer's
-    // own id (simulation tags need no subscription). Ref-counting across
-    // consumers is the manager's job.
-    const liveTags = tagIds.filter((id) => getTagSource(id) === 'live');
-    if (liveTags.length > 0) {
-      subManagerRef.current!.subscribe(componentId, liveTags);
-    }
-  }, [getTagSource]);
+  const subscribeToTags = useCallback(
+    (componentId: string, tagIds: string[]): void => {
+      // Route live-destined tags to the subscription manager under the consumer's
+      // own id (simulation tags need no subscription). Ref-counting across
+      // consumers is the manager's job.
+      const liveTags = tagIds.filter((id) => getTagSource(id) === 'live');
+      if (liveTags.length > 0) {
+        subManagerRef.current!.subscribe(componentId, liveTags);
+      }
+    },
+    [getTagSource],
+  );
 
   const unsubscribeFromTags = useCallback((componentId: string): void => {
     subManagerRef.current!.unsubscribe(componentId);
@@ -307,9 +312,7 @@ export function HybridDataProviderInner({
 
       if (source === 'simulation') {
         const coerced =
-          typeof value === 'number' ||
-          typeof value === 'string' ||
-          typeof value === 'boolean'
+          typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean'
             ? value
             : String(value);
         setSimTagValue(tagId, coerced);
@@ -478,9 +481,7 @@ export function HybridDataProviderInner({
 
   return (
     <HybridDataProviderContext.Provider value={hybridCtxValue}>
-      <DataProviderContext.Provider value={provider}>
-        {children}
-      </DataProviderContext.Provider>
+      <DataProviderContext.Provider value={provider}>{children}</DataProviderContext.Provider>
     </HybridDataProviderContext.Provider>
   );
 }

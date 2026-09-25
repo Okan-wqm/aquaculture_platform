@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { Input } from '@aquaculture/shared-ui';
+import { Input, Select } from '@aquaculture/shared-ui';
 import { Cpu, Server, Settings2 } from 'lucide-react';
 
 export enum DeployTarget {
@@ -175,97 +175,56 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
             PLC Connection Settings
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="plc-ip-address"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                IP Address
-              </label>
-              <Input
-                fullWidth
-                id="plc-ip-address"
-                type="text"
-                value={plcConfig.targetPlcAddress || ''}
-                onChange={(e) =>
-                  onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })
-                }
-                placeholder="192.168.1.100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="plc-port"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                Port
-              </label>
-              <Input
-                fullWidth
-                id="plc-port"
-                type="number"
-                value={plcConfig.targetPlcPort || ''}
-                onChange={(e) =>
-                  onPlcConfigChange({
-                    ...plcConfig,
-                    targetPlcPort: parseInt(e.target.value) || undefined,
-                  })
-                }
-                placeholder={value === DeployTarget.CODESYS_PLC ? '1217' : '502'}
-              />
-            </div>
+            <Input
+              label="IP Address"
+              fullWidth
+              id="plc-ip-address"
+              type="text"
+              value={plcConfig.targetPlcAddress || ''}
+              onChange={(e) =>
+                onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })
+              }
+              placeholder="192.168.1.100"
+            />
+            <Input
+              label="Port"
+              fullWidth
+              id="plc-port"
+              type="number"
+              value={plcConfig.targetPlcPort || ''}
+              onChange={(e) =>
+                onPlcConfigChange({
+                  ...plcConfig,
+                  targetPlcPort: parseInt(e.target.value) || undefined,
+                })
+              }
+              placeholder={value === DeployTarget.CODESYS_PLC ? '1217' : '502'}
+            />
             {value === DeployTarget.CODESYS_PLC && (
-              <div>
-                <label
-                  htmlFor="plc-model"
-                  className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-                >
-                  PLC Model
-                </label>
-                <select
-                  id="plc-model"
-                  value={plcConfig.targetPlcModel || ''}
-                  onChange={(e) =>
-                    onPlcConfigChange({ ...plcConfig, targetPlcModel: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                >
-                  <option value="">Select...</option>
-                  {plcModelOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div>
-              <label
-                htmlFor="plc-protocol"
-                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
-              >
-                Protocol
-              </label>
-              <select
-                id="plc-protocol"
-                aria-label="PLC communication protocol"
-                value={plcConfig.targetPlcProtocol || ''}
+              <Select
+                id="plc-model"
+                label="PLC Model"
+                value={plcConfig.targetPlcModel || ''}
                 onChange={(e) =>
-                  onPlcConfigChange({ ...plcConfig, targetPlcProtocol: e.target.value })
+                  onPlcConfigChange({ ...plcConfig, targetPlcModel: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-              >
-                <option value="">Select...</option>
-                {(value === DeployTarget.CODESYS_PLC
-                  ? protocolOptions.filter((p) => p.value === 'codesys_v3')
-                  : protocolOptions.filter((p) => p.value !== 'codesys_v3')
-                ).map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                placeholder="Select..."
+                options={plcModelOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
+            )}
+            <Select
+              id="plc-protocol"
+              label="Protocol"
+              value={plcConfig.targetPlcProtocol || ''}
+              onChange={(e) =>
+                onPlcConfigChange({ ...plcConfig, targetPlcProtocol: e.target.value })
+              }
+              placeholder="Select..."
+              options={(value === DeployTarget.CODESYS_PLC
+                ? protocolOptions.filter((p) => p.value === 'codesys_v3')
+                : protocolOptions.filter((p) => p.value !== 'codesys_v3')
+              ).map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
           </div>
         </div>
       )}

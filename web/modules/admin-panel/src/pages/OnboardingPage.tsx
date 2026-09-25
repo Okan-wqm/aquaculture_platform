@@ -35,7 +35,7 @@ import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -334,26 +334,24 @@ export const OnboardingPage: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex items-center gap-4 mt-4 border-b border-gray-200 dark:border-gray-700">
-          <button
+          <ToggleButton
             onClick={() => setActiveTab('progress')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
-              activeTab === 'progress'
-                ? 'border-info-500 text-info-600 dark:text-info-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={activeTab === 'progress'}
+            className="pb-3 px-1 text-sm font-medium border-b-2 -mb-px"
+            pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+            idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Tenant Progress
-          </button>
-          <button
+          </ToggleButton>
+          <ToggleButton
             onClick={() => setActiveTab('resources')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
-              activeTab === 'resources'
-                ? 'border-info-500 text-info-600 dark:text-info-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
+            pressed={activeTab === 'resources'}
+            className="pb-3 px-1 text-sm font-medium border-b-2 -mb-px"
+            pressedClassName="border-info-500 text-info-600 dark:text-info-400"
+            idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Training Resources
-          </button>
+          </ToggleButton>
         </div>
       </div>
 
@@ -379,28 +377,27 @@ export const OnboardingPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <select
+                <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as OnboardingStatus | 'all')}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="all">All Status</option>
-                  <option value="not_started">Not Started</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="skipped">Skipped</option>
-                </select>
-                <button
+                  options={[
+                    { value: 'all', label: 'All Status' },
+                    { value: 'not_started', label: 'Not Started' },
+                    { value: 'in_progress', label: 'In Progress' },
+                    { value: 'completed', label: 'Completed' },
+                    { value: 'skipped', label: 'Skipped' },
+                  ]}
+                />
+                <ToggleButton
                   onClick={() => setShowNeedingAttention(!showNeedingAttention)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border ${
-                    showNeedingAttention
-                      ? 'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={showNeedingAttention}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border"
+                  pressedClassName="bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300"
+                  idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <AlertTriangle size={14} />
                   Needs Attention
-                </button>
+                </ToggleButton>
               </div>
             </div>
 
@@ -508,6 +505,7 @@ export const OnboardingPage: React.FC = () => {
                     </div>
                   </div>
                   <button
+                    aria-label="Close tenant details"
                     onClick={() => setSelectedTenantId(null)}
                     className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                   >

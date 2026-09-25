@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useId } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, useI18n } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -365,6 +365,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
   disabled = false,
   readOnly = false,
 }) => {
+  const { t } = useI18n();
   // Handler for individual permission change
   const handlePermissionChange = useCallback(
     (categoryKey: string, resourceName: string, action: string, checked: boolean) => {
@@ -484,7 +485,10 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
       <div className="flex items-center justify-between px-4 py-3 bg-success-50 dark:bg-success-900/20 rounded-xl border border-success-100 dark:border-success-800">
         <div className="flex items-center gap-3">
           <button
+            aria-label={t('a11y.selectAll')}
             type="button"
+            role="checkbox"
+            aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
             onClick={() => !disabled && !readOnly && handleSelectAll(!allSelected)}
             disabled={disabled || readOnly}
             className={`

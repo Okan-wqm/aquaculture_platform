@@ -5,7 +5,7 @@
  * single `hrLabourCost` snapshot so the numbers never drift between
  * views. Charts and the manual HR expense ledger complete the surface.
  */
-import { useAuth, PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Select, useAuth } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -101,18 +101,12 @@ const HRFinancePage: React.FC = () => {
             <label htmlFor="hr-finance-year" className="text-sm text-gray-600 dark:text-gray-400">
               Year:
             </label>
-            <select
+            <Select
               id="hr-finance-year"
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+              options={yearOptions.map((y) => ({ value: y, label: String(y) }))}
+            />
           </div>
         }
       />

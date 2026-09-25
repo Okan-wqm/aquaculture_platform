@@ -3,6 +3,7 @@
  * Date input with calendar popup
  */
 
+import { useI18n } from '../../i18n';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -54,6 +55,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   clearable = true,
   className = '',
 }) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState(value || new Date());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,6 +167,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         aria-required={required || undefined}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left
@@ -203,6 +207,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={handlePrevMonth}
+              aria-label={t('a11y.previousMonth')}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <ChevronLeft className="w-5 h-5" aria-hidden="true" />
@@ -213,6 +218,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={handleNextMonth}
+              aria-label={t('a11y.nextMonth')}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <ChevronRight className="w-5 h-5" aria-hidden="true" />
@@ -248,6 +254,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                   type="button"
                   onClick={() => !isDisabled && handleSelectDate(date)}
                   disabled={isDisabled}
+                  aria-pressed={isSelected}
+                  aria-current={isTodayDate ? 'date' : undefined}
                   className={`
                     p-2 text-sm rounded-lg transition-colors
                     ${

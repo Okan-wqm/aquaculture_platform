@@ -913,68 +913,52 @@ export const FeedsTab: React.FC = () => {
                     })),
                   ]}
                 />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Brand
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.brand}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Manufacturer
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.manufacturer}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Brand"
+                  fullWidth
+                  type="text"
+                  value={formData.brand}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
+                />
+                <Input
+                  label="Manufacturer"
+                  fullWidth
+                  type="text"
+                  value={formData.manufacturer}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
             {/* Section 2: Pellet Information */}
             <CollapsibleSection title="Pellet Information">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Pellet Size Label
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    placeholder="e.g. 2mm, 3-5mm"
-                    value={formData.pelletSizeLabel}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, pelletSizeLabel: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Pellet Diameter (mm)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={formData.pelletSize}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        pelletSize: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Pellet Size Label"
+                  fullWidth
+                  type="text"
+                  placeholder="e.g. 2mm, 3-5mm"
+                  value={formData.pelletSizeLabel}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, pelletSizeLabel: e.target.value }))
+                  }
+                />
+                <Input
+                  label="Pellet Diameter (mm)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={formData.pelletSize}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      pelletSize: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
                 <Select
                   label="Floating Type"
                   value={formData.floatingType}
@@ -986,19 +970,15 @@ export const FeedsTab: React.FC = () => {
                     label,
                   }))}
                 />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Product Stage
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    value={formData.productStage}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, productStage: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Product Stage"
+                  fullWidth
+                  type="text"
+                  value={formData.productStage}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, productStage: e.target.value }))
+                  }
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Fish Weight (g)
@@ -1049,199 +1029,161 @@ export const FeedsTab: React.FC = () => {
             {/* Section 3: Nutritional Declaration */}
             <CollapsibleSection title="Nutritional Declaration">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Crude Protein (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.crudeProtein}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          crudeProtein: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Crude Fat (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.crudeFat}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          crudeFat: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    NFE (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.nfe}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          nfe: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Ash (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.crudeAsh}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          crudeAsh: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Fiber (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.crudeFiber}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          crudeFiber: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Phosphorus (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.nutritionalContent.phosphorus}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          phosphorus: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Gross Energy (MJ)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={formData.nutritionalContent.grossEnergy}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          grossEnergy: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Digestible Energy (MJ)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={formData.nutritionalContent.digestibleEnergy}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        nutritionalContent: {
-                          ...prev.nutritionalContent,
-                          digestibleEnergy: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Crude Protein (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.crudeProtein}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        crudeProtein: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Crude Fat (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.crudeFat}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        crudeFat: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="NFE (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.nfe}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        nfe: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Ash (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.crudeAsh}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        crudeAsh: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Fiber (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.crudeFiber}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        crudeFiber: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Phosphorus (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.nutritionalContent.phosphorus}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        phosphorus: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Gross Energy (MJ)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={formData.nutritionalContent.grossEnergy}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        grossEnergy: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Digestible Energy (MJ)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={formData.nutritionalContent.digestibleEnergy}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      nutritionalContent: {
+                        ...prev.nutritionalContent,
+                        digestibleEnergy: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
             {/* Section 4: Composition */}
             <CollapsibleSection title="Composition">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Raw Materials
-                </label>
-                <Textarea
-                  fullWidth
-                  rows={4}
-                  placeholder="Fish meal, wheat flour, soybean meal..."
-                  value={formData.composition}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, composition: e.target.value }))
-                  }
-                />
-              </div>
+              <Textarea
+                label="Raw Materials"
+                fullWidth
+                rows={4}
+                placeholder="Fish meal, wheat flour, soybean meal..."
+                value={formData.composition}
+                onChange={(e) => setFormData((prev) => ({ ...prev, composition: e.target.value }))}
+              />
             </CollapsibleSection>
 
             {/* Section 5: Feeding Curve */}
@@ -1367,48 +1309,40 @@ export const FeedsTab: React.FC = () => {
             {/* Section 6: Environmental Impact */}
             <CollapsibleSection title="Environmental Impact">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    CO2-eq with LUC (kg CO2/kg)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.environmentalImpact.co2EqWithLuc}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        environmentalImpact: {
-                          ...prev.environmentalImpact,
-                          co2EqWithLuc: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    CO2-eq without LUC (kg CO2/kg)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.environmentalImpact.co2EqWithoutLuc}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        environmentalImpact: {
-                          ...prev.environmentalImpact,
-                          co2EqWithoutLuc: e.target.value ? parseFloat(e.target.value) : '',
-                        },
-                      }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="CO2-eq with LUC (kg CO2/kg)"
+                  fullWidth
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.environmentalImpact.co2EqWithLuc}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      environmentalImpact: {
+                        ...prev.environmentalImpact,
+                        co2EqWithLuc: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="CO2-eq without LUC (kg CO2/kg)"
+                  fullWidth
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.environmentalImpact.co2EqWithoutLuc}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      environmentalImpact: {
+                        ...prev.environmentalImpact,
+                        co2EqWithoutLuc: e.target.value ? parseFloat(e.target.value) : '',
+                      },
+                    }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
@@ -1420,46 +1354,31 @@ export const FeedsTab: React.FC = () => {
                     key={index}
                     className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg"
                   >
-                    <div>
-                      <label
-                        htmlFor={`feed-document-type-${index}`}
-                        className="block text-xs font-medium text-gray-500 dark:text-gray-400"
-                      >
-                        Type
-                      </label>
-                      <Select
-                        id={`feed-document-type-${index}`}
-                        size="sm"
-                        value={doc.type}
-                        onChange={(e) => updateDocument(index, 'type', e.target.value)}
-                        options={Object.entries(documentTypeLabels).map(([value, label]) => ({
-                          value,
-                          label,
-                        }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-                        Name
-                      </label>
-                      <Input
-                        fullWidth
-                        type="text"
-                        value={doc.name}
-                        onChange={(e) => updateDocument(index, 'name', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-                        URL
-                      </label>
-                      <Input
-                        fullWidth
-                        type="url"
-                        value={doc.url}
-                        onChange={(e) => updateDocument(index, 'url', e.target.value)}
-                      />
-                    </div>
+                    <Select
+                      label="Type"
+                      id={`feed-document-type-${index}`}
+                      size="sm"
+                      value={doc.type}
+                      onChange={(e) => updateDocument(index, 'type', e.target.value)}
+                      options={Object.entries(documentTypeLabels).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
+                    <Input
+                      label="Name"
+                      fullWidth
+                      type="text"
+                      value={doc.name}
+                      onChange={(e) => updateDocument(index, 'name', e.target.value)}
+                    />
+                    <Input
+                      label="URL"
+                      fullWidth
+                      type="url"
+                      value={doc.url}
+                      onChange={(e) => updateDocument(index, 'url', e.target.value)}
+                    />
                     <div className="flex items-end">
                       <Button variant="ghost" type="button" onClick={() => removeDocument(index)}>
                         <Trash2 className="w-5 h-5" aria-hidden="true" />
@@ -1495,18 +1414,14 @@ export const FeedsTab: React.FC = () => {
                     }
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Unit Size
-                  </label>
-                  <Input
-                    fullWidth
-                    type="text"
-                    placeholder="e.g. 25kg bag"
-                    value={formData.unitSize}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, unitSize: e.target.value }))}
-                  />
-                </div>
+                <Input
+                  label="Unit Size"
+                  fullWidth
+                  type="text"
+                  placeholder="e.g. 25kg bag"
+                  value={formData.unitSize}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, unitSize: e.target.value }))}
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Price per Kg ({DEFAULT_CURRENCY})
@@ -1531,109 +1446,86 @@ export const FeedsTab: React.FC = () => {
             {/* Section 9: Storage Conditions */}
             <CollapsibleSection title="Storage Conditions">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Min Temperature (°C)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    value={formData.storageTempMin}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Max Temperature (°C)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    value={formData.storageTempMax}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Min Humidity (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.storageHumidityMin}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Max Humidity (%)
-                  </label>
-                  <Input
-                    fullWidth
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={formData.storageHumidityMax}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Storage Requirements
-                  </label>
-                  <Textarea
-                    fullWidth
-                    rows={2}
-                    placeholder="Special storage instructions..."
-                    value={formData.storageRequirements}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Min Temperature (°C)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.storageTempMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Max Temperature (°C)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.storageTempMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Min Humidity (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.storageHumidityMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Input
+                  label="Max Humidity (%)"
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.storageHumidityMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                    }))
+                  }
+                />
+                <Textarea
+                  label="Storage Requirements"
+                  className="col-span-2"
+                  fullWidth
+                  rows={2}
+                  placeholder="Special storage instructions..."
+                  value={formData.storageRequirements}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                  }
+                />
               </div>
             </CollapsibleSection>
 
             {/* Section 10: Additional Information */}
             <CollapsibleSection title="Additional Information">
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Notes
-                  </label>
-                  <Textarea
-                    fullWidth
-                    rows={3}
-                    value={formData.notes}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  />
-                </div>
+                <Textarea
+                  label="Notes"
+                  fullWidth
+                  rows={3}
+                  value={formData.notes}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                />
                 <Select
                   label="Status"
                   value={formData.status}

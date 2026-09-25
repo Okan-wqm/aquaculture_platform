@@ -110,22 +110,15 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label
-              htmlFor="entry-date"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Date
-            </label>
-            <Input
-              fullWidth
-              id="entry-date"
-              type="date"
-              value={entryDate}
-              onChange={(e) => setEntryDate(e.target.value)}
-              required
-            />
-          </div>
+          <Input
+            label="Date"
+            fullWidth
+            id="entry-date"
+            type="date"
+            value={entryDate}
+            onChange={(e) => setEntryDate(e.target.value)}
+            required
+          />
           <div>
             <label
               htmlFor="entry-amount"
@@ -150,22 +143,15 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
           </div>
         </div>
 
-        <div>
-          <label
-            htmlFor="entry-description"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Description
-          </label>
-          <Textarea
-            fullWidth
-            id="entry-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            placeholder="Optional note (e.g. January electricity invoice)"
-          />
-        </div>
+        <Textarea
+          label="Description"
+          fullWidth
+          id="entry-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="Optional note (e.g. January electricity invoice)"
+        />
 
         {errorMessage && (
           <div

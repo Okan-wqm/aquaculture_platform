@@ -11,13 +11,14 @@
 import React, { useState } from 'react';
 
 import {
-  useCanMutate,
-  useConfirm,
-  DataTable,
-  type DataTableColumn,
   Button,
+  Checkbox,
+  DataTable,
   Input,
   Select,
+  useCanMutate,
+  useConfirm,
+  type DataTableColumn,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -213,23 +214,16 @@ export const CategoriesTab: React.FC = () => {
               placeholder="e.g. Diesel fuel"
             />
           </div>
-          <div>
-            <label
-              htmlFor="new-category-scope"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Ledger
-            </label>
-            <Select
-              options={[
-                { value: 'FARM_OPEX', label: 'Operational cost' },
-                { value: 'FARM_REVENUE', label: 'Revenue' },
-              ]}
-              id="new-category-scope"
-              value={newScope}
-              onChange={(e) => setNewScope(e.target.value as typeof newScope)}
-            />
-          </div>
+          <Select
+            label="Ledger"
+            options={[
+              { value: 'FARM_OPEX', label: 'Operational cost' },
+              { value: 'FARM_REVENUE', label: 'Revenue' },
+            ]}
+            id="new-category-scope"
+            value={newScope}
+            onChange={(e) => setNewScope(e.target.value as typeof newScope)}
+          />
           <Button
             variant="primary"
             type="submit"
@@ -237,15 +231,11 @@ export const CategoriesTab: React.FC = () => {
           >
             Add category
           </Button>
-          <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-            <input
-              type="checkbox"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-              className="rounded border-gray-300 dark:border-gray-600"
-            />
-            <span>Show archived</span>
-          </label>
+          <Checkbox
+            label="Show archived"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+          />
         </form>
       )}
 

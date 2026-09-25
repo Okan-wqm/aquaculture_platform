@@ -13,6 +13,19 @@
  * does not touch prose, table rows, or bucket assignments, because those carry
  * human judgement the registry does not hold.
  *
+ * ONE COMMAND WAS STILL ONE TOO MANY (PROC-MEDIUM-037). Collapsing three hand
+ * edits into one script left the script itself in human memory, and the same
+ * red gate shipped twice more (2c6156488, c7a1a6079) — a mutation, then a
+ * commit, then CI discovering that a derived file had not been derived. So
+ * `finding-registry` now calls `repinDebtPlan()` at the end of every mutating
+ * subcommand, through the single `runRegistryMutation` wrapper they all share.
+ * The mirror is rebuilt at the only moment it can go stale, which is what makes
+ * this tier 2 rather than the tier 3 the plan-contract spec was providing.
+ *
+ * That call cannot be rolled back into the registry: the ledger is append-only
+ * and hash-chained, so a refusal here is reported as a non-zero exit naming the
+ * remaining manual step, never as an undone mutation.
+ *
  * Correctness is verified by the thing that consumes the output:
  *   npx jest --config tests/invariants/jest.config.ts \
  *     --runTestsByPath tests/invariants/enterprise-grade-debt-plan-contract.spec.ts
@@ -327,7 +340,16 @@ function planReadme(state: RegistryState): PlannedWrite {
   return { path, contents: raw };
 }
 
-function main(): number {
+/**
+ * Rebuilds the plan mirror from the registry. Returns 0 on success, 1 when it
+ * refuses (see the PRECONDITION below); throws when an anchor is missing.
+ *
+ * Exported because the mirror is a DERIVED artifact and the moment it goes
+ * stale is precisely a registry mutation — `finding-registry` calls this at the
+ * end of every mutating subcommand so nobody has to remember a second command
+ * (PROC-MEDIUM-037).
+ */
+export function repinDebtPlan(): number {
   const previous = JSON.parse(
     readFileSync(resolve(PLAN_DIR, 'manifest.json'), 'utf8'),
   ) as RegistryState;
@@ -375,5 +397,5 @@ function main(): number {
 }
 
 if (require.main === module) {
-  process.exit(main());
+  process.exit(repinDebtPlan());
 }

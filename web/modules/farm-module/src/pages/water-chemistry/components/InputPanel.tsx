@@ -3,7 +3,7 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
-import { Button, Input, Select } from '@aquaculture/shared-ui';
+import { Button, Checkbox, Input, Select, ToggleButton } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 // WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
@@ -132,17 +132,16 @@ const InputPanel: React.FC<InputPanelProps> = ({
       {/* Tab buttons */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
         {INPUT_TABS.map((tab) => (
-          <button
+          <ToggleButton
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50/50 dark:bg-info-900/20/50'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-            }`}
+            pressed={activeTab === tab.id}
+            className="px-3 py-1.5 text-xs font-medium border-b-2 transition-colors"
+            pressedClassName="border-info-500 text-info-600 dark:text-info-400 bg-info-50/50 dark:bg-info-900/20/50"
+            idleClassName="border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500"
           >
             {tab.label}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -184,15 +183,11 @@ const InputPanel: React.FC<InputPanelProps> = ({
                 options={FISH_SIZES.map((size) => ({ value: size, label: size }))}
               />
             </div>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={inputs.showTarget}
-                onChange={(e) => update('showTarget', e.target.checked)}
-                className="h-3.5 w-3.5 text-info-600 border-gray-300 dark:border-gray-600 rounded"
-              />
-              <span className="text-xs text-gray-700 dark:text-gray-300">Show Target</span>
-            </label>
+            <Checkbox
+              label="Show Target"
+              checked={inputs.showTarget}
+              onChange={(e) => update('showTarget', e.target.checked)}
+            />
           </div>
         )}
 

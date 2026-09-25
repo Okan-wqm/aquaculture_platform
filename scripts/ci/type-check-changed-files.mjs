@@ -302,6 +302,43 @@ function declarationFilesFor(tsconfig) {
   return declarations;
 }
 
+/**
+ * The setup files a package's own test run loads, resolved from its vite or
+ * vitest config.
+ *
+ * A synthetic project built from changed files alone is not the program the
+ * package type-checks. `src/test-setup.ts` is where a package imports
+ * `@testing-library/jest-dom`, and that import is what declares
+ * `toBeInTheDocument` and `toHaveValue` on vitest's Assertion. Leaving it out
+ * made every spec that uses a jest-dom matcher fail this hook the first time it
+ * was touched, while `tsc -p` on the same package passed — a gate that reports
+ * errors the project does not have teaches people to bypass it.
+ */
+function setupFilesFor(tsconfig) {
+  const projectRoot = dirname(tsconfig);
+  if (projectRoot === '.') return [];
+  const found = [];
+  for (const name of [
+    'vite.config.ts',
+    'vitest.config.ts',
+    'vite.config.mts',
+    'vitest.config.mts',
+  ]) {
+    const config = join(repoRoot, projectRoot, name);
+    if (!existsSync(config)) continue;
+    const source = readFileSync(config, 'utf8');
+    for (const block of source.matchAll(/setupFiles\s*:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/g)) {
+      for (const quoted of (block[1] ?? '').matchAll(/'([^']+)'|"([^"]+)"/g)) {
+        const relative = quoted[1] ?? quoted[2] ?? '';
+        if (relative === '') continue;
+        const resolved = resolve(repoRoot, projectRoot, relative);
+        if (existsSync(resolved) && !found.includes(resolved)) found.push(resolved);
+      }
+    }
+  }
+  return found;
+}
+
 /** @type {Map<string, string[]>} */
 const tsconfigs = new Map();
 const unmapped = [];
@@ -361,7 +398,11 @@ for (const tsconfig of tsconfigs.keys()) {
         compilerOptions: {
           noEmit: true,
         },
-        files: [...declarationFilesFor(tsconfig), ...files.map((file) => join(repoRoot, file))],
+        files: [
+          ...declarationFilesFor(tsconfig),
+          ...setupFilesFor(tsconfig),
+          ...files.map((file) => join(repoRoot, file)),
+        ],
         include: [],
       },
       null,

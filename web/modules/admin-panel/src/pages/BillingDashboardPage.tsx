@@ -5,7 +5,7 @@
  * Uses real API with mock fallback for development.
  */
 
-import { AreaChart, MetricCard, PageHeader } from '@aquaculture/shared-ui';
+import { AreaChart, MetricCard, PageHeader, Select } from '@aquaculture/shared-ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAsyncData } from '../hooks';
@@ -444,16 +444,16 @@ const BillingDashboardPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Revenue Trend
             </h3>
-            <select
+            <Select
               aria-label="Revenue trend range"
               value={trendRange}
               onChange={(e) => setTrendRange(e.target.value as AnalyticsRange)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-info-500 focus:border-info-500"
-            >
-              <option value="1y">Last 12 months</option>
-              <option value="90d">Last 3 months</option>
-              <option value="30d">Last 30 days</option>
-            </select>
+              options={[
+                { value: '1y', label: 'Last 12 months' },
+                { value: '90d', label: 'Last 3 months' },
+                { value: '30d', label: 'Last 30 days' },
+              ]}
+            />
           </div>
           {trendLoading || !trendSeries ? (
             <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse" />

@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Button, Modal, ToggleButton } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -291,17 +291,13 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {WIDGET_TYPES.map((widget) => (
-                  <button
+                  <ToggleButton
                     key={widget.type}
                     onClick={() => setSelectedWidgetType(widget.type)}
-                    className={`
-                      flex items-center gap-3 p-4 rounded-lg border-2 transition-all
-                      ${
-                        selectedWidgetType === widget.type
-                          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
-                      }
-                    `}
+                    pressed={selectedWidgetType === widget.type}
+                    className="flex items-center gap-3 p-4 rounded-lg border-2 transition-all"
+                    pressedClassName="border-info-500 bg-info-50 dark:bg-info-900/20"
+                    idleClassName="border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
                   >
                     <div
                       className={`
@@ -324,7 +320,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                     {selectedWidgetType === widget.type && (
                       <Check size={18} className="ml-auto text-info-600 dark:text-info-400" />
                     )}
-                  </button>
+                  </ToggleButton>
                 ))}
               </div>
             </>

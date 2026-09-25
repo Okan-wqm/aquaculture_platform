@@ -6,14 +6,13 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Checkbox, Modal, PageHeader, Select, Spinner, ToggleButton } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
   Users,
   Search,
   Archive,
-  MoreVertical,
   Paperclip,
   Clock,
   CheckCheck,
@@ -267,6 +266,7 @@ export const MessagingPage: React.FC = () => {
           actions={
             <div className="flex items-center gap-3">
               <button
+                aria-label="Refresh threads"
                 onClick={() => {
                   fetchThreads();
                   fetchStats();
@@ -358,25 +358,24 @@ export const MessagingPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')}
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
-              >
-                <option value="all">All Threads</option>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
-              <button
+                options={[
+                  { value: 'all', label: 'All Threads' },
+                  { value: 'open', label: 'Open' },
+                  { value: 'closed', label: 'Closed' },
+                ]}
+              />
+              <ToggleButton
                 onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-                className={`px-3 py-1.5 rounded-lg text-sm border ${
-                  showUnreadOnly
-                    ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={showUnreadOnly}
+                className="px-3 py-1.5 rounded-lg text-sm border"
+                pressedClassName="bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300"
+                idleClassName="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Unread
-              </button>
+              </ToggleButton>
             </div>
           </div>
 
@@ -486,13 +485,11 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     )}
                     <button
+                      aria-label="Archive thread"
                       onClick={() => handleArchiveThread(selectedThread.id)}
                       className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       <Archive size={18} />
-                    </button>
-                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                      <MoreVertical size={18} />
                     </button>
                   </div>
                 </div>
@@ -608,16 +605,15 @@ export const MessagingPage: React.FC = () => {
               {!selectedThread.isClosed && (
                 <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <button
+                    <ToggleButton
                       onClick={() => setIsInternalNote(!isInternalNote)}
-                      className={`text-xs px-2 py-1 rounded ${
-                        isInternalNote
-                          ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
+                      pressed={isInternalNote}
+                      className="text-xs px-2 py-1 rounded"
+                      pressedClassName="bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700"
+                      idleClassName="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                     >
                       {isInternalNote ? 'Internal Note' : 'Public Message'}
-                    </button>
+                    </ToggleButton>
                   </div>
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
@@ -637,10 +633,8 @@ export const MessagingPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <Paperclip size={20} />
-                      </button>
                       <button
+                        aria-label="Send message"
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim()}
                         className="p-3 bg-info-600 text-white rounded-lg hover:bg-info-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -771,15 +765,11 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
 
       {/* Options */}
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={sendEmail}
-            onChange={(e) => setSendEmail(e.target.checked)}
-            className="w-4 h-4 text-info-600 rounded border-gray-300 dark:border-gray-600 focus:ring-info-500"
-          />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Send email notification</span>
-        </label>
+        <Checkbox
+          label="Send email notification"
+          checked={sendEmail}
+          onChange={(e) => setSendEmail(e.target.checked)}
+        />
       </div>
 
       {/* Preview */}

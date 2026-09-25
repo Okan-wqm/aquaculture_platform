@@ -14,13 +14,16 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  ConfirmModal,
-  Modal,
-  Spinner,
-  PageHeader,
-  severityClasses,
   Button,
+  ConfirmModal,
   Input,
+  Modal,
+  PageHeader,
+  Select,
+  severityClasses,
+  Spinner,
+  ToggleButton,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -230,74 +233,54 @@ const LevelEditor: React.FC<{
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Name */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Seviye Adi
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={level.name}
-                onChange={(e) => updateLevel(index, 'name', e.target.value)}
-                placeholder="Ornegin: Ilk Bildirim"
-              />
-            </div>
+            <Input
+              label="Seviye Adi"
+              fullWidth
+              type="text"
+              value={level.name}
+              onChange={(e) => updateLevel(index, 'name', e.target.value)}
+              placeholder="Ornegin: Ilk Bildirim"
+            />
 
             {/* Timeout */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Bekleme Suresi (dk)
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                min={0}
-                value={level.timeoutMinutes}
-                onChange={(e) =>
-                  updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)
-                }
-              />
-            </div>
+            <Input
+              label="Bekleme Suresi (dk)"
+              fullWidth
+              type="number"
+              min={0}
+              value={level.timeoutMinutes}
+              onChange={(e) =>
+                updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)
+              }
+            />
 
             {/* Action */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Aksiyon</label>
-              <select
-                value={level.action}
-                onChange={(e) => updateLevel(index, 'action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {ACTION_OPTIONS.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Aksiyon"
+              value={level.action}
+              onChange={(e) => updateLevel(index, 'action', e.target.value)}
+              options={ACTION_OPTIONS.map((a) => ({ value: a.value, label: a.label }))}
+            />
           </div>
 
           {/* Notify User IDs */}
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Bildirilecek Kullanicilar (virgul ile)
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={level.notifyUserIds.join(', ')}
-              onChange={(e) =>
-                updateLevel(
-                  index,
-                  'notifyUserIds',
-                  e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
-              placeholder="Kullanici ID'leri"
-            />
-          </div>
+          <Input
+            label="Bildirilecek Kullanicilar (virgul ile)"
+            fullWidth
+            type="text"
+            value={level.notifyUserIds.join(', ')}
+            onChange={(e) =>
+              updateLevel(
+                index,
+                'notifyUserIds',
+                e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
+            }
+            placeholder="Kullanici ID'leri"
+          />
 
           {/* Channels */}
           <div>
@@ -306,19 +289,18 @@ const LevelEditor: React.FC<{
             </label>
             <div className="flex flex-wrap gap-1.5">
               {CHANNEL_OPTIONS.map((ch) => (
-                <button
+                <ToggleButton
                   key={ch.value}
                   type="button"
                   onClick={() => toggleChannel(index, ch.value)}
-                  className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
-                    level.channels.includes(ch.value)
-                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800'
-                      : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  pressed={level.channels.includes(ch.value)}
+                  className="px-3 py-1 rounded-md text-xs font-medium border transition-colors"
+                  pressedClassName="bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800"
+                  idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   {level.channels.includes(ch.value) && <Check className="w-3 h-3 inline mr-1" />}
                   {ch.label}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </div>
@@ -388,19 +370,15 @@ const PolicyForm: React.FC<{
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              placeholder="Politikanin kisa aciklamasi"
-              maxLength={1000}
-            />
-          </div>
+          <Input
+            label="Açıklama"
+            fullWidth
+            type="text"
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            placeholder="Politikanin kisa aciklamasi"
+            maxLength={1000}
+          />
         </div>
 
         {/* Severity Selection */}
@@ -410,19 +388,18 @@ const PolicyForm: React.FC<{
           </label>
           <div className="flex flex-wrap gap-2">
             {SEVERITY_OPTIONS.map((sev) => (
-              <button
+              <ToggleButton
                 key={sev.value}
                 type="button"
                 onClick={() => toggleSeverity(sev.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  form.severity.includes(sev.value)
-                    ? sev.className
-                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
+                pressed={form.severity.includes(sev.value)}
+                className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                pressedClassName={sev.className}
+                idleClassName="bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {form.severity.includes(sev.value) && <Check className="w-3.5 h-3.5 inline mr-1" />}
                 {sev.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>
@@ -432,56 +409,40 @@ const PolicyForm: React.FC<{
 
         {/* Configuration Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tekrar Araligi (dk)
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={1}
-              value={form.repeatIntervalMinutes}
-              onChange={(e) =>
-                updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)
-              }
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Maks Tekrar
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              value={form.maxRepeats}
-              onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Oncelik
-            </label>
-            <Input
-              fullWidth
-              type="number"
-              min={0}
-              value={form.priority}
-              onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Saat Dilimi
-            </label>
-            <Input
-              fullWidth
-              type="text"
-              value={form.timezone}
-              onChange={(e) => updateField('timezone', e.target.value)}
-              placeholder="Europe/Istanbul"
-            />
-          </div>
+          <Input
+            label="Tekrar Araligi (dk)"
+            fullWidth
+            type="number"
+            min={1}
+            value={form.repeatIntervalMinutes}
+            onChange={(e) =>
+              updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)
+            }
+          />
+          <Input
+            label="Maks Tekrar"
+            fullWidth
+            type="number"
+            min={0}
+            value={form.maxRepeats}
+            onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
+          />
+          <Input
+            label="Oncelik"
+            fullWidth
+            type="number"
+            min={0}
+            value={form.priority}
+            onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
+          />
+          <Input
+            label="Saat Dilimi"
+            fullWidth
+            type="text"
+            value={form.timezone}
+            onChange={(e) => updateField('timezone', e.target.value)}
+            placeholder="Europe/Istanbul"
+          />
         </div>
 
         {/* Default Policy Toggle */}
@@ -588,61 +549,51 @@ const SuppressionWindowManager: React.FC<{
           className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 space-y-3"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ad</label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.name}
-                onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ornegin: Planli Bakim"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sebep</label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.reason}
-                onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
-                placeholder="Opsiyonel"
-              />
-            </div>
+            <Input
+              label="Ad"
+              fullWidth
+              type="text"
+              value={windowForm.name}
+              onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Ornegin: Planli Bakim"
+              required
+            />
+            <Input
+              label="Sebep"
+              fullWidth
+              type="text"
+              value={windowForm.reason}
+              onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
+              placeholder="Opsiyonel"
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Baslangic
-              </label>
-              <Input
-                fullWidth
-                type="datetime-local"
-                value={windowForm.startTime}
-                onChange={(e) =>
-                  setWindowForm((f) => ({
-                    ...f,
-                    startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
-                  }))
-                }
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bitis</label>
-              <Input
-                fullWidth
-                type="datetime-local"
-                value={windowForm.endTime}
-                onChange={(e) =>
-                  setWindowForm((f) => ({
-                    ...f,
-                    endTime: e.target.value ? new Date(e.target.value).toISOString() : '',
-                  }))
-                }
-                required
-              />
-            </div>
+            <Input
+              label="Baslangic"
+              fullWidth
+              type="datetime-local"
+              value={windowForm.startTime}
+              onChange={(e) =>
+                setWindowForm((f) => ({
+                  ...f,
+                  startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                }))
+              }
+              required
+            />
+            <Input
+              label="Bitis"
+              fullWidth
+              type="datetime-local"
+              value={windowForm.endTime}
+              onChange={(e) =>
+                setWindowForm((f) => ({
+                  ...f,
+                  endTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                }))
+              }
+              required
+            />
           </div>
           <div className="flex items-center gap-3">
             <label className="relative inline-flex items-center cursor-pointer">
@@ -657,18 +608,14 @@ const SuppressionWindowManager: React.FC<{
             <span className="text-sm text-gray-700 dark:text-gray-300">Tekrarlayan</span>
           </div>
           {windowForm.isRecurring && (
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Cron Ifadesi
-              </label>
-              <Input
-                fullWidth
-                type="text"
-                value={windowForm.recurringPattern}
-                onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
-                placeholder="0 2 * * 0 (her pazar 02:00)"
-              />
-            </div>
+            <Input
+              label="Cron Ifadesi"
+              fullWidth
+              type="text"
+              value={windowForm.recurringPattern}
+              onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
+              placeholder="0 2 * * 0 (her pazar 02:00)"
+            />
           )}
           <div className="flex justify-end gap-2">
             <button
@@ -876,12 +823,14 @@ const CloneDialog: React.FC<{
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
         <strong>"{sourceName}"</strong> politikasinin kopyasi olusturulacak.
       </p>
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Yeni Ad
-        </label>
-        <Input fullWidth type="text" value={newName} onChange={(e) => setNewName(e.target.value)} />
-      </div>
+      <Input
+        label="Yeni Ad"
+        className="mb-6"
+        fullWidth
+        type="text"
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+      />
     </Modal>
   );
 };
@@ -971,15 +920,14 @@ const PolicyCard: React.FC<{
 
         {/* Actions */}
         <div className="flex items-center gap-1 ml-4 shrink-0">
-          <button
+          <ToggleButton
             onClick={() => onToggle(policy)}
             disabled={isToggling}
             title={policy.isActive ? 'Pasif yap' : 'Aktif yap'}
-            className={`p-2 rounded-lg transition-colors ${
-              policy.isActive
-                ? 'text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30'
-                : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-            } disabled:opacity-50`}
+            pressed={policy.isActive}
+            className="p-2 rounded-lg transition-colors disabled:opacity-50"
+            pressedClassName="text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30"
+            idleClassName="text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             {isToggling ? (
               <Spinner size="sm" color="inherit" />
@@ -988,7 +936,7 @@ const PolicyCard: React.FC<{
             ) : (
               <BellOff className="w-4 h-4" />
             )}
-          </button>
+          </ToggleButton>
           <Button
             variant="ghost"
             iconOnly
@@ -1160,6 +1108,7 @@ const PolicyCard: React.FC<{
 // ============================================================================
 
 const EscalationPoliciesPage: React.FC = () => {
+  const { t } = useI18n();
   // Form state
   const [formMode, setFormMode] = useState<FormMode>('closed');
   const [editingPolicy, setEditingPolicy] = useState<EscalationPolicy | null>(null);
@@ -1402,17 +1351,16 @@ const EscalationPoliciesPage: React.FC = () => {
               { value: 'inactive', label: 'Pasif' },
               { value: 'default', label: 'Varsayilan' },
             ].map((tab) => (
-              <button
+              <ToggleButton
                 key={tab.value}
                 onClick={() => setFilterStatus(tab.value)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  filterStatus === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
+                pressed={filterStatus === tab.value}
+                className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+                pressedClassName="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                idleClassName="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               >
                 {tab.label}
-              </button>
+              </ToggleButton>
             ))}
           </div>
         </div>
@@ -1489,6 +1437,7 @@ const EscalationPoliciesPage: React.FC = () => {
       {suppressionPolicy && formMode === 'closed' && (
         <div className="relative">
           <button
+            aria-label={t('common.close')}
             onClick={() => setSuppressionPolicy(null)}
             className="absolute -top-2 -right-2 z-10 p-1 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600"
           >

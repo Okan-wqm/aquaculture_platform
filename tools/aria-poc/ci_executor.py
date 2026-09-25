@@ -45,7 +45,7 @@ from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 _THIS_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _THIS_DIR.parents[1]
@@ -1363,6 +1363,25 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
     return message.replace(lease_token, "<lease-token-redacted>")
 
 
+STDERR_TAIL_MAX_CHARS = 2000
+
+
+def _bounded_stderr_tail(stderr: str | None) -> str | None:
+    """The child's last words, safe to persist (ARIA-HIGH-188).
+
+    The LAST ``STDERR_TAIL_MAX_CHARS`` characters, with the lease this
+    executor holds (``LEASE_TOKEN_ENV_VAR``) redacted and every secret
+    shape ``artifact_safety`` knows scrubbed. ``None`` when there is nothing
+    to say, so a row never carries an empty cause.
+    """
+    if not stderr:
+        return None
+    from aria_kernel.artifact_safety import scrub_text
+
+    tail = _redact_lease_in_message(stderr[-STDERR_TAIL_MAX_CHARS:], os.environ.get(LEASE_TOKEN_ENV_VAR))
+    return scrub_text(tail)[-STDERR_TAIL_MAX_CHARS:]
+
+
 def _max_turns() -> int:
     return int(os.environ.get("MAX_TURNS_PER_RUN", DEFAULT_MAX_TURNS))
 
@@ -1834,6 +1853,11 @@ def invoke_claude_cli(
     # with it, so the agent's git can commit in the request worktree and
     # sign through the kernel-held agent. None for every other role.
     git_containment: Any | None = None,
+    # ARIA-HIGH-188 — the caller that records the attempt (the native lane)
+    # observes the ONE terminal summary this call writes: outcome, failure
+    # class, detail code and the bounded stderr tail. The int return stays
+    # the exit code every other caller branches on.
+    on_outcome: Callable[[dict[str, Any]], None] | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1955,6 +1979,10 @@ def invoke_claude_cli(
             + "\n",
             encoding="utf-8",
         )
+        if on_outcome is not None:
+            # ARIA-HIGH-188 — every terminal path reports once, the mock too.
+            on_outcome({"outcome": "succeeded", "failure_class": None, "detail_code": None,
+                        "retryable": None, "exit_code": 0, "stderr_tail": None})
         return 0
 
     request_prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
@@ -2023,6 +2051,7 @@ def invoke_claude_cli(
 
     def _emit_dispatch_summary(
         *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+        stderr_tail: str | None = None,
     ) -> None:
         """Exactly one sanitized classified summary per terminal path."""
         nonlocal _summary_emitted
@@ -2033,6 +2062,15 @@ def invoke_claude_cli(
             route=_dispatch_route, request_id=request_id, outcome=outcome,
             failure=failure, exit_code=exit_code,
         )
+        if on_outcome is not None:
+            on_outcome({
+                "outcome": outcome,
+                "failure_class": failure.failure_class if failure is not None else None,
+                "detail_code": failure.detail_code if failure is not None else None,
+                "retryable": failure.retryable if failure is not None else None,
+                "exit_code": exit_code,
+                "stderr_tail": stderr_tail,
+            })
     # ARIA-HIGH-124 — NO delivery credential enters the spawn. The scoped
     # GitHub token (`delivery_credentials`) used to be minted here and
     # exported into this spawn's environment so the agent could push and
@@ -2348,16 +2386,19 @@ def invoke_claude_cli(
                 signer_key_fp=signer_key_fp,
                 usage=completed.usage,
             )
+    # The child's own last words, bounded and redacted: a non-zero exit with
+    # no cause is the operator reading four ledgers to learn that the
+    # limiter could not reach a bus. They go to the job log AND, through
+    # the summary seam, to the caller that records the attempt.
+    _stderr_tail = _bounded_stderr_tail(completed.stderr) if completed.returncode != 0 else None
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
         exit_code=completed.returncode,
+        stderr_tail=_stderr_tail,
     )
-    if completed.returncode != 0 and completed.stderr:
-        # The child's own last words, bounded and lease-redacted: a non-zero
-        # exit with no cause is the operator reading four ledgers to learn
-        # that the limiter could not reach a bus.
-        sys.stderr.write("claude_stderr_tail: " + _redact_lease_in_message(completed.stderr[-2000:], None) + "\n")
+    if _stderr_tail:
+        sys.stderr.write("claude_stderr_tail: " + _stderr_tail + "\n")
     return completed.returncode
 
 
@@ -3437,8 +3478,10 @@ def _invoke_native_claude(
     result_admission = _NATIVE_CLAUDE_ADMISSION_UNNAMED
     usage_row_hash: str | None = None
     contract_row: dict[str, Any] | None = None
+    dispatch_outcome: dict[str, Any] = {}
     try:
         cli_exit = invoke_claude_cli(
+            on_outcome=dispatch_outcome.update,
             request_id=request_id, subagent_type=target_agent, session_id=session_id, resume=resume,
             prompt_file=prompt_file, output_path=output_path, transcript_path=transcript_path,
             timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
@@ -3481,6 +3524,9 @@ def _invoke_native_claude(
             "exit_code": cli_exit, "observed_effort": None,
             "usage_ledger_hash": usage_row_hash, "result_admission": result_admission,
             **({"agent_contract": contract_row} if contract_row else {}),
+            # ARIA-HIGH-188 — WHY a non-zero or refused attempt ended, on the
+            # row that records it, not only on the job's stderr.
+            **({"dispatch_outcome": dict(dispatch_outcome)} if dispatch_outcome.get("outcome") != "succeeded" and dispatch_outcome else {}),
         })
 
 

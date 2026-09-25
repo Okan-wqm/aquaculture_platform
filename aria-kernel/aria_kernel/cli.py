@@ -1087,6 +1087,11 @@ def build_parser() -> argparse.ArgumentParser:
     # Without --pr: every PR holding a readiness claim, the cycle's own set.
     merge_run.add_argument("--pr", type=int, default=None)
     merge_run.add_argument("--workspace-root", type=Path, default=Path("."))
+    # ARIA-HIGH-200 — only an operator's recorded act lifts ARIA's own
+    # self-merge freeze; no ARIA workflow holds that authority.
+    merge_unfreeze = add_subparser(merge_sub, "unfreeze")
+    merge_unfreeze.add_argument("--freeze-id", required=True)
+    merge_unfreeze.add_argument("--operator-approval-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -3708,6 +3713,17 @@ def _main(argv: list[str] | None = None) -> int:
         )
         merge_result = merge_runner(base_dir=args.tools_dir, workspace_root=args.workspace_root)
         print(json.dumps(merge_result, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "merge-lane" and args.merge_command == "unfreeze":
+        from .self_merge_freeze import unfreeze_self_merge
+
+        unfreeze_row = unfreeze_self_merge(
+            freeze_id=args.freeze_id,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(unfreeze_row, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "runner-attestation" and args.attestation_command == "probe":

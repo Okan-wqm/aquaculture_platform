@@ -26,6 +26,7 @@ from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import enforce_profile_for_action
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .self_merge_freeze import assert_self_merge_not_frozen
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
@@ -75,6 +76,11 @@ def merge_pr_if_ready(
     head_sha = _head_sha(live_pr)
     if not head_sha:
         raise GovernanceError("merge_authority_head_sha_required")
+    # ARIA-HIGH-200 — after a bad ARIA merge the self-revert producer freezes
+    # self-merge before opening the revert. While frozen, the only PR this
+    # authority merges is that registered, purity-proven revert at its exact
+    # head; everything else waits for an operator's recorded unfreeze.
+    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, base_dir=base_dir)
 
     risk = record_risk_decision_for_pr(
         live_pr,

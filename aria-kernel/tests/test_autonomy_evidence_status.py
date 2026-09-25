@@ -1466,10 +1466,6 @@ def alias_factory(root):
         observational = {
             ("cycle_runtime", f"{KERNEL}reflection.py", "consumer"):
                 "reflection reports completed cycles but cannot authorize them",
-            ("finding_funnel", f"{KERNEL}burn_in.py", "consumer"):
-                "burn-in only reports funnel counts",
-            ("finding_funnel", f"{KERNEL}runtime_artifacts.py", "consumer"):
-                "artifact packaging only inventories raw findings",
             ("executor", f"{KERNEL}human_required.py", "consumer"):
                 "human escalation observes outstanding requests",
             # Plan 032 — ops/economy readers of executor results (Faz 032d–032i):
@@ -2513,7 +2509,6 @@ class NativeProofContractTests(unittest.TestCase):
                 "tools_governance",
             ),
             "finding_funnel": (
-                "raw_findings",
                 "operator_feedback",
                 "findings",
                 "promotions",
@@ -3034,7 +3029,9 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(counts["executor"]["executor_drain_attempted"], 5)
         self.assertEqual(counts["executor"]["executor_drain_succeeded"], 4)
         self.assertEqual(counts["executor"]["executor_drain_failed"], 1)
-        self.assertEqual(counts["finding_funnel"]["raw_unique_fingerprints"], 1)
+        # ARIA-HIGH-190: raw_findings rows are not consumed by any capability.
+        self.assertNotIn("raw_unique_fingerprints", counts["finding_funnel"])
+        self.assertNotIn("raw_findings", counts["finding_funnel"])
         self.assertEqual(counts["finding_funnel"]["ai_consensus_true_positive"], 1)
         self.assertEqual(counts["finding_funnel"]["unique_promoted"], 2)
         self.assertEqual(counts["fixture_calibration"]["fixture_suites_passed"], 1)
@@ -3906,6 +3903,41 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             self.assertEqual(capability.evidence_refs, ())
             self.assertEqual(capability.counts, {"unavailable": 1})
 
+    def test_oversized_raw_findings_does_not_block_evidence(self) -> None:
+        """ARIA-HIGH-190: the adapters' raw stream is not counted evidence.
+
+        Live ``raw-findings.jsonl`` is 57.5 MB; as a count surface it pushed
+        the counted-evidence budget over its cap and every cycle publish
+        failed. Here the per-ledger cap is squeezed below the raw file's
+        size: the raw stream must still be snapshotted, but never consumed.
+        """
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
+        for index in range(200):
+            append_declared_jsonl(
+                self.tools / "raw-findings.jsonl",
+                {
+                    "schema_version": 1,
+                    "finding_id": f"raw-{index}",
+                    "finding_fingerprint": f"fp-{index}",
+                    "finding": {"rule": "doc-staleness", "detail": "x" * 512},
+                },
+                expected_surface="raw_findings",
+            )
+        raw_size = (self.tools / "raw-findings.jsonl").stat().st_size
+        self._publish()
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_MAX_EVIDENCE_LEDGER_BLOB_BYTES",
+            raw_size - 1,
+        ):
+            status = self._derive()
+        self.assertNotIn(
+            "state_commit_surface_too_large:raw_findings",
+            status.blockers,
+        )
+        self.assertEqual(status.capabilities["cycle_runtime"].state, "live_proven")
+        self.assertNotIn("raw_findings", status.capabilities["finding_funnel"].counts)
+
     def _derive_with_outer_hashless_kg(self, *, mixed: bool):
         self._publish(with_cycle=False)
         relative = "knowledge-graph/conventions.jsonl"
@@ -4040,7 +4072,7 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
         self.assertEqual(status.capabilities["cycle_runtime"].state, "live_proven")
         self.assertEqual(status.capabilities["cycle_runtime"].counts["cycles"], 1)
         self.assertEqual(
-            status.capabilities["finding_funnel"].counts["raw_findings"],
+            status.capabilities["finding_funnel"].counts["findings"],
             0,
         )
         self.assertNotEqual(

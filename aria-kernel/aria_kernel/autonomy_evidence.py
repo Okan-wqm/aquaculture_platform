@@ -1024,8 +1024,11 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: bool(row.get("finding_id")),
         ),),
+        # ARIA-HIGH-190: raw_findings is NOT a count surface. It is the
+        # adapters' unbounded pre-dedup stream (57.5 MB live); counting it only
+        # fed a display metric, yet it pushed the counted-surface budget over
+        # _MAX_EVIDENCE_INPUT_BYTES and failed every cycle publish.
         count_surfaces=(
-            "raw_findings",
             "operator_feedback",
             "findings",
             "promotions",
@@ -2917,7 +2920,6 @@ class _StreamingEvidenceAccumulator:
 
         self.surface_counts: Counter[str] = Counter()
         self.metrics: Counter[str] = Counter()
-        self.raw_fingerprints: set[str] = set()
         self.promoted_fingerprints: set[str] = set()
         self.autonomy_state = AutonomyStateAccumulator()
         self.acceptance_event_counts: Counter[str] = Counter()
@@ -3034,8 +3036,6 @@ class _StreamingEvidenceAccumulator:
                         if isinstance(details, dict)
                         else 0
                     )
-            elif surface == "raw_findings" and row.get("finding_fingerprint"):
-                self.raw_fingerprints.add(str(row["finding_fingerprint"]))
             elif surface == "operator_feedback" and (
                 row.get("source_type") == "ai_consensus"
                 and row.get("verdict") == "true_positive"
@@ -3150,7 +3150,6 @@ class _StreamingEvidenceAccumulator:
                         f"executor_drain_{name}"
                     ]
             elif capability == "finding_funnel":
-                counts["raw_unique_fingerprints"] = len(self.raw_fingerprints)
                 counts["ai_consensus_true_positive"] = self.metrics[
                     "ai_consensus_true_positive"
                 ]
@@ -3309,12 +3308,6 @@ def _capability_safe_counts(
                 for row in drains
             )
     elif capability == "finding_funnel":
-        raw = rows_by_surface.get("raw_findings", ())
-        counts["raw_unique_fingerprints"] = len({
-            str(row.get("finding_fingerprint"))
-            for row in raw
-            if row.get("finding_fingerprint")
-        })
         counts["ai_consensus_true_positive"] = sum(
             row.get("source_type") == "ai_consensus"
             and row.get("verdict") == "true_positive"

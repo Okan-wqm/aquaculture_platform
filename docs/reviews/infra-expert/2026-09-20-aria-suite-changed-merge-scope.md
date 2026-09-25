@@ -79,7 +79,7 @@ pass unchanged.
 
 Found by watching my own push land. The push edited
 `aria-kernel/tests/invariants/v13/test_phase_v13_e_grant_vault_campaign.py` — adding the
-regression test for ARIA-HIGH-181 — and the gate selected 15 modules, none of them that one:
+regression test for ARIA-HIGH-186 — and the gate selected 15 modules, none of them that one:
 
     aria-suite-changed: 3 ARIA-surface file(s) changed since origin/claude/...;
       running 15 affected test module(s): test_adapter_fixture_evidence_contract.py, ...
@@ -118,11 +118,11 @@ was verified.
 
 **Not fixed in this cycle,** deliberately. Both causes are one-line-ish changes in files this PR
 already touches, and I could land them. I am not doing so because this PR is a design-system
-change that has already absorbed two ARIA-infrastructure detours (PROC-MEDIUM-033, ARIA-HIGH-181),
+change that has already absorbed two ARIA-infrastructure detours (PROC-MEDIUM-033, ARIA-HIGH-186),
 each of which was blocking; this one is not blocking and CI covers the gap. It gets an owner, a
 deadline and this ID instead of a third unrelated commit.
 
-### ARIA-HIGH-181 — the signing-backend probe propagates instead of answering
+### ARIA-HIGH-186 — the signing-backend probe propagates instead of answering
 
 > Raised as ARIA-HIGH-180 and re-allocated. `main` had allocated a different
 > ARIA-HIGH-180 in parallel (the Z.ai/Codex `convergence_id` finding), and the
@@ -207,7 +207,23 @@ invisible and the finding would have looked tracked while being gone.
 The trailer cannot be repaired — the gate reads the commit range, and the
 force-push ban rules out amending — so `17547fb7` is allowlisted in
 `commit-msg-validator.ts`, with that reasoning recorded there rather than here.
-The finding is re-allocated as **ARIA-HIGH-181**, unchanged in content.
+The finding is re-allocated as **ARIA-HIGH-186**, unchanged in content.
+
+**It happened a second time, 2026-09-25.** The prediction below was written on the
+20th; on the 21st a merge of main into this branch — `3938c98ff`, made outside the
+recipe — resolved the registry by id and dropped main's `ARIA-HIGH-181` and
+`ARIA-HIGH-182` rows, both `RESOLVED` with closing commits already on main. Exactly
+the silent loss this section describes, in the opposite direction: the first time
+this branch's row vanished, the second time main's two did. They are restored by
+the 2026-09-25 merge, which re-appends onto main's chain whole.
+
+The re-allocation therefore moves again, `ARIA-HIGH-181` → **`ARIA-HIGH-186`** —
+main's ARIA lane had allocated 181 and 182 for its own findings while this branch
+held them, and its rows are the ones with merged closers, so main keeps the
+sequences. `565a3a971`'s trailer still names `ARIA-HIGH-181`, which is now a live
+id belonging to main's plan-synthesizer finding with a different review file: the
+alias sidecar cannot carry it (rule 2 — an alias may not shadow a real ledger id)
+and the force-push ban rules out amending. The same dead end as `d6eeb1cf`.
 
 **Fix (not this cycle):** detection is the cheap half. `add` can refuse an id
 already present in `origin/main`'s chain, which turns the collision into a

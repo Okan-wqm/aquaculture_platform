@@ -406,7 +406,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // registry kept main's. The trailer then pointed at a finding whose review
   // file is someone else's, which is the exact error the gate reported.
   //
-  // The finding itself is NOT lost: re-allocated as ARIA-HIGH-181, same
+  // The finding itself is NOT lost: re-allocated as ARIA-HIGH-186, same
   // content, and the review heading and both code citations moved with it.
   // The collision is tracked on its own — two branches can be handed the same
   // id, and the merge recipe loses one of them without saying so.

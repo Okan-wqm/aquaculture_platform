@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `5f70406ce1bbd6c3e532bcd331b4b8755cd86c12cb0995a42b9eb382d27ec614`
+Registry tip: `979f63acb1cd426f69336c8215f93381630a17cce2eba50066561b1c4bf997d9`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -219,11 +219,11 @@ Allowed truth buckets:
 | Finding               | Registry state | First sprint | Owner                      | Truth bucket              |
 | --------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
 | `INFRA-CRITICAL-029`  | OPEN           | 1.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-040` | IN-PROGRESS | 1.1 | data-expert | real-open |
+| `INFRA-CRITICAL-040`  | IN-PROGRESS    | —            | infra-expert               | blocked                   |
 | `INFRA-CRITICAL-044`  | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-238` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-077` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-078` | IN-PROGRESS | 1.1 | data-expert | real-open |
+| `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
 | `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
@@ -233,16 +233,16 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
-| `INFRA-CRITICAL-080` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-081` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-083` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-085` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-090` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-093` | IN-PROGRESS | 1.1 | data-expert | real-open |
-| `INFRA-CRITICAL-095` | IN-PROGRESS | 1.1 | data-expert | real-open |
+| `INFRA-CRITICAL-080`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-083`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-085`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-100` | IN-PROGRESS | 1.1 | data-expert | real-open |
+| `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |

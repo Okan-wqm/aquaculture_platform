@@ -136,8 +136,17 @@ class CompactionStoreTestCase(unittest.TestCase):
 
     def _record(self, cycle_id: str, run_id: str, *, findings: int = 2) -> dict:
         base = _run(run_id=run_id, cycle_id=cycle_id)
+        # Each row is a distinct finding identity (ARIA-HIGH-185): the
+        # fingerprint hashes rule/path/evidence/message, not the id, so
+        # same-content rows across runs would collapse to one row under
+        # the raw-findings compactor and these attestation counts would
+        # measure the collapse instead of the stripping.
         raw = [
-            {**base["raw_findings"][0], "id": f"{run_id}-finding-{index}"}
+            {
+                **base["raw_findings"][0],
+                "id": f"{run_id}-finding-{index}",
+                "message": f"runtime artifact test {run_id}-{index}",
+            }
             for index in range(findings)
         ]
         base["raw_findings"] = raw

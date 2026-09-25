@@ -52,7 +52,7 @@ def _backend() -> Any:
     # backend_available(), "... not installed — grant lane is fail-closed here")` at
     # import time: the guard written for this exact case could not run. Observed under
     # full-suite discovery on 2026-09-20 with Debian's cryptography 41.0.7 (built for
-    # python3.12) imported by python3.11. ARIA-HIGH-181.
+    # python3.12) imported by python3.11. ARIA-HIGH-186.
     try:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ed25519

@@ -253,7 +253,7 @@ class SigningBackendProbeIsTotal(unittest.TestCase):
     docstring promises the lane "fails closed instead of degrading to an unsigned
     grant"; a probe that raises cannot deliver that, and it took this module and
     test_phase_v13_f down at IMPORT time — the `skipUnless` guard written for
-    exactly this case never got to run. ARIA-HIGH-181.
+    exactly this case never got to run. ARIA-HIGH-186.
     """
 
     class _SimulatedPanic(BaseException):

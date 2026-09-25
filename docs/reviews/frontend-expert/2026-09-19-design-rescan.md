@@ -660,7 +660,7 @@ the exact audit theatre the traceability rule exists to prevent. Candidate fixes
 declares itself a PARENT only a reconcile over its children may close, or a `Progresses:` trailer so
 incremental work has an honest one to use.
 
-### ARIA-HIGH-182 — six dormancy waivers shared one expiry and lapsed together
+### ARIA-HIGH-187 — six dormancy waivers shared one expiry and lapsed together
 
 **Severity:** HIGH · **Owner:** @okan-wqm · **Deadline:** 2026-10-31
 
@@ -678,17 +678,33 @@ each waiver an owner, a reason and an id. That did not address the _clustering_,
 waivers promptly rebuilt it. A cliff turns a per-control review prompt into a repo-wide outage.
 
 Unblocked by staggering the six across three dates chosen by what each actually waits on, not by
-moving them as a block. The outage is closed; **ARIA-MEDIUM-183 carries the prevention**, because
+moving them as a block. The outage is closed; **ARIA-MEDIUM-188 carries the prevention**, because
 staggering is a mitigation and nothing yet stops the next batch from sharing a date.
 
-### ARIA-MEDIUM-183 — nothing stops waivers from sharing an expiry date
+**Renumbered 2026-09-25, 182 → 187.** Raised here as `ARIA-HIGH-182`, the next free
+ARIA sequence when this branch appended it. Main's ARIA lane had allocated 182 to a
+different finding — a native dispatch that wrote no drain summary — and landed it
+with a closing commit, so main keeps the sequence and this row moves. `dbc831b69`'s
+`Closes:` trailer still names `ARIA-HIGH-182`; that id is live on main under a
+different review file, so the alias sidecar cannot carry it and the force-push ban
+rules out amending the trailer. See the infra-expert 2026-09-20 review for the same
+dead end hit in the other direction.
+
+### ARIA-MEDIUM-188 — nothing stops waivers from sharing an expiry date
 
 **Severity:** MEDIUM · **Owner:** @okan-wqm · **Deadline:** 2026-11-30
 
 `test_control_reachability` enforces that every waiver names an owner, a reason, a deadline and a
 finding id, and that the deadline is checked against the clock rather than a regex. It does not
 constrain the _relationship between_ deadlines, so six waivers written in one sitting shared one
-date and turned a per-control review prompt into a repo-wide outage (ARIA-HIGH-182).
+date and turned a per-control review prompt into a repo-wide outage (ARIA-HIGH-187).
+
+**Confirmed on main, four days later.** Main fixed the same outage independently in
+PR #1663 (`d85679a62`) by renewing all six waivers to one shared `2026-10-20`. That
+is the cliff rebuilt a third time, on main, by people who had just been woken by it
+— which settles the argument that per-waiver authorship is enough. Nothing in the
+gate objected, because nothing in the gate can see the relationship between two
+deadlines. This branch's staggering supersedes that renewal in the merge.
 
 This is the second occurrence of one pattern — the first was the twenty-five TypeScript waivers the
 test's own docblock records — and the fix applied then (owner + reason + id per waiver) addressed

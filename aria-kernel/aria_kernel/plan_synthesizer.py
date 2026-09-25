@@ -85,7 +85,6 @@ _REQUIRED_FIELDS = (
 _MAX_AFFECTED_SURFACES = 100
 _MAX_KEY_CHANGES = 50
 _MAX_EVIDENCE_REFS = 10
-_MAX_SNIPPET_CHARS = 200
 
 
 class PlanSynthesizer(Protocol):
@@ -338,8 +337,8 @@ def _collect_evidence_refs(
         abs_path = workspace_root / path
         if not abs_path.exists() or not abs_path.is_file():
             continue
-        # Primary path — extract from git diff hunks. Each ref carries a
-        # snippet of the changed line so operators can spot-check intent.
+        # Primary path — extract from git diff hunks, one `path:line` ref per
+        # added line.
         hunk_refs = _evidence_refs_from_hunks(
             workspace_root=workspace_root,
             path=path,
@@ -364,8 +363,10 @@ def _collect_evidence_refs(
                 continue
             if stripped.startswith(("//", "#", "/*", "*", "--", '"""', "'''")):
                 continue
-            snippet = stripped[:_MAX_SNIPPET_CHARS]
-            refs.append(f"{path}:{line_no}:{snippet}")
+            # ARIA-HIGH-195 — `path:line`, the one evidence-ref grammar
+            # (evidence_trust.EVIDENCE_REF_RE); a trailing snippet made the
+            # plan's own evidence unresolvable.
+            refs.append(f"{path}:{line_no}")
             break
     return refs
 
@@ -382,7 +383,7 @@ def _evidence_refs_from_hunks(
 ) -> list[str]:
     """Parse `git diff` hunks for ``path`` and emit one ref per changed line.
 
-    Returns up to ``remaining`` refs of shape ``path:line:snippet``,
+    Returns up to ``remaining`` refs of shape ``path:line`` (ARIA-HIGH-195),
     where each line is one that was ADDED or CONTEXT in the new file
     (we skip pure-deletion hunks because the line no longer exists
     in the working tree — `Path.exists()` would resolve but the
@@ -419,9 +420,8 @@ def _evidence_refs_from_hunks(
         if diff_line.startswith("+++") or diff_line.startswith("---"):
             continue
         if diff_line.startswith("+"):
-            snippet = diff_line[1:].strip()[:_MAX_SNIPPET_CHARS]
-            if snippet:
-                refs.append(f"{path}:{current_new_line}:{snippet}")
+            if diff_line[1:].strip():
+                refs.append(f"{path}:{current_new_line}")
             current_new_line += 1
         elif diff_line.startswith("-"):
             # Deletion — no new-file line consumed.

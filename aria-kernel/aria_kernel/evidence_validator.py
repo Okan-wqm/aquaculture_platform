@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 from .evidence_probe import GitProbeSession
-from .evidence_trust import EvidencePolicy, classify_evidence_ref
+from .evidence_trust import EVIDENCE_REF_RE, EvidencePolicy, classify_evidence_ref, parse_evidence_ref
 from .canonical_path import lexical_repo_path
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations
 from .tool_registry import GovernanceError
@@ -13,39 +12,13 @@ from .snapshot import snapshot_allowed_set
 from .ledger import load_declared_jsonl
 
 
-# Plan 016 Faz C7 — agent response evidence revalidation regex.
-# Why a separate path-parser: agent envelopes ship refs as plain strings
-# ("apps/foo.ts:42") whereas tool output uses {path, line} dicts. We keep
-# the existing dict-based validator unchanged for backward compatibility
-# and add a string-aware revalidator below.
-#
-# ORPHAN-HIGH-081 (2026-05-18) — the previous pattern
-#     ^(?P<path>[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?)(?::(?P<line>\d+))?$
-# was a textbook catastrophic-backtracking shape: `[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?`
-# reduces to `X+(X+)*?` with the same character class repeated in overlapping
-# groups. On any rejected input (e.g. plan_synthesizer's `path:line:content`
-# format, which adds a SECOND colon the regex never expected), the engine
-# explores 2^N partitions of the path before failing. Benchmarked: a 29-char
-# rejected input exceeds 2 seconds; a 49-char rejected input (typical kernel
-# paths) burns ~120 seconds at 100% CPU — exactly the submit_claim_result
-# hang observed during V8 verification.
-#
-# The replacement below matches the canonical evidence-ref languages
-# (path | path:line | path:line:content) with no overlapping
-# quantifiers. Worst-case time stays linear in input length even for
-# pathological inputs that the pre-V8.3 ReDoS pattern hung on.
-#
-# Plan ARIA-V8.6 — accept the third `path:line:content` form. The
-# `plan_synthesizer` (V7.9) emits evidence_refs as
-# `path:line:<excerpt>` triplets so operators can spot-check the
-# claimed line text without opening every file. The pre-V8.6 regex
-# rejected those refs as malformed because it only allowed the
-# 2-part `path:line` form, so the agent's response evidence_refs
-# (which echo the request's refs) hit `agent_evidence_ref_malformed`
-# at the kernel validator. The `(?::.*)?` clause captures the
-# trailing `:<excerpt>` non-greedily without backtracking risk
-# (atomic alternation; the path group is anchored by `[^\s:]+`).
-_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+)(?::.*)?)?$")
+# Plan 016 Faz C7 — agent envelopes ship refs as plain strings
+# ("apps/foo.ts:42") whereas tool output uses {path, line} dicts.
+# ORPHAN-HIGH-081 / V8.6 / ARIA-HIGH-195 — the string grammar and its
+# linear-time regex live in evidence_trust (EVIDENCE_REF_RE), the module that
+# grades the ref; a second copy here is how the validator came to admit a
+# triplet the classifier rejected.
+_AGENT_REF_RE = EVIDENCE_REF_RE
 
 
 # An unverified ref is rejected under a code that says WHOSE gap it is. Three
@@ -341,11 +314,7 @@ def validate_evidence_path(
 
 def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
     """Parse a string ref like 'path/to/file.ts:42' into (path, line) or None on malformed input."""
-    match = _AGENT_REF_RE.match(ref.strip())
-    if not match:
-        return None
-    line = match.group("line")
-    return match.group("path"), int(line) if line is not None else None
+    return parse_evidence_ref(ref)
 
 
 # Plan 026R §E.5 — canonical-resolve helper promoted to the

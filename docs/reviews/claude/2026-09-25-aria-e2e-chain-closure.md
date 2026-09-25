@@ -117,6 +117,16 @@ under the change id.
 `acknowledge=True`, and its default `allowed_scope` is the read-only kernel (`:176-177`). There is
 no autonomous path from CONVERGED to dispatch, even for a plan whose every path is L1.
 
+Re-assessed during implementation: the premise does not hold for the chain. CONVERGED already
+reaches implementation autonomously — `autonomy_orchestrator` calls `v9_implementation_runner.run`
+after convergence, and `select_v9_implementation_runner` picks `AutonomousV9ImplementationRunner`
+for every profile holding `pr_create` (`strict`, `autonomous`), which stages the plan and mints the
+implementer envelope with `allowed_scope` = the plan's surfaces minus `READONLY_PATHS`. The
+operator-only `promote_converged_plan_to_dispatch` serves the separate `aria-worker` dispatch lane.
+A second autonomous promotion path would widen authority without need; none is built. The chain
+needs a `pr_create` profile (operator step O2); the L1 boundary is enforced at merge
+(ARIA-HIGH-187).
+
 ## ARIA-HIGH-198 — Runner attestation cannot be true for the runner that merges
 
 `.github/actions/probe-runner-attestation` requires `tools-dir`, `runner-group`, `ephemeral` and

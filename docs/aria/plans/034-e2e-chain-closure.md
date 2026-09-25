@@ -63,7 +63,7 @@ girer (`tool_runner.py:198,214` → `can_emit_operator_facing`), consensus ACK'i
 | 11  | panel principal = `ci-executor:gha-<RUN_ID>`                                                                                                              | BOZUK → ARIA-HIGH-193                                                                                                                                                                                                               |
 | 12  | HUMAN_REQUIRED panel oyu okunamıyor                                                                                                                       | BOZUK → **ARIA-HIGH-097** (açık)                                                                                                                                                                                                    |
 | 13  | native Claude exit-1 nedeni kayboluyor                                                                                                                    | BOZUK (gözlem) → ARIA-HIGH-188                                                                                                                                                                                                      |
-| 14  | CONVERGED → dispatch terfisi                                                                                                                              | EKSİK → ARIA-HIGH-197                                                                                                                                                                                                               |
+| 14  | CONVERGED → uygulama (V9 implementer)                                                                                                                     | ÇALIŞIYOR (`pr_create` profilinde; O2) — ARIA-HIGH-197 yeniden değerlendirildi                                                                                                                                                      |
 | 15  | V9 implementer PR açar                                                                                                                                    | O2 (profil) sonrası ÇALIŞIYOR                                                                                                                                                                                                       |
 | 16  | `change_committed` (`implementation_delivery.py:790`)                                                                                                     | ÇALIŞIYOR                                                                                                                                                                                                                           |
 | 17  | `change_validated`                                                                                                                                        | EKSİK → ARIA-HIGH-196                                                                                                                                                                                                               |
@@ -158,11 +158,16 @@ tarihler 2026-10-09 / 10-16 / 10-23).
   gramerinde (`path:line`, snippet ayrı alan); `_AGENT_REF_RE` (`evidence_validator.py:47`)
   `path[:line]`'a döner. Test: sentez planın refleri `repo_verified`;
   `test_phase_v8_0_regex_redos.py` güncellenir.
-- **PR 11 · ARIA-HIGH-197.** `promotion_controller.autonomous_l1_promotion(plan)`: tüm dokunulan
-  yollar `classify_change` → L1 **ve** panel principal-disjoint **ve**
-  `assert_autonomy_unlocked("L1")` → terfi; `allowed_scope` = planın L1 yol kümesi
-  (`verify_change_scope` ile commit'te zorlanır). Operatör yolu diğer her şey için aynen kalır.
-  Test: L1 terfi; tek L2 yol → red; kilitli merdiven → red.
+- **PR 11 · ARIA-HIGH-197 — yeniden değerlendirildi, kod yok.** Uygulama sırasında okunan kod öncülü
+  yanlışlıyor: CONVERGED → uygulama zaten otonom. `autonomy_orchestrator.run_autonomy_orchestrator`
+  CONVERGED sonrası `v9_implementation_runner.run(...)` çağırır; `select_v9_implementation_runner`
+  `pr_create` yetkili her profilde (`strict`, `autonomous`) `AutonomousV9ImplementationRunner`
+  seçer; o da `stage_converged_plan_for_pr` + `issue_implementation_envelope` ile implementer
+  zarfını basar (`allowed_scope` = planın `affected_surfaces` − `READONLY_PATHS`; `docs/**` dahil).
+  Operatör komutu isteyen `promote_converged_plan_to_dispatch` ayrı `aria-worker` şerididir, L1
+  zincirinin yolunda değildir. İkinci bir otonom terfi yolu yetkiyi gereksiz genişletirdi;
+  yapılmadı. L1 sınırını merge otoritesi (PR 2 risk sınıflandırması) uygular. Zincir için gereken
+  tek şey profilin `pr_create` taşımasıdır (operatör adımı O2).
 
 ### Faz D — Doğrulama ve merge
 
@@ -251,9 +256,9 @@ test-target-ci-reachability) · banned-phrase + banned-construct gate (range) ·
 `npx tsx tools/gates/aria-authority-hash.ts --write` (docs/aria değişirse).
 
 **Mock E2E (PR 14 sonrası):** geçici tools dir, tek ACTIVE doc-staleness bulgusu, `ci_executor` mock
-→ sırasıyla: principal-disjoint CONVERGED plan; PR 11 terfisi; committed + validated; sahte adapter
-ile `merged`; enjekte atfedilebilir kırmızı → tek saf revert + freeze satırı; donukken ikinci PR
-red, revert PR kabul.
+→ sırasıyla: principal-disjoint CONVERGED plan; V9 implementer zarfı; committed + validated; sahte
+adapter ile `merged`; enjekte atfedilebilir kırmızı → tek saf revert + freeze satırı; donukken
+ikinci PR red, revert PR kabul.
 
 **İlk canlı E2E başarı ölçütü** (`git show origin/aria/state:tools/…`): doc-staleness
 `findings.jsonl` satırı · CONVERGED plan · change_id için committed + validated ·

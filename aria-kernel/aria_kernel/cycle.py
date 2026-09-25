@@ -1129,12 +1129,23 @@ def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
     identity and roots.
     """
     from .change_outcome import evaluate_change_outcomes
+    from .self_revert import TRIGGER_CHANGE_OUTCOME, run_self_revert_producer
 
-    return evaluate_change_outcomes(
+    evaluation = evaluate_change_outcomes(
         context.workspace_root,
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
     )
+    # ARIA-HIGH-199 — a `regression` verdict on a change ARIA merged is the
+    # second revert trigger, read from the outcome ledger this phase writes.
+    evaluation["self_revert"] = run_self_revert_producer(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
+        reader=None,
+        triggers=(TRIGGER_CHANGE_OUTCOME,),
+    )
+    return evaluation
 
 
 def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
@@ -1458,6 +1469,20 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
         reader=reader,
+    )
+    # ARIA-HIGH-199 — a red that is ARIA's own (an ARIA merge, attributable
+    # because every red job was green on the merge's parent) is no longer
+    # only pressure: self-merge is frozen and the pure revert is opened.
+    # The producer reads the rows the scan above just wrote, with the same
+    # reader, and respects the profile past the freeze.
+    from .self_revert import TRIGGER_POST_MERGE_CI, run_self_revert_producer
+
+    scan_result["self_revert"] = run_self_revert_producer(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
+        reader=reader,
+        triggers=(TRIGGER_POST_MERGE_CI,),
     )
     # ORPHAN-723 — read-only repo PR weather (Dependabot + developer
     # branches included). Observation only; third-party action authority

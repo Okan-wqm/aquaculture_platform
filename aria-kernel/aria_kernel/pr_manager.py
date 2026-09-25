@@ -13,6 +13,7 @@ from .canonical_path import normalize_repo_relpath
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
     HardFailContext,
+    HardFailReport,
     observe_perimeter,
     run_hard_fail_checks,
 )
@@ -212,6 +213,8 @@ def build_pr_body(
 
 
 ARIA_PR_BASE = "main"
+# ARIA-HIGH-199 — the one branch namespace `open_revert_pr` admits.
+REVERT_BRANCH_PREFIX = "aria/revert/"
 
 
 def open_pr_for_action(
@@ -456,16 +459,7 @@ def open_pr_for_action(
             )
         perimeter_summary: dict[str, Any] | None = observation.summary
     else:
-        hard_fail_report = run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN)
-        if not hard_fail_report.passed:
-            raise GovernanceError(
-                PERIMETER_REFUSED_PREFIX
-                + ": "
-                + "; ".join(
-                    f"{failure.name}:{failure.reason}"
-                    for failure in hard_fail_report.failures
-                )
-            )
+        _raise_if_perimeter_refused(run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN))
         perimeter_summary = None
 
     payload = {
@@ -505,6 +499,65 @@ def open_pr_for_action(
         # head_sha / base_branch but drops base_sha.
         row["base_sha"] = payload.get("base_sha")
         return row
+    return _create_pull_request(
+        payload=payload,
+        branch=branch,
+        title=str(proposal.get("title")),
+        body=body,
+        workspace_path=workspace_path,
+        effect_request_id=_effect_request_id(proposal_id, request_id),
+        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
+        command_environment=command_environment,
+        base_dir=base_dir,
+        assignment_id=assignment_id,
+    )
+
+
+# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
+# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
+# end-of-string), so a `gh pr create` stdout that adds a newline or
+# diagnostic line still parses cleanly.
+_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
+
+
+def _raise_if_perimeter_refused(hard_fail_report: HardFailReport) -> None:
+    """Refuse by name when the live pre-PR-open perimeter did not pass.
+
+    Every opener in this module runs ``run_hard_fail_checks`` itself (the
+    callsite is pinned per opener) and hands the report here, so a PR ARIA
+    opens for a proposal and the revert PR the self-revert producer opens
+    are refused with the same prefix (``PERIMETER_REFUSED_PREFIX``).
+    """
+    if not hard_fail_report.passed:
+        raise GovernanceError(
+            PERIMETER_REFUSED_PREFIX
+            + ": "
+            + "; ".join(
+                f"{failure.name}:{failure.reason}"
+                for failure in hard_fail_report.failures
+            )
+        )
+
+
+def _create_pull_request(
+    *,
+    payload: dict[str, Any],
+    branch: str,
+    title: str,
+    body: str,
+    workspace_path: Path,
+    effect_request_id: str,
+    intended_postcondition: dict[str, Any],
+    command_environment: Mapping[str, str] | None,
+    base_dir: str | Path | None,
+    assignment_id: str | None,
+) -> dict[str, Any]:
+    """The ONE ``gh pr create`` this kernel runs, bracketed by intent and receipt.
+
+    Called only after the caller's own authority checks and the perimeter
+    have passed. ``payload`` becomes the ``opened`` pr-lifecycle row — the
+    row whose ``change_id`` the merge authority's triple gate joins on.
+    """
     # Plan 023 v3 §P-3 — `--head <branch>` always passed. Pre-fix gh
     # inferred the branch from the current checkout, which could be
     # wrong (the gate may have run on a different worktree than the
@@ -514,10 +567,9 @@ def open_pr_for_action(
     # recovery classifier asks GitHub about instead of opening a second PR.
     from .recovery import record_intent, record_receipt
 
-    effect_request_id = _effect_request_id(proposal_id, request_id)
     intent = record_intent(
         request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
-        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
+        intended_postcondition=intended_postcondition,
         base_dir=base_dir,
     )
     try:
@@ -526,7 +578,7 @@ def open_pr_for_action(
                 "gh", "pr", "create",
                 "--base", ARIA_PR_BASE,
                 "--head", branch,
-                "--title", str(proposal.get("title")),
+                "--title", title,
                 "--body", body,
             ],
             cwd=workspace_path,
@@ -589,11 +641,95 @@ def open_pr_for_action(
     return opened
 
 
-# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
-# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
-# end-of-string), so a `gh pr create` stdout that adds a newline or
-# diagnostic line still parses cleanly.
-_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
+def open_revert_pr(
+    *,
+    workspace_root: str | Path,
+    branch: str,
+    base_sha: str,
+    title: str,
+    body: str,
+    change_id: str,
+    changed_files: list[str],
+    validation_commands: list[str],
+    request_id: str,
+    base_dir: str | Path | None = None,
+    command_environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-199 — open the revert of an ARIA merge, and nothing else.
+
+    A revert has no proposal: it is not a remediation anyone planned but
+    the inverse of a merge that went bad, produced by
+    ``self_revert.run_self_revert_producer`` with its purity proven. It is
+    opened under the same authority and through the same boundary as
+    ``open_pr_for_action``: the ``pr_create`` profile gate, the base-branch
+    guard, the full live pre-PR-open perimeter, the change-id anchor the
+    merge authority's triple gate joins on, and the one intent/receipt-
+    bracketed ``gh pr create``. Only ``aria/revert/*`` branches are
+    admitted here, so this opener cannot carry an ordinary change past the
+    proposal-approval checks ``open_pr_for_action`` makes.
+    """
+    if not change_id or not change_id.strip():
+        raise GovernanceError("open_revert_pr_change_id_required")
+    if not branch.startswith(REVERT_BRANCH_PREFIX):
+        raise GovernanceError(f"open_revert_pr_branch_not_a_revert:{branch!r}")
+    enforce_profile_for_action("pr_create", base_dir=base_dir)
+    workspace_path = Path(workspace_root).resolve()
+    rev_completed = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}"],
+        cwd=workspace_path, capture_output=True, text=True, check=False,
+    )
+    head_sha = (rev_completed.stdout or "").strip()
+    if rev_completed.returncode != 0 or not head_sha:
+        raise GovernanceError(
+            f"open_pr_head_sha_unresolvable: {branch!r}: {(rev_completed.stderr or '').strip()!r}"
+        )
+    _validate_pr_body(body)
+    perimeter_context = HardFailContext(
+        workspace_root=workspace_path,
+        diff_text=_diff_text_for_action(workspace_path=workspace_path, base_sha=base_sha, head_sha=head_sha),
+        envelope={"affected_surfaces": list(changed_files)},
+        affected_paths=tuple(changed_files),
+        validation_commands=tuple(validation_commands),
+        base_branch=ARIA_PR_BASE,
+        pr_body=body,
+        # A revert's commit is git's own `Revert "<subject>"`; no plan origin
+        # derives a trailer for it, so the commit-msg gate judges it.
+        commit_contract=None,
+        branch_commits=_branch_commits_for_action(
+            workspace_path=workspace_path, base_sha=base_sha, head_sha=head_sha,
+        ),
+    )
+    _raise_if_perimeter_refused(run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN))
+    payload: dict[str, Any] = {
+        "number": None,
+        "base_branch": ARIA_PR_BASE,
+        "head_sha": head_sha,
+        "base_sha": base_sha,
+        "branch": branch,
+        "task_id": None,
+        "proposal_id": None,
+        "assignment_id": None,
+        "change_id": change_id,
+        "changed_files": list(changed_files),
+        "title": title,
+        "body": body,
+        "dry_run": False,
+        "perimeter_observation": None,
+    }
+    return _create_pull_request(
+        payload=payload,
+        branch=branch,
+        title=title,
+        body=body,
+        workspace_path=workspace_path,
+        effect_request_id=request_id,
+        intended_postcondition={
+            "head_ref": branch, "base": ARIA_PR_BASE, "head_sha": head_sha, "change_id": change_id,
+        },
+        command_environment=command_environment,
+        base_dir=base_dir,
+        assignment_id=None,
+    )
 
 
 def prepare_branch(

@@ -139,8 +139,12 @@ DELIVERY_CREDENTIAL_ISSUED_EVENT = "delivery_credential_issued"
 # turn is spent. Never a spawn.
 DELIVERY_CREDENTIAL_CONSUMER = "executor_delivery"
 DELIVERY_CREDENTIAL_ADMISSION_CONSUMER = "executor_admission"
+# ARIA-HIGH-199 — the self-revert producer's push of `aria/revert/<sha12>`
+# and its `open_revert_pr`, inside the same hold, for the same window.
+DELIVERY_CREDENTIAL_SELF_REVERT_CONSUMER = "self_revert_delivery"
 DELIVERY_CREDENTIAL_CONSUMERS: tuple[str, ...] = (
     DELIVERY_CREDENTIAL_ADMISSION_CONSUMER, DELIVERY_CREDENTIAL_CONSUMER,
+    DELIVERY_CREDENTIAL_SELF_REVERT_CONSUMER,
 )
 DELIVERY_CREDENTIAL_ADMITTED_EVENT = "delivery_credential_admitted"
 DELIVERY_CREDENTIAL_REVOKED_EVENT = "delivery_credential_revoked"

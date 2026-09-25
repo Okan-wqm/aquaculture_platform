@@ -1689,6 +1689,15 @@ def alias_factory(root):
                 ),
             },
             "recovery_safety": {
+                # ARIA-HIGH-199 — the self-revert producer reads the merge
+                # decisions to know which merges ARIA made (and may revert);
+                # it never authorizes a merge from them.
+                (
+                    "pre_merge_perimeter",
+                    "auto_merge_decisions",
+                    f"{KERNEL}self_revert.py",
+                    "consumer",
+                ),
                 (
                     "executor",
                     "agent_invocation_results",

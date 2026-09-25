@@ -563,6 +563,32 @@ def list_validation_runs_for_change(
     ]
 
 
+def refs_for_change(
+    change_id: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """The structured validation refs a change's recorded runs attest.
+
+    ARIA-HIGH-196 — THE mapping from this ledger to the
+    ``{cmd, exit_code, log_path, ran_at}`` refs ``emit_change_validated`` and
+    the validation matrix take. Only rows the single writer stamped ``ok``
+    are pass evidence (ORPHAN-696); candidate refs come from the ledger,
+    never from a caller's list. The matrix CLI and implementation delivery
+    both read it, so the two cannot attest different runs.
+    """
+    return [
+        {
+            "cmd": row.get("cmd"),
+            "exit_code": row.get("exit_code"),
+            "log_path": row.get("log_path"),
+            "ran_at": row.get("recorded_at"),
+        }
+        for row in list_validation_runs_for_change(change_id, base_dir=base_dir)
+        if row.get("status") == "ok"
+    ]
+
+
 __all__ = [
     "VALIDATION_RUNS_FILENAME",
     "VALIDATION_RUN_SCHEMA",
@@ -573,6 +599,7 @@ __all__ = [
     "find_validation_run_by_id",
     "list_validation_runs",
     "list_validation_runs_for_change",
+    "refs_for_change",
     "record_validation_run",
     "validation_run_duration_ms",
     "validation_runs_path",

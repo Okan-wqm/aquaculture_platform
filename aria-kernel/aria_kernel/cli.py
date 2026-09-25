@@ -3703,18 +3703,9 @@ def _main(argv: list[str] | None = None) -> int:
         # operator typed. Only rows the single writer stamped `ok` qualify
         # as pass evidence; the gate still decides whether the required
         # commands are among them.
-        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+        from aria_kernel.validation_runs_ledger import refs_for_change
 
-        candidate_refs = [
-            {
-                "cmd": row.get("cmd"),
-                "exit_code": row.get("exit_code"),
-                "log_path": row.get("log_path"),
-                "ran_at": row.get("recorded_at"),
-            }
-            for row in list_validation_runs_for_change(args.change_id, base_dir=args.tools_dir)
-            if row.get("status") == "ok"
-        ]
+        candidate_refs = refs_for_change(args.change_id, base_dir=args.tools_dir)
         try:
             result = enforce_validation_matrix(
                 change_id=args.change_id,

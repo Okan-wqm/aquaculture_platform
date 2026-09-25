@@ -32,7 +32,7 @@
 │  3. PLAN YAKINSAMA              (plan_convergence.py + convergence_drainer)   │
 │     primary ↔ challenger ↔ çapraz inceleme (≤5 tur) → CONVERGED              │
 └──────────────┬──────────────────────────────────────────────────────────────┘
-               ▼  promotion_controller: WIP kapısı + kanıt bütünlüğü
+               ▼  promotion_controller: WIP kapısı + kanıt bütünlüğü (yalnız operatör CLI'ı, acknowledge=True)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  4. İŞ DAĞITIMI                 (worker_dispatch.py)                          │
 │     assignment + git worktree izolasyonu · lease/claim protokolü              │
@@ -175,7 +175,7 @@ stateDiagram-v2
 
 **Terfi** `promotion_controller.promote_converged_plan_to_dispatch` — kapılar: WIP slotu (dispatch + mission), plan CONVERGED, `converged_plan_hash`, `base_sha`, etki/doğrulama referansları, kanıt-artefakt taşıyan döngü → geçerse `aria/dispatch-request/v2` satırı yazar.
 
-> **2026-09-25 tam okuma notu:** **Gece yolu en fazla 2 tur koşuyor, 5 değil:** workflow `--max-rounds` vermiyor, CLI varsayılanı 2, challenger timeout'u 300 s (`cli.py:2377-2388`). Yakınsama tek cycle içinde değil, cycle'lar arasında adım adım ilerliyor. `advance_plan_rounds` yalnız CLI'dan çağrılıyor; `remint_of` üretimde yok, ölü zarf doğrudan HUMAN_REQUIRED'a gidiyor. Collusion kontrolü `_results_pair_hash_check` yalnız testten çağrılıyor. Terfi (`promotion_controller`) yalnız operatör CLI'ı ve `acknowledge=True` ile oluyor. Canlı: 15 plan başladı, 12'si terk edildi (hepsi 72 s durgunluk kuralı), **0 CONVERGED** (B02, B04, B07, B08). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** **Gece yolu en fazla 2 tur koşuyor, 5 değil:** workflow `--max-rounds` vermiyor, CLI varsayılanı 2, challenger timeout'u 300 s (`cli.py:2377-2388`). Yakınsama tek cycle içinde değil, cycle'lar arasında adım adım ilerliyor. `advance_plan_rounds` yalnız CLI'dan çağrılıyor; `remint_of` üretimde yok, ölü zarf doğrudan HUMAN_REQUIRED'a gidiyor. Terfi (`promotion_controller`) yalnız operatör CLI'ı ve `acknowledge=True` ile oluyor. Challenger timeout'u (300 s) drainer'ca yok sayılır (`convergence_drainer.py:569`). Collusion kontrolü yalnız testte. Canlı: 15 plan başladı, 12'si 72 **saat** durgunluk kuralıyla terk edildi (11'i 2026-08-16'daki tek yetim temizliğinde), 2'si round 1'de `convergence_envelope_dead:challenger_plan` ile HUMAN_REQUIRED, 1'i DRAFT; **0 CONVERGED** — neden 2 tur tavanı değil, hiçbir planın 1. turu geçememesi (challenger zarfı reddediliyor/yanıtsız). Standard profilde V9 implementer NoOp (B02, B04, B07, B08; V04, V07). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ---
 
@@ -201,7 +201,7 @@ flowchart TD
     R1 --> VG[verification_gate.verify_worker_result:<br/>worktree ulaşılabilir · head kaymadı ·<br/>diff hash eşleşti · trailer doğrulandı ·<br/>izinli komutlar geçti]
     VG -- geçti --> V[verified ✅]
     VG -- kaldı --> FV[verification_failed<br/>retry bütçesi: 3 → human_required]
-    V --> PR[PR açılır<br/>trailer: Closes-Pressure: id]
+    V --> PR[PR açılır<br/>trailer: Addresses-Pressure: id]
     C -.lease süresi doldu.-> REAP[reap_expired_assignment_claims<br/>requeue ≤ 2 → sonra human_required]
     V & FV -.terminal + 7 gün.-> PRUNE[prune_worktrees<br/>worktree silinir]
 ```
@@ -210,7 +210,7 @@ flowchart TD
 
 **Daemon ikizleri**: `autonomous_planner_dispatcher` (kuyruk: `agent-invocations/requests.jsonl`, executor: `ci_executor.py`) ve `autonomous_worker_scheduler` (kuyruk: `dispatch/requests.jsonl`, executor: `worker_executor.py`). Her tik: ARIA_STOP kontrolü → profil kapısı → hook → 30 sn uyku.
 
-> **2026-09-25 tam okuma notu:** Canlı: mission olayı 117 satır. 94 mission açıldı ve **hepsi DISCOVERED'da duruyor**; ileri taşıyan bir üretim yolu yok. Thompson banditi `source_type`/`source_kind` uyuşmazlığı yüzünden statik sıraya düşüyor. `prune_worktrees` hiçbir worktree budamıyor, çünkü reducer `completed/cancelled/expired` durumlarını üretmiyor. `worker_dispatch_hook`'taki merge dalı `{"decision":"blocked"}` literali. `verification_gate` komutları tam env ile ve sandbox'sız koşuyor (B07, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** Canlı: mission olayı 117 satır. 94 mission açıldı: **88'i DISCOVERED'da duruyor**, 6'sı SUPERSEDED (`producer_retired`); ileri taşıyan tek otomatik yol (PR'da `ARIA-Mission:` trailer'ı → merge) hiç tetiklenmedi. Seçim operatör `priority`'siyle (auth-service priority 0 → 28 kararın 27'si); Thompson banditi fiilen devre dışı. Worker dispatch yolu canlıda hiç koşmadı (aşağıdaki kusurlar latent). `prune_worktrees` hiçbir worktree budamıyor, çünkü reducer `completed/cancelled/expired` durumlarını üretmiyor. `worker_dispatch_hook`'taki merge dalı `{"decision":"blocked"}` literali. `verification_gate` komutları tam env ile ve sandbox'sız koşuyor (B07, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ---
 
@@ -221,10 +221,10 @@ flowchart TD
 ```mermaid
 flowchart TD
     K[çekirdek: create_agent_invocation_request<br/>agent_invocations.py:1182] --> EN[zarf: aria/agent-request/v1<br/>suggested_prompt · must_satisfy ·<br/>allowed/forbidden scope · evidence_refs]
-    EN --> PR[render_invocation_prompt v3<br/>Twin dilimi + bilgi + kanıt alıntıları<br/>&lt;untrusted_*&gt; etiketli · hash'e bağlı]
+    EN --> PR[render_invocation_prompt v6<br/>Twin dilimi + bilgi + kanıt alıntıları<br/>&lt;untrusted_*&gt; etiketli · hash'e bağlı]
     PR --> QR[agent-invocations/requests.jsonl]
     QR --> DM[daemon claim_request<br/>lease 1800s · heartbeat +1800s]
-    DM --> SP[alt süreç: ci_executor.py / worker_executor.py<br/>env: ARIA_LEASE_TOKEN + ARIA_CLAIM_METADATA]
+    DM --> SP[alt süreç: ci_executor.py / worker_executor.py<br/>env: ARIA_LEASE_TOKEN + ARIA_CLAIM_METADATA_FILE]
     SP --> CL[claude_runtime.run_claude_exec<br/>claude -p --output-format stream-json<br/>--model &lt;m&gt; --effort e · izin modu]
     SP --> CO[codex_runtime<br/>codex exec --json gpt-5.2-codex<br/>sandbox read-only/workspace-write]
     CL & CO --> FB[claude_runtime.run_with_model_fallback<br/>opus YAPRAK · model düşürme YOK (2026-09-12)<br/>kredi biterse ClaudeCreditExhausted → REQUEUED<br/>yalnız çapraz sağlayıcı AUTH failover opus↔glm-5.3]
@@ -233,7 +233,7 @@ flowchart TD
     SB --> BR[judgment_bridge → feedback_store<br/>ai_judge satırları → run_consensus]
     SB -.başarısız.-> FC[tipleşmiş hata sınıfları:<br/>ClaudeAuthFailure · ClaudeCreditExhausted ·<br/>ClaudePolicyViolation · subprocess_timeout]
     FC -->|api_backoff bitti| EO[EXTERNAL_OUTAGE<br/>30 dk sonra reaper]
-    FC -->|istek hatası| RQ[requeue ≤ 2 → STALE]
+    FC -->|istek hatası| RQ[requeue &gt; 2 → HUMAN_REQUIRED<br/>harness-sınıfı release bütçe yakmaz]
 ```
 
 **Sürüm ayak izi**: `ROLE_TARGET_PAIRING` rol-hedef eşlemesi (aria-primary-planner, aria-challenger-planner, aria-cross-reviewer, aria-implementer...); görev-ayrımı zorunlu (**uygulayıcı ≠ inceleyici**); claim anında zarfın hash bağını yeniden üretildiği doğrulanır (bütünlük).
@@ -242,7 +242,7 @@ flowchart TD
 
 **Twin** (`twin.py`): worktree değil, repo haritası — bağımlılık grafiği + TESTED_BY kenarları + churn + eş-değişim; `twin/map.json`, 400 komit sınırı. Zarf prompt'una kanıt referans yollarının dilimi render edilir.
 
-> **2026-09-25 tam okuma notu:** Requeue bütçesi aşılınca istek STALE'e değil HUMAN_REQUIRED'a gidiyor. Harness-sınıfı release'ler bütçe yakmıyor; canlıda 266 `native_runtime_execution_unavailable` ve 197 `claude_cli_exit_1` release var. 1.171 isteğin **610'u claim edilmeden `anchor_expired` ile düştü**. Prompt sürümü v6. Gerçek lease süresi yaklaşık 6.333 s. Egress kontrolü native rotada atlanıyor. Görev ayrımı (`forbidden_agent_ids`) yazan üretim kodu yok. `external_outage_reaper` ölü kod (B01, B05, B11). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** Requeue bütçesi aşılınca istek STALE'e değil HUMAN_REQUIRED'a gidiyor. Harness-sınıfı release'ler bütçe yakmıyor; canlıda 266 `native_runtime_execution_unavailable` ve 197 `claude_cli_exit_1` release var. 1.171 isteğin **610'u `anchor_expired` ile düştü** (525'i hiç claim edilmeden; 528'i Ağustos'taki 3 günlük pencere döneminde, pencere 2026-09-02'den beri 7 gün). Prompt sürümü v6. CI/drain yolunda gerçek lease yaklaşık 6.333 s; daemon yolunda 1.800 s ve executor 1.680 s'de öldürülür. Egress kontrolü native rotada atlanıyor. Görev ayrımı (`forbidden_agent_ids`) yazan üretim kodu yok. `external_outage_reaper` ölü kod (B01, B05, B11). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ---
 
@@ -298,7 +298,7 @@ flowchart TD
     M6 --> MD[(auto-merge-decisions.jsonl)]
     subgraph GUARDS[bekçi sistemleri]
         WD[aria_watchdog: 600sn olay yoksa stall ·<br/>tekrarlayan köprü uyarıları · 5xx oranı]
-        CB[circuit_breaker: 9 hata türü<br/>eşik 3 → autonomous yol kapanır]
+        CB[circuit_breaker: 9 hata türü<br/>5'inin üreticisi yok · breakers/ yayımlanmaz<br/>eşik 3 → autonomous yol kapanır]
         OG[oscillation_guard: ≥3 yeniden açılma<br/>→ human_required HIGH]
         QN[quarantine: kapsam ihlali · kendi çıktısını kanıt gösterme ·<br/>şema bozuk · sandbox kaçışı → inançlar yeniden doğrulanır]
     end
@@ -316,7 +316,7 @@ flowchart TD
 
 **Kanıt güven modeli** (`evidence_trust.py`): her referans notlanır — `repo_verified` (blob = `git show <sha>`), `repo_glob_verified` (yalnız inanç), `self_output` (ARIA'nın kendi çıktısı — yasak), `missing`, `invalid`. Bulgular mutlaka `repo_verified` olmalı.
 
-> **2026-09-25 tam okuma notu:** Merge'ü donduran kernel `aria_watchdog` değil; dış watchdog'un açtığı GitHub issue'su (`watchdog_freeze.py`). **Runner attestation hiç yazılamıyor:** workflow'lar `probe-runner-attestation`'a yalnız `tools-dir` veriyor, bu yüzden merge her seferinde `runner_attestation_required_for_merge` ile düşüyor. `change_validated` satırını otomatik yazan kod yok. `enterprise_readiness` kalıcı olarak `operator_blocked` (v3 sözleşme üreticisi yok). `critical_violation` üreticisi olmadığı için "sıfır kritik ihlal" koşulu hep doğru çıkıyor. **Güvenlik:** `auto_merge._normalize_path` içindeki `lstrip("./")` yüzünden `.github/**` ve `.env*` yasak desenleri hiç eşleşmiyor. HUMAN_REQUIRED paneli oyu okuyamıyor: 968 `panel_incomplete`, 114 kayıttan 0 karar (B02, B03, B06, B08). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** Merge'ü donduran kernel `aria_watchdog` değil; dış watchdog'un açtığı GitHub issue'su (`watchdog_freeze.py`). **Runner attestation hiç yazılamıyor:** workflow'lar `probe-runner-attestation`'a yalnız `tools-dir` veriyor (ve kalıcı self-hosted runner ephemeral değil); merge yolu bu kapıya ulaşırsa düşer — canlıda merge daha önceki kapılarda (profil/unlock/readiness) duruyor. `change_validated` satırını otomatik yazan kod yok. `enterprise_readiness` kalıcı olarak `operator_blocked` (v3 sözleşme üreticisi yok; bu durumu yalnız `autonomy status --evidence` CLI'ı okur, merge kapısı değil). `critical_violation` üreticisi olmadığı için "sıfır kritik ihlal" koşulu hep doğru çıkıyor. **Güvenlik:** `auto_merge._normalize_path` içindeki `lstrip("./")` yüzünden `.github/**` yasak desenleri eşleşmiyor (`.github/**/*.md` L1'e düşüyor, `.yml` yalnız "unknown" sınıfıyla bloklu); kök `.env*` deseni (`**/.env*`) zaten hiç eşleşmiyor. Aynı hata `pr_manager`, `service_dimension`, `architecture.py:450`, `convergent_skill_authoring.py:926`'da. HUMAN_REQUIRED paneli oyu okuyamıyor: 968 `panel_incomplete`, 113 kayıttan 0 karar; oy okunsa bile paneller "bağımsız değil" düşer (principal = `ci-executor:gha-<RUN_ID>`) (B02, B03, B06, B08). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ---
 
@@ -337,7 +337,7 @@ flowchart LR
         DA3[worker-scheduler<br/>pid lock]
         DA4[aria-external-watchdog]
     end
-    subgraph CLI[aria-kernel CLI — ~170 alt komut]
+    subgraph CLI[aria-kernel CLI — 85 üst komut · 384 parser]
         C1[cycle · discovery · integrity · twin]
         C2[plan · mission · pressure · memory]
         C3[agent-invocations · agent-genesis · skill-genesis]
@@ -350,20 +350,20 @@ flowchart LR
 
 ## Depolama Haritası (özet)
 
-| Yüzey                                   | İçerik                                                                  |
-| --------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------- |
-| `cycles.jsonl`                          | döngü yaşam döngüsü (started/completed/failed/stopped/aborted), şema v3 |
-| `runs.jsonl`                            | adaptör koşuları, artefact_ref + kanıt doğrulaması                      |
-| `findings.jsonl` / `raw-findings.jsonl` | dedup edilmiş / ham bulgular                                            |
-| `governance.jsonl`                      | tüm yönetişim olayları (aria/governance-event/v2)                       |
-| `memory/*.jsonl`                        | 6 bellek defteri + inanç tepmesi                                        |
-| `dispatch/*.jsonl`                      | istek / lease / işçi sonucu / doğrulama sonucu                          |
-| `agent-invocations/*.jsonl`             | zarflar, claim'ler, sonuçlar                                            |
-| `missions/`, `plans/`, `queues/`        | mission olayları, plan olayları, next_cycle kuyruğu                     |
-| `enterprise/acceptance-events.jsonl`    | otonomi merdiveni kabul kanıtları                                       |
-| `human-required/`                       | 114 kayıt · 968 `panel_incomplete` · **0 karar**                        | panel oyu okuyamıyor (Şema 7 notu) |
-| `quarantine.jsonl`, `breakers/`         | karantina ve kesici durumu                                              |
-| git dalı `aria/state`                   | yayınlanan kalıcı durum (CAS + FF-only)                                 |
+| Yüzey                                   | İçerik                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------- |
+| `cycles.jsonl`                          | döngü yaşam döngüsü (started/completed/failed/stopped/aborted), şema v3   |
+| `runs.jsonl`                            | adaptör koşuları, artefact_ref + kanıt doğrulaması                        |
+| `findings.jsonl` / `raw-findings.jsonl` | dedup edilmiş / ham bulgular                                              |
+| `governance.jsonl`                      | tüm yönetişim olayları (aria/governance-event/v2)                         |
+| `memory/*.jsonl`                        | 6 bellek defteri + inanç tepmesi                                          |
+| `dispatch/*.jsonl`                      | istek / lease / işçi sonucu / doğrulama sonucu                            |
+| `agent-invocations/*.jsonl`             | zarflar, claim'ler, sonuçlar                                              |
+| `missions/`, `plans/`, `queues/`        | mission olayları, plan olayları, next_cycle kuyruğu                       |
+| `enterprise/acceptance-events.jsonl`    | otonomi merdiveni kabul kanıtları                                         |
+| `human-required/`                       | 113 kayıt (+`adjudications.jsonl`) · 968 `panel_incomplete` · **0 karar** | panel oyu okuyamıyor (Şema 7 notu) |
+| `quarantine.jsonl`, `breakers/`         | karantina ve kesici durumu                                                |
+| git dalı `aria/state`                   | yayınlanan kalıcı durum (CAS + FF-only)                                   |
 
 ## Katmanlar Arası Anahtar Değişmezler
 
@@ -403,7 +403,7 @@ flowchart TD
     P --> W["skor = min(100, kaynak_ağırlığı × tazelik_çürümesi<br/>× (1 + log10(tekrar)))<br/>tazelik_çürümesi şu an SABİT 1.0"]
     W --> OV{operatör ağırlık override'ı?<br/>calibration/weight-overrides.jsonl}
     OV -- var --> W2[override KAZANIR —<br/>kalibrasyon dokunaz]
-    OV -- yok --> W3[Beta-Binomial kalibrasyon:<br/>clamp 0.25–1.25 · sıfır etiket = 1.0]
+    OV -- yok --> W3[Beta-Binomial kalibrasyon:<br/>clamp 0.25–1.25 · sıfır etiket = 1.0<br/>⚠ fiilen no-op: sayaç tool_id ile,<br/>SOURCE_WEIGHTS ile eşleşmez → 1.0]
     W2 & W3 --> OUT[pressure/&lt;cycle&gt;.json +<br/>pressure-log.jsonl]
     OUT --> SD[semantic_dedup: aynı yüzey+parser<br/>kosine ≥ 0.62 → problem_clusters]
     OUT --> TR[triage.py — kanıt-YOLU tabanlı şeritler]
@@ -454,7 +454,7 @@ flowchart TD
 
 **Repo'daki gerçek adaptörler** (`tools/aria-poc/`): `banned_phrase` (Node gate CLI sarmalayıcı, gölge modunda yalnız gözlem), `cqrs` (kontrolör CommandBus/QueryBus atlaması), `outbox` (transactional outbox ihlali), `agent_harness_security` (7 kural: sızdırılmış secret, güvenilmeyen head-ref checkout, geniş GHA izinleri, prompt-enjeksiyon yüzeyi, kaçak SDK kullanımı, lease token log'u, ajan öz-değişimi), `poc.py` (TS enum'ları ↔ SQL CREATE TYPE karşı çapraz sürüklenme denetleyicisi; Rust enum'ları ts-tarafına eklenir, dolayısıyla **Rust↔SQL** yakalanır, Rust↔TS karşılaştırması yoktur — `poc.py:914-946,1633`). **2026-09-25 durumu:** 11 manifest SHADOW beyan eder; canlı registry'de ACTIVE adaptör yok (7 CALIBRATE · 2 SHADOW · 1 QUARANTINED), bu yüzden hiçbir ham bulgu `emitted` olmuyor. **Kural sağlığı**: FP oranı ≥ 0.75 olan kural karantinaya girer ve çekirdek otomatik olarak o kusurlu eşleştirici için bir "adaptör kural kusuru" bulgusu üretir — bozuk araç kendisini onarım işi haline getirir.
 
-> **2026-09-25 tam okuma notu:** Canlı registry'de 10 araç var: **7 CALIBRATE, 2 SHADOW, 1 QUARANTINED** (agent-harness; fixture `cases` dizini yok). `lint-rules` kayıtlı değil; `registry_compiler` canlı durumu manifestteki SHADOW ile eziyor. `banned_phrase`, `cqrs` ve `outbox` hiç koşmadı (kayıt satırı bir stub'ı çağırıyor). Masum bir adaptör de karantinaya düşebilir: koşu sırasında `aria-tools/`'a bir daemon yazarsa `scope_out_mutations` doluyor. Bir otorite sabiti de var: `promotion.py:106` `evidence_chains_valid=True` sabit geçiriyor; `tool promote --target-status SHADOW` karantinadan kök neden istemeden çıkarıyor (B10, B11, B12). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** Canlı registry'de 10 araç var: **7 CALIBRATE, 2 SHADOW, 1 QUARANTINED** (agent-harness; fixture `cases` dizini yok). `lint-rules` kayıtlı değil. Manifestler SHADOW beyan eder, ama nightly manifest senkronu (`register_tool`) canlı durumu korur; `registry_compiler` yalnız CLI'dan elle koşulursa ezer (V10, V11). `banned_phrase`, `cqrs` ve `outbox` hiç koşmadı (kayıt satırı bir stub'ı çağırıyor). Tools root'un workspace `aria-tools/` olduğu host'larda, koşu sırasında oraya yazan başka bir süreç `scope_out_mutations`'ı doldurup masum bir adaptörü karantinaya alabilir; CI'da store `.aria-state-store/` altında olduğundan bu yol oluşmuyor (108 canlı koşunun 0'ı). Bir otorite sabiti de var: `promotion.py:106` `evidence_chains_valid=True` sabit geçiriyor; `tool promote --target-status SHADOW` karantinadan kök neden istemeden çıkarıyor (B10, B11, B12). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 11 — Yargı / Konsensüs / Kalibrasyon Katmanı
 
@@ -496,7 +496,7 @@ flowchart TD
 
 **2026-09-19 sonrası** (5fe326c6, c12ce179, 5ce69d7c, b7b7d523): yargıç güveni artık Brier/ECE ile puanlanır; "kalibre quorum kapatır, kalibre olmayan yargıç önerir". Batch judge (K istek tek çağrı) kodda var ama varsayılan kapalı (`judge_batch_size=1`, yalnız zai). Bir yargıç kendi katıldığı anchor'da puanlanmaz (ARIA-HIGH-173).
 
-**Altın set**: her etiketli araç için TP≥20/FP≥10 hedefli öneri → `aria-goldset-curator` ajan fixture taslağı yazar → operatör `promote` → `goldsets/active/<tool>.json`; yargıç-geri-oynatma bunu sınav kağıdı olarak kullanır. **Ajan değerlendirmesi**: sabit fixture + beklenen karar sınıfı; gerçek mod 8 defter referanslı provenance ister; iki haftalık pencereler `improved/regressed/flat` karşılaştırır — programın kendi başarı testi.
+**Altın set**: her etiketli araç için TP≥20/FP≥10 hedefli öneri → `aria-goldset-curator` ajan fixture taslağı yazar → operatör `promote` → `goldsets/active/<tool>.json`; yargıç-geri-oynatma bunu sınav kağıdı olarak kullanır. **Ajan değerlendirmesi**: sabit fixture + beklenen karar sınıfı; gerçek mod 8 defter referanslı provenance ister; 30 günlük pencereler `improved/regressed/flat` karşılaştırır — ancak CI yalnız mock koşar ve mock zarf beklenen kararı kopyaladığından canlıda 25/25 `passed`: ölçüm fiilen içeriksiz (tam okuma B01, V01).
 
 > **2026-09-25 tam okuma notu:** Canlıda hiçbir yargıç hiç puanlanmadı (`judged_judges=0`), bu yüzden kalibre quorum `measure_only`'de. "İmzalı insan etiketi" kernel'in kendi anahtarıyla imzalanıyor; `judge_replay` `source_type` eksikse satırı "human" sayıyor. Pressure ağırlık kalibrasyonu `tool_id` ile anahtarlanıyor ve kaynak ağırlıklarıyla eşleşmiyor, dolayısıyla çarpan hep 1.0 (B03, B06). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
@@ -505,7 +505,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph BENCH[experiment_night.py — gecelik tezgah]
-        EA[experiment_author: yanlılanabilir<br/>test_disagression/regression/wrong_code<br/>bulgularından KIRMIZI sözleşme üret<br/>≤5/gece · komut şablonu tek: nx test] --> PN[plan_night_experiments<br/>problem şeridi ≤3 · regresyon şeridi ≤3]
+        EA[experiment_author: yanlılanabilir<br/>test_disagreement/regression/wrong_code<br/>bulgularından KIRMIZI sözleşme üret<br/>≤5/gece · komut şablonu tek: nx test] --> PN[plan_night_experiments<br/>problem şeridi ≤3 · regresyon şeridi ≤3]
         PN --> PE[problem: kayıtlı tarifeyi koş<br/>değişim zinciri aç]
         PE -- kırmızı eşleşti --> CONF[record_finding_reproduction<br/>kesinlik: CONFIRMED]
         PE -- eşleşmedi --> REF[çürütme kaydı — dürüst FP sinyali]
@@ -518,10 +518,11 @@ flowchart TD
         F2 -->|üreme| F3[CONFIRMED · tek üretici budur]
         F2 --> INP[IN_PROGRESS]
         INP -->|AYNI tarif yeniden koşulu yeşil| F4[RESOLVED + closes_in_commit]
-        F2 --> SUP[SUPPRESSED · WITHDRAWN terminal]
+        F2 --> SUP[SUPPRESSED yeniden açılabilir · WITHDRAWN terminal]
+    INP -->|elle status değişimi, deney yok| F4
     end
     CONF --> F3
-    SF --> F4
+    SF -.üretici YOK.-> F4
     subgraph OUTC[change_outcome.py — merge SONRASI]
         O1[emit_change_outcome: change_validated +<br/>merge satırı şart · yalnız defterden yeniden hesap]
         O1 --> O2[metric: finding_recurrence →<br/>regression / no_gain / gain]
@@ -560,7 +561,7 @@ flowchart TD
     TRG[drainer tetiği — yankı odası önleyici:<br/>≥5 özdeş pattern_signature'lı CONVERGED döngü ·<br/>≥2 baskı kaynağı · ≥2 çapraz inceleyici ·<br/>≥1 imzalı operatör geri bildirimi]
 ```
 
-> **2026-09-25 tam okuma notu:** **Güvenlik:** LLM'in yazdığı adaptör **sandbox'sız** koşuyor (düz `subprocess.run`, tam env; `skill_genesis.py:389-408`). `skill_genesis_sandbox` (bwrap + AST denetimi) üretimde hiç çağrılmıyor. Skill'in "≥3 fixture" kontrolü `## Fixture:` başlıklarını saymaktan ibaret. `dispatcher_factory`'nin okuduğu `_base_dir` anahtarını hiçbir kod yazmıyor. Canlıdaki 20 skill-genesis isteğinin hepsi `convergent:false` ve tüketicisi yok. `extend` kararı hiçbir şeyi değiştirmiyor. `agent_priors.map_agent_priors` çağrılmadığı için reuse tespiti de ölü (B01, B03, B04, B09). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** **Güvenlik (latent):** LLM'in yazdığı adaptör sandbox'sız koşacak şekilde bağlı (düz `subprocess.run`, tam env; `skill_genesis.py:389-408`), ama bugün erişilemez: normalize taslakta `adapter_path` yok (runner `python3 <draft_id>` koşar), canlıda 20/20 istek `convergent:false`. Yol onarılırsa LLM'in verdiği `draft_id` çalıştırılan dosya olur — sandbox aynı düzeltmede eklenmeli. `skill_genesis_drainer.py:447-450` yorumu tersini söylüyor. `skill_genesis_sandbox` (bwrap + AST denetimi) üretimde hiç çağrılmıyor. Skill'in "≥3 fixture" kontrolü `## Fixture:` başlıklarını saymaktan ibaret. `dispatcher_factory`'nin okuduğu `_base_dir` anahtarını hiçbir kod yazmıyor, bu yüzden drafter/yargıç yanıtları hiç okunmuyor (her tur fallback); skill genesis yapısal olarak adaptör üretemiyor. Canlıdaki 20 skill-genesis isteğinin hepsi `convergent:false` ve tüketicisi yok. `agent_priors.map_agent_priors` çağrılmadığı için `related_existing_agents` hep boş; resolver canlıda 40/40 `request` üretti, `reuse`/`extend` hiç üretilmedi (B01, B03, B04, B09). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 14 — Etki / Mimari Omurga / Bilgi Grafiği Katmanı
 
@@ -571,7 +572,7 @@ flowchart TD
         TOPO --> CACHE[service-order-cache.json<br/>parmak izi değişmedikçe yeniden hesaplanmaz]
         NX --> RC[ters kapama = downstream ripple]
     end
-    RI[recursive_impact — 6 kaynak:<br/>nx · import (derinlik ≤5) · event sözleşmesi ·<br/>GraphQL · DB entity · frontend modülü<br/>bilinmeyen kaynak = unknown → kapıyı bloklar]
+    RI[recursive_impact — 7 kaynak + bilinmeyenler · hiçbir kapıya bağlı değil (yalnız CLI):<br/>nx · import (derinlik ≤5) · event sözleşmesi ·<br/>GraphQL · DB entity · frontend modülü<br/>bilinmeyen kaynak = unknown → kapıyı bloklar]
     subgraph SPINE[architecture_spine_gate — 5 değişmez]
         B1[tenant_scoping: getRepository çağrıları] & B2[event_contracts: şema doğrulayıcı] & B3[schema_entity: ADR-011] & B4[auth_security: adaptör koşusu] & B5[harness_security: adaptör koşusu] --> BL[baseline hash]
         BL --> REM[remediyasyon] --> PC[postcheck fark<br/>sayısal artış = regresyon]
@@ -585,7 +586,7 @@ flowchart TD
     SVC[service_examination: değişen + downstream<br/>servisler topolojik sırada · baskılar servise<br/>eşlenir · sahipsiz → coverage gap] --> SEED[mission_seed: çekirdek 4 servis<br/>auth/billing/farm/sensor + kanıtlı projeler<br/>öncelik = ters PageRank merkezilik]
 ```
 
-> **2026-09-25 tam okuma notu:** `recursive_impact` hiçbir kapıya bağlı değil, yalnız CLI'dan çağrılıyor. `impact_graph` üretimde `.nx` grafiğini okumuyor. Spine fazları `PLAN_ID_PRESENT` koşuluna bağlı, ama hiçbir üretim çağıranı `plan_id` geçmediği için nightly'de hiç koşmuyor. Entity kontrolü, ADR-011 gereği `schema:` beyan etmeyen 194 per-tenant entity'yi ihlal sayıyor (B02, B04, B06, B08). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** `recursive_impact` hiçbir kapıya bağlı değil, yalnız CLI'dan çağrılıyor. `impact_graph` üretimde `.nx` grafiğini okumuyor. Spine fazları `PLAN_ID_PRESENT` koşuluna bağlı, ama hiçbir üretim çağıranı `plan_id` geçmediği için nightly'de hiç koşmuyor. Entity kontrolü, ADR-011 gereği `schema:` beyan etmeyen 197 per-tenant entity'yi ihlal sayıyor (B02, B04, B06, B08). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 15 — Maliyet / Profil / Gözlemlenebilirlik Katmanı
 
@@ -611,7 +612,7 @@ flowchart TD
     end
 ```
 
-> **2026-09-25 tam okuma notu:** Orkestratör CAS kirasını (`autonomous-host.cas.json`) değil, düz `autonomous-host.lock` kilidini kullanıyor; CAS kirası kilitsiz oku-yaz yapıyor. `reserve_cycle_budget`'in üretim çağıranı yok. Bozuk bir `breaker_state.json` "ok" okunuyor (fail-open). Telemetri yaklaşık 43 metrik (B02, B04, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** Orkestratör CAS kirasını (`autonomous-host.cas.json`) değil, düz `autonomous-host.lock` kilidini kullanıyor; CAS kirası kilitsiz oku-yaz yapıyor. `reserve_cycle_budget`'in üretim çağıranı yok. Bozuk bir `breaker_state.json` "ok" okunuyor (fail-open); managed_subscription altında kesici zaten hiç tetiklenemiyor. Telemetri yaklaşık 43 metrik (B02, B04, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 16 — Uçtan Uca Kapalı Döngü (tüm katmanların tek akışta birleşimi)
 
@@ -658,7 +659,7 @@ flowchart TD
     C2 -.kapsam sürüklenmesi: gerçek ⊄ istenen.-> HR1[scope_drift_requires_human]
     C2 -.istenen dosya diff'te yok + beyan yok.-> HR2[implementation_incomplete_undeclared]
     C2 -.ikinci farklı commit.-> XX[RED: zincir değişmez]
-    C3 -.7 günden eski açık zincir.-> ST[change_chain_stale uyarısı]
+    C3 -.7 günden eski açık zincir.-> ST[change_chain_stale uyarısı<br/>üretici emit_stale_chain_warnings çağrılmıyor]
     subgraph APPLY[apply_engine — iki şerit]
         A1[operatör şeridi: proposal approved_for_apply<br/>+ insan onayı → worktree aç]
         A2[otonom şerit: CONVERGED plan →<br/>BASELINE doğrulama ÖNCE koşulur<br/>→ change_planned → makine onayı<br/>→ staged_for_implementation (atalet)]
@@ -674,7 +675,7 @@ flowchart TD
 
 **Uzman kapısı ayrımı**: `specialist_review_runner` KİM inceleyeceğine karar verir (~84 uzman, dokunulan servise göre); `expert_review_gate` o kararların yeterliliğine hükmeder — ≥2 farklı uzman, oybirliği, ortalama güven ≥ 0.80 ve her `evidence_ref` fix'in base SHA'sındaki git blob'una karşı yeniden doğrulanır (halüsinasyon gören onaylayamaz → HIGH HUMAN_REQUIRED).
 
-> **2026-09-25 tam okuma notu:** `approve_proposal` yalnız testten çağrılıyor (CLI komutu yok), bu yüzden operatör şeridi A1 ölü. `change_validated`'ı otomatik yazan kod yok. Doğrulama matrisinin EXISTENCE/PATTERN katmanları diff'e değil repoya bakıyor; risk türü yoksa exit≠0 koşular da geçiyor. Uzman kapısının roster'ında 27 uzman var, ~84 değil. `enforce_expert_consensus_gate` çağrılmıyor (B03, B05, B08, B09, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** `approve_proposal` yalnız testten çağrılıyor (CLI komutu yok), bu yüzden operatör şeridi A1 ölü. `change_validated`'ı otomatik yazan kod yok. Doğrulama matrisinin EXISTENCE/PATTERN katmanları diff'e değil repoya bakıyor; risk türü yoksa exit≠0 koşular da geçiyor. Gate C seçim haritasında 27 uzman var (roster'da 107 ajan dosyası); `frontend-mobile-development:mobile-developer` çözümlenemediği için `web/apps/aquamobil/`'e dokunan cycle'larda yazma profili bloklanır. `enforce_expert_consensus_gate` çağrılmıyor (B03, B05, B08, B09, B10). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 18 — Öz-Değişim Muhafızları (kendi kodunu koruma)
 
@@ -698,7 +699,7 @@ flowchart TD
 
 **Karar sorgulama** (`decision_questioning`): kapatılmış kararlar (CONVERGED / IMPLEMENTATION_MERGED) her döngüde örneklenir (N=2) ve saldırgan bir zarfla yeniden açılır — "karar anındaki uzlaşış, inceleme anında kanıt değildir"; yanıt `upheld/overturned/insufficient_evidence` + dosya:satır kanıtı ister. **Araştırma modu** (`research.py`): alan adı izin listesi + her atlama için DNS halka özel adres reddi (SSRF savunması) + 1 MB tavan; kaynaklar `runtime_unverified` kabul edilir, asla kanıt olmaz.
 
-> **2026-09-25 tam okuma notu:** `self_modification.request_kernel_change` **ölü kod**: çağıranı yok, "5 doğrulama" kontrolü de yalnız `len(refs) >= 5`. Bağlı olan gerçek yol şu: gateway → self_improvement mission → `record_self_change_result` → proposal + HUMAN_REQUIRED (B09). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
+> **2026-09-25 tam okuma notu:** `self_modification.request_kernel_change` **ölü kod**: çağıranı yok, "5 doğrulama" kontrolü de yalnız `len(refs) >= 5`. Bağlı olan gerçek yol şu: gateway → self_improvement mission → `record_self_change_result` → proposal + HUMAN_REQUIRED (canlıda hiç tetiklenmedi). Üretimde canlı olan çekirdek koruması mint-anı reddidir: `implementation_safety._check_kernel_self_modification_at_mint` (B09, V09). Kanıt: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B*.md`.
 
 ## Şema 19 — Paslanan-Yüzey Denetimi + Şema Evrimi
 
@@ -707,7 +708,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph REACH[erişilebilirlik makasları — hepsi RATCHET]
-        R1[closure_reachability:<br/>kapanan bulgunun ÜRETİCİSİ<br/>çağrılıyor mu? baseline'a iğnelenir<br/>asla büyümez]
+        R1[closure_reachability:<br/>kapanan bulgunun ÜRETİCİSİ<br/>çağrılıyor mu? baseline'a iğnelenir<br/>--write o anki tüm ihlalleri iğneler<br/>CI: test_closure_reachability her PR]
         R2[control_reachability:<br/>validate_/enforce_/assert_/verify_...<br/>hiç kimse çağırmıyorsa dormant.json<br/>vazgeçme: süre + sahip + bulgu ·<br/>saatle karşılaştırılır]
         R3[surface_reachability:<br/>kapalı sözlüklerin (kaynak · durum · rol...)<br/>YAZILAN üyesi var mı?<br/>unwritten.json · ters yönde vazgeçme YOK]
         R4[literal_provenance motoru:<br/>AST'de sabit akışı — guard'a takılan<br/>değere kadar çözümler · kanıtlayamazsa None]
@@ -808,7 +809,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph ADAPTERS2[tools/aria-adapters — 2. adaptör filosu · 11 TS manifest<br/>canlı: 7 CALIBRATE · 2 SHADOW · 1 QUARANTINED · lint-rules kayıtsız]
+    subgraph ADAPTERS2[tools/aria-adapters — 2. adaptör filosu · 11 manifest (10 TS + agent-harness Python)<br/>canlı: 7 CALIBRATE · 2 SHADOW · 1 QUARANTINED · lint-rules kayıtsız]
         SP1[security-boundary] & SP2[tenant-scoping] & SP3[event-contracts] & SP4[test-gap] & SP5[agent-harness-security] --> ORN[spine_orchestrator'ın<br/>6 adaptöründen 5'i]
         EX1[bundle-budget · D2 performans] & EX2[doc-staleness · D5 doküman] &<br/>EX3[fe-dto-parity · D6 doğruluk] & EX4[kernel-dead-wire · E9 öz-denetim] &<br/>EX5[typeorm-entity-schema] & EX6[lint-rules · 2026-09-19] --> CYC[döngünün tools fazı]
     end
@@ -834,7 +835,7 @@ flowchart TD
         W3[agent-eval · haftalık pazar 03:30]
         W4[daily-report · merge-authority ·<br/>external-watchdog 08:40 · readiness-claim]
         W5[aria-kernel · çekirdek CI]
-        W6[operational-proof · manuel 90 dk kanıt]
+        W6[operational-proof · manuel 150 dk kanıt]
         W7[runner-capability-probe · sandbox keşifi]
         W8[state-maintenance · günlük 15:13 —<br/>842MB aria/state dalını sıkıştırır<br/>(yapmazsa gece döngüsü OOM)]
     end
@@ -849,8 +850,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph CBG[context_budget_gate — dispatch ÖNCESI bağlam bütçesi]
-        B1[rol tavanları / 200K pencere:<br/>yargıç 0.35 · planlayıcı 0.55 ·<br/>uygulayıcı 0.45 · acil 0.65] --> B2[bileşen bazlı tahmin: istek + ajan gövdesi +<br/>@knowledge geçişleri + kanıt alıntıları]
-        B2 --> B3[aşım → GovernanceError +<br/>context-audits.jsonl]
+        B1[rol tavanları / 200K pencere:<br/>yargıç 0.35 · planlayıcı 0.55 ·<br/>uygulayıcı 0.45 · human_required_adjudication 0.40] --> B2[bileşen bazlı tahmin: istek + ajan gövdesi +<br/>@knowledge geçişleri + kanıt alıntıları]
+        B2 --> B3[üretimde yalnız ölçüm: enforce_context_budget=False<br/>+ context-audits.jsonl · enforce yalnız CLI]
     end
     subgraph HOOKS[cycle_phases/ — 5 Protocol DI kancası]
         H1[PlanContentProvider · V9ImplementationRunner ·<br/>MemoryHook · CostTelemetryHook · ProfileGate] --> H2[her birinin NoOp varsayılanı —<br/>eski döngü davranışı korunur]
@@ -864,7 +865,7 @@ flowchart TD
         X1[secret_scrub: 12 tipleşmiş desen —<br/>AWS/GitHub/Anthropic anahtarları ·<br/>lease token env ataması]
         X2[draft_pii_filter: intent'e girmeden<br/>eposta/telefon → belirleyici token]
         X3[artifact_safety: her artefakt yazımı öncesi<br/>temizleme + 1MB tavan]
-        X4[gh_token_factory: İKİ jetonlu model —<br/>işçiye asla operatör PAT'i geçmez<br/>(kurulum jetonu + SHA imza anahtarı)]
+        X4[gh_token_factory: İKİ jetonlu model —<br/>Mode A: kurulum jetonu, tüm depolar, dal kapsamı yok<br/>Mode B: teslim jetonu = operatör PAT'i<br/>+ SHA imza anahtarı]
     end
     ID[execution_spine: her mutasyon için<br/>birleşik aktör kimliği —<br/>system:github-schedule/pr/dispatch ·<br/>service:aria-* · oturum defteri]
 ```
@@ -873,6 +874,8 @@ flowchart TD
 
 ## Canlı Durum Denetimi — makine fiilen çalışıyor mu? (2026-09-25 yeniden ölçüm)
 
+> **Sabit nokta:** sayılar `origin/aria/state @ e6f462fb`; dal bu doküman yazılırken `06b4ba4a`'ya ilerledi (324 sonuç, native Claude başarısı 73 → 100).
+>
 > **Düzeltme.** 16 Eylül ölçümü sunucudaki (droplet) yerel `aria-tools/` klasörünü okuyordu. Oysa CI şeridi durumu **`origin/aria/state` git dalına** yayımlıyor. Önceki tablodaki "aria/state dalı yok" ve "hiç koşmadı" satırları bu yüzden yanlıştı. Aşağıdaki sayılar `git show origin/aria/state:tools/<yüzey>` ile alındı (`aria/state @ e6f462fb`, 2026-09-25).
 
 | Alt sistem                                       | Canlı değer                                                                                                                                           | Durum                                     |
@@ -881,17 +884,17 @@ flowchart TD
 | Son başarılı cycle                               | `cyc-20260920T212805Z-auto`                                                                                                                           | 2026-09-21'den beri gece koşuları kırmızı |
 | `agent-invocations/results.jsonl`                | 304 sonuç: 274 kabul · 30 red. Roller: evidence 85 · adversarial 82 · human_required_adjudication 80 · maintenance 24 · arbiter 2 · challenger_plan 1 | **ÇALIŞIYOR (yargı)**                     |
 | `runs.jsonl` / `health.jsonl`                    | 108 / 266                                                                                                                                             | çalışıyor                                 |
-| `raw-findings.jsonl`                             | 34.500 satır. %87'si `doc-staleness-adapter`'dan (29.939)                                                                                             | **publish sınırını patlatıyor**           |
+| `raw-findings.jsonl`                             | 34.500 satır · 3.253 benzersiz parmak izi. %87'si `doc-staleness-adapter`'dan (29.939 satır / 2.755 benzersiz)                                        | **publish sınırını patlatıyor**           |
 | `judgment-samples.jsonl`                         | 220                                                                                                                                                   | çalışıyor                                 |
-| `tools/findings.jsonl` (eski yüzey)              | 0                                                                                                                                                     | kanonik depo aşağıda                      |
+| `tools/findings.jsonl` (eski yüzey)              | dosya yok                                                                                                                                             | kanonik depo aşağıda                      |
 | `findings/aria-findings/` (kanonik bulgu deposu) | **13 OPEN** (8 `seed:drift-scan` + 5 consensus terfisi), 0 RESOLVED                                                                                   | terfi var, kapanış yok                    |
 | canlı `registry.json`                            | 10 araç: 7 CALIBRATE · 2 SHADOW · 1 QUARANTINED; ACTIVE yok                                                                                           | lint-rules kayıtsız                       |
-| `human-required/`                                | 114 kayıt · 968 `panel_incomplete` · **0 karar**                                                                                                      | panel oyu okuyamıyor (Şema 7 notu)        |
+| `human-required/`                                | 113 kayıt (+`adjudications.jsonl`) · 968 `panel_incomplete` · **0 karar**                                                                             | panel oyu okuyamıyor (Şema 7 notu)        |
 | `plans/events.jsonl`                             | 15 başladı · 12 terk · 2 değerlendirildi · **0 CONVERGED**                                                                                            | Gate A hiç geçilmedi                      |
-| `auto-merge-decisions.jsonl`                     | 8 karar, 8'i `blocked`                                                                                                                                | merge yok                                 |
-| `missions/mission-events.jsonl`                  | 117 satır · 94 mission · **hepsi DISCOVERED**                                                                                                         | ileri taşıyan yol yok                     |
-| `change-ledger/`                                 | 0 commit                                                                                                                                              | değişim zinciri işlemedi                  |
-| ajan istek kuyruğu                               | 1.171 istek · **610 (%52) claim edilmeden `anchor_expired`**                                                                                          | kuyruk kaybı                              |
+| `auto-merge-decisions.jsonl`                     | 8 karar (4 PR × 2), 8'i `blocked` — CI-review dry-run yolu                                                                                            | merge yok                                 |
+| `missions/mission-events.jsonl`                  | 117 satır · 94 mission · **88 DISCOVERED · 6 SUPERSEDED**                                                                                             | ileri taşıyan yol yok                     |
+| `change-ledger/`                                 | 2 `change_planned` · 0 committed                                                                                                                      | değişim zinciri işlemedi                  |
+| ajan istek kuyruğu                               | 1.171 istek · **610 (%52) `anchor_expired`** (525'i hiç claim edilmeden)                                                                              | kuyruk kaybı                              |
 | `autonomy_state.jsonl`                           | 403 satır, hepsi `profile: standard`, `auto_merges_delta` = 0                                                                                         | observe burn-in 0/30                      |
 | Çekirdek CI (`aria-kernel.yml`)                  | her PR'da                                                                                                                                             | **CANLI**                                 |
 
@@ -905,17 +908,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["43 cycle başladı<br/>30 tamamlandı · 13 başarısız"] --> B["108 adaptör koşusu<br/>11 adaptör · hepsi SHADOW"]
-    B --> C["34.500 ham bulgu (2.755 benzersiz × ~12 koşu)<br/>doc-staleness 29.939 · test-gap 3.459 ·<br/>tenant-scoping 724 · diğer 378"]
+    A["43 cycle başladı<br/>30 tamamlandı · 13 başarısız"] --> B["108 adaptör koşusu<br/>9 adaptör × 12 koşu · ACTIVE yok<br/>7 CALIBRATE · 2 SHADOW · 1 QUARANTINED"]
+    B --> C["34.500 ham bulgu (3.253 benzersiz)<br/>doc-staleness 29.939 · test-gap 3.459 ·<br/>tenant-scoping 724 · diğer 378"]
     C --> D["220 yargı örneği"]
     D --> E["167 yargıç yanıtı<br/>evidence 85 · adversarial 82"]
     E --> F["18 consensus belirsizliği"]
-    E --> G["114 HUMAN_REQUIRED kaydı<br/>80 human_required_adjudication yanıtı"]
+    E --> G["113 HUMAN_REQUIRED kaydı<br/>80 human_required_adjudication yanıtı<br/>968 panel_incomplete · 0 karar"]
     F & G --> H["13 OPEN finding · 0 RESOLVED<br/>8 seed:drift-scan (yargısız) + 5 consensus<br/>HUMAN_REQUIRED: 968 panel_incomplete → 0 karar"]
     H --> I["15 plan başladı<br/>12 terk · 2 değerlendirildi"]
     I --> J["0 CONVERGED"]
-    J --> K["94 mission, hepsi DISCOVERED · 0 change-ledger"]
-    K --> L["8 auto-merge kararı → 8 blocked"]
+    J --> K["94 mission: 88 DISCOVERED · 6 SUPERSEDED<br/>2 change_planned · 0 committed"]
+    K --> L["8 auto-merge kararı (4 PR × 2) → 8 blocked<br/>CI-review dry-run yolu"]
     C -.publish sınırı.-> X["2026-09-21'den beri<br/>state_commit_surface_too_large:raw_findings<br/>→ gece koşuları kırmızı"]
     style H fill:#f8d7da
     style J fill:#f8d7da
@@ -925,7 +928,8 @@ flowchart TD
 **Okuma:** Darboğaz iki yerde:
 
 1. **Ham bulgu → finding.** ACTIVE adaptör yok, yani ham bulgu doğrudan `emitted` olamıyor. Consensus yolu ise operatör onayı (ACK) istiyor (`promote_consensus_findings`).
-2. **Plan → CONVERGED.** 15 plandan 12'si terk edildi, challenger yalnız 1 kez taslak yazdı.
+2. **Plan → CONVERGED.** 15 plandan 12'si 72 saat durgunlukla terk edildi, 2'si challenger zarfı öldüğü için HUMAN_REQUIRED; challenger yalnız 1 kez taslak yazdı — hiçbir plan 1. turu geçemedi.
+3. **HUMAN_REQUIRED → karar.** Panel oyu `details` altında kalıyor, kernel üst-düzey `verdict` okuyor; oy okunsa bile paneller "bağımsız değil" düşer.
 
 ## Şema 24 — Neden Tam Çalışmadı: Blokajlar ve Kalan Adımlar
 
@@ -936,7 +940,7 @@ flowchart TD
         B2["B2 · observe burn-in hiç tamamlanmadı<br/>tüm cycle'lar standard"]
         B3["B3 · L1 = 30 observe başarısı<br/>scheduler tavanı standard"]
         B4["B4 · L2/L3 kabul olayı üreticisi YOK<br/>autonomy_ladder.py:84-90<br/>merdiven yapısal olarak L1'de biter"]
-        B5["B5 · değer zinciri kopuk<br/>0 finding · 0 CONVERGED · 8/8 blocked"]
+        B5["B5 · değer zinciri kopuk<br/>13 OPEN / 0 RESOLVED finding · 0 CONVERGED ·<br/>94 mission (88 DISCOVERED) · 8/8 blocked"]
         B6["B6 · 6 canlı-kanıt kapanış bulgusu<br/>ARIA-CRITICAL-009 · ARIA-CRITICAL-015 …"]
         B7["B7 · 8 dormant kontrol (10-09 / 10-20)<br/>8 yazılmamış yüzey değeri (10-16)<br/>ORPHAN-CRITICAL-725"]
         B8["B8 · genesis drafter spawn'ı bağlı değil<br/>materialize her zaman RED"]
@@ -944,12 +948,12 @@ flowchart TD
         B10["B10 · yerel MCP boş aria-tools'a bağlı<br/>search findings türünü indekslemiyor"]
     end
     subgraph ROOT[tam okumanın bulduğu kod kopuklukları — önce bunlar]
-        RA["A · panel oyu details.verdict'te kalıyor<br/>kernel üst-düzey verdict okuyor"]
-        RB["B · attestation girdileri workflow'da yok<br/>→ merge yapısal olarak kapalı"]
+        RA["A · panel oyu details altında kalıyor<br/>kernel üst-düzey verdict okuyor<br/>+ principal = GitHub run → bağımsız değil"]
+        RB["B · attestation girdileri workflow'da yok<br/>+ runner ephemeral değil → gizil merge blokajı<br/>(canlıda merge önce profil/unlock'ta durur)"]
         RC["C · change_validated otomatik yazılmıyor"]
-        RD["D · readiness v3 sözleşme üreticisi yok"]
-        RE["E · gece max-rounds 2 · challenger 300s"]
-        RS["S1 lstrip('./') · S2 sandbox'sız adaptör"]
+        RD["D · readiness v3 sözleşme üreticisi yok<br/>(ORPHAN-MEDIUM-789 hiç kapanamaz)"]
+        RE["E · challenger zarfı reddedilir/yanıtsız<br/>→ hiçbir plan 1. turu geçemez<br/>standard profilde V9 NoOp"]
+        RS["S1 lstrip('./') path normalizasyonu ·<br/>S2 sandbox'sız adaptör (latent)"]
     end
     RA & RB & RC & RD & RE & RS -.önce düzelt.-> S3
     S1["1 · raw_findings'i kökten çöz<br/>(adaptör kural sağlığı + compactor)"] --> S2["2 · runner probe + claude auth status<br/>+ ARIA_MOCK_KILL_SWITCH"]
@@ -982,26 +986,26 @@ flowchart LR
         A2 --> A3[zarf: evidence_refs file:line +<br/>target_sha'dan birebir alıntı + content_hash]
         A3 --> A4[LLM = HAKEM<br/>≥2 bağımsız yargıç · Read/Grep ile<br/>repoyu KENDİSİ okur]
         A4 --> A5{her iddia edilen file:line<br/>commit'li git blob'una<br/>hash eşitliğiyle doğrulanır}
-        A5 -- hayır --> A6[RED · agent_evidence_not_repo_verified<br/>aria/state'te 44 kez]
+        A5 -- hayır --> A6[RED · agent_evidence_not_repo_verified<br/>30 red sonucun 24'ünde]
         A5 -- evet --> A7[kalibre consensus → belief/finding<br/>hash-zincirli ledger]
         A7 --> A8[belief çürür: diff · 90g TTL ·<br/>head-distance → needs_revalidation]
         A8 --> A2
         SO[ARIA'nın kendi çıktısı<br/>self_output] -. ASLA kanıt değil .-x A5
     end
     subgraph AUX[ARIA'daki RAG-benzeri yardımcılar — yalnız BAĞLAM/ÖNCELİK]
-        X1[search.py: SQLite FTS5 + bm25<br/>6 ledger · 'index, not truth']
+        X1[search.py: SQLite FTS5 + bm25<br/>6 ledger · 'index, not truth'<br/>yalnız CLI + MCP okur]
         X2[context_compiler: geçmiş kararlar<br/>sözcüksel sıra → derived_context VERİ bloğu]
         X3[semantic_memory: embedder SOKETİ<br/>ARIA_EMBEDDER_CMD yok → no-op]
-        X4[benzerlik = filtre: Jaccard enum FP ·<br/>3-gram echo-chamber · token-cosine dedup]
+        X4[benzerlik = filtre: 3-gram echo-chamber ·<br/>token-cosine dedup · ⚠ istisna: seed yolunda<br/>enum Jaccard ≥0.3 doğrudan finding basar]
     end
 ```
 
-|                  | RAG                        | ARIA                                                               |
-| ---------------- | -------------------------- | ------------------------------------------------------------------ |
-| LLM'in rolü      | üretici                    | hakem / doğrulayıcı                                                |
-| Doğruluk kaynağı | getirilen metin            | commit SHA'daki git blob hash eşitliği                             |
-| Bilgi deposu     | durumsuz vektör indeksi    | hash-zincirli ledger + durum makineli belief                       |
-| Bayatlık         | bayat chunk sessizce döner | belief `needs_revalidation → stale`, pressure'a yükselir           |
-| Tekrar           | ağırlığı artırır           | "tekrar kanıt değildir": yalnız kanıt hash'i değişince güven artar |
-| Kendi çıktısı    | yeniden indekslenebilir    | `self_output` asla kanıt değil                                     |
-| Embedding        | çekirdek                   | yok (soket boş)                                                    |
+|                  | RAG                        | ARIA                                                                                                       |
+| ---------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| LLM'in rolü      | üretici                    | hakem / doğrulayıcı                                                                                        |
+| Doğruluk kaynağı | getirilen metin            | commit SHA'daki git blob hash eşitliği                                                                     |
+| Bilgi deposu     | durumsuz vektör indeksi    | hash-zincirli ledger + durum makineli belief                                                               |
+| Bayatlık         | bayat chunk sessizce döner | belief `needs_revalidation → stale`, pressure'a yükselir                                                   |
+| Tekrar           | ağırlığı artırır           | destek artışı yalnız kanıt hash'i değişince; ama feedback/ceza terimleri her kayıtta yeniden eklenir (V06) |
+| Kendi çıktısı    | yeniden indekslenebilir    | `self_output` asla kanıt değil                                                                             |
+| Embedding        | çekirdek                   | yok (soket boş)                                                                                            |

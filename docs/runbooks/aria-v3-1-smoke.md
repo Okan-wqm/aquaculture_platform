@@ -603,8 +603,13 @@ directories a killed executor left behind (their listener is gone; the agent its
 holder). Nothing to do.
 
 If the git config is missing, read the mint's receipt:
-`PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic', workspace_root='.').git_signing)"`
-— `configured=False` names the reason (`not_a_checkout`, `git_unavailable`,
+
+```bash
+PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; \
+print(mint_signing_key(cycle_id='diagnostic', workspace_root='.').git_signing)"
+```
+
+`configured=False` names the reason (`not_a_checkout`, `git_unavailable`,
 `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`); revoke the diagnostic key
 afterwards (`revoke_signing_key`).
 

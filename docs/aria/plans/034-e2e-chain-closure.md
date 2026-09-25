@@ -3,7 +3,7 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
 # ARIA Plan 034 — Değer zincirini uçtan uca kapat, L1'de geri alınabilir self-merge
 
-> **Durum:** onaylandı 2026-09-25 (okan). Bu oturumda "PR N" birimleri `claude/aria-documentation-update-vm7wyl` dalında ayrı, tek-konulu commit dizileri olarak ilerler (her biri kendi `Closes:` satırıyla); ayrı PR'lara bölünmesi operatör kararıdır. PR 1 (ARIA-HIGH-186) başladı.
+> **Durum:** onaylandı 2026-09-25 (okan). Bu oturumda "PR N" birimleri `claude/aria-documentation-update-vm7wyl` dalında ayrı, tek-konulu commit dizileri olarak ilerler (her biri kendi `Closes:` satırıyla); ayrı PR'lara bölünmesi operatör kararıdır. İlerleme: PR 1 ✔ (`a104f86e`, ARIA-HIGH-186) · PR 2 ✔ (`a58c853c`, ARIA-HIGH-187) · uygulama sırasında bulunan ARIA-HIGH-203 PR 13 kapsamına eklendi.
 > **Bulgular:** ARIA-HIGH-097 (açık) ve ARIA-HIGH-186…202 — `docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md`, registry `docs/reviews/_registry/findings.jsonl`.
 > **Kanıt tabanı:** `docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md` §8–§9, `docs/aria/reviews/2026-09-25-aria-tam-okuma/`.
 
@@ -84,6 +84,8 @@ Yeni ID'ler ARIA-HIGH-186…202 registry'ye kaydedildi. Kayıt yeri: `docs/revie
 - **PR 12 · ARIA-HIGH-196 (tier 2).** `cli.py:3714-3722` ref eşlemesi `validation_runs_ledger.refs_for_change`'e taşınır (`list_validation_runs_for_change:555` yanına); `implementation_delivery` `emit_change_committed` (`:788-797`) hemen ardından `emit_change_validated` çağırır; CLI aynı helper'ı kullanır. Test: sahte doğrulama koşulu teslimat → committed + validated, üçlü kapı geçer.
 - **PR 13 · ARIA-HIGH-198 + ARIA-HIGH-201 — dürüst attestation + protection ölçümü.** Kalıcı self-hosted runner asla ephemeral sayılmaz. Merge yürütmesi yeni `aria-merge-runner.yml`'e (`ubuntu-latest`, `workflow_run: aria-readiness-claim` success, tek PR için `RealAutoMergeRunner`) taşınır. `ephemeral_runner` GitHub'ın `RUNNER_ENVIRONMENT == "github-hosted"` ölçümünden; `approved_runner_group` policy allowlist'inden; `claude_auth` bu şeritte `not_required` (LLM yok, şema enum'u açık). `aria-auto-cycle.yml:557`, `aria-agent-executor.yml:562` dört girdiyi ölçülü geçer (onlar merge için reddedilmeye devam eder). Protection proof `required_approving_review_count` + `require_code_owner_reviews`'ı da kaydeder; verifier code-owner review'ı ister, L1 CODEOWNERS dışı olduğundan 0 onayı kabul eder. Test: `self-hosted` → red, `github-hosted` → kabul.
 
+- **PR 13 ek kapsamı · ARIA-HIGH-203 — self-merge ana anahtarı.** `auto_merge.DEFAULT_POLICY["enabled"]=False` ve runner `merge_pr_if_ready`'ye politika geçmiyor → hiçbir otonom merge uygun olamaz. Anahtar operatör kontrollü, denetimli bir kaynaktan okunur (ör. `aria-config/` altında imzalı/`operator_approval_ref`'li bir kayıt); runner onu açıkça geçer; açma/kapama governance satırı yazar. Test: anahtar kapalıyken L1 PR `auto_merge_disabled`, açıkken diğer kapılara ilerler. Operatör adımı O2 ile birlikte açılır.
+
 ### Faz E — Geri alınabilirlik
 
 - **PR 14 · ARIA-HIGH-199 (revert) + ARIA-HIGH-200 (dondurma).** Yeni `aria_kernel/self_revert.py`.
@@ -102,6 +104,7 @@ Yeni ID'ler ARIA-HIGH-186…202 registry'ye kaydedildi. Kayıt yeri: `docs/revie
 - **O1b — branch protection:** 4 required check tam eşleşme (`sens-enterprise-summary, merge-gate, aria-merge-authority, build-status`), imzalı commit, code-owner review, force-push/silme kapalı, ruleset; **bypass actor yok** (proof yasaklar); onay sayısı 0 + code-owner (M1 değişiklik mi karar verir).
 - **O3 — doc-staleness ACTIVE:** PR 6 sonrası readiness kapıları (≥5 kararlı SHADOW, fixture, precision) geçince operatör onayıyla `tool promote` (tasarımdaki insan yetkisi; eşik düşürülmez).
 - **O4 — burn-in:** `aria-auto-cycle.yml` `mode=burn-in-observe, mock=false` → `enterprise/acceptance-events.jsonl` ≥30 `observe_success`.
+- **O2b — self-merge ana anahtarı (ARIA-HIGH-203):** O2 ile aynı anda, operatör onay referansıyla açılır.
 - **O2 — profil tavanı:** yalnız PR 1–14 merge + O4 bitince `aria-kernel profile set --scheduler-ceiling autonomous --operator-approval-ref <ref>`.
 
 **Takvim (tahmini):** Hf 1–2: PR 1–6, M1 · Hf 3: PR 7–11 · Hf 4: PR 12–14, O1/O1b · Hf 5: O3, O4, mock E2E · Hf 6: O2, ilk canlı E2E.

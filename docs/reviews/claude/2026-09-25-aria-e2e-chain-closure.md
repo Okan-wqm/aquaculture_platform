@@ -167,3 +167,13 @@ fingerprints); about half come from `docs/reviews/**` and dated archives, which 
 records, not living documents, and the adapter's archive filter is unused. At that
 noise level the adapter cannot pass the precision gate that makes its findings
 canonical, and it is the first candidate for the end-to-end chain.
+
+## The auto-merge master switch has no operator-controlled source
+
+Found while implementing ARIA-HIGH-187 (filed as ARIA-HIGH-203).
+`auto_merge.DEFAULT_POLICY["enabled"]` is `False` and `evaluate_auto_merge`
+refuses when it is not `True` (`auto_merge.py:280`). `RealAutoMergeRunner` calls
+`merge_pr_if_ready(...)` without a `policy` argument, so every evaluation reads the
+code constant: no autonomous merge can be eligible, whatever the profile, ladder
+and readiness say, and nothing short of a code edit can change it. The switch
+belongs in an operator-controlled, audited source read by the runner.

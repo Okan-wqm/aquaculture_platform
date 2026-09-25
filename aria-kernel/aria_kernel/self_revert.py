@@ -50,35 +50,38 @@ AND the two diffs must name the same files; an impure revert (``main`` moved
 under the hunk) is recorded ``revert_impure``, with both patch ids, and no
 PR is made.
 
-DELIVERY — the same authority an implementation is delivered under. Inside
-``delivery_credentials.hold_delivery_credentials`` (consumer
-``self_revert_delivery``): the revert is opened as a change of the change
-ledger's own kind (``emit_change_planned`` with the reverted files as its
-intended files, the reverted change's finding and tier, ``rollback_ref`` =
-the merge sha; ``emit_change_committed`` at the revert tip), the branch is
-pushed with an intent/receipt pair, and the PR is opened through
+VALIDATION — the chain the merge authority's triple gate reads. The revert
+is a change of the change ledger's own kind: ``emit_change_planned`` (the
+reverted files as its intended files, the reverted change's finding and
+tier, ``rollback_ref`` = the merge sha; one chain per merge and base). Its
+suite is the one that validated the reverted change — the commands of that
+change's own exit-0 validation runs (``refs_for_change``), at the staged
+action's ceiling — re-run at the revert tip through the apply gate's
+recorder (``validation.run_validation_commands``) inside the apply gate's
+sandbox (``implementation_delivery.validation_sandbox_for``, its room
+probed with ``probe_validation_room``). Green: ``emit_change_committed`` at
+the tip, then ``change_validated`` through the delivery's own
+``_record_change_validated`` (``refs_for_change`` of the revert's runs, the
+validation matrix). Red, or no recorded suite to re-run: terminal
+``revert_validation_failed``, the freeze stays, HUMAN_REQUIRED, and NO PR
+is opened — a revert whose tip does not pass the suite that admitted the
+merge has not shown that it restores anything, so it is a person's call.
+A sandbox this host cannot build is the host's: ``revert_validation_unavailable``,
+HUMAN_REQUIRED, retried next cycle.
+
+DELIVERY — only for a validated chain, under the implementation lane's
+authority. Inside ``delivery_credentials.hold_delivery_credentials``
+(consumer ``self_revert_delivery``): the branch is pushed with an
+intent/receipt pair and the PR is opened through
 ``pr_manager.open_revert_pr`` — the ``pr_create`` gate, the full pre-PR-open
 perimeter, the change-id anchor and the one intent/receipt-bracketed
 ``gh pr create`` that ``open_pr_for_action`` also uses. Then
 ``register_revert`` names this PR at this head as the one PR the freeze
-admits.
-
-WHAT THIS PRODUCER DOES NOT SUPPLY. The merge authority's triple gate also
-needs a ``change_validated`` row and verified ``validation_runs`` for the
-revert's change_id. Those are recorded from validation RUNS, and this
-producer runs no suite: a revert restores ``merge_sha^``, whose own runs
-the attribution just read green, but the triple gate asks for runs bound to
-THIS change and none exist yet. It does not fake them. The revert PR
-therefore waits in the ordinary merge lane — which refuses it
-``triple_gate_change_validated_missing`` until that evidence exists — and
-an operator can merge it on GitHub at once (the freeze binds only ARIA's
-merges). No producer records validation runs for a proposal-less change:
-ARIA-HIGH-196 writes ``change_validated`` from
-``validation_runs_ledger.refs_for_change`` inside
-``implementation_delivery`` only, after the apply gate ran the suite for a
-staged proposal. Until a producer binds the revert PR's own canonical-suite
-runs to its change_id, ARIA cannot merge its own revert; that producer is
-the open remainder of ARIA-HIGH-199.
+admits; the merge lane can merge it, since its chain is committed and
+validated at exactly that head. The revert commit is deterministic (fixed
+identity, the merge's own dates, the same base), so a delivery whose
+credential could not be minted is retried later against the chain it
+already validated.
 
 LANDING. When a revert this producer opened is merged by ARIA and its own
 post-merge outcome is green, a ``revert_landed`` row and one
@@ -96,7 +99,7 @@ import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .ledger import append_declared_jsonl, load_declared_jsonl
@@ -104,6 +107,7 @@ from .pr_manager import REVERT_BRANCH_PREFIX
 from .self_merge_freeze import freeze_self_merge, register_revert
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .validation import SpawnWrapper
 
 SELF_REVERTS_SURFACE = "enterprise_self_reverts"
 SELF_REVERTS_RELPATH = ("enterprise", "self-reverts.jsonl")
@@ -120,16 +124,20 @@ DECISION_CONFLICT = "revert_conflict"
 DECISION_FAILED = "revert_failed"
 DECISION_IMPURE = "revert_impure"
 DECISION_CREDENTIAL_UNAVAILABLE = "revert_credential_unavailable"
+DECISION_VALIDATION_UNAVAILABLE = "revert_validation_unavailable"
+DECISION_VALIDATION_FAILED = "revert_validation_failed"
 DECISION_DELIVERY_FAILED = "revert_delivery_failed"
 DECISION_OPENED = "revert_opened"
 DECISION_LANDED = "revert_landed"
 # A terminal decision closes the merge's key: no later trigger acts on it.
 TERMINAL_DECISIONS: frozenset[str] = frozenset({
     DECISION_REVERT_OF_REVERT, DECISION_NOT_PERMITTED, DECISION_UNBOUND, DECISION_CONFLICT,
-    DECISION_FAILED, DECISION_IMPURE, DECISION_DELIVERY_FAILED, DECISION_OPENED,
+    DECISION_FAILED, DECISION_IMPURE, DECISION_VALIDATION_FAILED, DECISION_DELIVERY_FAILED, DECISION_OPENED,
 })
 # The decisions a person has to act on: each opens a HUMAN_REQUIRED record.
-HUMAN_REQUIRED_DECISIONS: frozenset[str] = TERMINAL_DECISIONS - {DECISION_OPENED}
+# The contained room being unavailable is the host's, not the revert's: it
+# is retried, and a person is told the revert is waiting on it.
+HUMAN_REQUIRED_DECISIONS: frozenset[str] = (TERMINAL_DECISIONS - {DECISION_OPENED}) | {DECISION_VALIDATION_UNAVAILABLE}
 
 # The producer's own commit identity: never the ambient one, which a CI
 # runner does not configure, and never a person's.
@@ -411,8 +419,19 @@ def run_self_revert_producer(
     workspace_root: str | Path,
     reader: Any | None,
     triggers: Sequence[str],
+    validation_sandbox: Callable[[Path], SpawnWrapper] | None = None,
 ) -> dict[str, Any]:
-    """Act on every bad ARIA merge the named triggers see; see module doc."""
+    """Act on every bad ARIA merge the named triggers see; see module doc.
+
+    ``validation_sandbox`` builds the containment the revert's suite runs
+    in for a worktree; the default is the apply gate's own
+    (``implementation_delivery.validation_sandbox_for`` with this store).
+    """
+    if validation_sandbox is None:
+        from .implementation_delivery import validation_sandbox_for
+
+        def validation_sandbox(worktree: Path) -> SpawnWrapper:
+            return validation_sandbox_for(worktree, store=base_dir)
     unknown = sorted(set(triggers) - set(TRIGGERS))
     if unknown:
         raise GovernanceError(f"self_revert_unknown_triggers:{unknown}")
@@ -430,7 +449,7 @@ def run_self_revert_producer(
             skipped.append({"pr_number": candidate.pr_number, "reason": "not_an_aria_merge"})
             continue
         row = _decide(candidate, cycle_id=cycle_id, base_dir=base_dir, workspace=workspace,
-                      reader=reader, skipped=skipped)
+                      reader=reader, skipped=skipped, validation_sandbox=validation_sandbox)
         if row is not None:
             decisions.append(row)
     if TRIGGER_POST_MERGE_CI in triggers:
@@ -446,6 +465,7 @@ def _decide(
     workspace: Path,
     reader: Any | None,
     skipped: list[dict[str, Any]],
+    validation_sandbox: Callable[[Path], SpawnWrapper],
 ) -> dict[str, Any] | None:
     key = revert_key_for(candidate.merge_sha)
     ledger = load_self_reverts(base_dir=base_dir)
@@ -508,7 +528,7 @@ def _decide(
     try:
         return _revert_and_deliver(
             candidate, freeze_id=str(freeze["freeze_id"]), origin_main=origin_main, reverted=reverted,
-            cycle_id=cycle_id, base_dir=base_dir, workspace=workspace,
+            cycle_id=cycle_id, base_dir=base_dir, workspace=workspace, validation_sandbox=validation_sandbox,
         )
     except _Terminal as terminal:
         return _record(candidate, terminal.decision, cycle_id=cycle_id, base_dir=base_dir, detail=terminal.detail)
@@ -533,6 +553,7 @@ def _revert_and_deliver(
     cycle_id: str,
     base_dir: str | Path | None,
     workspace: Path,
+    validation_sandbox: Callable[[Path], SpawnWrapper],
 ) -> dict[str, Any] | None:
     branch = revert_branch_for(candidate.merge_sha)
     holder = Path(tempfile.mkdtemp(prefix="aria-self-revert-"))
@@ -543,10 +564,16 @@ def _revert_and_deliver(
         if created.returncode != 0:
             raise _Terminal(DECISION_FAILED, {"reason": f"worktree_add_failed:{_first_line(created.stderr)}"})
         added = True
+        # The revert commit is a function of its inputs: fixed identity,
+        # dates taken from the merge it reverts, and the base it sits on. A
+        # later attempt on the same base therefore makes the SAME commit,
+        # which is what lets a retry meet the change chain it already wrote.
+        merge_date = _git(["show", "-s", "--format=%cI", candidate.merge_sha], cwd=workspace).stdout.strip()
         reverting = _git(
             ["-c", f"user.name={REVERT_COMMITTER_NAME}", "-c", f"user.email={REVERT_COMMITTER_EMAIL}",
              "-c", "commit.gpgsign=false", "revert", "--no-edit", candidate.merge_sha],
             cwd=worktree,
+            env={**os.environ, "GIT_AUTHOR_DATE": merge_date, "GIT_COMMITTER_DATE": merge_date},
         )
         if reverting.returncode != 0:
             unmerged = _git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree)
@@ -560,9 +587,16 @@ def _revert_and_deliver(
         purity = prove_revert_purity(workspace=worktree, merge_sha=candidate.merge_sha, revert_sha=revert_sha)
         if not purity["pure"]:
             raise _Terminal(DECISION_IMPURE, {"purity": purity, "base_sha": origin_main})
+        validated = _validate_revert(
+            candidate, worktree=worktree, revert_sha=revert_sha, origin_main=origin_main, purity=purity,
+            reverted=reverted, cycle_id=cycle_id, base_dir=base_dir, validation_sandbox=validation_sandbox,
+        )
+        if validated is None:
+            return None
+        change_id = str(validated["change_id"])
         opened = _deliver(
             candidate, branch=branch, revert_sha=revert_sha, origin_main=origin_main, purity=purity,
-            reverted=reverted, cycle_id=cycle_id, base_dir=base_dir, workspace=workspace,
+            change_id=change_id, cycle_id=cycle_id, base_dir=base_dir, workspace=workspace,
         )
         if opened is None:
             return None
@@ -570,8 +604,9 @@ def _revert_and_deliver(
                         purity=purity, base_dir=base_dir)
         return _record(candidate, DECISION_OPENED, cycle_id=cycle_id, base_dir=base_dir, detail={
             "branch": branch, "base_sha": origin_main, "head_sha": revert_sha, "purity": purity,
-            "change_id": opened["change_id"], "pr_number_opened": int(opened["pr_number"]),
+            "change_id": change_id, "pr_number_opened": int(opened["pr_number"]),
             "pr_url": opened.get("url"), "freeze_id": freeze_id,
+            "validated": {"change_id": change_id, "ledger_hash": validated.get("ledger_hash")},
         })
     finally:
         if added:
@@ -583,6 +618,137 @@ def _revert_and_deliver(
         shutil.rmtree(holder, ignore_errors=True)
 
 
+def _reverted_suite(reverted: dict[str, Any], *, pr_number: int, base_dir: str | Path | None) -> tuple[list[str], int]:
+    """The suite that validated the reverted change, and its ceiling.
+
+    The commands are the reverted change's own exit-0 validation runs
+    (``refs_for_change``, the mapping its ``change_validated`` was written
+    from), in the order they ran; the ceiling is the staged action's
+    (``_staged_suite``) when the PR names its proposal."""
+    from .implementation_delivery import _staged_suite
+    from .implementation_safety import CANONICAL_VALIDATION_TIMEOUT_MS
+    from .validation_runs_ledger import refs_for_change
+
+    commands: list[str] = []
+    for ref in refs_for_change(str(reverted.get("change_id") or ""), base_dir=base_dir):
+        command = str(ref.get("cmd") or "")
+        if command and command not in commands:
+            commands.append(command)
+    timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
+    lifecycle = ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl"
+    proposal_id = ""
+    if lifecycle.exists():
+        for row in load_declared_jsonl(lifecycle, expected_surface="pr_lifecycle"):
+            if row.get("pr_number") == pr_number and row.get("proposal_id"):
+                proposal_id = str(row["proposal_id"])
+    if proposal_id:
+        _commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
+    return commands, timeout_ms
+
+
+def _validate_revert(
+    candidate: _Candidate,
+    *,
+    worktree: Path,
+    revert_sha: str,
+    origin_main: str,
+    purity: dict[str, Any],
+    reverted: dict[str, Any],
+    cycle_id: str,
+    base_dir: str | Path | None,
+    validation_sandbox: Callable[[Path], SpawnWrapper],
+) -> dict[str, Any] | None:
+    """Open the revert's change chain and close it with the reverted
+    change's own suite, re-run at the revert tip in the validation sandbox.
+
+    Returns the ``change_validated`` row. None (recorded, not terminal) when
+    the sandbox cannot be built here; raises ``_Terminal`` when the suite is
+    unknown, red, or the validated row is refused.
+    """
+    from .change_ledger import _find_validated_for_change, emit_change_committed, emit_change_planned, emit_change_validated
+    from .implementation_delivery import _record_change_validated, probe_validation_room
+    from .implementation_safety import CANONICAL_VALIDATION_COMMANDS, SandboxUnavailable
+    from .validation import parse_allowed_command, run_validation_commands
+    from .validation_env import build_validation_env
+
+    commands, timeout_ms = _reverted_suite(reverted, pr_number=candidate.pr_number, base_dir=base_dir)
+    if not commands:
+        raise _Terminal(DECISION_VALIDATION_FAILED, {"reason": "reverted_change_has_no_recorded_suite",
+                                                     "purity": purity})
+    files = list(purity["revert_files"])
+    try:
+        # One chain per (merge, base): a revert on a moved main is a
+        # different commit and gets its own chain rather than colliding
+        # with the committed row of the first.
+        planned = emit_change_planned(
+            plan_id=f"self-revert:{candidate.merge_sha}:{origin_main}",
+            finding_id=str(reverted["finding_id"]),
+            intended_affected_files=files,
+            intended_validation_refs=list(CANONICAL_VALIDATION_COMMANDS),
+            rollback_ref=candidate.merge_sha,
+            architectural_tier=int(reverted["architectural_tier"]),
+            intended_request_id=f"self-revert:{candidate.merge_sha[:12]}",
+            base_dir=base_dir,
+        )
+    except GovernanceError as exc:
+        raise _Terminal(DECISION_DELIVERY_FAILED, {"reason": f"change_ledger_refused:{str(exc)[:300]}",
+                                                   "purity": purity}) from exc
+    change_id = str(planned["change_id"])
+    already = _find_validated_for_change(ensure_tools_dir(base_dir), change_id)
+    if already is not None:
+        # A retry after a delivery that could not mint its credential: the
+        # same revert commit, already validated. Nothing re-runs.
+        return already
+
+    try:
+        wrap = validation_sandbox(worktree)
+        for command in commands:
+            argv, declared = parse_allowed_command(command)
+            wrap(argv, build_validation_env(os.environ, declared=declared).env)
+    except (SandboxUnavailable, GovernanceError) as exc:
+        reason = f"sandbox_unavailable:{str(exc)[:300]}"
+        if not any(row.get("key") == revert_key_for(candidate.merge_sha)
+                   and row.get("decision") == DECISION_VALIDATION_UNAVAILABLE and row.get("reason") == reason
+                   for row in load_self_reverts(base_dir=base_dir)):
+            _record(candidate, DECISION_VALIDATION_UNAVAILABLE, cycle_id=cycle_id, base_dir=base_dir,
+                    detail={"reason": reason, "change_id": change_id})
+        return None
+    room = probe_validation_room(
+        wrap, workspace_root=worktree, environment=build_validation_env(os.environ, declared={}).env,
+    )
+    plan = run_validation_commands(
+        commands=commands, workspace_root=worktree, change_id=change_id, commit_sha=revert_sha,
+        runner_identity=f"aria-kernel:self-revert:{candidate.merge_sha[:12]}",
+        change_author_identity=REVERT_COMMITTER_NAME, base_dir=base_dir, cycle_id=cycle_id,
+        timeout_ms=timeout_ms, spawn_wrapper=wrap, room=room,
+    )
+    if plan.get("status") != "ok":
+        from .validation_runs_ledger import list_validation_runs_for_change
+
+        failed = sorted(
+            str(run.get("cmd")) for run in list_validation_runs_for_change(change_id, base_dir=base_dir)
+            if run.get("commit_sha") == revert_sha and run.get("status") != "ok"
+        )
+        raise _Terminal(DECISION_VALIDATION_FAILED, {"change_id": change_id, "failed_commands": failed,
+                                                     "validation_plan": plan.get("ledger_hash"),
+                                                     "purity": purity})
+    try:
+        emit_change_committed(change_id=change_id, commit_sha=revert_sha, actual_affected_files=files,
+                              base_dir=base_dir)
+    except GovernanceError as exc:
+        raise _Terminal(DECISION_DELIVERY_FAILED, {"reason": f"change_ledger_refused:{str(exc)[:300]}",
+                                                   "change_id": change_id, "purity": purity}) from exc
+    validated = _record_change_validated(
+        change_id=change_id, base_dir=base_dir, workspace=worktree, emit=emit_change_validated,
+        request_id=f"self-revert:{candidate.merge_sha[:12]}", cycle_id=cycle_id,
+    )
+    if validated is None:
+        raise _Terminal(DECISION_VALIDATION_FAILED, {"change_id": change_id, "reason": "change_validated_refused",
+                                                     "validation_plan": plan.get("ledger_hash"),
+                                                     "purity": purity})
+    return validated
+
+
 def _deliver(
     candidate: _Candidate,
     *,
@@ -590,16 +756,15 @@ def _deliver(
     revert_sha: str,
     origin_main: str,
     purity: dict[str, Any],
-    reverted: dict[str, Any],
+    change_id: str,
     cycle_id: str,
     base_dir: str | Path | None,
     workspace: Path,
 ) -> dict[str, Any] | None:
-    """Change ledger, push and PR inside one credential hold. Returns the
-    opened lifecycle row (with ``change_id``), or None when the credential
-    could not be minted — recorded, not terminal: nothing reached the
-    change ledger or the remote, so a later cycle can try again."""
-    from .change_ledger import emit_change_committed, emit_change_planned
+    """Push and PR inside one credential hold, for a validated chain.
+    Returns the opened lifecycle row, or None when the credential could not
+    be minted — recorded, not terminal: nothing reached the remote, and the
+    deterministic revert meets its validated chain on the next attempt."""
     from .delivery_credentials import (
         DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
         DELIVERY_CREDENTIAL_SELF_REVERT_CONSUMER,
@@ -628,26 +793,9 @@ def _deliver(
             )
             if not already:
                 _record(candidate, DECISION_CREDENTIAL_UNAVAILABLE, cycle_id=cycle_id, base_dir=base_dir,
-                        detail={"reason": reason})
+                        detail={"reason": reason, "change_id": change_id})
             return None
         credential_env: dict[str, str] = dict(credential.env) if credential is not None else {}
-        try:
-            planned = emit_change_planned(
-                plan_id=f"self-revert:{candidate.merge_sha}",
-                finding_id=str(reverted["finding_id"]),
-                intended_affected_files=files,
-                intended_validation_refs=list(CANONICAL_VALIDATION_COMMANDS),
-                rollback_ref=candidate.merge_sha,
-                architectural_tier=int(reverted["architectural_tier"]),
-                intended_request_id=request_id,
-                base_dir=base_dir,
-            )
-            change_id = str(planned["change_id"])
-            emit_change_committed(change_id=change_id, commit_sha=revert_sha, actual_affected_files=files,
-                                  base_dir=base_dir)
-        except GovernanceError as exc:
-            raise _Terminal(DECISION_DELIVERY_FAILED, {"reason": f"change_ledger_refused:{str(exc)[:300]}",
-                                                       "purity": purity}) from exc
         intent = record_intent(
             request_id=request_id, effect_kind="git_push", target=f"{_REMOTE}/{branch}",
             intended_postcondition={"branch": branch, "remote": _REMOTE, "head_sha": revert_sha, "change_id": change_id},
@@ -698,7 +846,7 @@ def _pr_body(candidate: _Candidate, *, branch: str, purity: dict[str, Any], chan
         "## Validation",
         f"- Purity: revert patch-id `{purity['revert_patch_id']}` equals the inverse patch-id "
         f"`{purity['inverse_patch_id']}`; the file sets are identical.",
-        "- CI on this PR runs the canonical suite.",
+        "- The suite that validated the reverted change was re-run at this head and recorded for this change.",
         "",
         "## Baseline Comparison",
         f"- The merge's first parent `{candidate.evidence.get('parent_sha')}` is the state this restores.",
@@ -756,6 +904,8 @@ __all__ = [
     "DECISION_OPENED",
     "DECISION_REVERT_OF_REVERT",
     "DECISION_UNBOUND",
+    "DECISION_VALIDATION_FAILED",
+    "DECISION_VALIDATION_UNAVAILABLE",
     "SELF_REVERTS_SURFACE",
     "SelfRevertDeliveryGrant",
     "TERMINAL_DECISIONS",

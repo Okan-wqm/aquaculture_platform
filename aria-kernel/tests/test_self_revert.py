@@ -17,7 +17,7 @@ from typing import Any
 from unittest import mock
 
 from aria_kernel import cycle, pr_manager, self_revert
-from aria_kernel.auto_merge import record_pr_lifecycle
+from aria_kernel.auto_merge import _evaluate_triple_gate, record_pr_lifecycle
 from aria_kernel.change_ledger import (
     CHANGE_RECORD_SCHEMA,
     _find_committed,
@@ -36,6 +36,8 @@ from aria_kernel.self_revert import (
     DECISION_NOT_PERMITTED,
     DECISION_OPENED,
     DECISION_REVERT_OF_REVERT,
+    DECISION_VALIDATION_FAILED,
+    DECISION_VALIDATION_UNAVAILABLE,
     TRIGGER_CHANGE_OUTCOME,
     TRIGGER_POST_MERGE_CI,
     load_self_reverts,
@@ -43,6 +45,8 @@ from aria_kernel.self_revert import (
     run_self_revert_producer,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.validation_runs_ledger import list_validation_runs_for_change, record_validation_run
+from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 
 MERGED_PR = 41
 REVERT_PR = 77
@@ -105,6 +109,21 @@ class SelfRevertTests(unittest.TestCase):
              "change_id": self.reverted_change_id, "changed_files": ["docs/runbooks/guide.md"]},
             event="opened", base_dir=self.tools,
         )
+        # The suite that validated the reverted change before ARIA merged it.
+        log = root / "reverted-suite.log"
+        log.write_text("ok\n", encoding="utf-8")
+        for command in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE:
+            record_validation_run(
+                change_id=self.reverted_change_id, cmd=command, exit_code=0, duration_ms=1_000,
+                log_path=str(log), commit_sha="e" * 40, runner_identity="aria-executor:REQ-merged",
+                change_author_identity="agent:aria-implementer",
+                started_at="2026-09-24T10:00:00+00:00", completed_at="2026-09-24T10:01:00+00:00",
+                base_dir=self.tools,
+            )
+        # The contained room, faked at its one seam: every command of the
+        # suite runs as `true` (green) unless a test makes it `false`.
+        self.suite_exit = "true"
+        self.suite_argvs: list[list[str]] = []
 
         self.gh_calls: list[list[str]] = []
         real_run = subprocess.run
@@ -158,9 +177,17 @@ class SelfRevertTests(unittest.TestCase):
 
     def _produce(self, reader: FakeReader | None = None,
                  triggers: tuple[str, ...] = (TRIGGER_POST_MERGE_CI,)) -> dict[str, Any]:
+        def sandbox(worktree: Path) -> Any:
+            def wrap(argv: list[str], environment: Any) -> list[str]:
+                self.suite_argvs.append(list(argv))
+                if argv[:2] == ["sh", "-c"]:
+                    return list(argv)  # the room probe runs as itself
+                return [self.suite_exit]
+            return wrap
+
         return run_self_revert_producer(
             cycle_id="cyc-revert", base_dir=self.tools, workspace_root=self.workspace,
-            reader=reader, triggers=triggers,
+            reader=reader, triggers=triggers, validation_sandbox=sandbox,
         )
 
     def _green_parent(self) -> FakeReader:
@@ -271,6 +298,16 @@ class SelfRevertTests(unittest.TestCase):
         lifecycle = load_declared_jsonl(self.tools / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle")
         self.assertIn((REVERT_PR, change_id, "opened"),
                       {(row.get("pr_number"), row.get("change_id"), row.get("event")) for row in lifecycle})
+
+        # The revert re-ran the reverted change's own suite at its tip, and
+        # its chain passes the merge authority's real triple gate.
+        runs = list_validation_runs_for_change(change_id, base_dir=self.tools)
+        self.assertEqual(sorted(run["cmd"] for run in runs), sorted(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
+        self.assertEqual({run["commit_sha"] for run in runs}, {tip})
+        self.assertEqual({run["status"] for run in runs}, {"ok"})
+        self.assertEqual(opened["validated"]["change_id"], change_id)
+        gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=tip, base_dir=self.tools)
+        self.assertTrue(gate["passed"], gate)
 
         # The workspace checkout the cycle runs in was never moved.
         self.assertEqual(self._out("rev-parse", "--abbrev-ref", "HEAD"), "main")
@@ -388,7 +425,52 @@ class SelfRevertTests(unittest.TestCase):
         # Landing does not lift the freeze: that is the operator's act.
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
 
-    def test_a_credential_that_cannot_be_minted_leaves_nothing_behind_but_the_freeze(self) -> None:
+    def test_a_red_suite_at_the_revert_tip_is_not_validated_and_opens_no_pr(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self.suite_exit = "false"
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_VALIDATION_FAILED])
+        row = load_self_reverts(base_dir=self.tools)[0]
+        change_id = row["change_id"]
+        self.assertFalse((self.tools / "change-ledger" / "validated.jsonl").exists()
+                         and change_id in (self.tools / "change-ledger" / "validated.jsonl").read_text())
+        self.assertEqual(row["failed_commands"], sorted(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
+        self.assertEqual(self.gh_calls, [])
+        self.assertEqual(self._origin_branches(), ["main"])
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertIsNone(freeze["revert"])
+        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        # Terminal: a later trigger does not re-run it.
+        self.suite_exit = "true"
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_VALIDATION_FAILED])
+
+    def test_a_host_without_the_validation_sandbox_opens_no_pr_and_retries(self) -> None:
+        from aria_kernel.implementation_safety import SandboxUnavailable
+
+        self._aria_merged()
+        self._merge_outcome()
+
+        def no_sandbox(worktree: Path) -> Any:
+            raise SandboxUnavailable("sandbox_backend_unavailable: bwrap is not usable on this host")
+
+        for _ in range(2):
+            run_self_revert_producer(
+                cycle_id="cyc-revert", base_dir=self.tools, workspace_root=self.workspace,
+                reader=self._green_parent(), triggers=(TRIGGER_POST_MERGE_CI,), validation_sandbox=no_sandbox,
+            )
+        self.assertEqual(self._decisions(), [DECISION_VALIDATION_UNAVAILABLE])
+        self.assertEqual(self.gh_calls, [])
+        self.assertEqual(self._origin_branches(), ["main"])
+        self.assertIsNotNone(active_freeze(base_dir=self.tools))
+        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        # The host's refusal is not the revert's: a host that can build it proceeds.
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_VALIDATION_UNAVAILABLE, DECISION_OPENED])
+
+    def test_a_credential_that_cannot_be_minted_leaves_nothing_on_the_remote_and_retries(self) -> None:
         from aria_kernel import delivery_credentials
 
         self._aria_merged()
@@ -400,11 +482,20 @@ class SelfRevertTests(unittest.TestCase):
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
         self.assertEqual(self._origin_branches(), ["main"])
         self.assertEqual(self._out("branch", "--list", revert_branch_for(self.merge_sha)), "")
-        self.assertFalse((self.tools / "change-ledger" / "committed.jsonl").exists())
         self.assertEqual(self.gh_calls, [])
-        # Not terminal: once the lane can mint, the same merge is reverted.
+        change_id = load_self_reverts(base_dir=self.tools)[0]["change_id"]
+        committed = _find_committed(self.tools, change_id)
+        assert committed is not None
+        suite_runs = len(list_validation_runs_for_change(change_id, base_dir=self.tools))
+        # Not terminal: once the lane can mint, the SAME revert commit meets
+        # the chain it already validated, and nothing re-runs.
         self._produce(self._green_parent())
         self.assertEqual(self._decisions(), [DECISION_CREDENTIAL_UNAVAILABLE, DECISION_OPENED])
+        opened = load_self_reverts(base_dir=self.tools)[-1]
+        self.assertEqual((opened["change_id"], opened["head_sha"]), (change_id, committed["commit_sha"]))
+        self.assertEqual(len(list_validation_runs_for_change(change_id, base_dir=self.tools)), suite_runs)
+        gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=opened["head_sha"], base_dir=self.tools)
+        self.assertTrue(gate["passed"], gate)
 
 
 class SelfRevertCycleWiringTests(unittest.TestCase):

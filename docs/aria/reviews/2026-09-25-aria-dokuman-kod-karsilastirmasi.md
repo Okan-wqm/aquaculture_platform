@@ -13,19 +13,18 @@
 > önemli davranış dokümanda yok) · **EKSİK-KOD** (dokümanın iddiası kodda yok /
 > bağlı değil).
 >
-> **Okuma kapsamı (dürüst sınır).** Kod tamamen okunmadı. `aria_kernel` 308 üst-düzey
-> modül (alt paketlerle 350 dosya, ~166 000 satır) + `tools/aria-*` + 684 test
-> dosyası içerir. Ajanlar **iddia-güdümlü** okudu: dokümanlardaki her somut iddianın
-> geçtiği modüller (~70–90 modül; ledger, evidence*\*, runtime_profile, discovery,
-> snapshot, cycle, memory, pressure, proactive_priority, runtime_signal_bridge,
-> tool_registry/health, readiness, adapter_calibration, poc, feedback_store,
-> judge*_, agent_surface, agent_invocations, agent_contract, plan_convergence,
-> independence_check, implementation_safety, __genesis, capability__, state*manifest,
-> cost_budget, autonomy*_, merge*authority, pr_manager, github_adapters, reflection,
-> search, mcp_server, semantic*_, context*compiler, claude/codex/zai_runtime,
-> ci_executor, worker_executor). İddia geçmeyen modüller (mission, experiment*_,
-> twin, impact_graph, knowledge_graph ayrıntısı, workflow_contracts, upcasters,
-> migration vb.) satır satır doğrulanmadı; "bulgu yok" ≠ "tutarlı".
+> **Okuma kapsamı — iki tur.**
+>
+> 1. **İddia-güdümlü tur (6 ajan):** dokümanlardaki her somut iddianın geçtiği ~70–90
+>    modül açıldı (§2–§7).
+> 2. **Tam okuma turu (12 ajan):** `aria-kernel/aria_kernel/**` (350 dosya),
+>    `tools/aria-poc`, `tools/aria-adapters`, `tools/aria-acceptance`, `tools/aria` ve 11
+>    `aria-*` workflow — **400 dosyanın 400'ü, ~198 000 satır** baştan sona okundu. Ham
+>    ajan raporları (dosya envanteri, üretimde bağlı mı, tutarsızlıklar, ölü kod, riskler):
+>    `docs/aria/reviews/2026-09-25-aria-tam-okuma/B01.md … B12.md`. Yeni bulgular ve
+>    ilk turun düzeltmeleri §8.dedir. Tek istisna: B02 `autonomy_evidence.py:200-583`
+>    statik kapanış tablosundaki SHA'ları tek tek doğrulamadı.
+> 3. Testler (683 kernel testi) envanterlendi (B12), satır satır okunmadı.
 
 ---
 
@@ -36,16 +35,22 @@
    dalında: **43 cycle başladı / 30 tamamlandı / 13 başarısız** (2026-08-05 →
    2026-09-20), **304 LLM ajan sonucu** (274 kabul / 30 red), 108 adaptör koşusu,
    34 500 ham bulgu. ARIA **algılama + yargı** katmanında gerçekten çalışıyor.
-2. **Ama değer üretim zinciri kapanmadı:** kalıcı bulgu (`findings.jsonl`) **0**,
-   plan olayları 15 başladı / 12 terk / 2 değerlendirildi / **0 CONVERGED**,
-   8 auto-merge kararı **8'i de `blocked`**, mission olayı 0, change-ledger commit 0.
-   Tüm cycle'lar `standard` profilde; **observe burn-in 0/30**.
+2. **Ama değer üretim zinciri kapanmadı:** kanonik bulgu deposunda
+   (`findings/aria-findings/`) **13 OPEN** bulgu var — 8'i LLM yargısını atlayan
+   mekanik `seed:drift-scan`, 5'i consensus terfisi; hiçbiri RESOLVED'a gitmedi
+   (otomatik RESOLVED üreticisi yok). Plan olayları 15 başladı / 12 terk (12'si de
+   72 s durgunluk) / 2 değerlendirildi / **0 CONVERGED**; 8 auto-merge kararı **8'i de
+   `blocked`**; 94 mission açıldı, **hepsi DISCOVERED'da**; change-ledger commit 0.
+   Tüm cycle'lar `standard` profilde; **observe burn-in 0/30**. Kök nedenler §8.1'de.
 3. **2026-09-21'den beri gece koşuları kırmızı.** Son başarılı cycle
    `cyc-20260920T212805Z-auto`. Publish reddi:
    `state_commit_surface_too_large:raw_findings` — ham bulguların **%87'si
    (29 939 / 34 500) tek adaptörden, `doc-staleness-adapter`'dan** geliyor.
-   Compactor düzeltmesi (8028bbb0, ARIA-HIGH-185) main'de; etkisi henüz yeşil bir
-   cycle ile kanıtlanmadı.
+   Bu 29 939 satır yalnız **2 755 benzersiz parmak izi × ~12 koşu** — ham ledger
+   koşular arası dedup yapmıyor. Publish kontrolü `raw_findings`'i yalnız bir
+   teşhis sayımı için boyut/satır sınırına bağlıyor (`autonomy_evidence.py:593-596,
+2543-2554`). Compactor düzeltmesi (8028bbb0) dosyayı küçültür, bağımlılığı
+   kaldırmaz; yeşil bir cycle ile henüz kanıtlanmadı.
 4. **Doküman yapısal olarak eskimiş yerler:** cycle 47 faz (NASIL-CALISIR 16
    satır anlatıyor), `heartbeat_tick` silinmiş, model merdiveni
    `fable→opus→sonnet` 2026-09-12'de kaldırıldı, HMAC re-verify bağlı (doküman
@@ -59,31 +64,45 @@
    takılı.
 6. **RAG değil.** Vektör DB yok, embedder yok (soket boş), arama SQLite FTS5/bm25.
    Doğruluk kaynağı git blob hash eşitliği; LLM üretici değil hakem.
+7. **Tam okuma (400/400 dosya) zinciri koparan 11 kod hatası buldu (§8.1).** En
+   ağırları: HUMAN_REQUIRED paneli oyu okuyamıyor (968 `panel_incomplete`); runner
+   attestation workflow girdisi eksik olduğu için hiç yazılamıyor (merge yapısal
+   olarak kapalı); `change_validated`'ı otomatik yazan kod yok; gece yakınsama tavanı
+   2 tur. Ayrıca 12 güvenlik bulgusu (§8.2) — ör. `lstrip("./")` yüzünden
+   `.github/workflows/**` yasak deseni hiç eşleşmiyor; LLM'in yazdığı adaptör
+   sandbox'sız koşuyor.
 
 ---
 
 ## 1. Canlı gerçek — `origin/aria/state` (2026-09-25)
 
-| Yüzey                                                          | Sayı                                                                               | Yorum                                                                                                                                                          |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tools/cycles.jsonl`                                           | 43 started · 30 completed · 13 failed                                              | ilk 2026-08-05, son başarılı `cyc-20260920T212805Z-auto`                                                                                                       |
-| `tools/agent-invocations/results.jsonl`                        | 304 (274 accepted · 30 rejected)                                                   | roller: evidence_judgment 85 · adversarial_judgment 82 · human_required_adjudication 80 · maintenance_utility 24 · consensus_arbitration 2 · challenger_plan 1 |
-| `tools/runs.jsonl`                                             | 108                                                                                | adaptör koşuları                                                                                                                                               |
-| `tools/raw-findings.jsonl`                                     | 34 500                                                                             | doc-staleness 29 939 · test-gap 3 459 · tenant-scoping 724 · security-boundary 156 · kernel-dead-wire 110 · bundle-budget 108 · fe-dto-parity 4                |
-| `tools/findings.jsonl`                                         | **0**                                                                              | hiçbir bulgu kalıcı finding'e terfi etmedi                                                                                                                     |
-| `tools/judgment-samples.jsonl`                                 | 220                                                                                | yargı örneklemesi çalışıyor                                                                                                                                    |
-| `tools/feedback-consensus-uncertainties.jsonl`                 | 18                                                                                 | consensus'a ulaşamayanlar                                                                                                                                      |
-| `tools/human-required/`                                        | 114 dosya                                                                          | insan kuyruğu dolu                                                                                                                                             |
-| `tools/plans/events.jsonl`                                     | plan_started 15 · plan_abandoned 12 · plan_evaluated 2 · challenger_plan_drafted 1 | **0 CONVERGED**                                                                                                                                                |
-| `tools/auto-merge-decisions.jsonl`                             | 8 — hepsi `blocked` (PR #1266, #1273, #1282, #1335 ×2)                             |                                                                                                                                                                |
-| `tools/missions/mission-events.jsonl`, `tools/change-ledger/*` | 0                                                                                  | mission/değişim zinciri hiç işlemedi                                                                                                                           |
-| `tools/memory/beliefs.jsonl`                                   | 8                                                                                  | bellek çok ince                                                                                                                                                |
-| `autonomy_state.jsonl`                                         | 403 satır, hepsi `profile: standard`, `auto_merges_delta` toplamı 0                |                                                                                                                                                                |
+| Yüzey                                          | Sayı                                                                                  | Yorum                                                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools/cycles.jsonl`                           | 43 started · 30 completed · 13 failed                                                 | ilk 2026-08-05, son başarılı `cyc-20260920T212805Z-auto`                                                                                                       |
+| `tools/agent-invocations/results.jsonl`        | 304 (274 accepted · 30 rejected)                                                      | roller: evidence_judgment 85 · adversarial_judgment 82 · human_required_adjudication 80 · maintenance_utility 24 · consensus_arbitration 2 · challenger_plan 1 |
+| `tools/runs.jsonl`                             | 108                                                                                   | adaptör koşuları                                                                                                                                               |
+| `tools/raw-findings.jsonl`                     | 34 500                                                                                | doc-staleness 29 939 · test-gap 3 459 · tenant-scoping 724 · security-boundary 156 · kernel-dead-wire 110 · bundle-budget 108 · fe-dto-parity 4                |
+| `tools/findings.jsonl`                         | 0                                                                                     | eski yüzey; kanonik depo aşağıda                                                                                                                               |
+| `findings/aria-findings/` (+`_index.json`)     | 15 dosya, index'te **13 OPEN** (F-001…F-008 spine_drift seed · F-009…F-013 consensus) | RESOLVED yok; 2 deney (F-009, F-010) sahte çürütmeyle bitti                                                                                                    |
+| `tools/registry.json` (canlı)                  | 10 araç: 7 CALIBRATE · 2 SHADOW · 1 QUARANTINED (agent-harness)                       | `lint-rules` kayıtlı değil; manifestlerin hepsi SHADOW der, `registry_compiler` canlı durumu ezer                                                              |
+| `tools/judgment-samples.jsonl`                 | 220                                                                                   | yargı örneklemesi çalışıyor                                                                                                                                    |
+| `tools/feedback-consensus-uncertainties.jsonl` | 18                                                                                    | consensus'a ulaşamayanlar                                                                                                                                      |
+| `tools/human-required/`                        | 114 dosya                                                                             | insan kuyruğu dolu                                                                                                                                             |
+| `tools/plans/events.jsonl`                     | plan_started 15 · plan_abandoned 12 · plan_evaluated 2 · challenger_plan_drafted 1    | **0 CONVERGED**                                                                                                                                                |
+| `tools/auto-merge-decisions.jsonl`             | 8 — hepsi `blocked` (PR #1266, #1273, #1282, #1335 ×2)                                |                                                                                                                                                                |
+| `tools/missions/mission-events.jsonl`          | 117 (94 opened · 17 wake · 6 transition)                                              | 88 açık mission'ın **hepsi DISCOVERED**; scheduler 28 kararın 27'sinde aynı mission'ı seçti                                                                    |
+| `tools/change-ledger/*`                        | 0 commit                                                                              | değişim zinciri hiç işlemedi                                                                                                                                   |
+| `tools/governance.jsonl`                       | 968 × `panel_incomplete`                                                              | HUMAN_REQUIRED paneli hiç karar vermedi (§8.1-A)                                                                                                               |
+| `tools/memory/beliefs.jsonl`                   | 8                                                                                     | bellek çok ince                                                                                                                                                |
+| `autonomy_state.jsonl`                         | 403 satır, hepsi `profile: standard`, `auto_merges_delta` toplamı 0                   |                                                                                                                                                                |
 
 Kanıt komutu: `git show origin/aria/state:tools/<yüzey>` (salt-okuma).
 
-**Huni:** 34 500 ham bulgu → 220 örnek → 167 yargıç yanıtı → 18 belirsizlik /
-114 HUMAN_REQUIRED → **0 finding** → 15 plan → **0 CONVERGED** → 0 merge.
+**Huni:** 34 500 ham bulgu (2 755 benzersiz) → 220 örnek → 167 yargıç yanıtı →
+18 belirsizlik / 114 HUMAN_REQUIRED (**0 karar**) → 13 OPEN finding (0 RESOLVED) →
+15 plan → **0 CONVERGED** → 94 mission (hepsi DISCOVERED) → 0 merge.
+Kuyruk ayrıca: 1 171 ajan isteğinin **610'u (%52) hiç claim edilmeden**
+`anchor_expired` ile düştü (B01).
 
 ---
 
@@ -114,18 +133,18 @@ Kanıt komutu: `git show origin/aria/state:tools/<yüzey>` (salt-okuma).
 
 ### 3.1 Kanıt / ledger / profil (NASIL §1–2, MIMARI Şema 6–7)
 
-| Doküman                                                                           | Kod                                                                                                                                                  | Kanıt                                       | Sınıf                 |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------- |
-| `_record_hash :387`, `_append_jsonl_locked_body :395`, `load_jsonl_verified :861` | Davranış aynı; 1241 / 1278 / 1911                                                                                                                    | `ledger.py`                                 | KAYMA                 |
-| Ham `append_jsonl` enterprise yüzeyde reddedilir                                  | Doğru ama iki kaçış: `test_fixture=True`, `allow_legacy`+reason+`expires_at` (üretimde: `agent_invocations.py:1796`, bitiş 2026-12-31)               | `ledger.py:1455-1506`                       | EKSİK-DOKÜMAN         |
-| Yazımlar lock + fsync + atomik rename                                             | Append: flock + O_APPEND + fsync (rename yok); rename yalnız `rewrite_jsonl`                                                                         | `ledger.py:1313-1318,1649-1650`             | TUTARSIZ (küçük)      |
-| (yok)                                                                             | `append_declared_jsonl(bypass_profile_gate=True)` kernelde 34 çağrı                                                                                  | `ledger.py:1428,1606-1614`                  | EKSİK-DOKÜMAN         |
-| `repo_verified` "tek güvenilir derece"                                            | Dizin ref'i yalnız `cat-file -t == tree` ile `repo_verified`; ayrıca `repo_glob_verified`, `empty_glob`, `glob_too_large_to_verify` (500) dereceleri | `evidence_trust.py:62-64,147-151,321-395`   | EKSİK-DOKÜMAN         |
-| GitProbeSession 30 s × 3 + 1+2 s geri çekilme = 93 s, 300 s canlılık              | Birebir                                                                                                                                              | `evidence_probe.py:37-58,220-282`           | DOĞRU                 |
-| `validate_agent_response_evidence :350`                                           | 540; satır varlığı `1 ≤ line ≤ n`, satır içeriği/semantik doğrulanmaz; `human-required:` ref'leri ve ARBITRATION kernel artefaktları istisna         | `evidence_validator.py:382-385,480-497,540` | KAYMA + EKSİK-DOKÜMAN |
-| Beş profil; modül docstring                                                       | Docstring hâlâ "4-mode"                                                                                                                              | `runtime_profile.py:1,123`                  | KAYMA                 |
-| frozen "tüm yazımlar" / "tek yazma-yetki sınırı"                                  | Yalnız Plan-020 yüzeyleri; eski yazıcılar + `DIAGNOSTIC_ALLOWLIST` kapsam dışı                                                                       | `runtime_profile.py:24-31,308-322`          | EKSİK-DOKÜMAN         |
-| Bozuk profil → frozen                                                             | Doğru; dosya yoksa `standard`                                                                                                                        | `runtime_profile.py:401,428-466`            | KAYMA                 |
+| Doküman                                                                           | Kod                                                                                                                                                                                                                                                                                                                                | Kanıt                                       | Sınıf                 |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------- |
+| `_record_hash :387`, `_append_jsonl_locked_body :395`, `load_jsonl_verified :861` | Davranış aynı; 1241 / 1278 / 1911                                                                                                                                                                                                                                                                                                  | `ledger.py`                                 | KAYMA                 |
+| Ham `append_jsonl` enterprise yüzeyde reddedilir                                  | Doğru ama iki kaçış: `test_fixture=True`, `allow_legacy`+reason+`expires_at` (üretimde: `agent_invocations.py:1796`, bitiş 2026-12-31)                                                                                                                                                                                             | `ledger.py:1455-1506`                       | EKSİK-DOKÜMAN         |
+| Yazımlar lock + fsync + atomik rename                                             | Append: flock + O_APPEND + fsync (rename yok); rename yalnız `rewrite_jsonl`                                                                                                                                                                                                                                                       | `ledger.py:1313-1318,1649-1650`             | TUTARSIZ (küçük)      |
+| (yok)                                                                             | `append_declared_jsonl(bypass_profile_gate=True)` kernelde 34 çağrı                                                                                                                                                                                                                                                                | `ledger.py:1428,1606-1614`                  | EKSİK-DOKÜMAN         |
+| `repo_verified` "tek güvenilir derece"                                            | Dizin ref'i yalnız `cat-file -t == tree` ile `repo_verified`; ayrıca `repo_glob_verified`, `empty_glob`, `glob_too_large_to_verify` (500) dereceleri                                                                                                                                                                               | `evidence_trust.py:62-64,147-151,321-395`   | EKSİK-DOKÜMAN         |
+| GitProbeSession 30 s × 3 + 1+2 s geri çekilme = 93 s, 300 s canlılık              | Birebir                                                                                                                                                                                                                                                                                                                            | `evidence_probe.py:37-58,220-282`           | DOĞRU                 |
+| `validate_agent_response_evidence :350`                                           | 540; satır varlığı `1 ≤ line ≤ n`, satır içeriği/semantik doğrulanmaz; `human-required:` ref'leri ve ARBITRATION kernel artefaktları istisna                                                                                                                                                                                       | `evidence_validator.py:382-385,480-497,540` | KAYMA + EKSİK-DOKÜMAN |
+| Beş profil; modül docstring                                                       | Docstring hâlâ "4-mode"                                                                                                                                                                                                                                                                                                            | `runtime_profile.py:1,123`                  | KAYMA                 |
+| frozen "tüm yazımlar" / "tek yazma-yetki sınırı"                                  | _(tam okumada düzeltildi, B09)_ `PLAN_020_WRITE_SURFACES` artık manifestten türer (42 yüzey) ve 8 gözlem yüzeyinin tamamını kapsar (`OBSERVE ∖ PLAN_020 = ∅`); beyanlı yüzeylere giden her yazım frozen'da bloklanır — istisna yalnız `bypass_profile_gate` çağrıları (34) ve diagnostic; `runtime_profile.py` docstring'i eskimiş | `runtime_profile.py:24-31,308-322`          | EKSİK-DOKÜMAN         |
+| Bozuk profil → frozen                                                             | Doğru; dosya yoksa `standard`                                                                                                                                                                                                                                                                                                      | `runtime_profile.py:401,428-466`            | KAYMA                 |
 
 ### 3.2 Discovery / cycle / memory / pressure (NASIL §3–6, MIMARI Şema 2, 9)
 
@@ -176,18 +195,18 @@ Kanıt komutu: `git show origin/aria/state:tools/<yüzey>` (salt-okuma).
 
 ### 3.5 Ajan / dispatch / convergence (NASIL §9–10, MIMARI Şema 3–5)
 
-| Doküman                                           | Kod                                                                                                                                                                                   | Kanıt                                                               | Sınıf         |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------- |
-| Roster "13 ajan"                                  | 18 üst-düzey `aria-*.md` + 2 `_maintenance/` = 20 (completeness-critic, autonomy-planner, worker, 4 acceptance ajanı eksik)                                                           | `.claude/agents/`                                                   | KAYMA         |
-| `DISPATCHABLE_ROLES` (11)                         | **15** (E14: consensus_arbitration, change_intelligence, goldset_curation; E9-c: verification)                                                                                        | `agent_surface.py:61-90`                                            | KAYMA         |
-| `ROLE_TARGET_PAIRING` "yanlış eşleşme reddedilir" | primary_plan / challenger_plan / cross_review için eşleme **yok**; `primary_plan → aria-evidence-judge` mint'te kabul edildi (canlı probe); whitelist yalnız `implementation`         | `agent_surface.py:144-168`; `agent_contract.py:120,210-215`         | TUTARSIZ      |
-| Lease 30 dk                                       | Varsayılan 1800 s, ama `ci_executor` kendi hesapladığı lease ile ezer                                                                                                                 | `ci_executor.py:4427-4439`                                          | KAYMA         |
-| Submit: validate → SoD → evidence → compliance    | + `plan_contract` + `secret_in_envelope` adımları                                                                                                                                     | `agent_invocations.py:5175-5244`                                    | EKSİK-DOKÜMAN |
-| Convergence ≤5 tur                                | + round ≥3'te yeni risk kategorisi → HUMAN_REQUIRED; spine `unavailable` → HUMAN_REQUIRED                                                                                             | `plan_convergence.py:655-684,2742-2787`                             | EKSİK-DOKÜMAN |
-| Bağımsızlık 3 katman + content_hash collusion     | Birebir                                                                                                                                                                               | `independence_check.py:67,170-228`; `plan_convergence.py:1570-1633` | DOĞRU         |
-| Genesis: body'yi `aria-drafter` sentezler         | **Drafter'ı spawn eden kod yok**; `draft["body"]` yazan satır yok; `maintenance_utility` dispatch edilemez → materialize her zaman `materialize_requires_drafter_body` ile reddedilir | `agent_genesis.py:656-667`; `draft_intent.py:15`                    | EKSİK-KOD     |
-| Sandbox ≥3 fixture, 3 olaylı audit                | Birebir                                                                                                                                                                               | `agent_genesis.py:251-300,564,648-654`                              | DOĞRU         |
-| Bağımsız planlayıcılar                            | Primary ve challenger ikisi de `opus`/`max`; model çeşitliliği yalnız adversarial judge'da (glm-5.3) — echo-chamber ölçülür, önlenmez                                                 | `.claude/agents/aria-*-planner.md`                                  | EKSİK-DOKÜMAN |
+| Doküman                                           | Kod                                                                                                                                                                           | Kanıt                                                               | Sınıf         |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------- |
+| Roster "13 ajan"                                  | 18 üst-düzey `aria-*.md` + 2 `_maintenance/` = 20 (completeness-critic, autonomy-planner, worker, 4 acceptance ajanı eksik)                                                   | `.claude/agents/`                                                   | KAYMA         |
+| `DISPATCHABLE_ROLES` (11)                         | **15** (E14: consensus_arbitration, change_intelligence, goldset_curation; E9-c: verification)                                                                                | `agent_surface.py:61-90`                                            | KAYMA         |
+| `ROLE_TARGET_PAIRING` "yanlış eşleşme reddedilir" | primary_plan / challenger_plan / cross_review için eşleme **yok**; `primary_plan → aria-evidence-judge` mint'te kabul edildi (canlı probe); whitelist yalnız `implementation` | `agent_surface.py:144-168`; `agent_contract.py:120,210-215`         | TUTARSIZ      |
+| Lease 30 dk                                       | Varsayılan 1800 s, ama `ci_executor` kendi hesapladığı lease ile ezer                                                                                                         | `ci_executor.py:4427-4439`                                          | KAYMA         |
+| Submit: validate → SoD → evidence → compliance    | + `plan_contract` + `secret_in_envelope` adımları                                                                                                                             | `agent_invocations.py:5175-5244`                                    | EKSİK-DOKÜMAN |
+| Convergence ≤5 tur                                | + round ≥3'te yeni risk kategorisi → HUMAN_REQUIRED; spine `unavailable` → HUMAN_REQUIRED                                                                                     | `plan_convergence.py:655-684,2742-2787`                             | EKSİK-DOKÜMAN |
+| Bağımsızlık 3 katman + content_hash collusion     | Birebir                                                                                                                                                                       | `independence_check.py:67,170-228`; `plan_convergence.py:1570-1633` | DOĞRU         |
+| Genesis: body'yi `aria-drafter` sentezler         | **Drafter'ı spawn eden kod yok**; `draft["body"]` yazan satır yok → materialize her zaman `materialize_requires_drafter_body` ile reddedilir                                  | `agent_genesis.py:656-667`; `draft_intent.py:15`                    | EKSİK-KOD     |
+| Sandbox ≥3 fixture, 3 olaylı audit                | Birebir                                                                                                                                                                       | `agent_genesis.py:251-300,564,648-654`                              | DOĞRU         |
+| Bağımsız planlayıcılar                            | Primary ve challenger ikisi de `opus`/`max`; model çeşitliliği yalnız adversarial judge'da (glm-5.3) — echo-chamber ölçülür, önlenmez                                         | `.claude/agents/aria-*-planner.md`                                  | EKSİK-DOKÜMAN |
 
 ---
 
@@ -207,14 +226,32 @@ Kanıt komutu: `git show origin/aria/state:tools/<yüzey>` (salt-okuma).
 
 ## 5. Kalan adımlar (sıralı)
 
-1. **B1:** `raw_findings` publish sınırını kökten çöz — `doc-staleness-adapter` gürültüsü (29 939 satır) adaptör düzeyinde düzeltilmeli (kural sağlığı / FP karantinası), compactor tek başına yetmez; run 36055186584'teki cycle hatasını çıkar. Hedef: `aria/state`'e yeşil `auto-cycle-*` commit'i.
-2. **Kurulum:** `aria-runner-capability-probe` dispatch; runner'da `claude auth status`; `vars.ARIA_MOCK_KILL_SWITCH` doğrula.
-3. **İlk observe burn-in:** `aria-auto-cycle` → `mode=burn-in-observe, mock=false`; ≥20 geçerli cycle, eylem sıfır; rapor aria/state'e yayınlansın.
-4. **Değer zincirini kapat (B5):** neden 0 finding? — consensus → `promote_consensus_findings` operatör ACK'i şart; 114 HUMAN_REQUIRED kaydını triyaj et. Neden 12/15 plan terk? — plan terk nedenlerini `plans/events.jsonl`'dan çıkar.
-5. **Dormant/unwritten (B7):** son tarihlerden önce bağla ya da sil.
-6. **L1:** 30/30 observe kabulünden sonra operatör: `aria-kernel profile set --profile standard --scheduler-ceiling strict --operator-approval-ref <ref>`.
-7. **L2/L3 üreticileri (B4):** `l1_autonomous_success` … `rollback_success` olaylarını yazan kodu ekle; aksi halde merdiven L1'de biter.
-8. **MCP (B9):** MCP'yi aria/state checkout'una yönlendir; `findings` kaynağını `_SOURCES`'a ekle.
+Tam okuma turundan sonra (§8.1) sıra değişti: burn-in'den **önce** zinciri koparan
+kod hataları kapanmalı, yoksa burn-in yalnız "algıla + yargıla" katmanını tekrar
+kanıtlar.
+
+1. **Gece koşusunu yeşile döndür (§8.1-I):** `raw_findings`'i koşular arası dedup et
+   ya da publish kontrolünden çıkar; run 36055186584'teki cycle hatasını çıkar.
+2. **HUMAN_REQUIRED oy yolu (§8.1-A):** executor `verdict`'i zarfa taşısın ya da kernel
+   `details.verdict`'i okusun — 114 kayıt ve 80 yanıt hemen işler hale gelir.
+3. **Planlama zinciri (§8.1-E, H):** gece `--max-rounds`/challenger timeout'u açık ver;
+   native Claude `provider_nonzero` kök nedenini governance'a yaz; anchor yaşını kuyruk
+   gerçeğine göre ayarla.
+4. **Merge ön-koşulları (§8.1-B, C, D):** attestation girdilerini workflow'lara geç;
+   `change_validated`'ı otomatik üret; readiness v3 sözleşmesini tanımla ya da v2'ye bağla.
+5. **Güvenlik (§8.2):** S1 (`lstrip`) ve S2 (sandbox'sız adaptör) — herhangi bir otonom
+   merge açılmadan önce kapanmalı.
+6. **Kurulum:** `aria-runner-capability-probe`; runner'da `claude auth status`;
+   `vars.ARIA_MOCK_KILL_SWITCH`.
+7. **İlk observe burn-in:** `aria-auto-cycle` → `mode=burn-in-observe, mock=false`;
+   ≥20 geçerli cycle, eylem sıfır.
+8. **Dormant/unwritten (B7):** 2026-10-09 / 10-16 / 10-20 son tarihlerinden önce bağla
+   ya da sil.
+9. **L1:** 30/30 observe kabulünden sonra operatör
+   `aria-kernel profile set --profile standard --scheduler-ceiling strict --operator-approval-ref <ref>`.
+10. **L2/L3 üreticileri + `critical_violation` üreticisi (K10, §8.3)**, ardından canlı-kanıt
+    kapanış bulguları (B6).
+11. **MCP (B9):** aria/state checkout'una yönlendir; `findings` kaynağını ekle.
 
 ---
 
@@ -277,12 +314,107 @@ karar vermez.
 
 ---
 
-## 8. Dokümanlara uygulanan düzeltmeler
+## 8. Tam okuma turu (12 ajan, 400/400 dosya) — yeni bulgular
 
-- `ARIA-MIMARI-SEMALARI.md`: satır referansları ve sayılar güncellendi (47 faz,
-  244 yüzey, 11 adaptör/workflow, 18 hard-fail, model merdiveni); Şema 11'e
-  kalibrasyon kapısı eklendi; "Canlı Durum Denetimi" `aria/state` verisiyle
-  yeniden yazıldı; yeni **Şema 23 (Canlı huni)**, **Şema 24 (Kalan adımlar)**,
-  **Şema 25 (ARIA vs RAG)** eklendi.
-- `ARIA-NASIL-CALISIR.md`: değiştirilmedi; üstündeki notice gereği
-  `CURRENT_STATE.md`'ye tabidir. Tutarsızlıkları bu raporun §2–§3'ünde listelenmiştir.
+Ham raporlar: `docs/aria/reviews/2026-09-25-aria-tam-okuma/B01.md … B12.md`. Aşağıdaki
+her madde orada `file:line` ile kanıtlıdır. **✔** işaretliler bu kayıt yazılırken ayrıca
+elle yeniden doğrulandı.
+
+### 8.1 Değer zincirini fiilen tıkayan kök nedenler
+
+"ARIA neden tam çalışmadı?" sorusunun kod düzeyindeki cevabı. Her biri tek başına
+zinciri durdurur.
+
+| #    | Kopukluk                                                                                                                                                                                                                                                                                                                       | Etki (canlı)                                                                      | Kanıt                                                                                                                                                      | Rapor    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| A ✔ | **HUMAN_REQUIRED paneli oyu okuyamıyor.** Kernel oyu artefaktın üst-düzey `verdict` alanından okur; executor zarfa yalnız `evidence_refs/details/notes/plan_content` taşır, ajanlar oyu `details.verdict`'e yazar.                                                                                                             | 968 `panel_incomplete`; 114 kaydın hiçbiri kapanmadı; 80 kabul edilmiş yanıt boşa | `human_required_adjudication.py:434`; `ci_executor.py:2672`                                                                                                | B06      |
+| B ✔ | **Runner attestation hiç yazılamıyor.** `probe-runner-attestation` 4 girdiyi `required` tanımlar; workflow'lar yalnız `tools-dir` geçer (composite action'da `required` zorlanmaz) → `ephemeral=false` → kayıt reddedilir.                                                                                                     | Her merge `runner_attestation_required_for_merge` ile düşer                       | `aria-auto-cycle.yml:558-559`; `aria-agent-executor.yml:563`; `.github/actions/probe-runner-attestation/action.yml:30-48`; `runner_attestation.py:209-249` | B08      |
+| C    | **`change_validated` satırını otomatik yazan kod yok** (yalnız manuel `change validate` + backfill); auto-merge üçlü kapısı ve `change_outcome` bu satırı şart koşar.                                                                                                                                                          | Zincir "committed"da durur                                                        | `cli.py:5303`; `auto_merge.py:551-555`; `change_outcome.py:514-517`                                                                                        | B03      |
+| D    | **`enterprise_readiness` kalıcı `operator_blocked`:** kontrol v3 readiness-claim sözleşmesi arar, yalnız v2 tanımlı, v3 üreticisi yok. 7 yeteneğin 4'ü yapısal olarak `live_proven` olamaz.                                                                                                                                    | Merge ön-koşulu hiç sağlanamaz                                                    | `autonomy_evidence.py:1165-1178,3626-3653`                                                                                                                 | B02      |
+| E ✔ | **Gece yakınsama tavanı 2 tur** (workflow `--max-rounds` vermez, CLI varsayılanı 2; challenger timeout 300 s). Plan terklerinin 12/12'si 72 s durgunluk kuralından; 11'i DRAFT'ta kaldı, 2'si `convergence_envelope_dead:challenger_plan`.                                                                                     | 0 CONVERGED                                                                       | `cli.py:2377-2388`; `aria-auto-cycle.yml:810-817`; `plan_convergence.py:960-1001`                                                                          | B04, B07 |
+| F    | **CONVERGED → dispatch terfisi yalnız operatör CLI'ı ile** (`acknowledge=True`); varsayılan `allowed_scope` READONLY çekirdek, ürün kodu yasak. Operatör onay şeridi (`approve_proposal`) yalnız testte.                                                                                                                       | Otomatik uygulama yolu yok                                                        | `promotion_controller.py:176-177`; B08 §5                                                                                                                  | B08      |
+| G    | **Mission'ı DISCOVERED'dan ileri taşıyan üretim yolu yok**; Thompson banditi `source_type`/`source_kind` uyuşmazlığı yüzünden statik sıraya düşüyor.                                                                                                                                                                           | 94 mission, hepsi DISCOVERED                                                      | B07 §1, §9                                                                                                                                                 | B07      |
+| H    | **Kuyruk kaybı:** 1 171 isteğin 610'u claim edilmeden `anchor_expired`; native Claude rotası 227 `provider_nonzero` / 73 başarı; `native_runtime_execution_unavailable` 266 + `claude_cli_exit_1` 197 release — harness-sınıfı sayıldığından requeue bütçesi hiç yanmaz, kök neden governance'a değil yalnız stderr'e yazılır. | Planlama zarfları yanıtlanmıyor                                                   | `agent_invocations.py:2874,3129-3134`; `release_reason.py:125,128`                                                                                         | B01, B11 |
+| I    | **Publish reddi** `raw_findings` boyutundan: ledger koşular arası dedup yapmaz (2 755 parmak izi × 12); publish kontrolü teşhis amaçlı bir sayım için tüm yayını bloklar.                                                                                                                                                      | 2026-09-21'den beri gece koşuları kırmızı                                         | `autonomy_evidence.py:593-596,2543-2554`                                                                                                                   | B02, B11 |
+| J    | **Backlog freni kör:** `cycle_guard` bulguları checkout'taki `aria-findings/`'ten sayar, yazım store'a gider → sayaç yapısal olarak 0 (canlıda 13 OPEN).                                                                                                                                                                       | Cap 25 ve boş-cycle koruması hiç tetiklenmez                                      | `cycle_guard.py:56-62`; `finding.py:133-146`                                                                                                               | B04, B12 |
+| K    | **Lane-A/B bulguları ARIA'ya hiç akmıyor:** `docs/reviews/_registry/findings.jsonl` 2 159 satır, eşik 500, onay bayrağı geçilmediği için hook `ValueError` atar.                                                                                                                                                               | 42 kayıtlı hata                                                                   | `report_ingestion.py:53-54`; `learning.py:96`                                                                                                              | B08      |
+
+### 8.2 Güvenlik bulguları
+
+| #     | Bulgu                                                                                                                                                                                                                                                                                                                         | Kanıt                                                               | Rapor         |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------- |
+| S1 ✔ | `auto_merge._normalize_path` `lstrip("./")` baştaki tüm noktaları siler: `.github/workflows/x.yml` → `github/workflows/x.yml`, `.env.prod` → `env.prod`; yasak desenler eşleşmez, `.claude/agents/aria-implementer.md` **L1 düşük risk** sınıflanır. Aynı hata `pr_manager._normalize_path` ve `service_dimension.py:108`'de. | `auto_merge.py:1250-1251`                                           | B02, B08, B09 |
+| S2 ✔ | LLM'in yazdığı adaptör **sandbox'sız** koşar (düz `subprocess.run`, workspace cwd, tam env); `skill_genesis_sandbox` (bwrap + AST) üretimde çağrılmıyor. Skill "≥3 fixture" kontrolü `## Fixture:` başlığı saymaktan ibaret.                                                                                                  | `skill_genesis.py:389-408,567-574`; `dispatcher_factory.py:241-263` | B04, B09      |
+| S3    | Native rotada egress kontrolü atlanır: `_pre_claim_environment_gate` çalışmaz, sandbox `allow_network=True`.                                                                                                                                                                                                                  | `ci_executor.py:4423`; `claude_runtime.py:750`                      | B11           |
+| S4    | `verification_gate` ajanın worktree'sinde komutları tam `os.environ` (GH_TOKEN dahil) ile, sandbox'sız, timeout yakalamadan koşar; `--allow-legacy-no-token` lease kontrolünü atlar.                                                                                                                                          | `verification_gate.py:303-309`                                      | B10           |
+| S5    | Karantinadan kaçış: `tool promote --target-status SHADOW` kök neden/fixture/onay olmadan geçer; `promotion.py:106` `evidence_chains_valid=True` sabit geçirir.                                                                                                                                                                | `tool_registry.py:1388-1491`; `promotion.py:106`                    | B10           |
+| S6    | Prompt sınırı: `<untrusted_evidence_excerpt>`, cross-review/critic plan metni ve twin intent katmanı kaçışsız gömülür (implementation prompt'u base64 kullanır).                                                                                                                                                              | `agent_invocations.py:523,653-686`; `twin.py:938-1002`              | B01, B04, B10 |
+| S7    | Görev ayrımı (uygulayıcı ≠ inceleyici) fiilen yok: `forbidden_agent_ids` yazan üretim kodu yok. Bağımsızlık "principal"i `ci-executor:gha-<RUN_ID>` — 35 panelin 22'sinde üç koltuk aynı principal.                                                                                                                           | `ci_executor.py:4351`                                               | B01, B06      |
+| S8    | Ack jetonu taslağa bağlı değil (`draft_id/target_path` denetlenmez); auto-promote token'ı süresiz ve tekrar kullanılabilir; "imzalı insan etiketi" kernel'in kendi anahtarıyla imzalanır.                                                                                                                                     | B01 §4; B06 §5                                                      | B01, B06      |
+| S9    | `gh_token_factory` `contents:write` tüm kurulum depoları/dallarında geçerli ("yalnız `aria-impl-*`" iddiası yanlış); Mode B'de teslim jetonu operatör PAT'i.                                                                                                                                                                  | B05 §8                                                              | B05           |
+| S10   | Gateway: `tick()` try dışında (daemon düşer), replay penceresi kullanılmıyor, hız sınırı auth'tan önce, "aria" etiketli her issue doğrulanmadan priority=1 mission açar.                                                                                                                                                      | B05 §7                                                              | B05           |
+| S11   | Plan 033 güvenlik paketi (23 dosya) hiç koşmadı; RLS kontrolü yalnız 20 `.sql` okur, 468 TS migration'ı görmez ve her servise `TESTED_NO_VIOLATION` verir.                                                                                                                                                                    | B09 §4                                                              | B09           |
+| S12   | `CREDIT_ERROR_MARKERS` "billing", `AUTH_FAILURE_MARKERS` "not authenticated" içerir; bu repoda billing/auth servisleri var → yanlış sağlayıcı soğutma / auth failover.                                                                                                                                                        | `claude_runtime.py:1780,1807,1992`                                  | B11           |
+
+### 8.3 Ölü / bağlı olmayan kod (şemalarda çalışıyor gibi çizilen)
+
+- `self_modification.request_kernel_change` (Şema 18 "tek yasal yol") — çağıranı yok; gerçek yol gateway → self_improvement mission → `record_self_change_result` (B09).
+- `execution_spine.py` (Şema 22 "birleşik aktör kimliği") — yalnız test; `ARIA_ACTOR` hiçbir yerde set edilmez, runner `{"kind":"human"}` kaydedilir (B05, B11).
+- `external_outage_reaper.py` (Şema 5/20) — çağıranı ve `api_backoff_exhausted` üreticisi yok (B05).
+- `plan_round_controller.advance_plan_rounds` (Şema 3 "tur sürücüsü") — yalnız CLI; açtığı cross-review turu köprüde kırılır; `remint_of` yok (B04, B07).
+- `_results_pair_hash_check` (collusion) — yalnız test (B07).
+- `enforce_expert_consensus_gate` — çağrılmıyor; uzman kapısı `worktree_candidate`/`self_output`/0-ref onayları geçirir; uzman sayısı ~84 değil 27 (B05, B09).
+- `recursive_impact` — hiçbir kapıya bağlı değil; `impact_graph` `.nx` grafiğini okumaz (B06, B08).
+- `reserve_cycle_budget`, `ProfileGate.evaluate`, `CostTelemetryHook.record` — çağrılmıyor (B02, B04).
+- `prune_worktrees` — reducer `completed/cancelled/expired` üretmez; `cancel_dispatch_request` etkisiz (B10).
+- `worker_dispatch_hook` merge dalı `{"decision":"blocked"}` literali (B10).
+- `agent_priors.map_agent_priors`, `model_fleet.assign_mixed_models`, `db_snapshot`, `instinct_candidate`, `lane_classifier`, `llm_bridge`, `impact.py` — üretimde çağrılmıyor (B01, B06, B07, B12).
+- `cqrs`/`outbox`/`banned_phrase` adaptörleri (Şema 10 "gerçek adaptörler") — canlı registry'de yok, hiç koşmadı (B11, B12).
+- Circuit breaker'ın 9 hata türünden 5'inin üreticisi yok; `breakers/` yayımlanmaz (B03).
+- `critical_violation` üreticisi yok → "sıfır kritik ihlal" hep doğru (B02).
+- Ajan değerlendirmesi: 25/25 koşu mock ve mock zarf beklenen verdict'i kopyalar (B01).
+
+### 8.4 Yeni doküman kaymaları (seçme)
+
+| Doküman                                          | Kod                                                                                                                                                         | Rapor    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Ritim 6 saat, günde ≤4 cycle (Şema 1)            | Etkin override **2 saat**, tavan 12/gün (`aria-config/genesis_policy.json:13-15`)                                                                           | B04, B12 |
+| Gate A ≤5 tur (Şema 3)                           | Gece 2 tur; yakınsama tek cycle'da değil cycle'lar arası adım adım                                                                                          | B02, B04 |
+| PR açılışında 18 hard-fail                       | PR anında 11, merge öncesi 7; 11'in 4'ü üretimde boş geçer; `IMMUTABLE_AGENT_FILE_HASH_REGISTRY` boş                                                        | B06      |
+| Watchdog merge'ü dondurur (Şema 7)               | Donduran dış watchdog'un GitHub issue'su (`watchdog_freeze.py`), `aria_watchdog` değil                                                                      | B02, B10 |
+| CAS host kirası (Şema 15)                        | Orkestratör düz `autonomous-host.lock` kullanır; CAS kirası kilitsiz oku-yaz                                                                                | B02      |
+| Bağlam bütçesi kapısı (Şema 22)                  | Üretimde `enforce_context_budget=False` — yalnız ölçer                                                                                                      | B01, B03 |
+| Prompt v3 (Şema 5)                               | v6                                                                                                                                                          | B01      |
+| Requeue ≤2 → STALE (Şema 5)                      | HUMAN_REQUIRED; harness-sınıfı release'ler bütçe yakmaz                                                                                                     | B01      |
+| Lease 1800 s                                     | Gerçek ~6 333 s (implementation +13 410 s); executor job 510 dk                                                                                             | B11      |
+| Telemetri ~25 metrik; workflow sözleşmesi 9 lane | ~43 metrik; 10 workflow / 11 job                                                                                                                            | B10      |
+| Deney masası iddiayı test eder (Şema 12)         | Proje genelinde `nx test`; herhangi bir kırmızı test CONFIRMED yapar; RESOLVED'a otomatik üretici yok                                                       | B05      |
+| Pressure Beta-Binomial kalibrasyonu              | Sayaç `tool_id`'ye göre, `SOURCE_WEIGHTS` anahtarlarıyla eşleşmez → çarpan hep 1.0                                                                          | B03      |
+| `closure_reachability` "asla büyümez"            | `--write` o anki tüm ihlalleri iğneler                                                                                                                      | B03      |
+| Model: codex `gpt-5.2-codex`                     | Native admission openai rotasını `gpt-6-astra/ultra` ile kurar                                                                                              | B07      |
+| Belief güveni "tekrar kanıt değildir"            | Feedback/ceza terimleri her kayıtta önceki güvene yeniden eklenir; diff-decay güveni düşürmez                                                               | B06      |
+| Architecture spine her cycle                     | `PLAN_ID_PRESENT` koşulu, hiçbir üretim çağıranı `plan_id` geçmez → nightly'de hiç koşmaz; entity kontrolü ADR-011 per-tenant entity'leri (194) ihlal sayar | B02, B04 |
+
+### 8.5 İlk turun (§0–§7) düzeltmeleri
+
+- "Kalıcı finding 0" → yalnız `tools/findings.jsonl` için; kanonik depoda **13 OPEN** (B05, B08, B12).
+- "Mission olayı 0" → **117** satır, 94 açık, hepsi DISCOVERED (B07).
+- "11 adaptörün hepsi SHADOW" → manifestler öyle der; **canlı registry** 7 CALIBRATE · 2 SHADOW · 1 QUARANTINED, lint-rules kayıtsız (B11).
+- §3.1 frozen kapsamı "yalnız Plan-020, eski yazıcılar dışarıda" → Plan-020 artık manifestten türer ve tüm gözlem yüzeylerini kapsar (B09).
+- §3.5 "`maintenance_utility` dispatch edilemez" → gece drain'i dispatch eder, canlıda 24 kabul edilmiş sonuç var; genesis gövdesini yazan kod yine de yok (B02).
+- §3.4 "ACTIVE'e 3 yetki" doğru, ama `promotion.py:106` `evidence_chains_valid=True` sabit geçirir (B10).
+- §2 K15 "18 hard-fail" doğru, ama PR anında yalnız 11'i koşar (B06).
+
+---
+
+---
+
+## 9. Dokümanlara uygulanan düzeltmeler
+
+- `ARIA-MIMARI-SEMALARI.md`:
+  - Satır referansları ve sayılar güncellendi: 47 faz, 244 yüzey, 11 manifest, 11 workflow, 18 hard-fail, model merdiveni.
+  - Şema 11'e kalibrasyon kapısı eklendi.
+  - "Canlı Durum" `aria/state` verisiyle yeniden yazıldı.
+  - Şema 23 (canlı huni), Şema 24 (blokajlar ve kalan adımlar), Şema 25 (ARIA ≠ RAG) eklendi.
+  - Tam okuma turunun şema bazlı düzeltme notları eklendi: Şema 1, 3, 4, 5, 7, 10, 12, 13, 15, 18, 22.
+- `ARIA-NASIL-CALISIR.md`: değiştirilmedi. Üstündeki notice gereği `CURRENT_STATE.md`'ye tabidir; tutarsızlıkları bu kaydın §2–§3 ve §8.4 bölümlerinde listelenmiştir.

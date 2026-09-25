@@ -2393,6 +2393,10 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # field (self_change_bridge.validate_self_change_response): the shape says
     # nothing about the mission, and re-asking usually succeeds.
     "self_change_contract_violation",
+    # ARIA-HIGH-097 — the same class for an adjudicator answer without a
+    # readable details.adjudication block: the shape says nothing about the
+    # escalation, and re-asking usually succeeds.
+    "adjudication_contract_violation",
     "kernel_prompt_renderer_unavailable",
     # ARIA-HIGH-115 — the executor could not hold the implementer's signing
     # identity in the tree it runs in (`implementation_identity`): the

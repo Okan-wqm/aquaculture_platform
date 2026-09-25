@@ -48,9 +48,10 @@ from aria_kernel.human_required import (
     record_human_required,
     resolve_human_required,
 )
-from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.memory import _feedback_adjustment, _record_contradiction
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.adjudication import seed_adjudicator_opinion
 
 # The REAL panel, as ROLE_TARGET_PAIRING composes it for
 # `human_required_adjudication`. Synthetic names used to be enough; since G-2
@@ -104,8 +105,6 @@ def _answer_panel(
         if row.get("escalation_request_id") == escalation_id
     ]
     request_ids = list(rows[-1]["request_ids"])
-    invocations = root / "agent-invocations"
-    invocations.mkdir(parents=True, exist_ok=True)
     for index, (rid, agent) in enumerate(zip(request_ids, _PANEL_AGENTS)):
         # `dissent` members vote the OPPOSITE way, so a split panel is a real
         # split and not a fixture flag.
@@ -116,27 +115,7 @@ def _answer_panel(
                 if verdict_value == hra.RESOLVE_VERDICT
                 else hra.RESOLVE_VERDICT
             )
-        output = invocations / f"{rid}.opinion.json"
-        output.write_text(
-            json.dumps({"verdict": member_verdict, "rationale": agent}),
-            encoding="utf-8",
-        )
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {"request_id": rid, "claim_id": f"claim-{rid}", "agent_id": agent},
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {
-                "request_id": rid, "role": hra.ADJUDICATION_ROLE,
-                "status": "accepted", "agent_id": agent,
-                "output_path": output.as_posix(),
-                "output_hash": "sha256:" + "0" * 64,
-            },
-            expected_surface="agent_invocation_results",
-        )
-
+        seed_adjudicator_opinion(root, rid, agent_id=agent, verdict=member_verdict, rationale=agent)
 
 def _drive_real_panel(
     root: Path,

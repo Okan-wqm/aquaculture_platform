@@ -1134,6 +1134,20 @@ def _pre_submit_validate_envelope(
             request=request or {},
             response={**envelope, "role": role},
         )
+    # ARIA-HIGH-097 — an adjudicator answer is gated on the kernel's own
+    # reader (human_required_adjudication.read_adjudication's contract), so
+    # an envelope the fold cannot read is released here instead of sealed as
+    # an accepted opinion that counts toward panel_incomplete forever.
+    from aria_kernel.human_required_adjudication import (
+        ADJUDICATION_ROLE as _adjudication_role,
+        validate_adjudication_response,
+    )
+
+    if role == _adjudication_role:
+        return validate_adjudication_response(
+            request={**(request or {}), "role": role},
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -1923,6 +1937,52 @@ def invoke_claude_cli(
             )
         envelope_role = role
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        from aria_kernel.human_required_adjudication import (
+            ADJUDICATION_DETAILS_KEY,
+            ADJUDICATION_ROLE,
+            INSUFFICIENT_VERDICT,
+        )
+
+        mock_details: dict[str, Any]
+        if envelope_role == ADJUDICATION_ROLE:
+            # ARIA-HIGH-097 — the adjudicator mock satisfies the SAME contract
+            # the pre-submit gate enforces, with the one verdict that can never
+            # clear an escalation: a mock opinion must not resolve anything.
+            mock_details = {
+                "agent_subagent_type": subagent_type,
+                ADJUDICATION_DETAILS_KEY: {
+                    "verdict": INSUFFICIENT_VERDICT,
+                    "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
+                },
+            }
+        else:
+            mock_details = {
+                # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
+                # judge contract the pre-submit gate enforces (verdict in
+                # the closed set + resolvable ids), exactly like the eval
+                # fixtures do. The old "uncertain" placeholder was an
+                # envelope the bridge could never fold — the measured
+                # defect class this contract exists to keep out. Mock
+                # mode is env-gated and never on in production lanes;
+                # the ci-mock fallbacks only fire when the request row
+                # itself carries no judgment identity (test fixtures).
+                "agent_subagent_type": subagent_type,
+                "verdict": {
+                    "verdict": "false_positive",
+                    "confidence": 0.5,
+                    "judge_id": subagent_type,
+                    "model": "mock",
+                    "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
+                    "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
+                    "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
+                    "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
+                    "evidence_refs": [],
+                    "judgment_group_id": str(
+                        (request_envelope or {}).get("judgment_group_id") or "ci-mock"
+                    ),
+                    "severity": "low",
+                },
+            }
         mock_envelope = {
                 "$schema": "aria/agent-response/v1",
                 "request_id": request_id,
@@ -1932,33 +1992,7 @@ def invoke_claude_cli(
                 "status": "submitted",
                 "satisfaction_matrix": matrix,
                 "evidence_refs": [],
-                "details": {
-                    # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
-                    # judge contract the pre-submit gate enforces (verdict in
-                    # the closed set + resolvable ids), exactly like the eval
-                    # fixtures do. The old "uncertain" placeholder was an
-                    # envelope the bridge could never fold — the measured
-                    # defect class this contract exists to keep out. Mock
-                    # mode is env-gated and never on in production lanes;
-                    # the ci-mock fallbacks only fire when the request row
-                    # itself carries no judgment identity (test fixtures).
-                    "agent_subagent_type": subagent_type,
-                    "verdict": {
-                        "verdict": "false_positive",
-                        "confidence": 0.5,
-                        "judge_id": subagent_type,
-                        "model": "mock",
-                        "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
-                        "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
-                        "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
-                        "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
-                        "evidence_refs": [],
-                        "judgment_group_id": str(
-                            (request_envelope or {}).get("judgment_group_id") or "ci-mock"
-                        ),
-                        "severity": "low",
-                    },
-                },
+                "details": mock_details,
             }
         _write_sanitized_envelope(output_path, mock_envelope)
         resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
@@ -5435,6 +5469,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             )
 
             from aria_kernel.agent_surface import JUDGE_ROLES as _gated_judge_roles
+            from aria_kernel.human_required_adjudication import (
+                ADJUDICATION_CONTRACT_RELEASE_REASON as _adjudication_release_reason,
+                ADJUDICATION_ROLE as _adjudication_role_for_release,
+            )
             if _role_for_validation in _gated_judge_roles:
                 # ARIA-MEDIUM-166 — the arbiter is gated with the judges and
                 # released under the same harness-class reason.
@@ -5443,6 +5481,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 # B6 — same harness-class pricing as the judge contract: a
                 # missing `details.problem` says nothing about the mission.
                 _release_reason = SELF_CHANGE_CONTRACT_RELEASE_REASON
+            elif _role_for_validation == _adjudication_role_for_release:
+                # ARIA-HIGH-097 — same harness-class pricing: a missing
+                # details.adjudication block says nothing about the escalation.
+                _release_reason = _adjudication_release_reason
             else:
                 _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(

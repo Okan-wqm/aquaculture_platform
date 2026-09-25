@@ -45,8 +45,8 @@ from aria_kernel.human_required import (  # noqa: E402
     record_human_required,
     resolve_human_required,
 )
-from aria_kernel.ledger import append_declared_jsonl  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir  # noqa: E402
+from tests._helpers.adjudication import seed_adjudicator_opinion  # noqa: E402
 
 
 class AdjudicabilityGate(unittest.TestCase):
@@ -201,40 +201,10 @@ class PanelFold(unittest.TestCase):
         self, request_id: str, *, agent_id: str, verdict: str,
         disposition: str | None = None,
     ) -> None:
-        """Write a claim row + an accepted result + its output payload.
-
-        Goes through ``append_declared_jsonl`` rather than writing lines
-        directly: both ledgers are hash-chained declared surfaces, and a
-        hand-written row fails strict verification — which is itself the
-        integrity discipline these gates depend on.
-        """
-        invocations = self.tools / "agent-invocations"
-        invocations.mkdir(parents=True, exist_ok=True)
-        output = invocations / f"{request_id}.opinion.json"
-        payload = {"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}
-        if disposition is not None:
-            payload["disposition"] = disposition
-        output.write_text(json.dumps(payload), encoding="utf-8")
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {
-                "request_id": request_id,
-                "claim_id": f"claim-{request_id}",
-                "agent_id": agent_id,
-            },
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {
-                "request_id": request_id,
-                "role": hra.ADJUDICATION_ROLE,
-                "status": "accepted",
-                "agent_id": agent_id,
-                "output_path": output.as_posix(),
-                "output_hash": "sha256:" + "0" * 64,
-            },
-            expected_surface="agent_invocation_results",
+        """Seal an opinion through the executor bridge (ARIA-HIGH-097)."""
+        seed_adjudicator_opinion(
+            self.tools, request_id, agent_id=agent_id, verdict=verdict,
+            disposition=disposition,
         )
 
     # I-PANEL-07
@@ -419,6 +389,15 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         # panel having no caller is what made ORPHAN-HIGH-426's fix inert,
         # so dropping this export is a regression, not a cleanup.
         "sweep_human_required_adjudications",
+        # ARIA-HIGH-097 — the adjudicator answer contract: the executor's
+        # pre-submit gate and the fold read an answer through these, so the
+        # two cannot disagree about what a readable opinion is.
+        "ADJUDICATION_CONTRACT_RELEASE_REASON",
+        "ADJUDICATION_DETAILS_KEY",
+        "AdjudicationAnswer",
+        "adjudication_contract_errors",
+        "read_adjudication",
+        "validate_adjudication_response",
     })
 
     def test_all_matches_the_canonical_set_exactly(self) -> None:

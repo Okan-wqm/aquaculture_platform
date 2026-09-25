@@ -3,7 +3,7 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
 # ARIA Plan 034 — Değer zincirini uçtan uca kapat, L1'de geri alınabilir self-merge
 
-> **Durum:** onaylandı 2026-09-25 (okan). Bu oturumda "PR N" birimleri `claude/aria-documentation-update-vm7wyl` dalında ayrı, tek-konulu commit dizileri olarak ilerler (her biri kendi `Closes:` satırıyla); ayrı PR'lara bölünmesi operatör kararıdır. İlerleme: PR 1 ✔ (`a104f86e`, ARIA-HIGH-186) · PR 2 ✔ (`a58c853c`, ARIA-HIGH-187) · uygulama sırasında bulunan ARIA-HIGH-203 PR 13 kapsamına eklendi.
+> **Durum:** onaylandı 2026-09-25 (okan). Bu oturumda "PR N" birimleri `claude/aria-documentation-update-vm7wyl` dalında ayrı, tek-konulu commit dizileri olarak ilerler (her biri kendi `Closes:` satırıyla); ayrı PR'lara bölünmesi operatör kararıdır. İlerleme: PR 1 ✔ (`a104f86e`, ARIA-HIGH-186) · PR 2 ✔ (`a58c853c`, ARIA-HIGH-187) · PR 3 ✔ (`69ec7301`, ARIA-HIGH-188) · PR 4 ✔ (`3de6953d`, ARIA-HIGH-189) · PR 5 ✔ (`c1bdb0d8` ARIA-HIGH-191, `c37148ae` ARIA-HIGH-192, `75976295` ARIA-HIGH-190) · PR 6 ✔ (`896e1f5c`, ARIA-HIGH-202; doc-staleness 2 766 → 276 bulgu) · uygulama sırasında bulunan ARIA-HIGH-203 PR 13 kapsamına eklendi.
 > **Bulgular:** ARIA-HIGH-097 (açık) ve ARIA-HIGH-186…202 — `docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md`, registry `docs/reviews/_registry/findings.jsonl`.
 > **Kanıt tabanı:** `docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md` §8–§9, `docs/aria/reviews/2026-09-25-aria-tam-okuma/`.
 

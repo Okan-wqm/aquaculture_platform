@@ -145,13 +145,13 @@ def _matches(path: str, glob: str) -> bool:
     measure. The repository already had the correct matcher; this module
     shipped a second one.
 
-    Brace expansion stays here because `matches_glob` does not do it and the
-    manifests use the brace form; each expanded alternative is then answered
-    by the ONE matcher.
+    The shared matcher (`canonical_path.matches_repo_glob`) expands braces
+    itself; the local expansion predates that and is equivalent, so each
+    expanded alternative is still answered by the ONE matcher.
     """
-    from .tool_health import matches_glob
+    from .canonical_path import matches_repo_glob
 
-    return any(matches_glob(path, pattern) for pattern in _expand_braces(glob))
+    return any(matches_repo_glob(path, pattern) for pattern in _expand_braces(glob))
 
 
 def _expand_braces(glob: str) -> list[str]:

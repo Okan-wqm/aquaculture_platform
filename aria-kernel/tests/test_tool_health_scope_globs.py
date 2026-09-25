@@ -11,7 +11,7 @@ Pre-fix bugs that this suite enforces against regression:
   allow could not rescue a default-forbidden path.  Now allow can lift
   default-deny but not hard-forbidden, and per-tool forbidden still
   trumps allow.
-* ``matches_glob`` was ``fnmatch`` only — no brace expansion
+* ``matches_repo_glob`` was ``fnmatch`` only — no brace expansion
   (``*.{yml,yaml}`` always False) and no real recursive ``**`` (a path
   with two ``**`` segments like ``apps/**/outbox/**/*.ts`` against
   ``apps/farm-service/src/outbox/x.ts`` always False).  Now both work.
@@ -27,8 +27,8 @@ from aria_kernel.tool_health import (
     DEFAULT_FORBIDDEN_READ_GLOBS,
     HARD_FORBIDDEN_READ_GLOBS,
     find_scope_violations,
-    matches_glob,
 )
+from aria_kernel.canonical_path import matches_repo_glob
 
 
 class BraceExpansionTests(unittest.TestCase):
@@ -37,14 +37,14 @@ class BraceExpansionTests(unittest.TestCase):
     def test_brace_expansion_yml_yaml(self) -> None:
         # Both branches of the alternation match.
         self.assertTrue(
-            matches_glob(".github/workflows/x.yml", ".github/workflows/*.{yml,yaml}"),
+            matches_repo_glob(".github/workflows/x.yml", ".github/workflows/*.{yml,yaml}"),
         )
         self.assertTrue(
-            matches_glob(".github/workflows/x.yaml", ".github/workflows/*.{yml,yaml}"),
+            matches_repo_glob(".github/workflows/x.yaml", ".github/workflows/*.{yml,yaml}"),
         )
         # A non-listed extension does not match.
         self.assertFalse(
-            matches_glob(".github/workflows/x.json", ".github/workflows/*.{yml,yaml}"),
+            matches_repo_glob(".github/workflows/x.json", ".github/workflows/*.{yml,yaml}"),
         )
 
     def test_brace_expansion_nested(self) -> None:
@@ -52,19 +52,19 @@ class BraceExpansionTests(unittest.TestCase):
         for first in ("b", "c"):
             for second in ("d", "e"):
                 self.assertTrue(
-                    matches_glob(f"a.{first}.{second}", "a.{b,c}.{d,e}"),
+                    matches_repo_glob(f"a.{first}.{second}", "a.{b,c}.{d,e}"),
                     msg=f"expected match for a.{first}.{second}",
                 )
         # A combination outside the cross-product does not match.
-        self.assertFalse(matches_glob("a.x.d", "a.{b,c}.{d,e}"))
-        self.assertFalse(matches_glob("a.b.x", "a.{b,c}.{d,e}"))
+        self.assertFalse(matches_repo_glob("a.x.d", "a.{b,c}.{d,e}"))
+        self.assertFalse(matches_repo_glob("a.b.x", "a.{b,c}.{d,e}"))
 
     def test_brace_expansion_three_branches(self) -> None:
         # Three-way alternation in a single group.
-        self.assertTrue(matches_glob("foo.py", "foo.{py,ts,go}"))
-        self.assertTrue(matches_glob("foo.ts", "foo.{py,ts,go}"))
-        self.assertTrue(matches_glob("foo.go", "foo.{py,ts,go}"))
-        self.assertFalse(matches_glob("foo.rs", "foo.{py,ts,go}"))
+        self.assertTrue(matches_repo_glob("foo.py", "foo.{py,ts,go}"))
+        self.assertTrue(matches_repo_glob("foo.ts", "foo.{py,ts,go}"))
+        self.assertTrue(matches_repo_glob("foo.go", "foo.{py,ts,go}"))
+        self.assertFalse(matches_repo_glob("foo.rs", "foo.{py,ts,go}"))
 
 
 class DoubleStarStarTests(unittest.TestCase):
@@ -81,30 +81,30 @@ class DoubleStarStarTests(unittest.TestCase):
     def test_double_starstar_zero_segment(self) -> None:
         # Both `**` zero-fold: `apps/**/outbox/**/*.ts` matches `apps/outbox/x.ts`.
         self.assertTrue(
-            matches_glob("apps/outbox/x.ts", "apps/**/outbox/**/*.ts"),
+            matches_repo_glob("apps/outbox/x.ts", "apps/**/outbox/**/*.ts"),
         )
         # First `**` zero-folds, second multi-folds.
         self.assertTrue(
-            matches_glob("apps/outbox/sub/x.ts", "apps/**/outbox/**/*.ts"),
+            matches_repo_glob("apps/outbox/sub/x.ts", "apps/**/outbox/**/*.ts"),
         )
         # First multi-folds, second zero-folds.
         self.assertTrue(
-            matches_glob("apps/farm-service/src/outbox/x.ts", "apps/**/outbox/**/*.ts"),
+            matches_repo_glob("apps/farm-service/src/outbox/x.ts", "apps/**/outbox/**/*.ts"),
         )
 
     def test_leading_starstar(self) -> None:
         # `**/b` matches both `b` (zero-fold) and `a/x/b` (multi-fold).
-        self.assertTrue(matches_glob("b", "**/b"))
-        self.assertTrue(matches_glob("a/x/b", "**/b"))
+        self.assertTrue(matches_repo_glob("b", "**/b"))
+        self.assertTrue(matches_repo_glob("a/x/b", "**/b"))
         # Should NOT match `b/x` because the trailing literal is a file.
-        self.assertFalse(matches_glob("b/x", "**/b"))
+        self.assertFalse(matches_repo_glob("b/x", "**/b"))
 
     def test_trailing_starstar(self) -> None:
         # `a/**` matches `a` (zero-fold) and `a/x/y` (multi-fold).
-        self.assertTrue(matches_glob("a", "a/**"))
-        self.assertTrue(matches_glob("a/x", "a/**"))
-        self.assertTrue(matches_glob("a/x/y", "a/**"))
-        self.assertFalse(matches_glob("b/x", "a/**"))
+        self.assertTrue(matches_repo_glob("a", "a/**"))
+        self.assertTrue(matches_repo_glob("a/x", "a/**"))
+        self.assertTrue(matches_repo_glob("a/x/y", "a/**"))
+        self.assertFalse(matches_repo_glob("b/x", "a/**"))
 
 
 class FiveTierEvaluationTests(unittest.TestCase):
@@ -176,13 +176,13 @@ class BackwardsCompatTests(unittest.TestCase):
     """Verify the existing simple-pattern behaviour is preserved."""
 
     def test_simple_extension_pattern(self) -> None:
-        self.assertTrue(matches_glob("foo/bar.ts", "foo/*.ts"))
-        self.assertFalse(matches_glob("foo/bar.js", "foo/*.ts"))
+        self.assertTrue(matches_repo_glob("foo/bar.ts", "foo/*.ts"))
+        self.assertFalse(matches_repo_glob("foo/bar.js", "foo/*.ts"))
 
     def test_simple_recursive_pattern(self) -> None:
         # Pre-fix: `apps/farm-service/**` worked via fnmatch — must still work.
-        self.assertTrue(matches_glob("apps/farm-service/src/x.ts", "apps/farm-service/**"))
-        self.assertFalse(matches_glob("apps/sensor-service/src/x.ts", "apps/farm-service/**"))
+        self.assertTrue(matches_repo_glob("apps/farm-service/src/x.ts", "apps/farm-service/**"))
+        self.assertFalse(matches_repo_glob("apps/sensor-service/src/x.ts", "apps/farm-service/**"))
 
     def test_default_forbidden_alias_still_exported(self) -> None:
         # External importers (none in-repo per grep, but defensive) may
@@ -205,8 +205,8 @@ class BackwardsCompatTests(unittest.TestCase):
 
     def test_question_mark_glob(self) -> None:
         # `?` matches one non-slash character (rare but valid glob).
-        self.assertTrue(matches_glob("a/b.tx", "a/b.??"))
-        self.assertFalse(matches_glob("a/b.txt", "a/b.??"))
+        self.assertTrue(matches_repo_glob("a/b.tx", "a/b.??"))
+        self.assertFalse(matches_repo_glob("a/b.txt", "a/b.??"))
 
     def test_normalize_path_in_violations(self) -> None:
         # Backslashes and `./` prefixes are normalized before matching,

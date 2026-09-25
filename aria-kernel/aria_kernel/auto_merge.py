@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import fnmatch
 import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .canonical_path import normalize_repo_relpath
+from .canonical_path import matches_repo_glob, normalize_repo_relpath
 from .implementation_safety import (
     CANONICAL_VALIDATION_COMMANDS,
     canonical_command_satisfied_by,
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .risk_policy import classify_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -22,26 +22,6 @@ DEFAULT_POLICY: dict[str, Any] = {
     "enabled": False,
     "base_branch": "main",
     "merge_method": "squash",
-    "allowed_low_risk_globs": [
-        "docs/**",
-        "*.md",
-        "tests/**",
-        "aria-kernel/tests/**",
-        "tools/aria-adapters/**/__tests__/**",
-        "tools/aria-adapters/**/*.test.ts",
-        "tools/aria-adapters/**/*.spec.ts",
-        "tools/aria-adapters/fixtures/**",
-        "tools/aria-adapters/*.tool.json",
-        "**/__tests__/**",
-        "**/*.test.ts",
-        "**/*.spec.ts",
-        "**/*.test.tsx",
-        "**/*.spec.tsx",
-        "**/*.test.js",
-        "**/*.spec.js",
-        "**/test_*.py",
-        "**/*_test.py",
-    ],
     "hard_forbidden_globs": [
         ".github/workflows/**",
         ".github/actions/**",
@@ -52,12 +32,18 @@ DEFAULT_POLICY: dict[str, Any] = {
         "docker/docker-compose.yml",
         "**/migrations/**",
         "**/*Migration*",
+        "**/*Migration*/**",
         "**/.env*",
         "**/*secret*",
+        "**/*secret*/**",
         "**/*credential*",
+        "**/*credential*/**",
         "**/*private-key*",
+        "**/*private-key*/**",
         "**/*pricing*",
+        "**/*pricing*/**",
         "**/*billing*",
+        "**/*billing*/**",
         "apps/billing-service/**",
     ],
     "runtime_forbidden_globs": [
@@ -151,7 +137,9 @@ def classify_changed_files(
     for path in paths:
         if _matches_any(path, active_policy["hard_forbidden_globs"]):
             forbidden.append(path)
-        elif _matches_any(path, active_policy["allowed_low_risk_globs"]):
+        elif classify_path(path) == "L1":
+            # ARIA-HIGH-187: the ONE low-risk answer is the enterprise
+            # policy's L1 lane (CODEOWNERS-aware); no private copy here.
             low_risk.append(path)
         elif _matches_any(path, active_policy["runtime_forbidden_globs"]):
             forbidden.append(path)
@@ -1249,7 +1237,7 @@ def _changed_file_path(item: str | dict[str, Any]) -> str:
 
 
 def _matches_any(path: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+    return any(matches_repo_glob(path, pattern) for pattern in patterns)
 
 
 def _first_string(payload: dict[str, Any], *keys: str) -> str | None:

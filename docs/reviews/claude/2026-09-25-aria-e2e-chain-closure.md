@@ -177,3 +177,13 @@ refuses when it is not `True` (`auto_merge.py:280`). `RealAutoMergeRunner` calls
 code constant: no autonomous merge can be eligible, whatever the profile, ladder
 and readiness say, and nothing short of a code edit can change it. The switch
 belongs in an operator-controlled, audited source read by the runner.
+
+## Decision questioning asks, and nothing reads the answer
+
+Found while implementing ARIA-HIGH-097 (filed as ARIA-HIGH-204).
+`cycle._phase_decision_questioning` runs `open_decision_questioning` every cycle: it
+samples converged decisions and mints `verification` envelopes asking for
+`upheld` / `overturned` / `insufficient_evidence`. No module reads an accepted result
+of those requests; `already_questioned` only stops a re-ask. An `overturned` verdict
+neither reopens nor flags the decision, so the phase spends agent calls without an
+effect. It is not on plan 034's L1 chain.

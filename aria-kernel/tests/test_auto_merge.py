@@ -290,6 +290,8 @@ class AutoMergeTests(unittest.TestCase):
             "exact_required_checks": required_checks,
             "signed_commits_required": True,
             "reviews_required": True,
+            "code_owner_reviews_required": True,
+            "required_approving_review_count": 0,
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],

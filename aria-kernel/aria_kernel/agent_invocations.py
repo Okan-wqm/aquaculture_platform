@@ -14,10 +14,12 @@ from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_re
 from .agent_surface import (
     DERIVED_REQUEST_STATES,
     INVOCATION_ROLES,
+    PLANNER_BRIDGE_ROLES,
     allowed_targets_for_role,
 )
 from .bridge_exceptions import BridgeContractViolation
 from .checkout_root import is_git_worktree_marker as _is_git_worktree_marker
+from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
@@ -1299,6 +1301,20 @@ def create_agent_invocation_request(
         )
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
+    # ARIA-HIGH-194 (ARIA-HIGH-181 made impossible) — a planning envelope
+    # whose only evidence is ARIA's own output can never be answered: the
+    # planner must cite the repository and those paths resolve at no SHA.
+    # Both live round-1 challengers were minted that way, refused, and burned
+    # their budget to HUMAN_REQUIRED. The mint refuses it for every caller.
+    if (
+        role in PLANNER_BRIDGE_ROLES
+        and evidence_refs
+        and all(is_self_output_ref(ref) for ref in evidence_refs)
+    ):
+        raise GovernanceError(
+            f"request_evidence_self_output_only: role {role!r} cannot be answered "
+            f"on ARIA's own output alone ({sorted(evidence_refs)[:3]})"
+        )
     # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy
     # request schema lacked must_satisfy / allowed_scope, so a request
     # written without them entered the queue, was claimed via the strict

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .canonical_path import lexical_repo_path
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .tool_registry import GovernanceError
 
@@ -21,6 +22,14 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
     "runner-temp/",
     "tmp/",
 )
+
+def is_self_output_ref(ref: str) -> bool:
+    """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
+    any workspace SHA), lexically — the same prefix rule the classifier uses."""
+    path_part, _line = _split_ref(str(ref).strip())
+    normalized = lexical_repo_path(path_part)
+    return any(normalized.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
+
 
 @dataclass(frozen=True)
 class EvidenceEnvelope:
@@ -400,5 +409,6 @@ __all__ = [
     "EvidencePolicy",
     "GitProbeSession",
     "SELF_OUTPUT_PREFIXES",
+    "is_self_output_ref",
     "classify_evidence_ref",
 ]

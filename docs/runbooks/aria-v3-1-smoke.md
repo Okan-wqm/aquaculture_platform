@@ -87,7 +87,6 @@ ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true \
     --profile strict \
     --operator-approval-ref "v31-f-smoke" \
     --cycle-deadline-seconds 1800 \
-    --challenger-timeout-seconds 300 \
     --max-rounds 2 \
     --max-budget-usd-per-run 10.00 \
     --max-budget-usd-per-cycle 1.50 \
@@ -301,7 +300,6 @@ PYTHONPATH=aria-kernel:. python3 -m aria_kernel autonomy run \
     --profile autonomous \
     --operator-approval-ref "$APPROVAL_REF" \
     --cycle-deadline-seconds 1800 \
-    --challenger-timeout-seconds 600 \
     --max-rounds 3 \
     --max-budget-usd-per-run 45.00 \
     --max-budget-usd-per-cycle 1.50 \

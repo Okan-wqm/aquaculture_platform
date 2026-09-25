@@ -2370,17 +2370,11 @@ def build_parser() -> argparse.ArgumentParser:
              "Set lower (e.g. 60) to verify the V7 phase progression "
              "quickly without polling for Gate A/B/C consumer envelopes.",
     )
-    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — challenger-timeout + max-rounds
-    # + max-budget-usd-per-run exposed for operator tuning. Default
+    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — max-rounds + max-budget-usd-per-run
+    # exposed for operator tuning (ARIA-HIGH-194 retired the challenger
+    # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
-    auto_run.add_argument(
-        "--challenger-timeout-seconds", type=float, default=300.0,
-        help="Per-poll budget for state-machine waits inside "
-             "convergence_drainer (default 300s). Used by round-1 "
-             "challenger + cross_review polls and round-2+ revision "
-             "polls. Lower for fast smoke; raise for slow LLMs.",
-    )
     auto_run.add_argument(
         "--max-rounds", type=int, default=2,
         help="Max convergence rounds per plan (default 2 for "
@@ -5929,7 +5923,7 @@ def _main(argv: list[str] | None = None) -> int:
         )
         # CL-1 (ORPHAN-725) — the B-V2-13 deadline floor is retired with
         # the waits it was sized for: the resumable step function never
-        # blocks on challenger_timeout, so a cycle deadline no longer
+        # blocks on an envelope, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
         # ARIA-HIGH-064 — the two budget caps used to be exported here as
         # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
@@ -5957,9 +5951,8 @@ def _main(argv: list[str] | None = None) -> int:
         from .cycle_phases.plan_source import V9PressureSourceProvider
         plan_content_provider = V9PressureSourceProvider()
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
-        # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
-        # --max-rounds are now plumbed all the way to the orchestrator
-        # (and from there to convergence_runner). Previously the
+        # ORPHAN-HIGH-082 fix: CLI flag --max-rounds is plumbed all the
+        # way to the orchestrator (and from there to convergence_runner). Previously the
         # arguments were parsed + validated above (line 3422-3434) but
         # never passed downstream, so the drainer silently fell back to
         # its 1800s + 4-rounds defaults regardless of operator input.
@@ -5993,7 +5986,6 @@ def _main(argv: list[str] | None = None) -> int:
             max_rounds=args.max_rounds,
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
-            challenger_timeout_seconds=args.challenger_timeout_seconds,
             # Plan ARIA-V3.1-E — explicit profile threaded to the
             # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,

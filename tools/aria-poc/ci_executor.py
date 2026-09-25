@@ -2614,6 +2614,32 @@ def _record_claude_cli_usage(
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+AGENT_REFUSAL_SUMMARY_MAX_CHARS = 500
+
+
+def _agent_refusal_block(parsed: Any) -> dict[str, Any] | None:
+    """The bounded refusal record for an ``aria/agent-refusal/v1`` answer, else None.
+
+    ARIA-HIGH-194 — the ONE refusal predicate. The builder parses the agent's
+    full reply; the detector used to re-parse ``details.agent_text``, an
+    excerpt cut at 4 000 characters, and both live round-1 challengers wrote
+    4 003-character replies whose refusal JSON sat past the cut. The builder
+    now records what it parsed and the detector reads that record.
+    """
+    from aria_kernel.agent_contract import REFUSAL_SCHEMA
+
+    if not isinstance(parsed, dict) or REFUSAL_SCHEMA not in (
+        parsed.get("$schema"), parsed.get("envelope"), parsed.get("schema"),
+    ):
+        return None
+    summary = str(parsed.get("reason_summary") or parsed.get("reason") or "agent refused without summary")
+    return {
+        "$schema": REFUSAL_SCHEMA,
+        "reason_class": str(parsed.get("reason_class") or "unspecified")[:64],
+        "reason_summary": _safe_agent_text_excerpt(summary, limit=AGENT_REFUSAL_SUMMARY_MAX_CHARS),
+    }
+
+
 def _extract_envelope_json(text: str) -> dict[str, Any] | None:
     """Find the agent's embedded envelope JSON in a natural-language reply.
 
@@ -2777,6 +2803,13 @@ def _build_envelope_from_claude_output(
     else:
         details.pop("agent_dispatch_model", None)
     details["agent_confidence_source"] = confidence_source
+    # ARIA-HIGH-194 — FORCE-set from the parse of the FULL reply, like the
+    # stamps above: the agent's own spelling of the key is never trusted.
+    refusal = _agent_refusal_block(extracted)
+    if refusal is not None:
+        details["agent_refusal"] = refusal
+    else:
+        details.pop("agent_refusal", None)
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     if usage is None:
         usage = extract_usage(parse_claude_jsonl(raw_stdout))
@@ -5225,25 +5258,19 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         _envelope_for_validation = json.loads(expected_output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as _exc:
         _envelope_for_validation = None
-    # Refusal detection: look at the agent's raw text body, NOT the
-    # ci_executor-built outer wrapper. The agent's refusal JSON is
-    # nested inside `details.agent_text`. We parse the embedded JSON
-    # block ourselves to spot the `$schema = aria/agent-refusal/v1`
-    # marker independently of the outer envelope's claimed schema.
+    # Refusal detection (ARIA-HIGH-194): read the record the builder made
+    # from the agent's FULL reply (`details.agent_refusal`), never a re-parse
+    # of `details.agent_text` — that is an excerpt, and a refusal past its
+    # cut was missed and billed to the request's budget.
     if isinstance(_envelope_for_validation, dict):
-        _agent_text = (_envelope_for_validation.get("details") or {}).get("agent_text") or ""
-        _inner_refusal = _extract_envelope_json(_agent_text) if isinstance(_agent_text, str) else None
-        if isinstance(_inner_refusal, dict) and (
-            _inner_refusal.get("$schema") == "aria/agent-refusal/v1"
-            or _inner_refusal.get("envelope") == "aria/agent-refusal/v1"
-            or _inner_refusal.get("schema") == "aria/agent-refusal/v1"
-        ):
-            _reason_class = str(_inner_refusal.get("reason_class") or "unspecified")
-            _reason_summary = str(
-                _inner_refusal.get("reason_summary")
-                or _inner_refusal.get("reason")
-                or "agent refused without summary"
-            )[:500]
+        _details_for_refusal = _envelope_for_validation.get("details")
+        _inner_refusal = (
+            _agent_refusal_block(_details_for_refusal.get("agent_refusal"))
+            if isinstance(_details_for_refusal, dict) else None
+        )
+        if _inner_refusal is not None:
+            _reason_class = _inner_refusal["reason_class"]
+            _reason_summary = _inner_refusal["reason_summary"]
             _stage(f"agent_refusal_detected class={_reason_class!r} request_id={request_id}")
             # Persist HUMAN_REQUIRED through the kernel's recorder (one
             # recorder, shared with the delivery refusals — ARIA-HIGH-124)

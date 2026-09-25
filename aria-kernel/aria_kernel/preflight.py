@@ -195,7 +195,11 @@ def _detect_signing_key(workspace_root: str | Path) -> bool:
     a cycle reaches IMPLEMENTATION_REQUESTED state. So this check
     surfaces "infrastructure exists" not "key for THIS cycle minted".
     """
-    keys_dir = Path(workspace_root) / "aria-debts" / "keys"
+    # The ONE spelling of the keys path (ARIA-HIGH-191): the sandbox masks
+    # and the key mint read the same constant.
+    from .gh_token_factory import SIGNING_KEYS_RELATIVE_PATH
+
+    keys_dir = Path(workspace_root).joinpath(*SIGNING_KEYS_RELATIVE_PATH)
     return keys_dir.is_dir()
 
 

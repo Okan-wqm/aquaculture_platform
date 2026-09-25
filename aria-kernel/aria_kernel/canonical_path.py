@@ -57,4 +57,48 @@ def _canonical_evidence_path(
     return rel.as_posix(), absolute
 
 
-__all__ = ["_canonical_evidence_path"]
+def lexical_repo_path(raw_path: object) -> str:
+    """THE lexical normalizer for repo-relative path strings (ARIA-HIGH-186).
+
+    Converts ``\\`` to ``/`` and removes leading ``./`` PREFIXES, nothing
+    else: a leading dot that belongs to the name (``.github``, ``.env``) is
+    kept and ``..`` is left visible for the caller to judge. It never touches
+    the filesystem; ``_canonical_evidence_path`` is the resolver when
+    containment against a real root is the question.
+
+    ``str.lstrip("./")`` looked like this and was not: it strips any leading
+    ``.`` or ``/`` CHARACTER, so ``.github/x`` became ``github/x`` and
+    ``../x`` became ``x``. It was fixed locally twice (ORPHAN-HIGH-576) and
+    returned in five more sites because no shared helper existed; the AST
+    invariant in ``tests/test_repo_relpath_ssot.py`` keeps it out.
+    """
+    path = str(raw_path).replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def normalize_repo_relpath(raw_path: object) -> str:
+    """Lexically normalize a path that must stay inside the repository.
+
+    Refuses, BEFORE any prefix is stripped, an absolute path (POSIX root,
+    UNC/backslash root, or a drive letter), any ``..`` segment, and an empty
+    result. Returns the ``lexical_repo_path`` form otherwise.
+
+    Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
+    ``repo_relpath_traversal`` or ``repo_relpath_empty``.
+    """
+    from .tool_registry import GovernanceError as _GE
+
+    text = str(raw_path).strip().replace("\\", "/")
+    if text.startswith("/") or (len(text) >= 2 and text[1] == ":" and text[0].isalpha()):
+        raise _GE(f"repo_relpath_absolute: {raw_path!r}")
+    if ".." in text.split("/"):
+        raise _GE(f"repo_relpath_traversal: {raw_path!r}")
+    path = lexical_repo_path(text)
+    if not path.strip("/"):
+        raise _GE(f"repo_relpath_empty: {raw_path!r}")
+    return path
+
+
+__all__ = ["_canonical_evidence_path", "lexical_repo_path", "normalize_repo_relpath"]

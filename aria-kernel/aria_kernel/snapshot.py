@@ -9,6 +9,7 @@ import time as _time
 from pathlib import Path
 from typing import Any
 
+from .canonical_path import lexical_repo_path
 from .cycle_progress import emit_progress
 from .tool_registry import GovernanceError, utc_now
 
@@ -127,7 +128,7 @@ def snapshot_allowed_set(snapshot: dict[str, Any] | None) -> set[str]:
     allowed = snapshot.get("allowed_paths")
     if not isinstance(allowed, list):
         return set()
-    return {normalize_path(path) for path in allowed if isinstance(path, str) and path.strip()}
+    return {lexical_repo_path(path) for path in allowed if isinstance(path, str) and path.strip()}
 
 
 def file_counts_from_payload(payload: dict[str, Any], *, fallback_fated: int | None = None) -> dict[str, int]:
@@ -146,13 +147,6 @@ def file_counts_from_payload(payload: dict[str, Any], *, fallback_fated: int | N
         "unknown": unknown,
         "fated": fated,
     }
-
-
-def normalize_path(raw_path: Any) -> str:
-    path = str(raw_path).replace("\\", "/")
-    while path.startswith("./"):
-        path = path[2:]
-    return path
 
 
 def _git_available(root: Path) -> bool:
@@ -201,12 +195,12 @@ def _dirty_paths(root: Path) -> list[str]:
         if status.startswith("R") or status.startswith("C"):
             skip_next = True
         if path:
-            paths.append(normalize_path(path))
+            paths.append(lexical_repo_path(path))
     return sorted(set(paths))
 
 
 def ignored_dirty_path(path: str) -> bool:
-    normalized = normalize_path(path)
+    normalized = lexical_repo_path(path)
     return normalized in DIRTY_IGNORE_EXACT or any(normalized.startswith(prefix) for prefix in DIRTY_IGNORE_PREFIXES)
 
 
@@ -297,7 +291,7 @@ def _filesystem_paths(root: Path) -> list[str]:
 
 
 def _file_fate(root: Path, relative_path: str, *, committed_ref: str | None = None) -> dict[str, Any]:
-    normalized = normalize_path(relative_path)
+    normalized = lexical_repo_path(relative_path)
     fate = "tracked"
     if normalized.startswith(GENERATED_PREFIXES) or any(part in normalized for part in GENERATED_PARTS):
         fate = "generated"
@@ -360,7 +354,7 @@ def _scoped_input_path(value: Any, *, canonical: bool = False) -> str | None:
             return None
     except UnicodeEncodeError:
         return None
-    path = normalize_path(value)
+    path = lexical_repo_path(value)
     if canonical and value != path:
         return None
     if Path(path).is_absolute() or any(part in ("", ".", "..", ".git") for part in path.split("/")) or any(char in path for char in "*?[]\x00\n\r"):
@@ -403,7 +397,7 @@ def _read_scoped_working_file(
     root: Path, relative: str, *, byte_budget: int, deadline_monotonic: float | None = None,
 ) -> tuple[dict[str, Any], bytes | None, int]:
     """One observed working file; metadata and optional parsing share its bytes."""
-    row: dict[str, Any] = {"path": normalize_path(relative), "status": "unknown"}
+    row: dict[str, Any] = {"path": lexical_repo_path(relative), "status": "unknown"}
     path = root / relative
     consumed = 0
     data = None

@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
+from .canonical_path import normalize_repo_relpath
 from .implementation_safety import (
     CANONICAL_VALIDATION_COMMANDS,
     canonical_command_satisfied_by,
@@ -1240,15 +1241,11 @@ def _append_decision(base_dir: str | Path | None, decision: dict[str, Any]) -> N
 
 
 def _changed_file_path(item: str | dict[str, Any]) -> str:
-    if isinstance(item, str):
-        return _normalize_path(item)
+    # ARIA-HIGH-186: the classifier's input must be the path GitHub changed,
+    # dot and all; a traversal or empty entry is a malformed PR, refused.
     if isinstance(item, dict):
-        return _normalize_path(str(item.get("path") or item.get("filename") or item.get("fileName") or ""))
-    return ""
-
-
-def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+        item = str(item.get("path") or item.get("filename") or item.get("fileName") or "")
+    return normalize_repo_relpath(item)
 
 
 def _matches_any(path: str, patterns: list[str]) -> bool:

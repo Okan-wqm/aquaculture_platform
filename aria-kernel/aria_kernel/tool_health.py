@@ -24,6 +24,7 @@ from .runtime_artifacts import (
     run_ledger_format,
     write_run_artifact,
 )
+from .canonical_path import lexical_repo_path
 from .evidence_trust import SELF_OUTPUT_PREFIXES
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
 from .tool_registry import append_tools_governance, update_tools_index
@@ -564,7 +565,7 @@ def find_scope_violations(tool: dict[str, Any], read_paths: list[Any]) -> list[s
     allowed = tool.get("allowed_read_globs", [])
     tool_forbidden = list(tool.get("forbidden_read_globs", []))
     for raw_path in read_paths:
-        normalized = normalize_path(raw_path)
+        normalized = lexical_repo_path(raw_path)
         # 1. Hard-forbidden never overridable
         if any(matches_glob(normalized, pattern) for pattern in HARD_FORBIDDEN_READ_GLOBS):
             violations.append(normalized)
@@ -592,7 +593,7 @@ def has_self_output_evidence(run: dict[str, Any]) -> bool:
     if validation.get("self_output_evidence"):
         return True
     sources = validation.get("evidence_sources", [])
-    return any(normalize_path(source).startswith(SELF_OUTPUT_MARKERS) for source in sources)
+    return any(lexical_repo_path(source).startswith(SELF_OUTPUT_MARKERS) for source in sources)
 
 
 def has_critical_false_positive(run: dict[str, Any]) -> bool:
@@ -638,13 +639,6 @@ def load_jsonl(path: Path, *, tool_id: str | None = None) -> list[dict[str, Any]
     return rows
 
 
-def normalize_path(raw_path: Any) -> str:
-    path = str(raw_path).replace("\\", "/")
-    while path.startswith("./"):
-        path = path[2:]
-    return path
-
-
 def matches_glob(path: str, pattern: str) -> bool:
     """Match ``path`` against ``pattern`` with brace expansion + recursive ``**``.
 
@@ -677,7 +671,7 @@ def matches_glob(path: str, pattern: str) -> bool:
     * ``?`` matches exactly one character that is not ``/``.
     * Other characters are matched literally.
     """
-    normalized_pattern = normalize_path(pattern)
+    normalized_pattern = lexical_repo_path(pattern)
     for candidate in _expand_braces(normalized_pattern):
         if _glob_match(path, candidate):
             return True

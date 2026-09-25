@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from .canonical_path import lexical_repo_path
 from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -447,7 +448,7 @@ def _option(action: str, tradeoff: str, adoption: dict[str, Any]) -> dict[str, A
 
 
 def _project_key(path: str) -> str | None:
-    parts = path.replace("\\", "/").lstrip("./").split("/")
+    parts = lexical_repo_path(path).split("/")
     if len(parts) >= 2 and parts[0] in ("apps", "libs", "web"):
         return "/".join(parts[:2])
     if len(parts) >= 3 and parts[0] == "platform" and parts[1] == "libs":

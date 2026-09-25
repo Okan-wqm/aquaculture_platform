@@ -1067,6 +1067,20 @@ def build_parser() -> argparse.ArgumentParser:
     attestation_probe = add_subparser(attestation_sub, "probe")
     attestation_probe.add_argument("--repo", required=True)
     attestation_probe.add_argument("--target-ref", required=True)
+    # ARIA-HIGH-198 — what the attested host will do. `merge` runs no model
+    # and no agent code; `agent` is every lane that spawns one.
+    attestation_probe.add_argument("--lane", choices=("agent", "merge"), default="agent")
+
+    # ARIA-HIGH-198 — the merge lane's own entry point. The merge ran inside
+    # the autonomy cycle on the persistent self-hosted host, which can never
+    # attest ephemeral; this verb runs the SAME runner and authority for one
+    # PR on whatever host invokes it (aria-merge-runner.yml: GitHub-hosted).
+    merge_parser = add_subparser(sub, "merge-lane")
+    merge_sub = merge_parser.add_subparsers(dest="merge_command", required=True)
+    merge_run = add_subparser(merge_sub, "run")
+    # Without --pr: every PR holding a readiness claim, the cycle's own set.
+    merge_run.add_argument("--pr", type=int, default=None)
+    merge_run.add_argument("--workspace-root", type=Path, default=Path("."))
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -3665,6 +3679,31 @@ def _main(argv: list[str] | None = None) -> int:
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
+    if args.command == "merge-lane" and args.merge_command == "run":
+        from .auto_merge_runners import (
+            enumerate_prs_with_readiness_claims,
+            resolve_readiness_claim_id_from_claims,
+            select_auto_merge_runner,
+        )
+        from .github_adapters import select_github_adapter
+
+        merge_profile = get_profile(base_dir=args.tools_dir)
+        merge_adapter = select_github_adapter(
+            profile=merge_profile, base_dir=args.tools_dir, cwd=str(args.workspace_root),
+        )
+        merge_runner = select_auto_merge_runner(
+            profile=merge_profile,
+            adapter_factory=lambda: merge_adapter,
+            pr_enumerator=(
+                (lambda _adapter: [args.pr]) if args.pr is not None
+                else (lambda adapter: enumerate_prs_with_readiness_claims(adapter, base_dir=args.tools_dir))
+            ),
+            readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
+        )
+        merge_result = merge_runner(base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(merge_result, indent=2, sort_keys=True, default=str))
+        return 0
+
     if args.command == "runner-attestation" and args.attestation_command == "probe":
         # FAZ 5a — lane-start producer: one probed attestation row per
         # recorded readiness claim, keyed exactly as the merge gate reads.
@@ -3675,6 +3714,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             repo=args.repo,
             target_ref=args.target_ref,
+            lane=args.lane,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

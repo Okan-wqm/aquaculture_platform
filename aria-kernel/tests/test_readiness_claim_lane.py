@@ -64,6 +64,52 @@ class LaneContractTests(unittest.TestCase):
         )
         self.assertTrue(verdict.valid, verdict.reasons)
 
+    def test_merge_runner_contract_matches_live_yaml(self) -> None:
+        verdict = verify_workflow_contract(
+            workflow_id="aria-merge-runner",
+            workspace_root=_REPO,
+        )
+        self.assertTrue(verdict.valid, verdict.reasons)
+
+
+class MergeRunnerLaneTests(unittest.TestCase):
+    """ARIA-HIGH-198 — the merge lane runs where it can attest what it is."""
+
+    def setUp(self) -> None:
+        import yaml  # type: ignore[import-untyped]
+
+        path = _REPO / ".github" / "workflows" / "aria-merge-runner.yml"
+        self.workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        self.job = self.workflow["jobs"]["merge"]
+        self.steps = {step.get("name") or step.get("uses"): step for step in self.job["steps"]}
+
+    def test_the_lane_runs_on_a_github_hosted_runner(self) -> None:
+        # A self-hosted host is never attested ephemeral, so a merge lane
+        # there is refused by construction.
+        self.assertEqual(self.job["runs-on"], "ubuntu-latest")
+
+    def test_the_lane_consumes_a_claim_another_lane_produced(self) -> None:
+        # PyYAML reads the bare `on` key as boolean True.
+        trigger = self.workflow[True]
+        self.assertEqual(trigger["workflow_run"]["workflows"], ["aria-readiness-claim"])
+        self.assertIn("workflow_dispatch", trigger)
+
+    def test_the_host_attests_as_the_merge_lane(self) -> None:
+        probe = self.steps["Probe runner attestation"]
+        self.assertEqual(probe["uses"], "./.github/actions/probe-runner-attestation")
+        self.assertEqual(probe["with"]["lane"], "merge")
+
+    def test_the_merge_uses_the_app_token_never_github_token(self) -> None:
+        # A GITHUB_TOKEN merge triggers no push workflow on main, which
+        # blinds post-merge monitoring.
+        step = self.steps["Run the merge lane"]
+        self.assertEqual(step["env"]["ARIA_REQUIRE_MODE_A"], "true")
+        self.assertNotIn("GH_TOKEN", step["env"])
+        self.assertNotIn("github.token", step["run"])
+        self.assertIn("mint_installation_token", step["run"])
+        self.assertIn('GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run', step["run"])
+
+
 
 class ProduceClaimCliTests(unittest.TestCase):
     def setUp(self) -> None:

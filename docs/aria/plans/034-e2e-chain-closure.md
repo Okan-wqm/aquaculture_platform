@@ -9,8 +9,14 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 > (`a104f86e`, ARIA-HIGH-186) · PR 2 ✔ (`a58c853c`, ARIA-HIGH-187) · PR 3 ✔ (`69ec7301`,
 > ARIA-HIGH-188) · PR 4 ✔ (`3de6953d`, ARIA-HIGH-189) · PR 5 ✔ (`c1bdb0d8` ARIA-HIGH-191,
 > `c37148ae` ARIA-HIGH-192, `75976295` ARIA-HIGH-190) · PR 6 ✔ (`896e1f5c`, ARIA-HIGH-202;
-> doc-staleness 2 766 → 276 bulgu) · uygulama sırasında bulunan ARIA-HIGH-203 PR 13 kapsamına
-> eklendi. **Bulgular:** ARIA-HIGH-097 (açık) ve ARIA-HIGH-186…202 —
+> doc-staleness 2 766 → 276 bulgu) · PR 7 ✔ (`43529ad6`, ARIA-HIGH-097) · PR 8 ✔ (`d5ba685f`,
+> ARIA-HIGH-193) · PR 9 ✔ (`bea49bb0`, ARIA-HIGH-194) · PR 10 ✔ (`2eb251b3`, ARIA-HIGH-195) · PR 11
+> kod gerektirmedi (`4a771e78`, ARIA-HIGH-197 yeniden değerlendirildi) — PR 1–11 main'e #1672 ile
+> birleşti (`9175a06b`) · PR 12 ✔ (`5b21442d`, ARIA-HIGH-196) · PR 13 ✔ (`f2911874` ARIA-HIGH-203,
+> `a64c9be5` ARIA-HIGH-201, `b977da29` + `64c5054f` ARIA-HIGH-198; `aria-merge-runner.yml`) · PR 14 ✔
+> (`3103847e` ARIA-HIGH-200, `d046483b` + `63fe606e` ARIA-HIGH-199). Kod tarafı tamam; zincir
+> operatör adımlarını (M1, O1, O1b, O3, O4, O2) bekliyor. **Bulgular:** ARIA-HIGH-097 ve
+> ARIA-HIGH-186…203 —
 > `docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md`, registry
 > `docs/reviews/_registry/findings.jsonl`. **Kanıt tabanı:**
 > `docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md` §8–§9,
@@ -230,7 +236,8 @@ tarihler 2026-10-09 / 10-16 / 10-23).
   `gh api repos/Okan-wqm/aquaculture_platform/branches/main/protection` + `/rules/branches/main`.
   Kayıt: checks, signatures, review bloğu, code-owner, bypass actors, ruleset.
 - **O1 — GitHub App Mode A:** `docs/runbooks/aria-github-app-setup.md`;
-  `ARIA_GH_APP_ID/INSTALLATION_ID/PRIVATE_KEY`.
+  `ARIA_GH_APP_ID/INSTALLATION_ID/PRIVATE_KEY`. `aria-merge-runner.yml` de bu üç secret'a
+  bağlıdır: merge App token'ıyla yapılır (`ARIA_REQUIRE_MODE_A`), O1 yoksa şerit adıyla düşer.
 - **O1b — branch protection:** 4 required check tam eşleşme
   (`sens-enterprise-summary, merge-gate, aria-merge-authority, build-status`), imzalı commit,
   code-owner review, force-push/silme kapalı, ruleset; **bypass actor yok** (proof yasaklar); onay

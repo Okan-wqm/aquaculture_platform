@@ -64,8 +64,16 @@ class HandEvidenceRemovalTests(unittest.TestCase):
         source = inspect.getsource(cli_module)
         self.assertNotIn("validation-run-ref-json", source)
         self.assertNotIn("validation_run_ref_json", source)
-        # and the ledger IS the ref source in the dispatch
-        self.assertIn("list_validation_runs_for_change", source)
+        # and the ledger IS the ref source in the dispatch: the CLI reads
+        # refs_for_change (ARIA-HIGH-196), whose one input is the ledger's
+        # own per-change listing.
+        from aria_kernel import validation_runs_ledger
+
+        self.assertIn("refs_for_change(", source)
+        self.assertIn(
+            "list_validation_runs_for_change(",
+            inspect.getsource(validation_runs_ledger.refs_for_change),
+        )
 
 
 class RetentionCannotReachValidationLogsTests(unittest.TestCase):

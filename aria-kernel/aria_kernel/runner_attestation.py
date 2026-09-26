@@ -10,6 +10,34 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 APPROVED_CLAUDE_AUTH = frozenset({"managed_claude_code_cli", "claude_code_managed"})
 
+# ARIA-HIGH-198 — runner identity is MEASURED. GitHub sets RUNNER_ENVIRONMENT
+# to `github-hosted` or `self-hosted` on every Actions runner. A GitHub-hosted
+# runner is a fresh VM per job (ephemeral by construction); ARIA cannot
+# measure a self-hosted registration's ephemerality, so a self-hosted runner
+# is never attested ephemeral. The workflow inputs that used to assert the
+# three identity facts are gone: an assertion is not a measurement, and the
+# persistent self-hosted host could only ever attest honestly as refused.
+RUNNER_ENVIRONMENT_ENV = "RUNNER_ENVIRONMENT"
+GITHUB_HOSTED = "github-hosted"
+APPROVED_RUNNER_GROUPS = frozenset({GITHUB_HOSTED})
+# The merge lane runs no model and no agent-written code: it evaluates gates
+# and calls the merge API. Its attestation says so rather than borrowing an
+# agent host's auth and sandbox requirements.
+MERGE_LANE = "merge"
+AGENT_LANE = "agent"
+ATTESTATION_LANES = frozenset({MERGE_LANE, AGENT_LANE})
+CLAUDE_AUTH_NOT_REQUIRED = "not_required"
+
+
+def measured_runner_identity() -> dict[str, Any]:
+    """(group, ephemeral, approved) from the platform's own report."""
+    environment = (os.environ.get(RUNNER_ENVIRONMENT_ENV) or "").strip() or "unknown"
+    return {
+        "runner_group": environment,
+        "ephemeral_runner": environment == GITHUB_HOSTED,
+        "approved_runner_group": environment in APPROVED_RUNNER_GROUPS,
+    }
+
 
 def record_runner_attestation(
     attestation: dict[str, Any],
@@ -69,9 +97,7 @@ def probe_runner_attestation(
     repo: str,
     target_ref: str,
     head_ref: str,
-    runner_group: str,
-    ephemeral_runner: bool,
-    approved_runner_group: bool,
+    lane: str = AGENT_LANE,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """PROBE the runner and record the attestation row the merge gate demands.
@@ -89,9 +115,10 @@ def probe_runner_attestation(
         else recorded as `"absent"` (which `_validate_attestation` rejects —
         an unauthenticated host must not attest, and lying about it here
         would defeat the gate's purpose).
-    Identity facts a process cannot measure about itself (`runner_group`,
-    `ephemeral_runner`, `approved_runner_group`) come from the workflow's
-    registration knowledge and are labeled as such in `probe`.
+    Identity (`runner_group`, `ephemeral_runner`, `approved_runner_group`)
+    is measured from the platform's `RUNNER_ENVIRONMENT` (ARIA-HIGH-198),
+    never taken from workflow inputs. ``lane`` names what the host will do:
+    ``merge`` runs no model, so its `claude_auth` is `not_required`.
 
     Idempotent per (pr_number, head_sha, readiness_claim_id): re-probing an
     already-attested triple returns the existing row unchanged, so lanes can
@@ -115,6 +142,9 @@ def probe_runner_attestation(
         if existing is not None:
             return existing
 
+    if lane not in ATTESTATION_LANES:
+        raise GovernanceError(f"runner_attestation_lane_unknown:{lane}")
+    identity = measured_runner_identity()
     try:
         from .implementation_safety import sandbox_backend
 
@@ -133,13 +163,14 @@ def probe_runner_attestation(
             "head_sha": head_sha,
             "readiness_claim_id": readiness_claim_id,
             "runner_id": os.environ.get("RUNNER_NAME") or "unknown-runner",
-            "runner_group": runner_group,
-            "ephemeral_runner": bool(ephemeral_runner),
-            "approved_runner_group": bool(approved_runner_group),
+            **identity,
+            "attestation_lane": lane,
             "sandbox_available": backend is not None,
             "api_key_auth": api_key_present,
             "claude_auth": (
-                "managed_claude_code_cli" if managed_auth_present else "absent"
+                CLAUDE_AUTH_NOT_REQUIRED if lane == MERGE_LANE
+                else "managed_claude_code_cli" if managed_auth_present
+                else "absent"
             ),
             "attestation_method": "probed",
             # ARIA-AUDIT-016: identity claims need PLATFORM evidence, not
@@ -157,7 +188,8 @@ def probe_runner_attestation(
                 "sandbox_backend": backend,
                 "api_key_env_present": api_key_present,
                 "managed_auth_env_present": managed_auth_present,
-                "config_asserted_fields": [
+                "runner_environment": identity["runner_group"],
+                "measured_fields": [
                     "runner_group", "ephemeral_runner", "approved_runner_group",
                 ],
             },
@@ -171,6 +203,7 @@ def probe_runner_attestations_for_claims(
     base_dir: str | Path | None = None,
     repo: str,
     target_ref: str,
+    lane: str = AGENT_LANE,
 ) -> dict[str, Any]:
     """Mint a probed attestation for every recorded readiness claim.
 
@@ -205,9 +238,7 @@ def probe_runner_attestations_for_claims(
                 repo=repo,
                 target_ref=target_ref,
                 head_ref=str(claim.get("head_ref") or "unknown"),
-                runner_group=os.environ.get("ARIA_RUNNER_GROUP") or "self-hosted",
-                ephemeral_runner=_env_flag("ARIA_RUNNER_EPHEMERAL"),
-                approved_runner_group=_env_flag("ARIA_RUNNER_GROUP_APPROVED"),
+                lane=lane,
                 base_dir=root,
             )
             attested.append({
@@ -228,10 +259,6 @@ def probe_runner_attestations_for_claims(
     }
 
 
-def _env_flag(name: str) -> bool:
-    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes"}
-
-
 def _validate_attestation(row: dict[str, Any]) -> None:
     required = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id", "runner_id", "runner_group", "claude_auth")
     missing = [key for key in required if row.get(key) in (None, "", [], {})]
@@ -247,16 +274,30 @@ def _validate_attestation(row: dict[str, Any]) -> None:
         raise GovernanceError("runner_attestation_ephemeral_runner_required")
     if row.get("approved_runner_group") is not True:
         raise GovernanceError("runner_attestation_approved_group_required")
-    if row.get("sandbox_available") is not True:
-        raise GovernanceError("runner_attestation_sandbox_required")
     if row.get("api_key_auth") is not False:
         raise GovernanceError("runner_attestation_api_key_auth_forbidden")
+    if row.get("claude_auth") == CLAUDE_AUTH_NOT_REQUIRED:
+        # The merge lane runs no model and no agent-written code, so neither
+        # managed auth nor a write sandbox is its requirement; anything else
+        # that claims `not_required` is refused.
+        if row.get("attestation_lane") != MERGE_LANE:
+            raise GovernanceError("runner_attestation_not_required_auth_is_merge_lane_only")
+        return
+    if row.get("sandbox_available") is not True:
+        raise GovernanceError("runner_attestation_sandbox_required")
     if row.get("claude_auth") not in APPROVED_CLAUDE_AUTH:
         raise GovernanceError("runner_attestation_claude_managed_auth_required")
 
 
 __all__ = [
+    "AGENT_LANE",
     "APPROVED_CLAUDE_AUTH",
+    "APPROVED_RUNNER_GROUPS",
+    "ATTESTATION_LANES",
+    "CLAUDE_AUTH_NOT_REQUIRED",
+    "GITHUB_HOSTED",
+    "MERGE_LANE",
+    "measured_runner_identity",
     "probe_runner_attestation",
     "probe_runner_attestations_for_claims",
     "record_runner_attestation",

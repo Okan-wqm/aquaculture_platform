@@ -356,6 +356,29 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // that is not bound writes the wrong type unchallenged. `npm run
   // hooks:install` exists; the author had not run it in this session.
   '7bda4ab1', // fix(edge): the generated token module follows its feature gate
+  // 2026-09-26 ARIA plan 034 PR 12–14 (PR #1673). The operator decided this
+  // entry (okan, 2026-09-26). The author did not choose it; the
+  // 9fb8efce entry above explains why that difference matters.
+  //
+  // Two `fix(aria):` commits carry `Part of ARIA-HIGH-199` and
+  // `Part of ARIA-HIGH-198` as free text, where a `Closes:` trailer
+  // belongs. Each is the first half of a finding split across two
+  // commits, and the second half closes that finding in the same PR:
+  // `63fe606e` closes ARIA-HIGH-199 and `64c5054f` closes ARIA-HIGH-198.
+  // The finding references exist and the ledger is correct. Only the
+  // trailer shape on the first half is wrong.
+  //
+  // Why this is not fixed another way: the gate validates
+  // `pull_request.base.sha..head.sha`, so a follow-up commit cannot satisfy
+  // it. Amending a pushed commit needs a force-push, which CLAUDE.md
+  // forbids. A `Closes:` on the first half would also have been false,
+  // because neither half closes the finding alone.
+  //
+  // The ROOT CAUSE is the one ORPHAN-HIGH-441 named. The commit-msg hook
+  // was not bound in the worktrees where these commits were written.
+  // `npm run hooks:install` is now run for this checkout.
+  'd046483b', // fix(aria): ARIA reverts its own bad merge, freezing first (Part of ARIA-HIGH-199)
+  'b977da29', // fix(aria): runner identity is measured, and the merge lane attests what it is (Part of ARIA-HIGH-198)
 ]);
 
 interface Commit {

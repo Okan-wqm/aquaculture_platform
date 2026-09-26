@@ -270,7 +270,9 @@ class CredentialsAreScoped(unittest.TestCase):
         admitted = self._governance_rows(dcred.DELIVERY_CREDENTIAL_ADMITTED_EVENT)
         self.assertEqual((admitted[0]["details"]["mode"], admitted[0]["details"]["covers_seconds"]),
                          ("dry_run", dcred.DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS))
-        self.assertEqual(dcred.DELIVERY_CREDENTIAL_CONSUMERS, ("executor_admission", "executor_delivery"))
+        self.assertEqual(
+            dcred.DELIVERY_CREDENTIAL_CONSUMERS, ("executor_admission", "executor_delivery", "self_revert_delivery"),
+        )
         # Without the grant: nothing minted, nothing recorded.
         closed = SimpleNamespace(external_writes=False, profile_id="worker")
         self.assertIsNone(dcred.admit_delivery_credentials(

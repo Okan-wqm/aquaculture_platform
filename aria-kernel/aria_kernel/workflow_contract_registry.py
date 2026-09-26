@@ -672,6 +672,55 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             ),
         ),
     ),
+    # ARIA-HIGH-198 — the merge lane. Merges ran inside aria-auto-cycle on
+    # the persistent self-hosted host, which can never attest ephemeral, so
+    # verify_runner_attestation refused every one. This lane runs the same
+    # auto-merge runner + merge authority on a GitHub-hosted runner after
+    # aria-readiness-claim completes, attests itself with lane=merge, and
+    # merges with the GitHub App installation token (a GITHUB_TOKEN merge
+    # triggers no push workflows on main and would blind post-merge
+    # monitoring) — hence token_source github_app:installation. Its store
+    # writes (decisions, attestations) publish to aria/state.
+    "aria-merge-runner": WorkflowContract(
+        workflow_id="aria-merge-runner",
+        workflow_file=".github/workflows/aria-merge-runner.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="merge",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-merge-runner-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-merge-runner-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-runner-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "write"), ("actions", "read")),
+                token_source="github_app:installation",
+                network_policy=("github_api", "github_artifact", "github_git"),
+                dlp_artifact="aria-merge-runner-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=15,
+                required_steps=(
+                    _RESTORE_STEP,
+                    "Probe runner attestation",
+                    "Run the merge lane",
+                    _PUBLISH_STEP,
+                ),
+                # The attestation must describe the store the merge reads,
+                # and must exist before the merge gate asks for it.
+                step_order=(
+                    (_RESTORE_STEP, "Probe runner attestation"),
+                    ("Probe runner attestation", "Run the merge lane"),
+                    ("Run the merge lane", _PUBLISH_STEP),
+                ),
+            ),
+        ),
+    ),
     # PROC-MEDIUM-029 — the closure producer finding-registry-closure-drift
     # never had. Same publication shape as finding-state-sweep, but it also
     # repins the debt plan, so the governed write set is four files rather

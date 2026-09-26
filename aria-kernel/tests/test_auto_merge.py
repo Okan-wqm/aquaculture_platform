@@ -290,6 +290,8 @@ class AutoMergeTests(unittest.TestCase):
             "exact_required_checks": required_checks,
             "signed_commits_required": True,
             "reviews_required": True,
+            "code_owner_reviews_required": True,
+            "required_approving_review_count": 0,
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],
@@ -538,6 +540,43 @@ class AutoMergeTests(unittest.TestCase):
     # snapshot fixtures do not carry, so these merge-path tests stub the
     # perimeter as passing: the gate's wiring and its refusal semantics are
     # pinned separately in test_merge_authority_pre_merge_perimeter.py.
+    @patch(
+        "aria_kernel.merge_authority.run_hard_fail_checks",
+        return_value=SimpleNamespace(passed=True, failures=()),
+    )
+    def test_the_runner_call_shape_merges_when_the_profile_grants_pr_merge(self, _perimeter):
+        """ARIA-HIGH-203 — RealAutoMergeRunner passes NO policy. Before the
+        fix every such call read DEFAULT_POLICY["enabled"] = False and was
+        blocked "policy disabled" whatever the operator had authorized; the
+        switch is now the operator-controlled profile the authority enforces."""
+        self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-switch", base_dir=self.tools_dir)
+        adapter = FakeGitHubAdapter(
+            pr(head_sha=HEAD_SHA),
+            github(
+                latest_head_sha=HEAD_SHA,
+                checks={
+                    "readable": True,
+                    "runs": [
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                    ],
+                },
+            ),
+            latest_heads=[HEAD_SHA, HEAD_SHA],
+        )
+        result = merge_pr_if_ready(
+            adapter=adapter,
+            pr_number=42,
+            base_dir=self.tools_dir,
+            cycle_id="cycle-merge",
+            readiness_claim_id=readiness_claim_id,
+        )
+        self.assertEqual(result["decision"], "merged", result.get("reasons"))
+        self.assertNotIn("policy disabled", result.get("reasons") or [])
+
     @patch(
         "aria_kernel.merge_authority.run_hard_fail_checks",
         return_value=SimpleNamespace(passed=True, failures=()),

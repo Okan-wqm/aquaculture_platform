@@ -124,7 +124,12 @@ permissions:
   pull-requests: read
   # ARIA-CRITICAL-216 — the operator unquarantine step reads the operator's
   # approval comment back from GitHub; issue comments need this read.
-  issues: read
+  # ARIA-MEDIUM-227 — a self-merge freeze is written mid-cycle and reaches
+  # aria/state only at this job's end publish; the self-revert producer
+  # therefore opens the freeze's issue at once (label `self-merge-freeze`),
+  # and the merge lane reads it as a freeze. Issues only: no code, no refs.
+  # Write covers both; nothing here needs more than issues.
+  issues: write
 
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The

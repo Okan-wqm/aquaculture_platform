@@ -29,8 +29,17 @@ from aria_kernel.change_ledger import (
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.recovery import unresolved_intents
-from aria_kernel.runtime_profile import set_profile
-from aria_kernel.self_merge_freeze import REVERT_REGISTERED_EVENT, active_freeze, freeze_ledger_path
+from aria_kernel.self_merge_freeze import (
+    FREEZE_NOTICE_LABELS,
+    NOTICE_EVENT,
+    REVERT_REGISTERED_EVENT,
+    UNFROZEN_EVENT,
+    active_freeze,
+    freeze_id_for,
+    freeze_ledger_path,
+    freeze_notice_title,
+    unfreeze_command,
+)
 from aria_kernel.self_revert import (
     DECISION_BRANCH_DIVERGED,
     DECISION_CONFLICT,
@@ -41,6 +50,7 @@ from aria_kernel.self_revert import (
     DECISION_NOT_ATTRIBUTABLE,
     DECISION_NOT_PERMITTED,
     DECISION_OPENED,
+    DECISION_OPENED_AWAITING_HUMAN,
     DECISION_PR_PENDING,
     DECISION_REMOTE_UNRESOLVED,
     DECISION_REVERT_OF_REVERT,
@@ -52,6 +62,7 @@ from aria_kernel.self_revert import (
     TRIGGER_POST_MERGE_CI,
     load_self_reverts,
     revert_branch_for,
+    revert_merge_authority,
     run_self_revert_producer,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -82,6 +93,44 @@ class FakeReader:
 
 def _run(name: str, conclusion: str) -> dict[str, Any]:
     return {"name": name, "status": "completed", "conclusion": conclusion, "headBranch": "main"}
+
+
+class FakeIssueWriter:
+    """The freeze notice's GitHub side: issues by exact title, open or closed."""
+
+    def __init__(self) -> None:
+        self.issues: dict[str, dict[str, Any]] = {}
+        self.calls: list[tuple[str, str]] = []
+        self.failing = False
+
+    def upsert_issue(self, *, title: str, body: str, labels: Any) -> dict[str, Any]:
+        self.calls.append(("upsert", title))
+        if self.failing:
+            return {"outcome": "failed", "reason": "issue_create_failed:rc=1: HTTP 403"}
+        issue = self.issues.get(title)
+        if issue is not None and issue["state"] == "open":
+            issue["body"] = body
+            return {"outcome": "updated", "number": issue["number"], "url": issue["url"]}
+        number = 900 + len(self.issues)
+        self.issues[title] = {"number": number, "url": f"https://github.com/o/r/issues/{number}",
+                              "body": body, "labels": list(labels), "state": "open"}
+        return {"outcome": "created", "number": number, "url": self.issues[title]["url"]}
+
+    def close_issue(self, *, title: str, labels: Any, comment: str) -> dict[str, Any]:
+        self.calls.append(("close", title))
+        if self.failing:
+            return {"outcome": "failed", "reason": "issue_close_failed:rc=1: HTTP 403"}
+        issue = self.issues.get(title)
+        if issue is None or issue["state"] != "open":
+            return {"outcome": "absent"}
+        issue["state"] = "closed"
+        issue["closing_comment"] = comment
+        return {"outcome": "closed", "number": issue["number"], "url": issue["url"]}
+
+
+def _unlocked(lane: str, **_: Any) -> SimpleNamespace:
+    """An autonomy-unlock verdict that holds for ``lane``."""
+    return SimpleNamespace(valid=True, lane=lane, reasons=())
 
 
 class SelfRevertTests(unittest.TestCase):
@@ -115,7 +164,14 @@ class SelfRevertTests(unittest.TestCase):
 
         self.tools = root / "aria-tools"
         ensure_tools_dir(self.tools)
-        operator_set_profile("strict", base_dir=self.tools)
+        # ARIA holds merge authority over an L1 revert by default here (the
+        # `autonomous` profile and an L1 unlock); a test that takes it away
+        # says so.
+        operator_set_profile("autonomous", base_dir=self.tools, scheduler_ceiling="autonomous")
+        unlock = mock.patch("aria_kernel.autonomy_unlock.evaluate_autonomy_unlock", side_effect=_unlocked)
+        unlock.start()
+        self.addCleanup(unlock.stop)
+        self.issues = FakeIssueWriter()
         planned = emit_change_planned(
             plan_id="plan-guide", finding_id="F-100", intended_affected_files=["docs/runbooks/guide.md"],
             intended_validation_refs=["npm run lint"], architectural_tier=2, base_dir=self.tools,
@@ -227,7 +283,7 @@ class SelfRevertTests(unittest.TestCase):
 
         return run_self_revert_producer(
             cycle_id="cyc-revert", base_dir=self.tools, workspace_root=self.workspace,
-            reader=reader, triggers=triggers, validation_sandbox=sandbox,
+            reader=reader, triggers=triggers, issue_writer=self.issues, validation_sandbox=sandbox,
         )
 
     def _green_parent(self) -> FakeReader:
@@ -357,17 +413,20 @@ class SelfRevertTests(unittest.TestCase):
     def test_an_attributable_red_freezes_then_opens_exactly_one_pure_revert(self) -> None:
         self._aria_merged()
         self._merge_outcome()
-        first_effect_saw_freeze: list[bool] = []
+        first_effect_saw_freeze: list[tuple[bool, bool]] = []
         real_git = self_revert._git
+        notice_title = freeze_notice_title(freeze_id_for(self.merge_sha))
 
         def observing_git(args: list[str], **kwargs: Any) -> Any:
             if args and args[0] in {"worktree", "revert", "push"} and not first_effect_saw_freeze:
-                first_effect_saw_freeze.append(active_freeze(base_dir=self.tools) is not None)
+                first_effect_saw_freeze.append((active_freeze(base_dir=self.tools) is not None,
+                                                notice_title in self.issues.issues))
             return real_git(args, **kwargs)
 
         with mock.patch.object(self_revert, "_git", side_effect=observing_git):
             result = self._produce(self._green_parent())
-        self.assertEqual(first_effect_saw_freeze, [True], "the freeze lands before any git effect")
+        self.assertEqual(first_effect_saw_freeze, [(True, True)],
+                         "the freeze lands, and is on GitHub, before any git effect")
 
         branch = revert_branch_for(self.merge_sha)
         self.assertEqual(branch, f"aria/revert/{self.merge_sha[:12]}")
@@ -491,9 +550,13 @@ class SelfRevertTests(unittest.TestCase):
         freeze = active_freeze(base_dir=self.tools)
         assert freeze is not None
         self.assertEqual(freeze["merge_sha"], self.merge_sha)
+        # This freeze too is on GitHub, and says there is no revert to merge.
+        notice = self.issues.issues[freeze_notice_title(freeze["freeze_id"])]
+        self.assertIn(DECISION_REVERT_OF_REVERT, notice["body"])
+        self.assertIn(unfreeze_command(freeze["freeze_id"]), notice["body"])
 
     def test_a_profile_without_pr_create_still_freezes_and_asks_a_human(self) -> None:
-        set_profile("standard", operator_approval_ref="test-fixture", base_dir=self.tools)
+        operator_set_profile("standard", base_dir=self.tools, scheduler_ceiling="autonomous")
         self._aria_merged()
         self._merge_outcome()
         self._produce(self._green_parent())
@@ -576,7 +639,8 @@ class SelfRevertTests(unittest.TestCase):
         for _ in range(2):
             run_self_revert_producer(
                 cycle_id="cyc-revert", base_dir=self.tools, workspace_root=self.workspace,
-                reader=self._green_parent(), triggers=(TRIGGER_POST_MERGE_CI,), validation_sandbox=no_sandbox,
+                reader=self._green_parent(), triggers=(TRIGGER_POST_MERGE_CI,), issue_writer=self.issues,
+                validation_sandbox=no_sandbox,
             )
         self.assertEqual(self._decisions(), [DECISION_VALIDATION_UNAVAILABLE])
         self.assertEqual(self.gh_calls, [])
@@ -839,6 +903,110 @@ class SelfRevertTests(unittest.TestCase):
         gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=opened["head_sha"], base_dir=self.tools)
         self.assertTrue(gate["passed"], gate)
 
+    # -- the freeze is visible and names its way out (ARIA-MEDIUM-227) ------
+
+    def _notice(self) -> dict[str, Any]:
+        return self.issues.issues[freeze_notice_title(freeze_id_for(self.merge_sha))]
+
+    def _notice_rows(self) -> list[dict[str, Any]]:
+        return [
+            row for row in load_declared_jsonl(freeze_ledger_path(self.tools),
+                                               expected_surface="enterprise_self_merge_freeze")
+            if row.get("event") == NOTICE_EVENT
+        ]
+
+    def test_the_freeze_notice_names_the_revert_pr_and_the_unfreeze_command(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        freeze_id = freeze_id_for(self.merge_sha)
+        notice = self._notice()
+        self.assertEqual(notice["labels"], list(FREEZE_NOTICE_LABELS))
+        self.assertEqual(notice["state"], "open")
+        self.assertIn(f"#{REVERT_PR}", notice["body"])
+        self.assertIn(self._origin_tip(revert_branch_for(self.merge_sha)), notice["body"])
+        self.assertIn("ARIA's merge lane can merge it (lane L1)", notice["body"])
+        self.assertIn(unfreeze_command(freeze_id), notice["body"])
+        self.assertIn(f"--freeze-id {freeze_id} --operator-approval-ref", unfreeze_command(freeze_id))
+        # Idempotent per freeze: an unchanged freeze is not written again.
+        calls = list(self.issues.calls)
+        self._produce(self._green_parent())
+        self.assertEqual(self.issues.calls, calls)
+        self.assertEqual(len(self.issues.issues), 1)
+
+    def test_a_revert_aria_cannot_merge_asks_a_human_naming_the_freeze_and_the_pr(self) -> None:
+        # `strict` holds pr_create but no pr_merge, and no merge-lane grant
+        # is in force: the revert opens, and only a person can merge it.
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="autonomous")
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_OPENED_AWAITING_HUMAN])
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertTrue(row["terminal"])
+        self.assertFalse(row["merge_authority"]["mergeable_by_aria"])
+        self.assertIn("merge_lane_not_granted", row["merge_authority"]["reason"])
+        freeze_id = freeze_id_for(self.merge_sha)
+        record = json.loads(self._human_required(DECISION_OPENED_AWAITING_HUMAN).read_text(encoding="utf-8"))
+        for named in (freeze_id, f"revert PR #{REVERT_PR}", "merge_lane_not_granted", unfreeze_command(freeze_id)):
+            self.assertIn(named, record["reason"])
+        self.assertIn("ARIA's merge lane cannot merge it", self._notice()["body"])
+        # The revert is still the one PR the freeze admits: a person merges it.
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["revert"]["pr_number"], REVERT_PR)
+
+    def test_a_merge_authority_that_lapses_after_the_revert_opened_asks_a_human_then(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        self.assertFalse(self._human_required(DECISION_OPENED_AWAITING_HUMAN).exists())
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="autonomous")
+        self._produce(self._green_parent())
+        record = json.loads(self._human_required(DECISION_OPENED_AWAITING_HUMAN).read_text(encoding="utf-8"))
+        self.assertIn(f"revert PR #{REVERT_PR}", record["reason"])
+        self.assertIn("ARIA's merge lane cannot merge it", self._notice()["body"])
+
+    def test_a_notice_github_refused_is_recorded_asked_of_a_person_and_retried(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self.issues.failing = True
+        self._produce(self._green_parent())
+        # The revert does not wait on the notice.
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        failed = [row for row in self._notice_rows() if row["status"] == "failed"]
+        self.assertTrue(failed)
+        self.assertIn("HTTP 403", failed[-1]["reason"])
+        attempts = len(self.issues.calls)
+        self._produce(self._green_parent())
+        self.assertGreater(len(self.issues.calls), attempts, "a refused notice is tried again")
+        self.assertEqual(len([row for row in self._notice_rows() if row["status"] == "failed"]), len(failed),
+                         "an identical failure is recorded once")
+        self.assertTrue(self._human_required("freeze_notice_unpublished").exists())
+        self.issues.failing = False
+        self._produce(self._green_parent())
+        self.assertEqual(self._notice_rows()[-1]["status"], "published")
+        self.assertEqual(self._notice()["state"], "open")
+
+    def test_a_lifted_freeze_closes_its_notice_once(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        freeze_id = freeze_id_for(self.merge_sha)
+        # An operator lifted it (how the act is proven is the unfreeze's own
+        # contract, not this producer's).
+        append_declared_jsonl(
+            freeze_ledger_path(self.tools),
+            {"schema_version": 1, "recorded_at": "2026-09-26T00:00:00Z", "event": UNFROZEN_EVENT,
+             "freeze_id": freeze_id, "merge_sha": self.merge_sha, "operator_approval_ref": "fixture"},
+            expected_surface="enterprise_self_merge_freeze", bypass_profile_gate=True,
+        )
+        self._produce(self._green_parent())
+        self._produce(self._green_parent())
+        self.assertEqual(self._notice()["state"], "closed")
+        self.assertEqual(self.issues.calls.count(("close", freeze_notice_title(freeze_id))), 1)
+
     # -- the regression trigger's merge resolution --------------------------
 
     def _regression(self, *, merge_sha: str | None = None) -> None:
@@ -886,6 +1054,85 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual((row["decision"], row["reason"]), (DECISION_REMOTE_UNRESOLVED, "merge_sha_not_on_main"))
 
 
+class RevertMergeAuthorityTests(unittest.TestCase):
+    """ARIA-MEDIUM-227 (a) — can ARIA's merge lane merge a revert of these
+    paths? The same predicates the merge authority applies at merge time."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def _verdict(self, paths: list[str], *, profile: str, unlocked: bool = True) -> dict[str, Any]:
+        operator_set_profile(profile, base_dir=self.tools, scheduler_ceiling="autonomous")
+        if unlocked:
+            with mock.patch("aria_kernel.autonomy_unlock.evaluate_autonomy_unlock", side_effect=_unlocked):
+                return revert_merge_authority(paths, base_dir=self.tools)
+        return revert_merge_authority(paths, base_dir=self.tools)
+
+    def test_an_unowned_l1_revert_under_merge_authority_is_arias(self) -> None:
+        verdict = self._verdict(["docs/runbooks/guide.md"], profile="autonomous")
+        self.assertEqual((verdict["mergeable_by_aria"], verdict["lane"], verdict["reason"]), (True, "L1", None))
+
+    def test_no_grant_and_no_pr_merge_is_not_arias(self) -> None:
+        verdict = self._verdict(["docs/runbooks/guide.md"], profile="strict")
+        self.assertFalse(verdict["mergeable_by_aria"])
+        self.assertTrue(verdict["reason"].startswith("merge_lane_not_granted"), verdict["reason"])
+
+    def test_a_profile_without_action_authority_is_not_arias(self) -> None:
+        verdict = self._verdict(["docs/runbooks/guide.md"], profile="observe")
+        self.assertFalse(verdict["mergeable_by_aria"])
+        self.assertTrue(verdict["reason"].startswith("merge_lane_profile_holds_no_authority"), verdict["reason"])
+
+    def test_a_lane_that_is_not_unlocked_is_not_arias(self) -> None:
+        verdict = self._verdict(["docs/runbooks/guide.md"], profile="autonomous", unlocked=False)
+        self.assertFalse(verdict["mergeable_by_aria"])
+        self.assertTrue(verdict["reason"].startswith("autonomy_unlock_required"), verdict["reason"])
+
+    def test_a_code_owned_path_is_never_arias(self) -> None:
+        verdict = self._verdict(["docs/aria/CURRENT_STATE.md"], profile="autonomous")
+        self.assertFalse(verdict["mergeable_by_aria"])
+        self.assertEqual(verdict["reason"], "revert_touches_code_owned_paths")
+
+    def test_a_revert_that_moves_a_code_owned_file_back_names_both_paths_and_is_not_arias(self) -> None:
+        # The merge moved an owned file out of docs/aria/; its revert moves it
+        # back. Both sides of the rename are paths the revert changes.
+        repo = Path(self.tmp.name) / "repo"
+        repo.mkdir()
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "aria@example.invalid")
+        git("config", "user.name", "ARIA")
+        (repo / "docs" / "aria").mkdir(parents=True)
+        (repo / "docs" / "aria" / "owned.md").write_text("".join(LINES), encoding="utf-8")
+        git("add", ".")
+        git("commit", "-q", "-m", "docs: seed")
+        (repo / "docs" / "runbooks").mkdir(parents=True)
+        git("mv", "docs/aria/owned.md", "docs/runbooks/moved.md")
+        git("commit", "-q", "-m", "docs: move it")
+        merge_sha = git("rev-parse", "HEAD")
+        git("revert", "--no-edit", merge_sha)
+        purity = self_revert.prove_revert_purity(workspace=repo, merge_sha=merge_sha, revert_sha=git("rev-parse", "HEAD"))
+        self.assertTrue(purity["pure"], purity)
+        self.assertEqual(purity["revert_files"], ["docs/aria/owned.md", "docs/runbooks/moved.md"])
+        verdict = self._verdict(purity["revert_files"], profile="autonomous")
+        self.assertFalse(verdict["mergeable_by_aria"])
+        # The owned source lands in the code-owners lane beside the moved
+        # file's L1: a mixed change the unreviewed lane never takes.
+        self.assertEqual(verdict["reason"], "risk_policy_refuses:risk_mixed_lanes")
+        # Judged on the destination alone it would have been ARIA's.
+        self.assertTrue(self._verdict(["docs/runbooks/moved.md"], profile="autonomous")["mergeable_by_aria"])
+
+    def test_a_blocked_path_is_never_arias(self) -> None:
+        verdict = self._verdict(["apps/billing-service/src/x.ts"], profile="autonomous")
+        self.assertFalse(verdict["mergeable_by_aria"])
+        self.assertTrue(verdict["reason"].startswith("risk_policy_refuses:"), verdict["reason"])
+
+
 class SelfRevertCycleWiringTests(unittest.TestCase):
     """Both triggers are called from the cycle phase that produces their evidence."""
 
@@ -894,8 +1141,10 @@ class SelfRevertCycleWiringTests(unittest.TestCase):
 
     def test_the_pr_ci_scan_runs_the_post_merge_trigger_with_its_reader(self) -> None:
         reader = object()
+        writer = object()
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch("aria_kernel.github_adapters.select_checks_reader", return_value=reader), \
+                mock.patch("aria_kernel.github_adapters.select_issue_writer", return_value=writer) as selected, \
                 mock.patch.object(cycle, "get_profile", return_value="strict"), \
                 mock.patch("aria_kernel.own_pr_ci.scan_own_prs", return_value={}), \
                 mock.patch("aria_kernel.own_pr_ci.scan_merged_own_prs", return_value={"red": [41]}), \
@@ -904,20 +1153,36 @@ class SelfRevertCycleWiringTests(unittest.TestCase):
                            return_value={}), \
                 mock.patch.object(self_revert, "run_self_revert_producer",
                                   return_value={"status": "ran"}) as producer:
-            result = cycle._phase_pr_ci_scan(self._context(Path(tmp)))
+            context = self._context(Path(tmp))
+            result = cycle._phase_pr_ci_scan(context)
         self.assertEqual(result["self_revert"], {"status": "ran"})
         kwargs = producer.call_args.kwargs
         self.assertIs(kwargs["reader"], reader)
+        self.assertIs(kwargs["issue_writer"], writer)
         self.assertEqual(kwargs["triggers"], (TRIGGER_POST_MERGE_CI,))
+        self.assertEqual(selected.call_args.kwargs,
+                         {"profile": "strict", "base_dir": context.base_dir, "cwd": context.workspace_root})
 
     def test_the_outcome_phase_runs_the_regression_trigger(self) -> None:
+        writer = object()
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch("aria_kernel.change_outcome.evaluate_change_outcomes", return_value={"evaluated": 1}), \
+                mock.patch("aria_kernel.github_adapters.select_issue_writer", return_value=writer), \
+                mock.patch.object(cycle, "get_profile", return_value="strict"), \
                 mock.patch.object(self_revert, "run_self_revert_producer",
                                   return_value={"status": "ran"}) as producer:
             result = cycle._phase_change_outcome_evaluation(self._context(Path(tmp)))
         self.assertEqual(result, {"evaluated": 1, "self_revert": {"status": "ran"}})
         self.assertEqual(producer.call_args.kwargs["triggers"], (TRIGGER_CHANGE_OUTCOME,))
+        self.assertIs(producer.call_args.kwargs["issue_writer"], writer)
+
+    def test_the_cycle_lane_may_write_the_freeze_notice_issue(self) -> None:
+        # The notice is written by the cycle's own gh identity, as the
+        # external watchdog writes its incident issue with its job token.
+        from aria_kernel.workflow_contract_registry import WORKFLOW_CONTRACTS
+
+        (cycle_job,) = [job for job in WORKFLOW_CONTRACTS["aria-auto-cycle"].job_contracts if job.job_id == "cycle"]
+        self.assertIn(("issues", "write"), cycle_job.required_permissions)
 
 
 if __name__ == "__main__":

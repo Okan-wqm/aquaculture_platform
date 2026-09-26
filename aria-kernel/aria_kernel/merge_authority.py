@@ -84,7 +84,9 @@ def merge_pr_if_ready(
     # self-merge before opening the revert. While frozen, the only PR this
     # authority merges is that registered, purity-proven revert at its exact
     # head; everything else waits for an operator's recorded unfreeze.
-    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, base_dir=base_dir)
+    # ARIA-MEDIUM-227 — the freeze's GitHub notice is read through this
+    # adapter too, so a freeze the cycle has not yet published stops merges.
+    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, adapter=adapter, base_dir=base_dir)
 
     risk = record_risk_decision_for_pr(
         live_pr,

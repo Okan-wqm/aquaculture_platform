@@ -1129,6 +1129,7 @@ def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
     identity and roots.
     """
     from .change_outcome import evaluate_change_outcomes
+    from .github_adapters import select_issue_writer
     from .self_revert import TRIGGER_CHANGE_OUTCOME, run_self_revert_producer
 
     evaluation = evaluate_change_outcomes(
@@ -1138,12 +1139,19 @@ def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
     )
     # ARIA-HIGH-199 — a `regression` verdict on a change ARIA merged is the
     # second revert trigger, read from the outcome ledger this phase writes.
+    # ARIA-MEDIUM-227 — every freeze it writes is put on GitHub at once
+    # through the issue writer the profile selects.
     evaluation["self_revert"] = run_self_revert_producer(
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
         workspace_root=context.workspace_root,
         reader=None,
         triggers=(TRIGGER_CHANGE_OUTCOME,),
+        issue_writer=select_issue_writer(
+            profile=get_profile(base_dir=context.base_dir),
+            base_dir=context.base_dir,
+            cwd=context.workspace_root,
+        ),
     )
     return evaluation
 
@@ -1446,11 +1454,12 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
     read reports WHY in the phase result — a tokenless night is a visible
     cause, not a quiet zero.
     """
-    from .github_adapters import select_checks_reader
+    from .github_adapters import select_checks_reader, select_issue_writer
     from .own_pr_ci import scan_own_prs
 
+    profile = get_profile(base_dir=context.base_dir)
     reader = select_checks_reader(
-        profile=get_profile(base_dir=context.base_dir),
+        profile=profile,
         cwd=context.workspace_root,
     )
     scan_result = scan_own_prs(
@@ -1471,10 +1480,11 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         reader=reader,
     )
     # ARIA-HIGH-199 — a red that is ARIA's own (an ARIA merge, attributable
-    # because every red job was green on the merge's parent) is no longer
-    # only pressure: self-merge is frozen and the pure revert is opened.
-    # The producer reads the rows the scan above just wrote, with the same
-    # reader, and respects the profile past the freeze.
+    # because every red job was green on main before it) is no longer only
+    # pressure: self-merge is frozen and the pure revert is opened. The
+    # producer reads the rows the scan above just wrote, with the same
+    # reader, and respects the profile past the freeze. ARIA-MEDIUM-227 —
+    # the freeze is put on GitHub at once through the profile's issue writer.
     from .self_revert import TRIGGER_POST_MERGE_CI, run_self_revert_producer
 
     scan_result["self_revert"] = run_self_revert_producer(
@@ -1483,6 +1493,11 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         workspace_root=context.workspace_root,
         reader=reader,
         triggers=(TRIGGER_POST_MERGE_CI,),
+        issue_writer=select_issue_writer(
+            profile=profile,
+            base_dir=context.base_dir,
+            cwd=context.workspace_root,
+        ),
     )
     # ORPHAN-723 — read-only repo PR weather (Dependabot + developer
     # branches included). Observation only; third-party action authority

@@ -448,6 +448,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     # id-token grant is how a job reaches it. Without it the
                     # probe's identity claims carry no platform proof.
                     ("id-token", "write"),
+                    # ARIA-MEDIUM-227: the self-revert producer puts every
+                    # self-merge freeze on GitHub as an issue the merge lane
+                    # reads, the moment it is written (the external
+                    # watchdog's incident issue is the same pattern, written
+                    # with its job token).
+                    ("issues", "write"),
                 ),
                 # ARIA-HIGH-208 — token_source is the JOB's token. It opens no
                 # PR: the delivery step mints an App installation token per PR

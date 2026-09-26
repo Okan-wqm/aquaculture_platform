@@ -56,6 +56,10 @@ class _Adapter:
         self.merged.append(pr_number)
         return {"merged": True}
 
+    def get_open_issues(self, *, labels: list[str]) -> dict:
+        # No self-merge freeze notice is open (ARIA-MEDIUM-227).
+        return {"readable": True, "issues": []}
+
 
 def _gate_patches(head_sha: str = _SHA):
     """Every gate before the perimeter passes; the perimeter is the test."""

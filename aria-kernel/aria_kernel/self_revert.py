@@ -117,6 +117,32 @@ can merge it, since its chain is committed and validated at exactly that
 head. A delivery whose credential could not be minted is retried later
 against the chain it already validated.
 
+MERGE AUTHORITY OVER THE REVERT (ARIA-MEDIUM-227). A frozen merge lane
+merges only the registered revert, so a revert the lane may not merge is a
+deadlock: every ARIA merge stops and nothing says why. When the PR opens,
+its changed paths are classified (``risk_policy.classify_change``) and held
+against the predicates the merge authority applies at merge time
+(``revert_merge_authority``): a valid lane, no code-owned path, merge
+authority at all (``assert_merge_authority_available``), authority over that
+lane (``assert_merge_authorized``) and its autonomy unlock; L3 always needs
+an operator's policy approval. A revert ARIA cannot merge is recorded
+``revert_opened_awaiting_human_merge`` — terminal, and a HUMAN_REQUIRED
+record names the freeze, the revert PR, the reason and the unfreeze
+command. The verdict is re-read on every run while the freeze is in force,
+so a grant that lapses later asks the same person the same question.
+
+THE FREEZE NOTICE (ARIA-MEDIUM-227). Right after every freeze is written,
+and on every run after, the freeze's GitHub issue is brought to its current
+truth (``self_merge_freeze.publish_freeze_notice``, through the injected
+``issue_writer``): the merge it reverts, the revert PR or where the
+self-revert stopped, whether ARIA may merge the revert, and the way out —
+the revert, then ``aria-kernel merge-lane unfreeze --freeze-id …
+--operator-approval-ref …``. The merge lane reads that issue as a freeze
+(``assert_self_merge_not_frozen``), so a freeze stops ARIA merging the
+moment it is written, not when this cycle publishes its state at the job's
+end. A notice GitHub refused is recorded, asked of a person and retried; a
+lifted freeze's notice is closed once.
+
 LANDING. When a revert this producer opened is merged by ARIA and its own
 post-merge outcome is green, a ``revert_landed`` row and one
 ``rollback_success`` acceptance event are recorded. The freeze stays: only
@@ -138,7 +164,17 @@ from typing import Any, Callable, Mapping, Sequence
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
-from .self_merge_freeze import freeze_id_for, freeze_in_force, freeze_self_merge, register_revert
+from .self_merge_freeze import (
+    FreezeNoticeWriter,
+    close_freeze_notice,
+    freeze_id_for,
+    freeze_in_force,
+    freeze_self_merge,
+    list_freezes,
+    publish_freeze_notice,
+    register_revert,
+    unfreeze_command,
+)
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .validation import SpawnWrapper
@@ -170,11 +206,16 @@ DECISION_REMOTE_UNRESOLVED = "revert_remote_unresolved"
 DECISION_BRANCH_DIVERGED = "revert_branch_diverged"
 DECISION_PR_PENDING = "revert_pr_pending"
 DECISION_OPENED = "revert_opened"
+DECISION_OPENED_AWAITING_HUMAN = "revert_opened_awaiting_human_merge"
 DECISION_LANDED = "revert_landed"
+# The revert PR exists and is registered with the freeze: ARIA's merge lane
+# can merge it, or only a person can.
+OPENED_DECISIONS: frozenset[str] = frozenset({DECISION_OPENED, DECISION_OPENED_AWAITING_HUMAN})
 # A terminal decision closes the merge's key: no later trigger acts on it.
 TERMINAL_DECISIONS: frozenset[str] = frozenset({
     DECISION_REVERT_OF_REVERT, DECISION_NOT_PERMITTED, DECISION_UNBOUND, DECISION_CONFLICT,
-    DECISION_FAILED, DECISION_IMPURE, DECISION_VALIDATION_FAILED, DECISION_DELIVERY_FAILED, DECISION_OPENED,
+    DECISION_FAILED, DECISION_IMPURE, DECISION_VALIDATION_FAILED, DECISION_DELIVERY_FAILED,
+    *OPENED_DECISIONS,
 })
 # The non-terminal decisions: each is recorded once per distinct reason and
 # the key is tried again on the next trigger. A remote that could not be
@@ -189,7 +230,9 @@ RETRIED_DECISIONS: frozenset[str] = frozenset({
 # A credential the lane cannot mint is the lane's configuration, already
 # refused by name on the delivery-credential ledger; every other retried
 # decision leaves the freeze in force with no PR to merge, so a person is
-# told while it is retried.
+# told while it is retried. A revert ARIA's merge lane cannot merge is in
+# the set: under a freeze it is the one PR that may merge, so without a
+# person nothing ever does.
 HUMAN_REQUIRED_DECISIONS: frozenset[str] = (
     (TERMINAL_DECISIONS - {DECISION_OPENED}) | (RETRIED_DECISIONS - {DECISION_CREDENTIAL_UNAVAILABLE})
 )
@@ -213,6 +256,8 @@ GH_PR_LOOKUP_TIMEOUT_SECONDS = 60
 # Every worktree this producer makes lives in a holder named for its key, so
 # the leftovers of a killed attempt at the same key are found by name.
 _HOLDER_PREFIX = "aria-self-revert-"
+# The HUMAN_REQUIRED suffix of a freeze whose GitHub notice was refused.
+_NOTICE_UNPUBLISHED = "freeze_notice_unpublished"
 _REMOTE = "origin"
 _MAIN = "main"
 _GREEN = "success"
@@ -338,27 +383,49 @@ def _record(
          "pr_number": candidate.pr_number, "merge_sha": candidate.merge_sha},
     )
     if decision in HUMAN_REQUIRED_DECISIONS:
-        from .human_required import record_human_required
-
-        freeze_id = freeze_id_for(candidate.merge_sha)
-        frozen = freeze_in_force(freeze_id, base_dir=base_dir) is not None
-        reason = row.get("reason")
-        record_human_required(
-            request_id=_human_required_id(candidate.merge_sha, decision),
-            severity="HIGH",
-            reason=(
-                f"ARIA merge {candidate.merge_sha[:12]} (PR #{candidate.pr_number}) went bad "
-                f"({candidate.trigger}); "
-                + (f"self-merge is frozen ({freeze_id}) and " if frozen else "self-merge is not frozen and ")
-                + f"the self-revert stopped at {decision}"
-                + (f": {reason}" if reason else "")
-            ),
-            context={"kind": "self_revert", "decision": decision, "key": row["key"],
-                     "pr_number": candidate.pr_number, "merge_sha": candidate.merge_sha,
-                     "freeze_id": freeze_id if frozen else None, "reason": reason},
-            base_dir=base_dir,
+        _ask_a_person(
+            merge_sha=candidate.merge_sha, pr_number=candidate.pr_number, trigger=candidate.trigger,
+            suffix=decision, what=f"the self-revert stopped at {decision}", reason=row.get("reason"),
+            revert_pr=row.get("pr_number_opened"), base_dir=base_dir,
         )
     return persisted
+
+
+def _ask_a_person(
+    *,
+    merge_sha: str,
+    pr_number: Any,
+    trigger: str,
+    suffix: str,
+    what: str,
+    reason: Any,
+    revert_pr: Any,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """One HUMAN_REQUIRED record per (merge, question), naming the freeze in
+    force, the revert PR when there is one, and the way out."""
+    from .human_required import record_human_required
+
+    freeze_id = freeze_id_for(merge_sha)
+    frozen = freeze_in_force(freeze_id, base_dir=base_dir) is not None
+    parts = [
+        f"ARIA merge {merge_sha[:12]} (PR #{pr_number}) went bad ({trigger})",
+        f"self-merge is frozen ({freeze_id})" if frozen else "self-merge is not frozen",
+        what + (f": {reason}" if reason else ""),
+    ]
+    if revert_pr is not None:
+        parts.append(f"revert PR #{revert_pr}")
+    if frozen:
+        parts.append(f"only an operator lifts the freeze: {unfreeze_command(freeze_id)}")
+    return record_human_required(
+        request_id=_human_required_id(merge_sha, suffix),
+        severity="HIGH",
+        reason="; ".join(parts),
+        context={"kind": "self_revert", "decision": suffix, "key": revert_key_for(merge_sha),
+                 "pr_number": pr_number, "merge_sha": merge_sha, "freeze_id": freeze_id if frozen else None,
+                 "reason": reason, "revert_pr": revert_pr},
+        base_dir=base_dir,
+    )
 
 
 def _record_once(
@@ -518,7 +585,10 @@ def _make_revert_commit(candidate: _Candidate, *, worktree: Path, workspace: Pat
 
 def _patch_id(workspace: Path, old: str, new: str) -> tuple[str, list[str]]:
     diff = _git(["diff", old, new], cwd=workspace)
-    names = _git(["diff", "--name-only", old, new], cwd=workspace)
+    # Every path the diff touches: with rename detection a rename names only
+    # its destination, and the source is a path the change removes — the
+    # revert's merge authority is judged on both (ARIA-MEDIUM-227).
+    names = _git(["diff", "--no-renames", "--name-only", old, new], cwd=workspace)
     if diff.returncode != 0 or names.returncode != 0:
         raise _Terminal(DECISION_FAILED, {"reason": f"diff_unresolvable:{_first_line(diff.stderr or names.stderr)}"})
     patch_id = ""
@@ -651,6 +721,162 @@ def _attribution(
     return _Attribution(unattributable, baselines)
 
 
+# ---------------------------------------------------------------- the freeze's way out
+
+
+def revert_merge_authority(files: Sequence[str], *, base_dir: str | Path | None) -> dict[str, Any]:
+    """Can ARIA's merge lane merge a revert that changes ``files``?
+
+    The predicates ``merge_authority.merge_pr_if_ready`` applies at merge
+    time, read without writing: the changed paths' risk lane
+    (``risk_policy.classify_change``) is valid and owns no code-owned path;
+    some merge authority exists (``assert_merge_authority_available``: a
+    profile holding ``pr_merge``, or a merge-lane grant in force); it covers
+    that lane (``assert_merge_authorized``); the lane's autonomy unlock
+    holds. L3 always needs an operator's policy approval. Returns the lane,
+    the risk reason codes, ``mergeable_by_aria`` and, when not, the reason.
+    """
+    from .autonomy_unlock import evaluate_autonomy_unlock
+    from .risk_policy import classify_change
+    from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
+
+    verdict = classify_change(list(files))
+    base = {"lane": verdict.lane, "reason_codes": list(verdict.reason_codes), "policy_hash": verdict.policy_hash}
+
+    def refused(reason: str) -> dict[str, Any]:
+        return {**base, "mergeable_by_aria": False, "reason": reason}
+
+    if not verdict.valid:
+        return refused("risk_policy_refuses:" + ",".join(verdict.reason_codes))
+    if "risk_codeowners_path" in verdict.reason_codes:
+        return refused("revert_touches_code_owned_paths")
+    if verdict.lane == "L3":
+        return refused("lane_L3_requires_operator_policy_approval")
+    try:
+        assert_merge_authority_available(base_dir=base_dir)
+        assert_merge_authorized(lane=verdict.lane, base_dir=base_dir)
+    except GovernanceError as exc:
+        return refused(str(exc)[:300])
+    unlock = evaluate_autonomy_unlock(lane=verdict.lane, base_dir=base_dir)
+    if not unlock.valid:
+        return refused(("autonomy_unlock_required: " + "; ".join(unlock.reasons))[:300])
+    return {**base, "mergeable_by_aria": True, "reason": None}
+
+
+def _freeze_notice_body(freeze: Mapping[str, Any], *, base_dir: str | Path | None) -> tuple[str, dict[str, Any] | None]:
+    """The notice of a freeze in force, and the merge-authority verdict on its
+    registered revert (None while no revert is recorded). Deterministic for
+    unchanged ledgers, so an unchanged freeze is never written again."""
+    freeze_id = str(freeze["freeze_id"])
+    merge_sha = str(freeze["merge_sha"])
+    rows = [row for row in load_self_reverts(base_dir=base_dir) if row.get("key") == revert_key_for(merge_sha)]
+    opened = next((row for row in reversed(rows) if row.get("decision") in OPENED_DECISIONS), None)
+    revert = freeze.get("revert")
+    authority: dict[str, Any] | None = None
+    lines = [
+        "## ARIA self-merge is frozen",
+        "",
+        f"ARIA merged PR #{freeze.get('pr_number')} as `{merge_sha}` and the merge went bad "
+        f"(`{freeze.get('trigger')}`). Until an operator lifts this freeze, ARIA's merge lane merges no "
+        "pull request except the registered revert below.",
+        "",
+        f"- Freeze: `{freeze_id}` (recorded {freeze.get('recorded_at')}).",
+    ]
+    if revert and opened is not None:
+        authority = revert_merge_authority(opened["purity"]["revert_files"], base_dir=base_dir)
+        url = f" — {opened['pr_url']}" if opened.get("pr_url") else ""
+        lines.append(f"- Revert PR: #{revert['pr_number']} at `{revert['head_sha']}`{url}.")
+        if authority["mergeable_by_aria"]:
+            lines.append(f"- ARIA's merge lane can merge it (lane {authority['lane']}).")
+            step = (f"Revert PR #{revert['pr_number']} merges: ARIA's merge lane merges it once its "
+                    "required checks are green, or a person does.")
+        else:
+            lines.append(f"- ARIA's merge lane cannot merge it: {authority['reason']}.")
+            step = f"A person reviews and merges revert PR #{revert['pr_number']}."
+    elif revert:
+        lines.append(f"- Revert PR: #{revert['pr_number']} at `{revert['head_sha']}` "
+                     "(its self-revert decision is not recorded yet).")
+        step = f"Revert PR #{revert['pr_number']} merges."
+    else:
+        latest = rows[-1] if rows else None
+        where = "in progress"
+        if latest is not None:
+            where = f"`{latest.get('decision')}`" + (f": {latest['reason']}" if latest.get("reason") else "")
+        lines.append(f"- No revert PR is registered: the self-revert is at {where}.")
+        step = f"A person reverts `{merge_sha}`, or decides it stays; ARIA has opened no revert it may merge."
+    lines += [
+        "",
+        "### Way out",
+        "",
+        f"1. {step}",
+        "2. An operator lifts the freeze:",
+        "",
+        "```",
+        unfreeze_command(freeze_id),
+        "```",
+        "",
+        f"<!-- aria-self-merge-freeze:{freeze_id} -->",
+        "",
+    ]
+    return "\n".join(lines), authority
+
+
+def _publish_notice(
+    freeze: Mapping[str, Any], *, issue_writer: FreezeNoticeWriter, base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Bring a freeze in force to its current truth on GitHub, and ask a
+    person whatever the freeze now needs from one: a registered revert ARIA
+    cannot merge, or a notice GitHub refused."""
+    body, authority = _freeze_notice_body(freeze, base_dir=base_dir)
+    merge_sha = str(freeze["merge_sha"])
+    revert = freeze.get("revert") or {}
+    if authority is not None and not authority["mergeable_by_aria"]:
+        _ask_a_person(
+            merge_sha=merge_sha, pr_number=freeze.get("pr_number"), trigger=str(freeze.get("trigger")),
+            suffix=DECISION_OPENED_AWAITING_HUMAN,
+            what=f"the self-revert stopped at {DECISION_OPENED_AWAITING_HUMAN}",
+            reason=authority["reason"], revert_pr=revert.get("pr_number"), base_dir=base_dir,
+        )
+    row = publish_freeze_notice(freeze_id=str(freeze["freeze_id"]), body=body, writer=issue_writer,
+                                base_dir=base_dir)
+    if row.get("status") == "failed":
+        _ask_a_person(
+            merge_sha=merge_sha, pr_number=freeze.get("pr_number"), trigger=str(freeze.get("trigger")),
+            suffix=_NOTICE_UNPUBLISHED,
+            what=("the freeze's GitHub notice could not be published, so ARIA's merge lane sees the "
+                  "freeze only once this cycle publishes its state"),
+            reason=row.get("reason"), revert_pr=revert.get("pr_number"), base_dir=base_dir,
+        )
+    return row
+
+
+def _notify_freeze(freeze_id: str, *, issue_writer: FreezeNoticeWriter, base_dir: str | Path | None) -> None:
+    """The notice of a freeze just written, before anything that can fail."""
+    freeze = freeze_in_force(freeze_id, base_dir=base_dir)
+    if freeze is not None:
+        _publish_notice(freeze, issue_writer=issue_writer, base_dir=base_dir)
+
+
+def _reconcile_freeze_notices(
+    *, issue_writer: FreezeNoticeWriter, base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
+    """Every freeze's notice at its current truth: a freeze in force
+    published (written only when its body changed), a lifted one closed."""
+    results: list[dict[str, Any]] = []
+    for freeze in list_freezes(base_dir=base_dir):
+        freeze_id = str(freeze["freeze_id"])
+        if freeze["lifted"]:
+            row = close_freeze_notice(
+                freeze_id=freeze_id, writer=issue_writer, base_dir=base_dir,
+                comment=f"An operator lifted `{freeze_id}`; ARIA's merge lane may merge again.",
+            )
+        else:
+            row = _publish_notice(freeze, issue_writer=issue_writer, base_dir=base_dir)
+        results.append({"freeze_id": freeze_id, "state": row.get("state"), "status": row.get("status"),
+                        "issue_number": row.get("issue_number")})
+    return results
+
+
 # ---------------------------------------------------------------- producer
 
 
@@ -661,13 +887,16 @@ def run_self_revert_producer(
     workspace_root: str | Path,
     reader: Any | None,
     triggers: Sequence[str],
+    issue_writer: FreezeNoticeWriter,
     validation_sandbox: Callable[[Path], SpawnWrapper] | None = None,
 ) -> dict[str, Any]:
     """Act on every bad ARIA merge the named triggers see; see module doc.
 
-    ``validation_sandbox`` builds the containment the revert's suite runs
-    in for a worktree; the default is the apply gate's own
-    (``implementation_delivery.validation_sandbox_for`` with this store).
+    ``issue_writer`` writes every freeze's GitHub notice
+    (``github_adapters.select_issue_writer``). ``validation_sandbox`` builds
+    the containment the revert's suite runs in for a worktree; the default
+    is the apply gate's own (``implementation_delivery.validation_sandbox_for``
+    with this store).
     """
     if validation_sandbox is None:
         from .implementation_delivery import validation_sandbox_for
@@ -691,12 +920,15 @@ def run_self_revert_producer(
             skipped.append({"pr_number": candidate.pr_number, "reason": "not_an_aria_merge"})
             continue
         row = _decide(candidate, cycle_id=cycle_id, base_dir=base_dir, workspace=workspace,
-                      reader=reader, skipped=skipped, validation_sandbox=validation_sandbox)
+                      reader=reader, skipped=skipped, issue_writer=issue_writer,
+                      validation_sandbox=validation_sandbox)
         if row is not None:
             decisions.append(row)
     if TRIGGER_POST_MERGE_CI in triggers:
         decisions.extend(_record_landed_reverts(cycle_id=cycle_id, base_dir=base_dir, aria_merged=aria_merged))
-    return {"status": "ran", "triggers": list(triggers), "decisions": decisions, "skipped": skipped}
+    notices = _reconcile_freeze_notices(issue_writer=issue_writer, base_dir=base_dir)
+    return {"status": "ran", "triggers": list(triggers), "decisions": decisions, "skipped": skipped,
+            "freeze_notices": notices}
 
 
 def _decide(
@@ -707,6 +939,7 @@ def _decide(
     workspace: Path,
     reader: Any | None,
     skipped: list[dict[str, Any]],
+    issue_writer: FreezeNoticeWriter,
     validation_sandbox: Callable[[Path], SpawnWrapper],
 ) -> dict[str, Any] | None:
     key = revert_key_for(candidate.merge_sha)
@@ -714,10 +947,11 @@ def _decide(
     rows = [row for row in ledger if row.get("key") == key]
     if any(row.get("decision") in TERMINAL_DECISIONS for row in rows):
         return None
-    opened_reverts = {row.get("pr_number_opened") for row in ledger if row.get("decision") == DECISION_OPENED}
+    opened_reverts = {row.get("pr_number_opened") for row in ledger if row.get("decision") in OPENED_DECISIONS}
     if candidate.head_ref.startswith(REVERT_BRANCH_PREFIX) or candidate.pr_number in opened_reverts:
-        freeze_self_merge(merge_sha=candidate.merge_sha, pr_number=candidate.pr_number,
-                          trigger=candidate.trigger, evidence=candidate.evidence, base_dir=base_dir)
+        freeze = freeze_self_merge(merge_sha=candidate.merge_sha, pr_number=candidate.pr_number,
+                                   trigger=candidate.trigger, evidence=candidate.evidence, base_dir=base_dir)
+        _notify_freeze(str(freeze["freeze_id"]), issue_writer=issue_writer, base_dir=base_dir)
         return _record(candidate, DECISION_REVERT_OF_REVERT, cycle_id=cycle_id, base_dir=base_dir)
 
     if candidate.trigger == TRIGGER_POST_MERGE_CI:
@@ -758,14 +992,17 @@ def _decide(
         candidate = replace(candidate, evidence={
             **candidate.evidence, "parent_sha": parent_sha, "attribution_baselines": attribution.baselines,
         })
-        # The freeze, before any git or PR effect; it lands under every profile.
+        # The freeze, before any git or PR effect; it lands under every
+        # profile, and is on GitHub for the merge lane at once.
         freeze = freeze_self_merge(merge_sha=candidate.merge_sha, pr_number=candidate.pr_number,
                                    trigger=candidate.trigger, evidence=candidate.evidence, base_dir=base_dir)
+        _notify_freeze(str(freeze["freeze_id"]), issue_writer=issue_writer, base_dir=base_dir)
     else:
         # The regression verdict is already the attribution: the freeze lands
         # before the fetch, so a remote that cannot be read never delays it.
         freeze = freeze_self_merge(merge_sha=candidate.merge_sha, pr_number=candidate.pr_number,
                                    trigger=candidate.trigger, evidence=candidate.evidence, base_dir=base_dir)
+        _notify_freeze(str(freeze["freeze_id"]), issue_writer=issue_writer, base_dir=base_dir)
         resolved = _resolve_merge(workspace, candidate.merge_sha)
         if isinstance(resolved, str):
             return _record_once(candidate, _Pending(DECISION_REMOTE_UNRESOLVED, resolved),
@@ -861,11 +1098,17 @@ def _revert_and_deliver(
         )
         register_revert(freeze_id=freeze_id, pr_number=int(opened["pr_number"]), head_sha=revert_sha,
                         purity=purity, base_dir=base_dir)
-        return _record(candidate, DECISION_OPENED, cycle_id=cycle_id, base_dir=base_dir, detail={
+        # Under the freeze this PR is the only one that may merge: whether
+        # ARIA's merge lane can merge it decides whether a person must.
+        authority = revert_merge_authority(purity["revert_files"], base_dir=base_dir)
+        decision = DECISION_OPENED if authority["mergeable_by_aria"] else DECISION_OPENED_AWAITING_HUMAN
+        return _record(candidate, decision, cycle_id=cycle_id, base_dir=base_dir, detail={
             "branch": branch, "base_sha": base_sha, "head_sha": revert_sha, "purity": purity,
             "change_id": change_id, "pr_number_opened": int(opened["pr_number"]),
             "pr_url": opened.get("url"), "freeze_id": freeze_id, "adopted": bool(opened["adopted"]),
             "validated": {"change_id": change_id, "ledger_hash": validated.get("ledger_hash")},
+            "merge_authority": authority,
+            **({} if authority["mergeable_by_aria"] else {"reason": authority["reason"]}),
         })
     finally:
         if added:
@@ -1257,7 +1500,7 @@ def _record_landed_reverts(
     outcomes = _latest_merge_outcomes(base_dir)
     recorded: list[dict[str, Any]] = []
     for row in rows:
-        if row.get("decision") != DECISION_OPENED or row.get("key") in landed:
+        if row.get("decision") not in OPENED_DECISIONS or row.get("key") in landed:
             continue
         revert_pr = row.get("pr_number_opened")
         outcome = outcomes.get(revert_pr) if isinstance(revert_pr, int) else None
@@ -1289,6 +1532,7 @@ __all__ = [
     "DECISION_NOT_ATTRIBUTABLE",
     "DECISION_NOT_PERMITTED",
     "DECISION_OPENED",
+    "DECISION_OPENED_AWAITING_HUMAN",
     "DECISION_PR_PENDING",
     "DECISION_REMOTE_UNRESOLVED",
     "DECISION_REVERT_OF_REVERT",
@@ -1296,6 +1540,7 @@ __all__ = [
     "DECISION_VALIDATION_FAILED",
     "DECISION_VALIDATION_UNAVAILABLE",
     "HUMAN_REQUIRED_DECISIONS",
+    "OPENED_DECISIONS",
     "RETRIED_DECISIONS",
     "SELF_REVERTS_SURFACE",
     "SelfRevertDeliveryGrant",
@@ -1307,6 +1552,7 @@ __all__ = [
     "prove_revert_purity",
     "revert_branch_for",
     "revert_key_for",
+    "revert_merge_authority",
     "run_self_revert_producer",
     "self_reverts_path",
 ]

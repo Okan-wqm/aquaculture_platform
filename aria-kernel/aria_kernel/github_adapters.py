@@ -24,6 +24,11 @@ Adapters:
 The factory ``select_github_adapter`` does the profile → adapter
 mapping. Unknown profile raises ``ValueError``.
 
+* :class:`GhCliIssueWriter` — the kernel's one issue WRITER (ARIA-MEDIUM-227):
+  upserts and closes a kernel-owned issue found by its exact title under its
+  labels. ``select_issue_writer`` picks it for every profile that can merge;
+  the recording adapter stands in otherwise.
+
 Plan-026R discipline: invariant tests I-V3-04..06 lock the contract
 (scheduler requires the adapter, Recording adapter writes the
 audit log, verified-and-mergeable path reaches ``merge_if_green``
@@ -34,17 +39,21 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .auto_merge import GhCliGitHubAdapter
 
 __all__ = [
     "GhCliGitHubAdapter",
+    "GhCliIssueWriter",
     "RecordingGitHubAdapter",
     "select_github_adapter",
+    "select_issue_writer",
 ]
 
 
@@ -200,6 +209,153 @@ class RecordingGitHubAdapter:
     def list_open_pull_requests(self) -> list[dict[str, Any]] | None:
         self._record("list_open_pull_requests")
         return None
+
+    # ----- issue writer (``self_merge_freeze.FreezeNoticeWriter``) --------
+    #
+    # The intent is recorded and nothing is written: the outcome says so, so
+    # the caller records a notice that was not published rather than one
+    # that was.
+
+    def upsert_issue(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
+        self._record("upsert_issue", title=title, labels=list(labels))
+        return {"outcome": "recorded", "reason": f"profile_{self.profile}_uses_recording_adapter"}
+
+    def close_issue(self, *, title: str, labels: Sequence[str], comment: str) -> dict[str, Any]:
+        self._record("close_issue", title=title, labels=list(labels))
+        return {"outcome": "recorded", "reason": f"profile_{self.profile}_uses_recording_adapter"}
+
+
+# --- Kernel-owned issues (ARIA-MEDIUM-227) ---------------------------------
+#
+# WHY a writer here: the self-merge freeze must be visible on GitHub the
+# moment it is written, and the merge lane reads that issue through the
+# adapter's `get_open_issues` exactly as it reads the external watchdog's
+# incident. The watchdog upserts its incident issue from its workflow with
+# the job token; this is the same pattern from the kernel, with the cycle's
+# ambient `gh` identity (aria-auto-cycle grants the job `issues: write`).
+
+ISSUE_WRITE_TIMEOUT_SECONDS = 60
+_ISSUE_URL_RE = re.compile(r"https?://\S+/issues/(\d+)")
+
+
+class GhCliIssueWriter:
+    """Upsert and close one kernel-owned issue, found by its exact title among
+    the open issues carrying all its labels.
+
+    Never raises for a transport failure: the outcome is ``failed`` with the
+    reason, because the caller records it and retries, and a notice must
+    never break the effect it reports. An issue list that cannot be read
+    creates nothing — creating then could open a second issue for the title.
+    """
+
+    def __init__(self, cwd: str | Path = ".") -> None:
+        self._cwd = Path(cwd)
+
+    def _gh(self, args: list[str]) -> tuple[bool, str]:
+        try:
+            done = subprocess.run(
+                ["gh", *args], cwd=self._cwd, capture_output=True, text=True, check=False,
+                timeout=ISSUE_WRITE_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
+        if done.returncode != 0:
+            detail = ((done.stderr or done.stdout or "").strip().splitlines() or ["?"])[0][:200]
+            return False, f"rc={done.returncode}: {detail}"
+        return True, done.stdout or ""
+
+    def _find_open(self, title: str, labels: Sequence[str]) -> tuple[bool, dict[str, Any] | None, str]:
+        args = ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url"]
+        for label in labels:
+            args.extend(["--label", label])
+        ok, out = self._gh(args)
+        if not ok:
+            return False, None, f"issue_list_failed:{out}"
+        try:
+            rows = json.loads(out or "[]")
+        except ValueError:
+            return False, None, "issue_list_unparseable"
+        matches = sorted(
+            (row for row in rows if isinstance(row, dict) and row.get("title") == title),
+            key=lambda row: int(row.get("number") or 0),
+        ) if isinstance(rows, list) else []
+        return True, (matches[0] if matches else None), ""
+
+    def _ensure_labels(self, labels: Sequence[str]) -> str | None:
+        """Create the labels the repository lacks (``gh issue create`` refuses
+        an unknown label). An existing label is never rewritten."""
+        ok, out = self._gh(["label", "list", "--limit", "500", "--json", "name"])
+        if not ok:
+            return f"label_list_failed:{out}"
+        try:
+            existing = {str(row.get("name")) for row in json.loads(out or "[]") if isinstance(row, dict)}
+        except ValueError:
+            return "label_list_unparseable"
+        for label in labels:
+            if label not in existing:
+                created, detail = self._gh(["label", "create", label, "--description",
+                                            "Written by the ARIA kernel"])
+                if not created:
+                    return f"label_create_failed:{label}:{detail}"
+        return None
+
+    def upsert_issue(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
+        found_ok, found, reason = self._find_open(title, labels)
+        if not found_ok:
+            return {"outcome": "failed", "reason": reason}
+        if found is not None:
+            ok, out = self._gh(["issue", "edit", str(found["number"]), "--body", body])
+            if not ok:
+                return {"outcome": "failed", "reason": f"issue_edit_failed:{out}", "number": found["number"]}
+            return {"outcome": "updated", "number": int(found["number"]), "url": found.get("url")}
+        refused = self._ensure_labels(labels)
+        if refused is not None:
+            return {"outcome": "failed", "reason": refused}
+        args = ["issue", "create", "--title", title, "--body", body]
+        for label in labels:
+            args.extend(["--label", label])
+        ok, out = self._gh(args)
+        if not ok:
+            return {"outcome": "failed", "reason": f"issue_create_failed:{out}"}
+        match = _ISSUE_URL_RE.search(out)
+        if match is None:
+            return {"outcome": "failed", "reason": f"issue_create_url_unparseable:{out.strip()[:200]}"}
+        return {"outcome": "created", "number": int(match.group(1)), "url": match.group(0)}
+
+    def close_issue(self, *, title: str, labels: Sequence[str], comment: str) -> dict[str, Any]:
+        found_ok, found, reason = self._find_open(title, labels)
+        if not found_ok:
+            return {"outcome": "failed", "reason": reason}
+        if found is None:
+            return {"outcome": "absent"}
+        ok, out = self._gh(["issue", "close", str(found["number"]), "--comment", comment])
+        if not ok:
+            return {"outcome": "failed", "reason": f"issue_close_failed:{out}", "number": found["number"]}
+        return {"outcome": "closed", "number": int(found["number"]), "url": found.get("url")}
+
+
+def select_issue_writer(
+    *,
+    profile: str,
+    base_dir: str | Path,
+    cwd: str | Path = ".",
+) -> Any:
+    """The writer of kernel-owned issues for ``profile``.
+
+    Real for every profile that holds action authority — exactly the
+    profiles under which a merge can happen (``merge_authority_available``
+    needs one), so exactly those whose merge lane a freeze must reach at
+    once. A freeze's notice is the restriction's visibility, not a new
+    action: like the freeze row itself it is not the write-safety split of
+    ``select_github_adapter``, which keeps ``standard`` off GitHub.
+    ``observe``/``frozen`` hold no merge authority and promise no network,
+    and ARIA_DRY_RUN reaches nothing: both get the recording adapter.
+    """
+    from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
+
+    if _aria_dry_run_active() or profile not in PROFILES_WITH_ACTION_AUTHORITY:
+        return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)
+    return GhCliIssueWriter(cwd=cwd)
 
 
 def _aria_dry_run_active() -> bool:

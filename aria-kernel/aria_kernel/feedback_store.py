@@ -5,6 +5,7 @@ import hashlib
 import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
@@ -287,12 +288,17 @@ def anchor_group_keys(
     *,
     tool_id: str,
     base_dir: str | Path | None = None,
+    in_scope: Callable[[dict[str, Any]], bool] | None = None,
 ) -> set[tuple[str, str, str]]:
     """Distinct judgments this tool holds ANCHOR-grade consensus on.
 
     Keyed by judgment, not by row: an anchor upgrade appends a new consensus
     row over its own 2-judge predecessor (see generate_ai_consensus), so
     counting rows would count one settled question twice.
+
+    ``in_scope`` (ARIA-MEDIUM-229) narrows the rows to the judgments a
+    caller's scope admits — the promotion gate passes the findings the
+    adapter version in force emits (``tool_health.EmissionScope.covers``).
     """
     return {
         _judgment_key(row)
@@ -300,6 +306,7 @@ def anchor_group_keys(
         if row.get("source_type") == "ai_consensus"
         and is_ground_truth_row(row)
         and _judges_this_tool_s_findings(row)
+        and (in_scope is None or in_scope(row))
     }
 
 
@@ -307,13 +314,16 @@ def operator_group_keys(
     *,
     tool_id: str,
     base_dir: str | Path | None = None,
+    in_scope: Callable[[dict[str, Any]], bool] | None = None,
 ) -> set[tuple[str, str, str]]:
-    """Distinct judgments this tool carries a HUMAN verdict on."""
+    """Distinct judgments this tool carries a HUMAN verdict on (``in_scope``
+    as for :func:`anchor_group_keys`)."""
     return {
         _judgment_key(row)
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
         if (row.get("source_type") or "human") == "human"
         and _judges_this_tool_s_findings(row)
+        and (in_scope is None or in_scope(row))
     }
 
 

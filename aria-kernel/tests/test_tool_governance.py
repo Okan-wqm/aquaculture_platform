@@ -680,8 +680,14 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual({item["rule"] for item in sample["items"]}, {"a", "b"})
 
     def test_operator_feedback_store_contributes_to_health_metrics(self):
+        # ARIA-MEDIUM-229 — precision is measured on the findings the version
+        # in force emits, so both runs emit the finding the operator judged
+        # (keyed through the version's own finding id: the row carries no
+        # fingerprint).
+        finding = {"id": "finding-1", "rule": "r", "path": "apps/farm-service/src/app.module.ts",
+                   "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]}
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)
-        record_run(valid_run(run_id="feedback-run"), base_dir=self.tools_dir)
+        record_run(valid_run(run_id="feedback-run", raw_findings=[finding]), base_dir=self.tools_dir)
         record_operator_feedback(
             tool_id="ts-adapter",
             run_id="feedback-run",
@@ -691,7 +697,7 @@ class ToolGovernanceTests(unittest.TestCase):
             note="operator rejected",
             base_dir=self.tools_dir,
         )
-        decision = record_run(valid_run(run_id="after-feedback"), base_dir=self.tools_dir)
+        decision = record_run(valid_run(run_id="after-feedback", raw_findings=[finding]), base_dir=self.tools_dir)
         self.assertEqual(decision["metrics"]["judged_samples"], 1)
         self.assertEqual(decision["metrics"]["precision"], 0.0)
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import fnmatch
 import json
+from collections.abc import Mapping
+import dataclasses
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,7 @@ from .feedback_store import (
     consensus_judge_count,
     load_feedback,
     mark_findings_need_revalidation,
+    raw_findings_path,
     record_findings_for_run,
     record_raw_findings_for_run,
 )
@@ -431,19 +435,100 @@ def _fold_consensus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+@dataclass(frozen=True)
+class EmissionScope:
+    """ARIA-MEDIUM-229 — the findings the adapter version in force emits.
+
+    The version in force is the one that produced the tool's latest ok run:
+    runs carry no identity that moves when an adapter's SOURCE changes (the
+    registry version and ``tool_manifest_hash`` describe the registry
+    entry; ed848c05 rewrote doc-staleness without touching either), so what
+    the latest complete run emitted is the only faithful record of what the
+    version emits. ``fingerprints`` are its findings' fingerprints;
+    ``finding_ids`` maps the version's own finding ids to them, so a
+    judgment row that predates fingerprints is keyed through the id the
+    version itself still uses — never through a guess.
+    """
+
+    run_id: str | None
+    fingerprints: frozenset[str]
+    finding_ids: Mapping[str, str] = dataclasses.field(default_factory=dict)
+
+    def fingerprint_of(self, judgment: Mapping[str, Any]) -> str | None:
+        """The in-scope fingerprint a judgment is about, or None."""
+        stamped = str(judgment.get("finding_fingerprint") or "")
+        if stamped:
+            return stamped if stamped in self.fingerprints else None
+        return self.finding_ids.get(str(judgment.get("finding_id") or ""))
+
+    def covers(self, judgment: Any) -> bool:
+        return isinstance(judgment, Mapping) and self.fingerprint_of(judgment) is not None
+
+
+def current_emission_scope(
+    tool_id: str,
+    runs: list[dict[str, Any]],
+    *,
+    base_dir: str | Path | None = None,
+) -> EmissionScope:
+    """The fingerprints the tool's latest ok run emitted (:class:`EmissionScope`).
+
+    Read from the raw-findings ledger, where every run records every
+    finding it emitted under its run id; compaction keeps the newest row per
+    fingerprint, which for the latest run is its own. No ok run: an empty
+    scope, so nothing is judged in it.
+    """
+    latest = next((run for run in reversed(runs) if run.get("status") == "ok"), None)
+    if latest is None or not latest.get("run_id"):
+        return EmissionScope(run_id=None, fingerprints=frozenset())
+    run_id = str(latest["run_id"])
+    path = raw_findings_path(base_dir)
+    fingerprints: set[str] = set()
+    finding_ids: dict[str, str] = {}
+    for row in load_chained_jsonl(path) if path.exists() else []:
+        if row.get("tool_id") != tool_id or str(row.get("run_id") or "") != run_id:
+            continue
+        fingerprint = str(row.get("finding_fingerprint") or "")
+        if not fingerprint:
+            continue
+        fingerprints.add(fingerprint)
+        finding_id = str(row.get("finding_id") or "")
+        if finding_id:
+            finding_ids[finding_id] = fingerprint
+    return EmissionScope(run_id=run_id, fingerprints=frozenset(fingerprints), finding_ids=finding_ids)
+
+
 def compute_metrics(
     tool: dict[str, Any],
     runs: list[dict[str, Any]],
     *,
     base_dir: str | Path | None = None,
+    emission_scope: EmissionScope | None = None,
 ) -> dict[str, Any]:
+    """Health and precision metrics for one tool over its recorded runs.
+
+    ARIA-MEDIUM-229 — PRECISION (``judged_samples``, ``precision`` and the
+    judged-source counts behind ``precision_status``) is measured on the
+    version in force: only judgments of findings in ``emission_scope``
+    (default :func:`current_emission_scope`) count, whichever run they were
+    judged on. A judgment of a finding the version no longer emits is
+    history about a retired version and is reported as ``judged_retired``;
+    one the scope cannot key is ``judged_unkeyed``. The false-positive
+    SAFETY signals (the 30-day non-critical count, critical false
+    positives) stay unscoped: a harm a past version did is still a harm.
+    """
     now = datetime.now(timezone.utc)
+    scope = emission_scope if emission_scope is not None else current_emission_scope(
+        str(tool["tool_id"]), runs, base_dir=base_dir,
+    )
     judged = 0
     true_positive = 0
     false_positive = 0
     non_critical_30d = 0
     human_judged = 0
     ai_consensus_judged = 0
+    judged_retired = 0
+    judged_unkeyed = 0
     feedback_rows = _fold_consensus_rows(
         load_feedback(tool_id=tool["tool_id"], base_dir=base_dir),
     )
@@ -457,19 +542,29 @@ def compute_metrics(
         )
         for feedback in combined_feedback:
             kind = feedback_kind(feedback)
-            if kind in ("true_positive", "false_positive"):
-                judged += 1
-                source_type = str(feedback.get("source_type") or "human") if isinstance(feedback, dict) else "human"
-                if source_type == "ai_consensus":
-                    ai_consensus_judged += 1
-                elif source_type != "ai_judge":
-                    human_judged += 1
+            if kind == "false_positive" and feedback_severity(feedback) != "critical" and _within_days(run, now, 30):
+                non_critical_30d += 1
+            if kind not in ("true_positive", "false_positive"):
+                continue
+            if not scope.covers(feedback):
+                keyed = isinstance(feedback, Mapping) and (
+                    feedback.get("finding_fingerprint") or feedback.get("finding_id")
+                )
+                if keyed:
+                    judged_retired += 1
+                else:
+                    judged_unkeyed += 1
+                continue
+            judged += 1
+            source_type = str(feedback.get("source_type") or "human")
+            if source_type == "ai_consensus":
+                ai_consensus_judged += 1
+            elif source_type != "ai_judge":
+                human_judged += 1
             if kind == "true_positive":
                 true_positive += 1
-            if kind == "false_positive":
+            else:
                 false_positive += 1
-                if feedback_severity(feedback) != "critical" and _within_days(run, now, 30):
-                    non_critical_30d += 1
 
     last_10 = runs[-10:]
     crash_count = sum(1 for run in last_10 if run.get("status") == "crash")
@@ -524,6 +619,13 @@ def compute_metrics(
         "contradictions_last_10": sum(
             1 for run in last_10 if run.get("evidence_validation", {}).get("contradicts_active_tool")
         ),
+        "precision_scope": {
+            "basis": "latest_ok_run_emissions",
+            "run_id": scope.run_id,
+            "emitted_fingerprints": len(scope.fingerprints),
+            "judged_retired": judged_retired,
+            "judged_unkeyed": judged_unkeyed,
+        },
     }
 
 

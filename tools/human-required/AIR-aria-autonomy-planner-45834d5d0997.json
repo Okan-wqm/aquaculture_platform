@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_793d8e5973f144b5",
+    "code": "agent_refused:evidence",
+    "kind": "executor_escalation",
+    "reason_class": "evidence",
+    "reason_summary": "The request carries exactly one admissible evidence ref, the bare queue-item token 'qi-b858bc76451c'. It is not a '<repo-relative path>[:<line>]' and resolves to no file at the snapshot SHA, so the request supplies zero groundable evidence for the projection it asks for. Every claim I could make about the queue item would rest on the suggested_prompt's own prose, which is request payload rather than repository evidence, and L1 forbids a confirmed claim whose chain contains no independent reposit...",
+    "request_id": "AIR-aria-autonomy-planner-45834d5d0997",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:evidence: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-09-26T08:15:05Z",
+  "request_id": "AIR-aria-autonomy-planner-45834d5d0997",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-03T08:15:05Z",
+  "status": "open"
+}

@@ -61,7 +61,8 @@ def _probe(*, branch, repo):
 
 
 def _rules(*, repo, branch):
-    return [101], []
+    # ARIA-HIGH-221 — main requires a squash merge queue.
+    return [101], [], {"merge_method": "SQUASH", "ruleset_id": 101, "merge_methods": ["SQUASH"]}
 
 
 class _Lease:

@@ -319,6 +319,11 @@ def _measured_protection_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "conversation_resolution_required": enabled("required_conversation_resolution"),
         "force_push_disabled": not enabled("allow_force_pushes"),
         "delete_branch_disabled": not enabled("allow_deletions"),
+        # ARIA-HIGH-221 — recorded, not required: the merge queue carries the
+        # up-to-date guarantee (preflight.REQUIRED_MERGE_QUEUE_METHOD).
+        "strict_up_to_date_required": (
+            isinstance(checks_block, dict) and checks_block.get("strict") is True
+        ),
     }
 
 
@@ -336,6 +341,8 @@ def _measure_branch_protection(
     probe run (ARIA-HIGH-210): returns ``(snapshot_row, proof_body)``.
     Fails closed: no payload → no snapshot → GovernanceError.
     """
+    from .preflight import merge_queue_reasons
+
     if probe is None:
         from .preflight import probe_branch_protection as probe
     if rules_probe is None:
@@ -358,26 +365,37 @@ def _measure_branch_protection(
         row_type=str(snapshot["row_type"]),
         row=snapshot,
     )
-    ruleset_ids, bypass_actors = rules_probe(repo=repo, branch=branch)
+    ruleset_ids, bypass_actors, merge_queue = rules_probe(repo=repo, branch=branch)
     # ARIA-HIGH-207 — the bypass-actor verdict is part of the proof's own
     # validity, named like every other probe reason: an unmeasured field
     # (None) and a measured non-empty list are both red; only a measured
     # empty list is green.
-    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors))
+    queue_reasons = merge_queue_reasons(merge_queue)
+    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors), *queue_reasons)
     measured = _measured_protection_fields(payload)
     body: dict[str, Any] = {
         "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
-        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS
-        # AND the exact-checks comparison the claim gate will re-run —
-        # recorded here so a red proof names itself before any claim reads it.
+        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS,
+        # the merge queue (ARIA-HIGH-221) AND the exact-checks comparison
+        # the claim gate will re-run — recorded here so a red proof names
+        # itself before any claim reads it.
         "valid": bool(
             ok
             and bypass_actors == []
+            and not queue_reasons
             and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
         ),
         "snapshot_hash": snapshot["payload_hash"],
         "ruleset_ids": list(ruleset_ids),
         "bypass_actors": None if bypass_actors is None else list(bypass_actors),
+        # ARIA-HIGH-221 — the queue main requires, measured from its rules.
+        "merge_queue_required": merge_queue is not None,
+        "merge_queue_merge_method": (
+            None if merge_queue is None else merge_queue.get("merge_method")
+        ),
+        "merge_queue_ruleset_id": (
+            None if merge_queue is None else merge_queue.get("ruleset_id")
+        ),
         "probe_reasons": list(reasons),
         "source_ledger_ref": source_ledger_ref,
         **measured,
@@ -400,8 +418,9 @@ def produce_branch_protection_proof(
     """Probe → snapshot row → measured proof row.
 
     ``probe`` defaults to ``preflight.probe_branch_protection`` (the ONE
-    probe, İ1); ``rules_probe`` supplies ``(ruleset_ids, bypass_actors)``
-    for the branch and defaults to the gh-api rules probe below. Both are
+    probe, İ1); ``rules_probe`` supplies ``(ruleset_ids, bypass_actors,
+    merge_queue)`` for the branch and defaults to the gh-api rules probe
+    below. Both are
     injectable so tests exercise the producer without network.
 
     Fails closed: no payload → no snapshot → no proof. A probe that
@@ -496,8 +515,9 @@ def _bypass_actor_reasons(bypass_actors: list[dict[str, Any]] | None) -> tuple[s
 
 def _probe_branch_rules(
     *, repo: str, branch: str, gh_cli: str = "gh",
-) -> tuple[list[int], list[dict[str, Any]] | None]:
-    """gh-api rules probe: (active ruleset ids, aggregated bypass actors).
+) -> tuple[list[int], list[dict[str, Any]] | None, dict[str, Any] | None]:
+    """gh-api rules probe: (active ruleset ids, aggregated bypass actors,
+    the merge-queue rule or None).
 
     Read-only, best-effort on the ID list (an empty result is recorded as
     empty and the claim gate decides), but a FAILURE to reach the API is
@@ -506,9 +526,15 @@ def _probe_branch_rules(
     ARIA-HIGH-207 — GitHub omits ``bypass_actors`` from a ruleset detail
     when the token cannot read it. A ruleset whose field is absent or not a
     list makes the aggregate ``None`` (unmeasured), never ``[]``.
+
+    ARIA-HIGH-221 — the same listing carries the branch's ``merge_queue``
+    rule (``preflight.merge_queue_rule``); the preflight and the readiness
+    proof both read the queue from here.
     """
     import json
     import subprocess
+
+    from .preflight import merge_queue_rule
 
     proc = subprocess.run(
         [gh_cli, "api", f"repos/{repo}/rules/branches/{branch}"],
@@ -519,6 +545,8 @@ def _probe_branch_rules(
             f"branch_rules_probe_failed: {proc.stderr.strip().splitlines()[0][:200] if proc.stderr else '<empty>'}"
         )
     rules = json.loads(proc.stdout)
+    if not isinstance(rules, list):
+        raise GovernanceError("branch_rules_probe_failed: rules listing is not a list")
     ruleset_ids = sorted({int(rule["ruleset_id"]) for rule in rules if isinstance(rule, dict) and "ruleset_id" in rule})
     bypass_actors: list[dict[str, Any]] = []
     unmeasured = False
@@ -535,7 +563,7 @@ def _probe_branch_rules(
             unmeasured = True
             continue
         bypass_actors.extend(actors)
-    return ruleset_ids, (None if unmeasured else bypass_actors)
+    return ruleset_ids, (None if unmeasured else bypass_actors), merge_queue_rule(rules)
 
 
 # --------------------------------------------------------------------------

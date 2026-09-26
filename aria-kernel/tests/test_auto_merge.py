@@ -320,6 +320,9 @@ class AutoMergeTests(unittest.TestCase):
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],
+            # ARIA-HIGH-221 — main requires a squash merge queue.
+            "merge_queue_required": True,
+            "merge_queue_merge_method": "SQUASH",
             "force_push_disabled": True,
             "delete_branch_disabled": True,
             "source_ledger_ref": source_ref("branch"),

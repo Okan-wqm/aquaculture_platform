@@ -11,6 +11,7 @@ from .auto_merge import (
     collect_github_snapshot,
     evaluate_auto_merge,
     human_merge_decision,
+    merge_outcome,
     record_pr_lifecycle,
 )
 from .autonomous_host_lease import release_remote_cas_lease
@@ -22,6 +23,7 @@ from .incident_ledger import (
     finalize_merge_incident,
     record_merge_failed_incident,
 )
+from .ledger import load_declared_jsonl
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -373,26 +375,12 @@ def merge_pr_if_ready(
                                     )
                                     _append_decision(base_dir, result)
                                 else:
-                                    result = dict(decision)
-                                    result.update(
-                                        {
-                                            "recorded_at": utc_now(),
-                                            "decision": "merged",
-                                            "eligible": True,
-                                            "merge_result": merge_result,
-                                            "merge_lease": _lease_summary(merge_lease),
-                                        },
-                                    )
-                                    _append_decision(base_dir, result)
-                                    finalize_merge_incident(
-                                        pr=fresh_pr,
-                                        readiness_claim_id=readiness_claim_id,
+                                    result = _record_merge_result(
+                                        decision=decision,
                                         merge_result=merge_result,
-                                        base_dir=base_dir,
-                                    )
-                                    record_pr_lifecycle(
-                                        fresh_pr,
-                                        event="merged",
+                                        merge_lease=merge_lease,
+                                        fresh_pr=fresh_pr,
+                                        readiness_claim_id=readiness_claim_id,
                                         base_dir=base_dir,
                                         cycle_id=cycle_id,
                                     )
@@ -430,6 +418,144 @@ def merge_pr_if_ready(
         },
     )
     return result
+
+
+def _record_merge_result(
+    *,
+    decision: dict[str, Any],
+    merge_result: dict[str, Any],
+    merge_lease: dict[str, Any],
+    fresh_pr: dict[str, Any],
+    readiness_claim_id: str,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+) -> dict[str, Any]:
+    """Record what the merge call did, as the adapter measured it.
+
+    ARIA-HIGH-221 — main requires a merge queue, so the call usually
+    ENQUEUES: the PR is tested on top of current main in a merge group and
+    merged by the queue later, or removed from it. ``merged`` is recorded
+    only when the result says the PR merged; ``enqueued`` when it entered
+    (or is armed to enter) the queue — settled into ``merged`` or
+    ``dequeued`` by :func:`reconcile_enqueued_merges` on a later run; any
+    other result is ``failed`` (``merge_result_unconfirmed``), never a merge.
+    """
+    result = dict(decision)
+    result.update({
+        "recorded_at": utc_now(),
+        "merge_result": merge_result,
+        "merge_lease": _lease_summary(merge_lease),
+    })
+    if merge_result.get("merged") is True:
+        result.update({"decision": "merged", "eligible": True})
+        _append_decision(base_dir, result)
+        finalize_merge_incident(
+            pr=fresh_pr,
+            readiness_claim_id=readiness_claim_id,
+            merge_result=merge_result,
+            base_dir=base_dir,
+        )
+        record_pr_lifecycle(fresh_pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        return result
+    if merge_result.get("enqueued") is True:
+        result.update({"decision": "enqueued", "eligible": True})
+        _append_decision(base_dir, result)
+        return result
+    reason = "merge_result_unconfirmed"
+    record_merge_failed_incident(
+        pr=fresh_pr,
+        readiness_claim_id=readiness_claim_id,
+        reason=reason,
+        base_dir=base_dir,
+    )
+    result.update({"decision": "failed", "eligible": False, "reasons": [reason]})
+    _append_decision(base_dir, result)
+    return result
+
+
+_ENQUEUE_SETTLED = frozenset({"merged", "dequeued"})
+
+
+def _unsettled_enqueued(base_dir: str | Path | None) -> dict[tuple[int, str], dict[str, Any]]:
+    """``{(PR, head): enqueued row}`` for every enqueue no row has settled yet."""
+    path = ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl"
+    if not path.exists():
+        return {}
+    pending: dict[tuple[int, str], dict[str, Any]] = {}
+    for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
+        number, head_sha = row.get("pr_number"), row.get("head_sha")
+        if not isinstance(number, int) or not isinstance(head_sha, str):
+            continue
+        if row.get("decision") == "enqueued":
+            pending[(number, head_sha)] = row
+        elif row.get("decision") in _ENQUEUE_SETTLED:
+            pending.pop((number, head_sha), None)
+    return pending
+
+
+def pending_enqueued_heads(base_dir: str | Path | None) -> set[tuple[int, str]]:
+    """(PR, head) pairs ARIA enqueued that the queue has not yet settled."""
+    return set(_unsettled_enqueued(base_dir))
+
+
+def reconcile_enqueued_merges(
+    *,
+    adapter: Any,
+    base_dir: str | Path | None,
+    cycle_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Settle what the merge queue did with each PR ARIA enqueued.
+
+    ARIA-HIGH-221 — an ``enqueued`` decision is not a merge. The lane
+    measures each unsettled one on its next run: merged at the enqueued head
+    → the ``merged`` decision, the incident finalization and the lifecycle
+    row a direct merge records; still queued (or armed) at that head →
+    nothing; anything else (the queue removed it, the PR closed or moved to
+    another head) → ``dequeued``, and the PR is a candidate again once its
+    head holds a claim. An adapter that observes nothing settles nothing.
+    """
+    settled: list[dict[str, Any]] = []
+    for (number, head_sha), entry in sorted(_unsettled_enqueued(base_dir).items()):
+        state = adapter.get_merge_state(number)
+        if state is None:
+            continue
+        outcome = merge_outcome(state, expected_head_sha=head_sha, method="squash")
+        if outcome["enqueued"] is True:
+            continue
+        base_row = {
+            key: entry.get(key)
+            for key in ("pr_number", "head_sha", "readiness_claim_id", "risk_lane", "change_id")
+            if key in entry
+        }
+        base_row.update({
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "enqueued_row_hash": entry.get("ledger_hash"),
+            "merge_result": {**outcome, "via": "merge_queue"},
+        })
+        if outcome["merged"] is True:
+            row = {**base_row, "decision": "merged", "eligible": True}
+            _append_decision(base_dir, row)
+            pr = adapter.get_pr(number)
+            finalize_merge_incident(
+                pr=pr,
+                readiness_claim_id=str(entry.get("readiness_claim_id") or ""),
+                merge_result=row["merge_result"],
+                base_dir=base_dir,
+            )
+            record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        else:
+            observed = str(state.get("state") or "")
+            if state.get("head_sha") != head_sha:
+                reason = f"dequeued_head_changed:{state.get('head_sha')}"
+            elif observed == "OPEN":
+                reason = "dequeued_removed_from_merge_queue"
+            else:
+                reason = f"dequeued_pr_{observed.lower() or 'unobserved'}"
+            row = {**base_row, "decision": "dequeued", "eligible": False, "reasons": [reason]}
+            _append_decision(base_dir, row)
+        settled.append(row)
+    return settled
 
 
 def _grant_in_force(base_dir: str | Path | None) -> dict[str, Any] | None:
@@ -656,15 +782,25 @@ def _capture_pre_merge_context(
         reason = "pr_commit_identity_unavailable"
         number = pr.get("number")
         head_sha = _head_sha(pr)
-        base_sha = pr.get("base_sha") or pr.get("baseRefOid")
+        live_base_sha = pr.get("base_sha") or pr.get("baseRefOid")
         if (
             type(number) is not int or number <= 0
-            or not isinstance(base_sha, str)
-            or _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None
+            or not isinstance(live_base_sha, str)
+            or _re.fullmatch(r"[0-9a-f]{40}", live_base_sha) is None
             or _re.fullmatch(r"[0-9a-f]{40}", head_sha) is None
-            or _git(workspace, "rev-parse", "--verify", base_sha + "^{commit}").strip() != base_sha
+            or _git(workspace, "rev-parse", "--verify", live_base_sha + "^{commit}").strip() != live_base_sha
             or _git(workspace, "rev-parse", "--verify", head_sha + "^{commit}").strip() != head_sha
         ):
+            raise GovernanceError(reason)
+        # ARIA-HIGH-221 — the evidence is bound to the implementation: its
+        # head and the base it was made on. Main merges through a merge
+        # queue and keeps moving while the PR waits, so the PR's live base
+        # is main's tip, not that base. The implementation base is where
+        # the head forked from the live base — the base the implementation
+        # ledger names whenever main still contains it — and every join
+        # below is against it; the live base is recorded beside it.
+        base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
+        if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
             raise GovernanceError(reason)
 
         sources = {
@@ -850,6 +986,7 @@ def _capture_pre_merge_context(
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
+                live_base_sha=live_base_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
                 **expert_observation, **feedback_observation, **budget_observation,

@@ -629,7 +629,12 @@ def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> 
 # survives a lane whose final ``merged`` row was lost with its runner; it
 # counts as ARIA's merge once the post-merge reconciler (``own_pr_ci``) has
 # recorded that PR merged AT THAT HEAD.
-_ATTEMPT_DECISIONS: frozenset[str] = frozenset({"merge_intent"})
+#
+# ARIA-HIGH-221 — ``enqueued`` is the same kind of row: main merges through
+# a merge queue, so the merge call usually enqueues and the queue merges the
+# PR later. An enqueued PR the queue then merged at that head is ARIA's
+# merge, whether or not the merge lane has settled it into ``merged`` yet.
+_ATTEMPT_DECISIONS: frozenset[str] = frozenset({"merge_intent", "enqueued"})
 
 
 def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:

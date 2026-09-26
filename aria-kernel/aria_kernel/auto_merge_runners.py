@@ -153,7 +153,6 @@ class RealAutoMergeRunner:
         from .watchdog_freeze import open_watchdog_incidents
 
         adapter = self.adapter_factory()
-        candidate_prs = self.pr_enumerator(adapter)
         # ARIA-HIGH-205 — live exactly when THIS runner is the merge lane
         # (`aria-kernel merge-lane run`, aria-merge-runner.yml) AND merge
         # authority exists: the `autonomous` profile, or an operator's
@@ -191,6 +190,26 @@ class RealAutoMergeRunner:
         # Containment must not buy silence (ORPHAN-HIGH-578): a candidate
         # lost to a refusal is reported, never absorbed.
         item_failures: list[dict[str, Any]] = []
+        # ARIA-HIGH-221 — main merges through a merge queue, so an earlier
+        # run's `enqueued` PRs are settled first: merged by the queue (the
+        # merge's rows are recorded now), still queued (left alone, and not
+        # a candidate), or removed (a candidate again). Recording a merge
+        # the queue made is not a merge, so it runs under a watchdog freeze
+        # too; a failure to settle costs the settlement, not the run.
+        queue_settled: list[dict[str, Any]] = []
+        if not dry_run:
+            from .merge_authority import reconcile_enqueued_merges
+
+            settled_ok, settled = guard_item(
+                item_failures,
+                item_kind="merge_queue_settlement",
+                item_id="enqueued",
+                work=lambda: reconcile_enqueued_merges(adapter=adapter, base_dir=base_dir),
+            )
+            if settled_ok and settled is not None:
+                queue_settled = settled
+                merges_completed += sum(1 for row in settled if row.get("decision") == "merged")
+        candidate_prs = self.pr_enumerator(adapter)
 
         # ORPHAN-MEDIUM-562 — THE WATCHDOG FREEZE IS A PROPERTY OF THE RUN, NOT
         # OF A PULL REQUEST, and asking it once here rather than N times inside
@@ -227,8 +246,9 @@ class RealAutoMergeRunner:
                     "status": "blocked",
                     "reason": "watchdog_merge_frozen",
                     "watchdog": frozen,
-                    "merges_completed": 0,
+                    "merges_completed": merges_completed,
                     "candidates_evaluated": len(candidate_prs),
+                    "queue_settled": queue_settled,
                     # Same key set as the normal return below. A refusal that
                     # answers with a different shape is a refusal every consumer
                     # has to special-case.
@@ -337,6 +357,7 @@ class RealAutoMergeRunner:
                 "status": status,
                 "merges_completed": merges_completed,
                 "candidates_evaluated": len(candidate_prs),
+                "queue_settled": queue_settled,
                 "decisions": decisions,
                 "dry_run": dry_run,
                 "executes_merges": self.executes_merges,
@@ -503,7 +524,16 @@ def enumerate_prs_with_readiness_claims(
     open_heads = adapter.list_open_pull_request_heads()
     if open_heads is None:
         return []
-    return sorted(number for number, head_sha in open_heads.items() if (number, head_sha) in claimed)
+    # ARIA-HIGH-221 — a PR ARIA enqueued at this head is the merge queue's
+    # until the queue settles it (merge_authority.reconcile_enqueued_merges):
+    # evaluating it again would enqueue it again.
+    from .merge_authority import pending_enqueued_heads
+
+    queued = pending_enqueued_heads(base_dir)
+    return sorted(
+        number for number, head_sha in open_heads.items()
+        if (number, head_sha) in claimed and (number, head_sha) not in queued
+    )
 
 
 def resolve_readiness_claim_id_from_claims(

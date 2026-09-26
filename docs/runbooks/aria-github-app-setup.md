@@ -90,8 +90,8 @@ opens never reaches the merge chain. Fix the App, its installation or the secret
 The merge gate's proofs expect this shape. Classic protection on `main`:
 
 - the 4 required checks `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority` and
-  `build-status`, each pinned to the GitHub Actions app, with "Require branches to be up to date"
-  (`strict`) on (SSoT: `.github/manifests/main-required-status-checks.json`);
+  `build-status`, each pinned to the GitHub Actions app (SSoT:
+  `.github/manifests/main-required-status-checks.json`);
 - signed commits required;
 - pull request required with 0 approvals and Code Owners review required;
 - conversation resolution required;
@@ -99,8 +99,24 @@ The merge gate's proofs expect this shape. Classic protection on `main`:
 - force pushes and deletions blocked.
 
 In addition, at least one active ruleset targets `main` with `bypass_actors: []` (an empty list,
-not absent or `null`), no ruleset requires a merge queue, and squash is the only allowed merge
-method.
+not absent or `null`), and a ruleset on `main` requires a **merge queue** with the **squash** merge
+method (ARIA-HIGH-221, operator decision 2026-09-26). The kernel reads the queue from
+`rules/branches/main` (a `merge_queue` rule with `merge_method: SQUASH`); the preflight and every
+readiness claim refuse a `main` without one (`merge_queue_required`,
+`branch_protection_merge_queue_method_must_be_squash`).
+
+"Require branches to be up to date" (`strict`) is not what makes a merge safe here: an ARIA PR's
+evidence is bound to its head, and updating the branch would move that head. The queue tests the
+change on top of current `main` in a merge group instead, and both workflows that produce the
+required checks run on `merge_group`. The kernel neither requires nor refuses `strict`; it records
+it (`strict_up_to_date_required`). The manifest above still pins `strict: true`, as its own gate
+(`tools/gates/required-status-checks.ts`) and `postgres-dr-bootstrap-candidate.yml` check; that pin
+is outside the merge lane.
+
+The merge lane's `gh pr merge --squash --match-head-commit` therefore usually **enqueues** the PR.
+The lane records `enqueued`. On its next run it settles the entry: into `merged` when the queue
+merged the PR at that head, or into `dequeued` when the queue removed it or the PR closed or moved.
+A dequeued PR is a candidate again once its head holds a claim.
 
 ## 7. Verify
 
@@ -111,4 +127,5 @@ gh workflow run aria-merge-runner.yml
 ```
 
 The merge-runner run must pass "Run the merge lane" without an HTTP 422 or a Mode A refusal. With
-no PR holding a readiness claim it merges nothing and still succeeds.
+no PR holding a readiness claim it merges nothing and still succeeds. The rules listing must show a
+`merge_queue` rule with `"merge_method": "SQUASH"`.

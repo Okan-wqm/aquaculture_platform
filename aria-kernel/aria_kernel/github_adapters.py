@@ -229,6 +229,11 @@ class RecordingGitHubAdapter:
         self._record("list_open_pull_request_heads")
         return None
 
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        # ARIA-HIGH-221 — nothing observed, so no enqueued merge is settled.
+        self._record("get_merge_state", number=number)
+        return None
+
 
 # --- Kernel-owned issues (ARIA-MEDIUM-227) ---------------------------------
 #

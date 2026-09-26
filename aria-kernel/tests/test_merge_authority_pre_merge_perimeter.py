@@ -316,6 +316,7 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertEqual(evidence.plan_content_hash, plan.content_hash)
         self.assertEqual(evidence.repo_identity, canonical_identity(repo))
         self.assertEqual(evidence.base_sha, base_sha)
+        self.assertEqual(evidence.live_base_sha, base_sha)
         self.assertEqual(evidence.head_sha, head_sha)
         self.assertEqual(evidence.snapshot_hash, snapshot["snapshot_hash"])
         self.assertEqual({
@@ -323,6 +324,33 @@ class NativePreMergeContextTests(unittest.TestCase):
             for path in tools.rglob("*") if path.is_file()
             and path.suffix in {".json", ".jsonl"}
         }, before)
+
+        # ARIA-HIGH-221 — main moves on while the PR waits for the merge
+        # queue: the PR's live base is main's new tip. The evidence stays
+        # bound to the implementation base (where the head forked from
+        # main), so the join, the changed paths and every row hash are what
+        # they were; the live base is recorded beside it. Joined against the
+        # live tip, main's own commit read as part of the change.
+        git("checkout", "-q", "main")
+        (repo / "docs").mkdir(exist_ok=True)
+        (repo / "docs" / "moved-on.md").write_text("main moved on\n", encoding="utf-8")
+        git("add", "docs/moved-on.md")
+        git("commit", "-q", "-m", "fixture: main moves ahead of the implementation base")
+        live_base_sha = git("rev-parse", "HEAD")
+        git("checkout", "-q", "aria/native-pre-merge-context")
+        self.assertEqual(git("merge-base", live_base_sha, head_sha), base_sha)
+        moved = capture(
+            workspace_root=repo, base_dir=tools, pr=dict(pr, base_sha=live_base_sha),
+            diff_text=git("diff", base_sha, head_sha),
+        )
+        moved_evidence = moved.pre_merge_evidence
+        self.assertEqual(moved_evidence.base_sha, base_sha)
+        self.assertEqual(moved_evidence.live_base_sha, live_base_sha)
+        self.assertEqual(moved.affected_paths, (source_path,))
+        self.assertEqual(moved_evidence.unavailable_reasons, evidence.unavailable_reasons)
+        for field in ("change_id", "pr_row_hash", "planned_row_hash", "committed_row_hash",
+                      "plan_content_hash", "head_sha", "snapshot_hash"):
+            self.assertEqual(getattr(moved_evidence, field), getattr(evidence, field), field)
 
 
 class NativeImplementationContextTests(unittest.TestCase):
@@ -1047,6 +1075,8 @@ class GitHubPreMergeContextTests(unittest.TestCase):
             "changedFiles": 1,
             "labels": [{"name": "aria"}],
             "reviews": [], "reviewDecision": "APPROVED",
+            # ARIA-HIGH-221 — null until the PR merges (the queue settles on it).
+            "mergeCommit": None,
         }
 
         def public_json_transport(args):
@@ -1068,6 +1098,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         self.assertEqual(projected["labels"], native_pr["labels"])
         self.assertEqual(projected["repository"], "fixture-owner/fixture-repo")
         self.assertEqual(projected["state"], "OPEN")
+        self.assertIsNone(projected["merge_commit_sha"])
         self.assertEqual(transport.call_count, 2)
 
 

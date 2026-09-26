@@ -117,6 +117,21 @@ class GitHubAdapter(Protocol):
         ...
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
+        """Merge, or enqueue, the PR at ``expected_head_sha``.
+
+        ARIA-HIGH-221 — main requires a merge queue, so a successful call
+        usually ENQUEUES the PR rather than merging it. The result says
+        which, measured after the call: ``merged`` (the PR is merged at that
+        head) or ``enqueued`` (it is in the merge queue, or armed to enter
+        it, at that head). Neither true is an unconfirmed result, which the
+        merge authority records as a failure, never as a merge.
+        """
+        ...
+
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """ARIA-HIGH-221 — where the PR stands with respect to merging:
+        ``{"state", "head_sha", "in_merge_queue", "auto_merge_enabled",
+        "merge_commit_sha"}``, or ``None`` when nothing was observed."""
         ...
 
 
@@ -800,6 +815,42 @@ def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[
     return snapshot
 
 
+def merge_outcome(
+    merge_state: dict[str, Any] | None,
+    *,
+    expected_head_sha: str,
+    method: str,
+) -> dict[str, Any]:
+    """ARIA-HIGH-221 — classify a measured merge state after a merge call.
+
+    ``merged``: the PR is merged and its head is the head the call named.
+    ``enqueued``: it is open at that head and in the merge queue, or armed
+    to enter it. Anything else — no observation, another head, a closed PR —
+    is neither, and the merge authority records it as unconfirmed.
+    """
+    if merge_state is None:
+        return {
+            "merged": False, "enqueued": False, "method": method,
+            "expected_head_sha": expected_head_sha, "observed": None,
+        }
+    at_head = merge_state.get("head_sha") == expected_head_sha
+    pr_state = str(merge_state.get("state") or "")
+    return {
+        "merged": at_head and pr_state == "MERGED",
+        "enqueued": at_head and pr_state == "OPEN" and (
+            merge_state.get("in_merge_queue") is True or merge_state.get("auto_merge_enabled") is True
+        ),
+        "method": method,
+        "expected_head_sha": expected_head_sha,
+        "observed": dict(merge_state),
+    }
+
+
+def _merge_commit_oid(merge_commit: Any) -> str | None:
+    """``mergeCommit`` is ``null`` until the PR merges."""
+    return merge_commit.get("oid") if isinstance(merge_commit, dict) else None
+
+
 class SnapshotGitHubAdapter:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.payload = payload
@@ -871,6 +922,20 @@ class SnapshotGitHubAdapter:
         self.merge_calls.append(call)
         return {"merged": True, **call}
 
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """The seeded ``github.merge_state``, or the PR's own state."""
+        seeded = self.payload.get("github", {}).get("merge_state")
+        if isinstance(seeded, dict):
+            return deepcopy(seeded)
+        pr = self.get_pr(number)
+        return {
+            "state": str(pr.get("state") or "").upper(),
+            "head_sha": pr.get("head_sha") or pr.get("headRefOid"),
+            "in_merge_queue": False,
+            "auto_merge_enabled": False,
+            "merge_commit_sha": pr.get("merge_commit_sha"),
+        }
+
 
 class GhCliGitHubAdapter:
     def __init__(self, *, cwd: str | Path = ".") -> None:
@@ -920,7 +985,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,state,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision",
+                "number,state,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision,mergeCommit",
             ],
         )
         return {
@@ -949,10 +1014,48 @@ class GhCliGitHubAdapter:
             "labels": payload.get("labels", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
+            "merge_commit_sha": _merge_commit_oid(payload.get("mergeCommit")),
         }
 
     def get_latest_head_sha(self, number: int) -> str | None:
         return self.get_pr(number).get("head_sha")
+
+    _MERGE_STATE_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          state
+          headRefOid
+          isInMergeQueue
+          autoMergeRequest { enabledAt }
+          mergeCommit { oid }
+        }
+      }
+    }
+    """
+
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """ARIA-HIGH-221 — the PR's merge state, read through GraphQL (the
+        merge-queue fields have no REST or ``gh pr view`` equivalent)."""
+        payload = self._gh_json([
+            "api", "graphql",
+            "-f", f"query={self._MERGE_STATE_QUERY}",
+            "-F", f"owner={self.owner}",
+            "-F", f"repo={self.repo}",
+            "-F", f"number={number}",
+        ])
+        data = payload.get("data")
+        repository = data.get("repository") if isinstance(data, dict) else None
+        pull = repository.get("pullRequest") if isinstance(repository, dict) else None
+        if not isinstance(pull, dict):
+            raise GovernanceError(f"merge_state_unreadable:{number}")
+        return {
+            "state": str(pull.get("state") or "").upper(),
+            "head_sha": pull.get("headRefOid"),
+            "in_merge_queue": pull.get("isInMergeQueue") is True,
+            "auto_merge_enabled": isinstance(pull.get("autoMergeRequest"), dict),
+            "merge_commit_sha": _merge_commit_oid(pull.get("mergeCommit")),
+        }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
         payload = self._gh_api_json(
@@ -1097,7 +1200,15 @@ class GhCliGitHubAdapter:
         )
         if completed.returncode != 0:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")
-        return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
+        # ARIA-HIGH-221 — a zero exit is not a merge. On a branch that
+        # requires a merge queue, `gh pr merge` enqueues the PR (or arms
+        # auto-merge, which enqueues it once checks pass); the queue merges
+        # it later, or removes it. The result is what GitHub reports now.
+        return merge_outcome(
+            self.get_merge_state(number),
+            expected_head_sha=expected_head_sha,
+            method="squash",
+        )
 
     # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
     #

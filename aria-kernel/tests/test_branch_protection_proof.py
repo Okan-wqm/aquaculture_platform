@@ -40,11 +40,26 @@ def _probe_for(payload, ok=True, reasons=()):
     return probe
 
 
-def _rules(ruleset_ids=(101,), bypass_actors=()):
+# ARIA-HIGH-221 — main requires a squash merge queue (a ruleset rule).
+_SQUASH_QUEUE = {"merge_method": "SQUASH", "ruleset_id": 101, "merge_methods": ["SQUASH"]}
+
+
+def _rules(ruleset_ids=(101,), bypass_actors=(), merge_queue=_SQUASH_QUEUE):
     def rules_probe(*, repo, branch):
-        return list(ruleset_ids), list(bypass_actors)
+        return list(ruleset_ids), list(bypass_actors), (None if merge_queue is None else dict(merge_queue))
 
     return rules_probe
+
+
+def _rules_listing() -> list[dict]:
+    """``rules/branches/main`` as GitHub lists it for the operator's shape."""
+    return [
+        {"type": "pull_request", "ruleset_id": 101},
+        {"type": "merge_queue", "ruleset_id": 101, "parameters": {
+            "merge_method": "SQUASH", "grouping_strategy": "ALLGREEN",
+            "max_entries_to_build": 5, "min_entries_to_merge": 1,
+        }},
+    ]
 
 
 class BranchProtectionProofTests(unittest.TestCase):
@@ -112,7 +127,7 @@ class BranchProtectionProofTests(unittest.TestCase):
     def test_unmeasured_bypass_actors_make_the_proof_invalid(self) -> None:
         # ARIA-HIGH-207 — "could not see the field" is not "no bypass actors".
         def unmeasured(*, repo, branch):
-            return [101], None
+            return [101], None, dict(_SQUASH_QUEUE)
 
         report = produce_branch_protection_proof(
             **self.binding, probe=_probe_for(_strong_payload()), rules_probe=unmeasured,
@@ -216,7 +231,7 @@ class BranchRulesProbeTests(unittest.TestCase):
         def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
             path = argv[-1]
             if path.endswith("/rules/branches/main"):
-                body = [{"type": "pull_request", "ruleset_id": 101}]
+                body = _rules_listing()
             elif path.endswith("/rulesets/101"):
                 body = detail
             else:
@@ -235,17 +250,24 @@ class BranchRulesProbeTests(unittest.TestCase):
             return _probe_branch_rules(repo="okan/aqua", branch="main")
 
     def test_absent_bypass_actors_are_unmeasured(self) -> None:
-        self.assertEqual(self._probe({"id": 101}), ([101], None))
+        self.assertEqual(self._probe({"id": 101})[:2], ([101], None))
 
     def test_null_bypass_actors_are_unmeasured(self) -> None:
-        self.assertEqual(self._probe({"id": 101, "bypass_actors": None}), ([101], None))
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": None})[:2], ([101], None))
 
     def test_empty_bypass_actors_are_measured_empty(self) -> None:
-        self.assertEqual(self._probe({"id": 101, "bypass_actors": []}), ([101], []))
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": []})[:2], ([101], []))
 
     def test_listed_bypass_actors_are_returned(self) -> None:
         actor = {"actor_id": 5, "actor_type": "Integration", "bypass_mode": "always"}
-        self.assertEqual(self._probe({"id": 101, "bypass_actors": [actor]}), ([101], [actor]))
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": [actor]})[:2], ([101], [actor]))
+
+    def test_the_same_listing_measures_the_merge_queue(self) -> None:
+        # ARIA-HIGH-221 — the queue is a ruleset rule on the branch.
+        _ids, _actors, merge_queue = self._probe({"id": 101, "bypass_actors": []})
+        self.assertEqual(merge_queue["merge_method"], "SQUASH")
+        self.assertEqual(merge_queue["ruleset_id"], 101)
+        self.assertEqual(merge_queue["merge_methods"], ["SQUASH"])
 
     def test_claim_gate_names_unmeasured_bypass_actors(self) -> None:
         from aria_kernel.enterprise_readiness import _evaluate_branch_protection
@@ -307,7 +329,7 @@ class OnDemandProtectionProbeTests(unittest.TestCase):
         weak = dict(_strong_payload(), required_pull_request_reviews={"required_approving_review_count": 0})
 
         def unmeasured(*, repo, branch):
-            return [101], None
+            return [101], None, dict(_SQUASH_QUEUE)
 
         row = self._probe(payload=weak, rules=unmeasured)
         self.assertIs(row["valid"], False)
@@ -362,7 +384,7 @@ class ProbeBranchProtectionCliTests(unittest.TestCase):
             if path == "repos/okan/aqua/branches/main/protection":
                 body = protection
             elif path == "repos/okan/aqua/rules/branches/main":
-                body = [{"type": "pull_request", "ruleset_id": 101}]
+                body = _rules_listing()
             elif path == "repos/okan/aqua/rulesets/101":
                 body = ruleset_detail
             else:
@@ -394,10 +416,9 @@ class ProbeBranchProtectionCliTests(unittest.TestCase):
 
     @staticmethod
     def _live_payload() -> dict:
-        # The real preflight probe also requires strict up-to-date checks.
-        payload = _strong_payload()
-        payload["required_status_checks"] = dict(payload["required_status_checks"], strict=True)
-        return payload
+        # ARIA-HIGH-221 — strict up-to-date is not required (the merge queue
+        # is); the live payload is the operator's shape without it.
+        return _strong_payload()
 
     def test_valid_protection_exits_zero_and_records_the_row(self) -> None:
         from aria_kernel.readiness_proofs import BP_PROBES_LEDGER_PATH

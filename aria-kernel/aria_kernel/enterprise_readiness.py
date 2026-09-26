@@ -607,6 +607,16 @@ def branch_protection_policy_reasons(proof: dict[str, Any]) -> list[str]:
     ruleset_ids = proof.get("ruleset_ids")
     if not isinstance(ruleset_ids, list) or not ruleset_ids:
         reasons.append("branch_protection_ruleset_ids_required")
+    # ARIA-HIGH-221 — main requires a squash merge queue (operator decision
+    # 2026-09-26): the queue tests the change on current main and leaves the
+    # PR head, which every proof is bound to, unchanged. Strict up-to-date
+    # is not required; it is recorded (`strict_up_to_date_required`).
+    from .preflight import REQUIRED_MERGE_QUEUE_METHOD
+
+    if proof.get("merge_queue_required") is not True:
+        reasons.append("branch_protection_merge_queue_required")
+    elif proof.get("merge_queue_merge_method") != REQUIRED_MERGE_QUEUE_METHOD:
+        reasons.append("branch_protection_merge_queue_method_must_be_squash")
     # ARIA-HIGH-207 — an absent or non-list field is unmeasured, which is
     # its own named failure; only a measured empty list passes.
     bypass_actors = proof.get("bypass_actors")

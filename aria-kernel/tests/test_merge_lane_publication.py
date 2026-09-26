@@ -405,7 +405,9 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(merge["id"], "merge")
         self.assertEqual(merge["env"]["GIT_CONFIG_KEY_0"], "http.https://github.com/.extraheader")
         self.assertIn("steps.publish_credential.outputs.header", merge["env"]["GIT_CONFIG_VALUE_0"])
-        self.assertIn('candidates=$(jq -r \'.candidates_evaluated // 0\'', merge["run"])
+        self.assertIn("candidates=$(jq -r '(.candidates_evaluated // 0)", merge["run"])
+        # ARIA-HIGH-221 — a merge-queue settlement is recorded work too.
+        self.assertIn("((.queue_settled // []) | length)", merge["run"])
         publish = " ".join(str(by_name["Publish ARIA state to the aria/state branch"]["if"]).split())
         self.assertIn("steps.merge.outputs.candidates != '0'", publish)
 

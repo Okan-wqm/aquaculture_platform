@@ -235,7 +235,9 @@ jobs:
           cat "$RESULT"
           # ARIA-HIGH-222 — a run with no candidate (no open PR whose head
           # holds a claim) is a no-op: it recorded nothing worth a publish.
-          echo "candidates=$(jq -r '.candidates_evaluated // 0' "$RESULT")" >> "$GITHUB_OUTPUT"
+          # ARIA-HIGH-221 — a merge-queue settlement (an enqueued PR the
+          # queue merged or removed) is recorded work too.
+          echo "candidates=$(jq -r '(.candidates_evaluated // 0) + ((.queue_settled // []) | length)' "$RESULT")" >> "$GITHUB_OUTPUT"
           exit "$STATUS"
 
       - name: Publish ARIA state to the aria/state branch

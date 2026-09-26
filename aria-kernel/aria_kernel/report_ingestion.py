@@ -18,6 +18,22 @@ DEFAULT_BACKFILL_LIMIT = 100
 LARGE_BACKFILL_THRESHOLD = 500
 
 
+def positive_backfill_limit(value: object) -> int:
+    """The one domain check for a backfill limit (ARIA-MEDIUM-230).
+
+    A limit below 1 is out of domain: ``candidates[:-1]`` is every candidate
+    but one, and ``-1`` passes the large-backfill guard below, so a negative
+    limit ran an unbounded backfill without the confirmation that guard
+    demands; zero ingested nothing and reported success. The CLI parses
+    ``--limit`` through this same function, so the command line and the scan
+    refuse the same values with the same name.
+    """
+    limit = int(str(value))
+    if limit < 1:
+        raise ValueError(f"backfill_limit_must_be_positive:{limit}")
+    return limit
+
+
 def report_ingestion_scan(
     paths: WorkspacePaths,
     *,
@@ -56,6 +72,7 @@ def report_ingestion_scan(
     # and every later call ingests at most ``backfill_limit``; guarding on
     # ``len(rows)`` refused the learning hook on every cycle once the
     # registry passed 500 rows, so no Lane-A/B finding ever reached ARIA.
+    backfill_limit = positive_backfill_limit(backfill_limit)
     if backfill_limit > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
         raise ValueError("large_backfill_requires_confirm_large_backfill_and_acknowledge")
     rows, malformed = _read_registry(registry, strict=strict_registry)

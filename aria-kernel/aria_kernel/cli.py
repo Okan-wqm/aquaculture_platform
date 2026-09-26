@@ -86,8 +86,10 @@ from aria_kernel.plan_convergence import (
 from aria_kernel.pressure import curate_workspace_pressures, explain_pressure, explain_workspace_pressure, list_workspace_pressures
 from aria_kernel.quarantine import quarantine_tool
 from aria_kernel.report_ingestion import (
+    DEFAULT_BACKFILL_LIMIT,
     import_finding_file,
     list_ingested_findings,
+    positive_backfill_limit,
     report_ingestion_scan,
 )
 from aria_kernel.registry_compiler import compile_registry
@@ -1609,7 +1611,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_workspace_args(ar_scan)
     ar_scan.add_argument("--cycle-id", required=True)
     ar_scan.add_argument("--backfill-open", action="store_true")
-    ar_scan.add_argument("--limit", type=int, default=100)
+    ar_scan.add_argument("--limit", type=positive_backfill_limit, default=DEFAULT_BACKFILL_LIMIT)
     ar_scan.add_argument("--confirm-large-backfill", action="store_true")
     ar_scan.add_argument("--acknowledge", action="store_true")
     ar_import = add_subparser(agent_report_sub, "import")
@@ -5685,16 +5687,26 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown metrics command")
 
     if args.command == "cycle-guard" and args.cycle_guard_command == "evaluate":
-        from aria_kernel.cycle_guard import DEFAULT_PRESSURE_THRESHOLD, evaluate_cycle_emptiness
+        from aria_kernel.cycle_guard import (
+            DEFAULT_PRESSURE_THRESHOLD,
+            CycleGuardRefusal,
+            evaluate_cycle_emptiness,
+        )
         from dataclasses import asdict
 
         threshold = args.pressure_threshold if args.pressure_threshold is not None else DEFAULT_PRESSURE_THRESHOLD
-        verdict = evaluate_cycle_emptiness(
-            cycle_id=args.cycle_id,
-            base_dir=args.tools_dir,
-            pressure_threshold=threshold,
-            repo_root_override=args.workspace_root,
-        )
+        try:
+            verdict = evaluate_cycle_emptiness(
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+                pressure_threshold=threshold,
+                repo_root_override=args.workspace_root,
+            )
+        except CycleGuardRefusal as exc:
+            # ARIA-MEDIUM-230 — neither "work to do" (0) nor "empty" (2):
+            # the guard could not read the backlog, and says which input.
+            print(json.dumps({"cycle_id": args.cycle_id, "refusal": str(exc)}, indent=2, sort_keys=True))
+            return 3
         print(json.dumps(asdict(verdict), indent=2, sort_keys=True))
         # Exit 0 when non-empty (work to do); 2 when empty (caller may skip).
         return 0 if not verdict.is_empty else 2

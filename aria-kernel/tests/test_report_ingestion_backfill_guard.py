@@ -83,5 +83,50 @@ class BackfillGuardTests(unittest.TestCase):
         self.assertEqual(confirmed["status"], "ok")
 
 
+
+class OutOfDomainLimitTests(unittest.TestCase):
+    """ARIA-MEDIUM-230 — a limit below 1 is refused before any work.
+
+    `candidates[:-1]` is every candidate but one, and `-1` is below the
+    large-backfill threshold, so a negative limit ingested an unbounded
+    backfill without the confirmation the guard exists to demand; zero
+    silently ingested nothing.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-m230-")
+        self.repo = Path(self.tmp.name) / "repo"
+        registry = self.repo / "docs" / "reviews" / "_registry" / "findings.jsonl"
+        registry.parent.mkdir(parents=True)
+        registry.write_text("".join(json.dumps(_row(i)) + "\n" for i in range(3)), encoding="utf-8")
+        self.paths = workspace_paths(self.repo, Path(self.tmp.name) / "ws")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_zero_and_negative_limits_are_refused_by_name(self) -> None:
+        for limit in (0, -1, -(LARGE_BACKFILL_THRESHOLD + 1)):
+            with self.subTest(limit=limit), self.assertRaises(ValueError) as ctx:
+                report_ingestion_scan(self.paths, cycle_id="cyc-1", backfill_limit=limit)
+            self.assertIn(f"backfill_limit_must_be_positive:{limit}", str(ctx.exception))
+
+    def test_the_cli_refuses_the_same_limits_at_its_contract(self) -> None:
+        """The CLI's `--limit` is parsed by the same validator, so the real
+        command line cannot reach the scan with a limit the scan refuses."""
+        import contextlib
+        import io
+
+        from aria_kernel.cli import build_parser
+
+        parser = build_parser()
+        for limit in ("0", "-1"):
+            stderr = io.StringIO()
+            with self.subTest(limit=limit), contextlib.redirect_stderr(stderr),                     self.assertRaises(SystemExit) as ctx:
+                parser.parse_args(["agent-report", "scan-registry", "--cycle-id", "c", "--limit", limit])
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("positive_backfill_limit", stderr.getvalue())
+        parsed = parser.parse_args(["agent-report", "scan-registry", "--cycle-id", "c", "--limit", "7"])
+        self.assertEqual(parsed.limit, 7)
+
 if __name__ == "__main__":
     unittest.main()

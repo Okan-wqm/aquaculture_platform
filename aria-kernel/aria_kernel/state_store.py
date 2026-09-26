@@ -1914,6 +1914,9 @@ class PreparedPublish:
     # preamble recorded on the governance ledger (empty on every publish
     # that needed no acknowledgment — the scheduled lanes).
     accepted_losses_recorded: tuple[str, ...]
+    # ARIA-MEDIUM-230 — what bounding the compactable ledgers did before the
+    # snapshot was built (`state_compact.bound_compactable_surfaces`).
+    compaction: dict[str, Any]
 
 
 def prepare_publishable_snapshot(
@@ -1938,7 +1941,12 @@ def prepare_publishable_snapshot(
        governance row naming them is appended — BEFORE step 3, so the row
        is inside the snapshot this commit attests rather than in a working
        tree the runner discards;
-    3. the snapshot is built from the healed store;
+    3. the compactable ledgers are bounded (ARIA-MEDIUM-230): any over the
+       compaction trigger is compacted, a compaction failure or a ledger
+       still over the per-surface cap refuses the publish BY NAME — the
+       bound lives here because this is the one step every publisher runs,
+       whether or not the cycle that grew the ledger reached its end;
+    3b. the snapshot is built from the healed, bounded store;
     4. if that snapshot loses surfaces nothing attested and the operator's
        acknowledgment names this repository, the acceptance is recorded on
        the governance ledger and the snapshot is REBUILT over the row —
@@ -1970,6 +1978,7 @@ def prepare_publishable_snapshot(
             repo_hash=repo_hash,
             base_head=base_head,
         )
+        compaction = _bound_publish_surfaces(store)
 
         def build() -> dict[str, Any]:
             return build_publishable_snapshot(
@@ -1996,7 +2005,29 @@ def prepare_publishable_snapshot(
             snapshot=snapshot,
             dropped_inherited_entries=tuple(dropped),
             accepted_losses_recorded=accepted,
+            compaction=compaction,
         )
+
+
+def _bound_publish_surfaces(store: StateStore) -> dict[str, Any]:
+    """Bound the store's compactable ledgers, or refuse the publish by name.
+
+    ``state_publish_surface_unbounded`` — a ledger is still over the cap
+    after compaction; ``state_publish_compaction_failed`` — the compactor
+    itself failed. Either way nothing is built or pushed: a publish the
+    host would refuse is refused here, with the reason on the lane's output
+    instead of a remote's rejection after the whole night's work.
+    """
+    from .state_compact import SurfaceBoundError, bound_compactable_surfaces
+
+    try:
+        return bound_compactable_surfaces(tools_root(store))
+    except SurfaceBoundError as exc:
+        raise StateStoreRefusal(f"state_publish_surface_unbounded:{exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - re-raised as the publish's named refusal, never swallowed
+        raise StateStoreRefusal(
+            f"state_publish_compaction_failed:{type(exc).__name__}:{str(exc)[:300]}"
+        ) from exc
 
 
 def _rows_unchanged_since_published(store: StateStore, prepared: PreparedPublish) -> bool:
@@ -2093,6 +2124,9 @@ def _publish_with_contention_replay_locked(
     last_refusal: StateStoreRefusal | None = None
     dropped: list[dict[str, str]] = []
     accepted: list[str] = []
+    # ARIA-MEDIUM-230 — what bounding the compactable ledgers did, per
+    # attempt (a replayed attempt re-prepares, so it re-bounds).
+    compactions: list[dict[str, Any]] = []
     for attempt in range(1, max_attempts + 1):
         if _read_commit_ref(store.root, "HEAD") is None:
             raise StatePublishOutcomeUnknown(
@@ -2109,6 +2143,7 @@ def _publish_with_contention_replay_locked(
             parent_commit=parent_commit,
         )
         dropped.extend(prepared.dropped_inherited_entries)
+        compactions.append({key: value for key, value in prepared.compaction.items() if key != "result"})
         accepted.extend(prepared.accepted_losses_recorded)
         base_head = prepared.base_head
         base = prepared.previous
@@ -2125,6 +2160,7 @@ def _publish_with_contention_replay_locked(
                 "attempts": attempt,
                 "dropped_inherited_entries": dropped,
                 "accepted_losses_recorded": accepted,
+                "state_compaction": compactions,
             }
         try:
             result = publish_state(
@@ -2167,6 +2203,7 @@ def _publish_with_contention_replay_locked(
                     "attempts": attempt,
                     "dropped_inherited_entries": dropped,
                     "accepted_losses_recorded": accepted,
+                    "state_compaction": compactions,
                 }
             if attempt == max_attempts:
                 break
@@ -2209,6 +2246,7 @@ def _publish_with_contention_replay_locked(
             "attempts": attempt,
             "dropped_inherited_entries": dropped,
             "accepted_losses_recorded": accepted,
+            "state_compaction": compactions,
         }
 
     raise StateStoreRefusal(

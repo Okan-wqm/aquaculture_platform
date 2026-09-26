@@ -897,36 +897,16 @@ def run_enterprise_cycle(
         if phase.state_key is not None:
             state[phase.state_key] = context.result(phase.name)
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
-    # ORPHAN-HIGH-798 (auto-trigger half) — if any surface exceeds the
-    # compaction threshold, compact NOW rather than scheduling for a future
-    # cycle: the push that publishes this cycle's state is the one that
-    # dies when a file crosses GitHub's 50MB line. The snapshot already
-    # measures size_bytes per surface (state_snapshot.py:215) but nothing
-    # consumed it — this is the trigger that wiring was designed for.
-    state["state_compaction"] = _auto_compact_if_needed(base_dir)
+    # ARIA-MEDIUM-230 — no compaction here. The cycle-end trigger that lived
+    # here (ORPHAN-HIGH-798) ran only when a cycle reached this line, caught
+    # every failure into a state key nothing read, and resolved a missing
+    # base_dir against the working directory; the nightlies of 2026-09-21
+    # onward died at their time limit before it, and their publishes were
+    # refused on a raw-findings ledger it never bounded. The bound is the
+    # publish preamble's (`state_compact.bound_compactable_surfaces`, run by
+    # `state_store.prepare_publishable_snapshot`), the one step every
+    # publisher runs, and a failure there refuses the publish by name.
     return state
-
-
-def _auto_compact_if_needed(base_dir: str | os.PathLike[str] | None) -> dict[str, Any]:
-    """Run compact_state when any tracked surface exceeds the threshold."""
-    from pathlib import Path as _P
-
-    threshold_bytes = 40 * 1024 * 1024  # 40MB — GitHub warns at 50MB
-    root = _P(base_dir) if base_dir else _P(".")
-    surfaces_to_check = ["runs.jsonl", "raw-findings.jsonl", "memory/beliefs.jsonl", "memory/learning-events.jsonl"]
-    oversized = []
-    for rel in surfaces_to_check:
-        path = root / rel
-        if path.exists() and path.stat().st_size > threshold_bytes:
-            oversized.append(rel)
-    if not oversized:
-        return {"status": "not_needed", "oversized": []}
-    try:
-        from .state_compact import compact_state
-        result = compact_state(base_dir=base_dir, retain_days=7, dry_run=False)
-        return {"status": "compacted", "oversized": oversized, "result": result}
-    except Exception as exc:  # noqa: BLE001 — compaction must not kill the cycle
-        return {"status": "error", "oversized": oversized, "error": str(exc)[:200]}
 
 
 # ---------------------------------------------------------------------

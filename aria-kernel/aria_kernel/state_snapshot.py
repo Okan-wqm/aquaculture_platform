@@ -71,7 +71,17 @@ from .state_manifest import (
 
 SNAPSHOT_SCHEMA = "aria/state-snapshot/v1"
 MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
-SNAPSHOT_MAX_SURFACE_BLOB_BYTES = 128 * 1024 * 1024
+# ARIA-MEDIUM-230 — every carried surface is ONE file in the aria/state
+# tree, and GitHub refuses a push carrying any file over 100 MiB. The cap
+# was 128 MiB: a surface the host would refuse passed every kernel check,
+# and the refusal came from the remote after the whole night's work. The
+# cap now sits below the host's line with a third of it to spare — room
+# for the growth between two publishes — and equals the evidence-ledger
+# cap `autonomy_evidence` applies to the surfaces it counts, so the two
+# kernel bounds agree. `state_compact.COMPACTION_TRIGGER_BYTES` is derived
+# from this number, so a publish compacts long before it reaches it.
+GITHUB_PUSH_FILE_LIMIT_BYTES = 100 * 1024 * 1024
+SNAPSHOT_MAX_SURFACE_BLOB_BYTES = 64 * 1024 * 1024
 SNAPSHOT_MAX_INPUT_BYTES = 1280 * 1024 * 1024
 # ARIA-HIGH-034 — not a number of its own: the read-side line cap IS the
 # append primitive's row cap, so a writer can never seal a row the

@@ -47,7 +47,6 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 __all__ = [
     "LabelInput",
-    "record_seeding_finding",
     "record_seeding_findings",
     "label_finding",
     "finalize_corpus",
@@ -89,22 +88,6 @@ def seeding_path(base_dir: str | Path | None, tool_id: str) -> Path:
 def corpus_path(base_dir: str | Path | None) -> Path:
     """Canonical operator-labeled corpus path."""
     return ensure_tools_dir(base_dir) / "operator-feedback.jsonl"
-
-
-def record_seeding_finding(
-    *,
-    tool_id: str,
-    finding: dict[str, Any],
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    """Persist a raw finding from a LIVE adapter run for later labeling.
-
-    Operator workflow:
-      ``aria-kernel adapter-run <tool_id>`` emits findings; this
-      function persists each one to the seeding ledger. The operator
-      then runs ``label_finding(...)`` on each entry.
-    """
-    return record_seeding_findings(tool_id=tool_id, findings=[finding], base_dir=base_dir)[0]
 
 
 def record_seeding_findings(

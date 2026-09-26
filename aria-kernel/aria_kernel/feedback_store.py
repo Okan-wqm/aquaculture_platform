@@ -471,7 +471,7 @@ def record_findings_for_run(
             },
         )
         # Every LIVE finding also lands in the calibration seeding ledger,
-        # which is the pool the operator labels from. `record_seeding_finding`
+        # which is the pool the operator labels from. `record_seeding_findings`
         # existed with zero production callers, so the pool was permanently
         # empty and the bootstrap's own operator workflow began at a ledger
         # nothing ever filled. Suppressed FPs are excluded — the operator

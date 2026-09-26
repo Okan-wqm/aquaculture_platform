@@ -62,9 +62,9 @@ class FinalizeWritesTheCanonicalVocabularyTest(unittest.TestCase):
             from aria_kernel.tool_registry import ensure_tools_dir
             ensure_tools_dir(root)
             for i in range(10):
-                cb.record_seeding_finding(
+                cb.record_seeding_findings(
                     tool_id="adapter-a",
-                    finding={"id": f"f{i}", "finding_fingerprint": f"fp-{i}", "run_id": f"r{i}"},
+                    findings=[{"id": f"f{i}", "finding_fingerprint": f"fp-{i}", "run_id": f"r{i}"}],
                     base_dir=root,
                 )
                 cb.label_finding(

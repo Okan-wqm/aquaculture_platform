@@ -846,7 +846,7 @@ jobs:
           path: dist/
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
       #
@@ -902,7 +902,7 @@ jobs:
 
       - name: Build and push ${{ matrix.service }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.file }}
@@ -968,7 +968,7 @@ jobs:
           path: web
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
       #
@@ -1012,7 +1012,7 @@ jobs:
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -1078,7 +1078,7 @@ jobs:
           [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
           printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Login to GHCR
         env:
@@ -1100,7 +1100,7 @@ jobs:
           exit 1
 
       - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -1135,7 +1135,7 @@ jobs:
     outputs:
       digest_manifest_b64: ${{ steps.manifest.outputs.digest_manifest_b64 }}
     steps:
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Login to GHCR
         env:

@@ -632,10 +632,19 @@ def _record_change_validated(
     The refs are ``refs_for_change`` — the ok runs at the change's committed
     tip. A refusal is recorded on governance (``change_validated_refused``)
     and raised as :class:`ChangeValidatedRefused`.
+
+    A change validated once is not validated again: its committed row is
+    immutable, so an existing ``change_validated`` row already attests this
+    tip. A retried delivery re-runs the apply gate, whose new runs at the
+    same tip would otherwise make the second row drift from the first.
     """
-    from .tool_registry import append_tools_governance
+    from .change_ledger import _find_validated_for_change
+    from .tool_registry import append_tools_governance, ensure_tools_dir
     from .validation_runs_ledger import refs_for_change
 
+    existing = _find_validated_for_change(ensure_tools_dir(base_dir), change_id)
+    if existing is not None:
+        return existing
     refs = refs_for_change(change_id, base_dir=base_dir)
     try:
         return emit(change_id=change_id, validation_run_refs=refs, base_dir=base_dir, workspace_root=workspace)

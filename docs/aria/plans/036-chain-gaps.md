@@ -60,7 +60,7 @@ Kullanıcı kararları:
    kararlı SHADOW koşusu ve ≥5 anchor yargısı gerekir; ardından `--target-status ACTIVE
 --operator-approval-ref gov:<id>`.
 8. O2 — `profile set --profile standard --scheduler-ceiling strict --operator-approval-ref gov:<id>`.
-9. A1'den sonra — `merge-lane grant --lane L1 --expires-at <tarih> --operator-approval-ref gov:<id>`.
+9. A1'den sonra — `merge-lane grant --expires-at <tarih> --operator-approval-ref gov:<id>`.
 
 ## Doğrulama
 

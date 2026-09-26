@@ -146,10 +146,13 @@ from aria_kernel.runtime_artifacts import (
     verify_runtime_artifacts,
 )
 from aria_kernel.runtime_profile import (
+    MERGE_LANE_GRANTABLE_LANES,
     PROFILES,
     get_profile,
     get_scheduler_profile_ceiling,
     list_profile_history,
+    revoke_merge_lane_grant,
+    set_merge_lane_grant,
     set_profile,
 )
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
@@ -1116,12 +1119,13 @@ def build_parser() -> argparse.ArgumentParser:
     # self-merge freeze; no ARIA workflow holds that authority.
     # ARIA-HIGH-205 — the operator's merge-lane grant: one lane, an expiry,
     # an operator's GitHub act (ARIA-CRITICAL-216). No ARIA workflow runs these.
+    # The lane is not the operator's to name: L1 is the only grantable lane
+    # (runtime_profile.MERGE_LANE_GRANTABLE_LANES) and lanes are kernel-derived.
     merge_grant = add_subparser(merge_sub, "grant")
-    merge_grant.add_argument("--lane", required=True)
     merge_grant.add_argument("--expires-at", required=True)
     merge_grant.add_argument(
         "--operator-approval-ref", required=True,
-        help=_GITHUB_APPROVAL_HELP + " Surface: merge_lane_grant lane=<lane> expires=<expiry>.",
+        help=_GITHUB_APPROVAL_HELP + " Surface: merge_lane_grant lane=L1 expires=<expiry>.",
     )
     merge_revoke = add_subparser(merge_sub, "revoke")
     merge_revoke.add_argument("--operator-approval-ref", required=True, help=_LOWERING_REASON_HELP)
@@ -3935,11 +3939,10 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "merge-lane" and args.merge_command in {"grant", "revoke"}:
-        from .runtime_profile import revoke_merge_lane_grant, set_merge_lane_grant
-
         if args.merge_command == "grant":
+            (grantable_lane,) = MERGE_LANE_GRANTABLE_LANES
             grant_state = set_merge_lane_grant(
-                lane=args.lane,
+                lane=grantable_lane,
                 expires_at=args.expires_at,
                 operator_approval_ref=args.operator_approval_ref,
                 base_dir=args.tools_dir,

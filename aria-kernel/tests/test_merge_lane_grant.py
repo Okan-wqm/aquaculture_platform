@@ -223,7 +223,7 @@ class MergeLaneGrantTests(unittest.TestCase):
         expires_at = _in(7)
         with mock.patch("sys.stdout"):
             self.assertEqual(cli.main(base + [
-                "grant", "--lane", "L1", "--expires-at", expires_at,
+                "grant", "--expires-at", expires_at,
                 "--operator-approval-ref", self._approval(expires_at),
             ]), 0)
             self.assertTrue(merge_authority_available(base_dir=self.tools))

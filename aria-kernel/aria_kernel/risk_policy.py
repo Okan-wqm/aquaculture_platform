@@ -48,7 +48,9 @@ def classify_change(
 ) -> RiskPolicyVerdict:
     active = load_risk_policy(policy)
     policy_hash = risk_policy_hash(active)
-    raw_paths = [raw for raw in (_changed_file_path(item) for item in changed_files) if raw.strip()]
+    # A whitespace-only name is a legal POSIX name and is classified, not
+    # dropped (ARIA-MEDIUM-224); only an entry that names nothing is skipped.
+    raw_paths = [raw for raw in (_changed_file_path(item) for item in changed_files) if raw]
     try:
         paths = tuple(normalize_repo_relpath(raw) for raw in raw_paths)
     except GovernanceError:
@@ -87,14 +89,14 @@ def classify_change(
     unknown: list[str] = []
     owned: list[str] = []
     lanes = active.get("lanes") or {}
-    owner_globs = codeowners_globs()
+    rules = codeowners_rules()
     for path in paths:
-        lane = _lane_for_path(path, active, owner_globs)
+        lane = _lane_for_path(path, active, rules)
         if lane is None:
             unknown.append(path)
         else:
             matched[lane].append(path)
-            if _is_owned(path, owner_globs):
+            if _is_owned(path, rules):
                 owned.append(path)
     if unknown:
         return RiskPolicyVerdict(
@@ -220,10 +222,11 @@ def _validate_policy(policy: dict[str, Any]) -> None:
         value = policy.get(key)
         if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
             raise GovernanceError(f"risk_policy_{key}_must_be_nonempty_string_array")
-    if policy.get("codeowners_lane") not in ("L2", "L3"):
-        # An owned path merged unreviewed is exactly what L1 means; the lane
-        # owned paths are forced into can never be L1 (ARIA-HIGH-187).
-        raise GovernanceError("risk_policy_codeowners_lane_must_be_L2_or_L3")
+    if policy.get("codeowners_lane") != "L3":
+        # An owned path merged unreviewed is exactly what L1 means
+        # (ARIA-HIGH-187), and an owned path must reach its owner, which only
+        # the policy-approval lane does (ARIA-MEDIUM-224): L2 is refused too.
+        raise GovernanceError("risk_policy_codeowners_lane_must_be_L3")
     lanes = policy.get("lanes")
     if not isinstance(lanes, dict):
         raise GovernanceError("risk_policy_lanes_required")
@@ -246,49 +249,101 @@ def classify_path(path: str, *, policy: dict[str, Any] | None = None) -> str | N
     active = load_risk_policy(policy)
     if _matches_any(path, active["blocked_globs"]):
         return "blocked"
-    return _lane_for_path(path, active, codeowners_globs())
+    return _lane_for_path(path, active, codeowners_rules())
 
 
-def codeowners_globs(path: Path | None = None) -> tuple[str, ...]:
-    """``.github/CODEOWNERS`` patterns translated to repo globs.
+@dataclass(frozen=True)
+class CodeownersRule:
+    """One ``.github/CODEOWNERS`` line: its pattern, the repo globs the
+    pattern means, and its owners (empty when the line names none)."""
 
-    GitHub semantics: a leading ``/`` anchors at the root; a trailing ``/``
-    owns the whole directory; a pattern with no inner ``/`` matches at any
-    depth; ``*`` does not cross ``/``. An owned path must never be merged
-    without its owner, so L1 can never contain one — the policy's
-    ``codeowners_lane`` (L3) overrides whatever lane its globs would pick.
-    """
+    line: int
+    pattern: str
+    globs: tuple[str, ...]
+    owners: tuple[str, ...]
+
+
+def codeowners_rules(path: Path | None = None) -> tuple[CodeownersRule, ...]:
+    """``.github/CODEOWNERS`` in file order, each pattern translated to globs."""
     source = path if path is not None else CODEOWNERS_PATH
-    globs: list[str] = []
-    for raw_line in source.read_text(encoding="utf-8").splitlines():
+    rules: list[CodeownersRule] = []
+    for number, raw_line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.split("#", 1)[0].strip()
         if not line:
             continue
-        pattern = line.split()[0]
-        anchored = pattern.startswith("/")
-        pattern = pattern.lstrip("/")
-        directory = pattern.endswith("/")
-        pattern = pattern.rstrip("/")
-        if not pattern:
-            continue
-        if not anchored and "/" not in pattern:
-            pattern = f"**/{pattern}"
-        globs.append(f"{pattern}/**" if directory else pattern)
-    return tuple(globs)
+        pattern, *owners = line.split()
+        globs = _codeowners_pattern_globs(pattern)
+        if globs:
+            rules.append(CodeownersRule(line=number, pattern=pattern, globs=globs, owners=tuple(owners)))
+    return tuple(rules)
 
 
-def _lane_for_path(path: str, active: dict[str, Any], owner_globs: tuple[str, ...]) -> str | None:
+def _codeowners_pattern_globs(pattern: str) -> tuple[str, ...]:
+    """GitHub's CODEOWNERS (gitignore) semantics, as repo globs.
+
+    ARIA-MEDIUM-224:
+    * a leading ``/`` anchors the pattern at the repository root;
+    * a pattern with no ``/`` except a trailing one matches at any depth;
+      any other ``/`` anchors it;
+    * a pattern names a file or a directory, with or without a trailing
+      ``/``, and a directory owns everything below it — so every pattern is
+      ``P`` and ``P/**``. ``docs/aria`` was once matched as a file only, and
+      nothing under it was owned;
+    * ``*`` does not cross ``/``.
+
+    Where GitHub owns less — ``docs/*`` does not reach ``docs/a/b.md``, a
+    trailing ``/`` does not own a same-named file — the translation owns
+    more. That errs to "owned", the side that can never open the
+    unreviewed lane.
+    """
+    anchored = pattern.startswith("/")
+    body = pattern.strip("/")
+    if not body:
+        return ()
+    if not anchored and "/" not in body:
+        body = f"**/{body}"
+    return (body, f"{body}/**")
+
+
+def codeowners_last_match(
+    path: str,
+    *,
+    source: Path | None = None,
+    rules: tuple[CodeownersRule, ...] | None = None,
+) -> CodeownersRule | None:
+    """The rule GitHub applies to ``path``: the LAST matching line, or None."""
+    match: CodeownersRule | None = None
+    for rule in rules if rules is not None else codeowners_rules(source):
+        if _matches_any(path, list(rule.globs)):
+            match = rule
+    return match
+
+
+def codeowners_globs(path: Path | None = None) -> tuple[str, ...]:
+    """Every glob of every ``.github/CODEOWNERS`` rule, in file order."""
+    return tuple(glob for rule in codeowners_rules(path) for glob in rule.globs)
+
+
+def _lane_for_path(path: str, active: dict[str, Any], rules: tuple[CodeownersRule, ...]) -> str | None:
     if _matches_any(path, active["blocked_globs"]):
         return "blocked"
     lanes = active.get("lanes") or {}
     lane = _first_matching_lane(path, lanes)
-    if _is_owned(path, owner_globs):
-        return str(active.get("codeowners_lane") or "L3")
+    if _is_owned(path, rules):
+        return str(active["codeowners_lane"])
     return lane
 
 
-def _is_owned(path: str, owner_globs: tuple[str, ...]) -> bool:
-    return _matches_any(path, list(owner_globs))
+def _is_owned(path: str, rules: tuple[CodeownersRule, ...]) -> bool:
+    """An owned path must never be merged without its owner, so L1 can never
+    contain one: the policy's ``codeowners_lane`` (L3) overrides whatever lane
+    its globs would pick.
+
+    GitHub gives a path the owners of its last matching line, and a last
+    line with no owners leaves the path unowned. Here that path stays owned:
+    an owner forgotten on a later line must not open the unreviewed lane.
+    """
+    return codeowners_last_match(path, rules=rules) is not None
 
 
 # ARIA-CRITICAL-215 — L1 is an explicit allowlist carved out of the
@@ -317,7 +372,7 @@ def _changed_file_path(item: str | dict[str, Any]) -> str:
     if isinstance(item, dict):
         for key in ("filename", "path", "file", "name"):
             value = item.get(key)
-            if isinstance(value, str) and value.strip():
+            if isinstance(value, str) and value:
                 return value
     return ""
 
@@ -334,10 +389,13 @@ __all__ = [
     "RISK_POLICY_SCHEMA",
     "RISK_POLICY_PATH",
     "CODEOWNERS_PATH",
+    "CodeownersRule",
     "RiskPolicyVerdict",
     "classify_change",
     "classify_path",
     "codeowners_globs",
+    "codeowners_last_match",
+    "codeowners_rules",
     "load_risk_policy",
     "record_risk_decision_for_pr",
     "risk_policy_hash",

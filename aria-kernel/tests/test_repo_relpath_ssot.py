@@ -12,7 +12,8 @@ These tests pin:
 1. ``canonical_path.lexical_repo_path`` keeps a leading dot and strips only
    ``./`` prefixes.
 2. ``canonical_path.normalize_repo_relpath`` additionally refuses absolute
-   paths, ``..`` segments and empty input BEFORE anything is stripped.
+   paths, ``..`` segments and empty input BEFORE anything is stripped (and,
+   since ARIA-MEDIUM-224, a backslash, which it no longer rewrites).
 3. Every former ``lstrip`` site now answers through the helper: dotfile paths
    keep their dot and traversal is refused.
 4. An AST invariant: no ``.lstrip`` call whose argument contains both ``.`` and
@@ -56,21 +57,31 @@ class NormalizeRepoRelpathTests(unittest.TestCase):
         self.assertEqual(normalize_repo_relpath(".github/workflows/x.yml"), ".github/workflows/x.yml")
 
     def test_refuses_traversal_before_stripping(self) -> None:
-        for raw in ("../x", "./../x", "a/../../b", "docs/../x", "..", ".\\..\\x"):
+        for raw in ("../x", "./../x", "a/../../b", "docs/../x", ".."):
             with self.subTest(raw=raw):
                 with self.assertRaises(GovernanceError) as ctx:
                     normalize_repo_relpath(raw)
                 self.assertIn("repo_relpath_traversal", str(ctx.exception))
 
     def test_refuses_absolute_paths(self) -> None:
-        for raw in ("/etc/passwd", "\\etc\\passwd", "C:/x", "c:\\x"):
+        for raw in ("/etc/passwd", "C:/x", "c:\\x"):
             with self.subTest(raw=raw):
                 with self.assertRaises(GovernanceError) as ctx:
                     normalize_repo_relpath(raw)
                 self.assertIn("repo_relpath_absolute", str(ctx.exception))
 
+    def test_refuses_a_backslash_rather_than_rewriting_it(self) -> None:
+        # ARIA-MEDIUM-224 — a backslash is a legal POSIX name character; the
+        # traversal and UNC spellings it once carried are refused with it.
+        for raw in ("\\etc\\passwd", ".\\..\\x", "docs\\x.md"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(GovernanceError) as ctx:
+                    normalize_repo_relpath(raw)
+                self.assertIn("repo_relpath_backslash", str(ctx.exception))
+
     def test_refuses_empty(self) -> None:
-        for raw in ("", "   ", "./"):
+        # "   " is a legal POSIX name since ARIA-MEDIUM-224 stopped strip()-ing.
+        for raw in ("", "./"):
             with self.subTest(raw=raw):
                 with self.assertRaises(GovernanceError) as ctx:
                     normalize_repo_relpath(raw)

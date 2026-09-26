@@ -79,27 +79,82 @@ def lexical_repo_path(raw_path: object) -> str:
     return path
 
 
-def normalize_repo_relpath(raw_path: object) -> str:
-    """Lexically normalize a path that must stay inside the repository.
+def _refuse_non_repo_spelling(text: str, raw_path: object) -> None:
+    """The refusals every repo-relative reading shares: an absolute path (a
+    POSIX root or a drive letter) and a backslash.
 
-    Refuses, BEFORE any prefix is stripped, an absolute path (POSIX root,
-    UNC/backslash root, or a drive letter), any ``..`` segment, and an empty
-    result. Returns the ``lexical_repo_path`` form otherwise.
-
-    Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
-    ``repo_relpath_traversal`` or ``repo_relpath_empty``.
+    A backslash is a legal POSIX name character, so ``docs\\x.md`` names one
+    root-level file; rewriting it into a separator (as this module once did)
+    classified a different path than the one the change holds. It is refused
+    rather than guessed at, which also refuses a UNC root.
     """
     from .tool_registry import GovernanceError as _GE
 
-    text = str(raw_path).strip().replace("\\", "/")
     if text.startswith("/") or (len(text) >= 2 and text[1] == ":" and text[0].isalpha()):
         raise _GE(f"repo_relpath_absolute: {raw_path!r}")
-    if ".." in text.split("/"):
-        raise _GE(f"repo_relpath_traversal: {raw_path!r}")
+    if "\\" in text:
+        raise _GE(f"repo_relpath_backslash: {raw_path!r}")
+
+
+def normalize_repo_relpath(raw_path: object) -> str:
+    """The canonical spelling of a path that must stay inside the repository.
+
+    ARIA-MEDIUM-224 — ONE canonical form: after the leading ``./`` prefixes
+    ``lexical_repo_path`` removes, a path is its segments joined by ``/``
+    with no ``''``, ``.`` or ``..`` segment (``snapshot._scoped_input_path``
+    holds the same rule). ``docs//x.md``, ``docs/./x.md`` and ``docs/x.md/``
+    are refused, not returned: they are spellings no glob is written for, so
+    a classifier handed one judged a string instead of the file. Whitespace is
+    part of a POSIX name and is kept (``strip()`` once turned a name with a
+    leading space into ``docs/x.md``, a different file). An absolute path and a backslash
+    are refused (``_refuse_non_repo_spelling``).
+
+    Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
+    ``repo_relpath_backslash``, ``repo_relpath_traversal``,
+    ``repo_relpath_non_canonical`` or ``repo_relpath_empty``.
+    """
+    from .tool_registry import GovernanceError as _GE
+
+    text = str(raw_path)
+    _refuse_non_repo_spelling(text, raw_path)
     path = lexical_repo_path(text)
-    if not path.strip("/"):
+    segments = path.split("/")
+    if ".." in segments:
+        raise _GE(f"repo_relpath_traversal: {raw_path!r}")
+    if path in ("", "."):
         raise _GE(f"repo_relpath_empty: {raw_path!r}")
+    if any(segment in ("", ".") for segment in segments):
+        raise _GE(f"repo_relpath_non_canonical: {raw_path!r}")
     return path
+
+
+def resolve_repo_relpath(raw_path: object) -> str:
+    """The canonical path a repo-relative spelling resolves to, lexically.
+
+    ``''`` and ``.`` segments are dropped and ``..`` consumes the segment
+    before it, so ``src/../aria-tools/x`` and ``.//aria-tools/x`` both
+    resolve to ``aria-tools/x``. Nothing touches the filesystem
+    (``_canonical_evidence_path`` is the resolver when a real root is the
+    question). Refuses what ``_refuse_non_repo_spelling`` refuses, a ``..``
+    that would leave the root, and an empty result.
+    """
+    from .tool_registry import GovernanceError as _GE
+
+    text = str(raw_path)
+    _refuse_non_repo_spelling(text, raw_path)
+    parts: list[str] = []
+    for segment in text.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not parts:
+                raise _GE(f"repo_relpath_traversal: {raw_path!r}")
+            parts.pop()
+            continue
+        parts.append(segment)
+    if not parts:
+        raise _GE(f"repo_relpath_empty: {raw_path!r}")
+    return "/".join(parts)
 
 
 def matches_repo_glob(path: str, pattern: str) -> bool:
@@ -281,4 +336,10 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     _GLOB_REGEX_CACHE[pattern] = compiled
     return compiled
 
-__all__ = ["_canonical_evidence_path", "lexical_repo_path", "matches_repo_glob", "normalize_repo_relpath"]
+__all__ = [
+    "_canonical_evidence_path",
+    "lexical_repo_path",
+    "matches_repo_glob",
+    "normalize_repo_relpath",
+    "resolve_repo_relpath",
+]

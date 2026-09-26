@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .canonical_path import lexical_repo_path
+from .canonical_path import resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .tool_registry import GovernanceError
 
@@ -26,10 +26,19 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
 
 def is_self_output_ref(ref: str) -> bool:
     """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
-    any workspace SHA), lexically — the same prefix rule the classifier uses."""
+    any workspace SHA) — the same prefix rule the classifier uses.
+
+    ARIA-MEDIUM-224 — judged on the canonical path the ref resolves to, not
+    its text: ``src/../aria-tools/x`` and ``.//aria-tools/x`` ARE
+    ``aria-tools/x``. A ref that resolves to no repository path (it leaves
+    the root, or is absolute) is not ARIA's output either.
+    """
     path_part, _line = _split_ref(str(ref).strip())
-    normalized = lexical_repo_path(path_part)
-    return any(normalized.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
+    try:
+        canonical = resolve_repo_relpath(path_part)
+    except GovernanceError:
+        return False
+    return any(f"{canonical}/".startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
 
 
 @dataclass(frozen=True)

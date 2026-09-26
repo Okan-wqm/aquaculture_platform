@@ -584,7 +584,7 @@ def _make_revert_commit(candidate: _Candidate, *, worktree: Path, workspace: Pat
     return _git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
 
 
-def _patch_id(workspace: Path, old: str, new: str) -> tuple[str, list[str]]:
+def _patch_id(workspace: Path, old: str, new: str) -> tuple[str, list[tuple[str, str]]]:
     diff = _git(["diff", old, new], cwd=workspace)
     # Every path the diff touches, through the one change-path reader
     # (ARIA-CRITICAL-214): with rename detection a rename names only its
@@ -594,30 +594,33 @@ def _patch_id(workspace: Path, old: str, new: str) -> tuple[str, list[str]]:
     if diff.returncode != 0 or names.returncode != 0:
         raise _Terminal(DECISION_FAILED, {"reason": f"diff_unresolvable:{_first_line(diff.stderr or names.stderr)}"})
     try:
-        files = sorted({path for _status, path in parse_name_status_z(names.stdout)})
+        # Each path keeps its git status: the risk lane admits a path only
+        # under its status (a new test is L1, a changed one is not).
+        changes = sorted(set(parse_name_status_z(names.stdout)))
     except GovernanceError as exc:
         raise _Terminal(DECISION_FAILED, {"reason": f"diff_unresolvable:{str(exc)[:160]}"}) from exc
     patch_id = ""
     if diff.stdout.strip():
         computed = _git(["patch-id", "--stable"], cwd=workspace, input_text=diff.stdout)
         patch_id = (computed.stdout.split() or [""])[0]
-    return patch_id, files
+    return patch_id, changes
 
 
 def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> dict[str, Any]:
     """The revert commit is exactly the inverse of the merge: equal stable
     patch ids and the same file set, both non-empty."""
-    revert_patch_id, revert_files = _patch_id(workspace, f"{revert_sha}^", revert_sha)
-    inverse_patch_id, inverse_files = _patch_id(workspace, merge_sha, f"{merge_sha}^")
-    pure = bool(revert_patch_id) and revert_patch_id == inverse_patch_id and bool(revert_files) \
-        and revert_files == inverse_files
+    revert_patch_id, revert_changes = _patch_id(workspace, f"{revert_sha}^", revert_sha)
+    inverse_patch_id, inverse_changes = _patch_id(workspace, merge_sha, f"{merge_sha}^")
+    pure = bool(revert_patch_id) and revert_patch_id == inverse_patch_id and bool(revert_changes) \
+        and revert_changes == inverse_changes
     return {
         "pure": pure,
         "revert_sha": revert_sha,
         "revert_patch_id": revert_patch_id,
         "inverse_patch_id": inverse_patch_id,
-        "revert_files": revert_files,
-        "inverse_files": inverse_files,
+        "revert_files": sorted({path for _status, path in revert_changes}),
+        "inverse_files": sorted({path for _status, path in inverse_changes}),
+        "revert_changes": [[status, path] for status, path in revert_changes],
     }
 
 
@@ -768,8 +771,9 @@ def _attribution(
 # ---------------------------------------------------------------- the freeze's way out
 
 
-def revert_merge_authority(files: Sequence[str], *, base_dir: str | Path | None) -> dict[str, Any]:
-    """Can ARIA's merge lane merge a revert that changes ``files``?
+def revert_merge_authority(changes: Sequence[Sequence[str]], *, base_dir: str | Path | None) -> dict[str, Any]:
+    """Can ARIA's merge lane merge a revert whose ``(status, path)`` changes
+    are ``changes`` (``prove_revert_purity``'s ``revert_changes``)?
 
     The predicates ``merge_authority.merge_pr_if_ready`` applies at merge
     time, read without writing: the changed paths' risk lane
@@ -784,7 +788,7 @@ def revert_merge_authority(files: Sequence[str], *, base_dir: str | Path | None)
     from .risk_policy import classify_change
     from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
 
-    verdict = classify_change(list(files))
+    verdict = classify_change([(str(status), str(path)) for status, path in changes])
     base = {"lane": verdict.lane, "reason_codes": list(verdict.reason_codes), "policy_hash": verdict.policy_hash}
 
     def refused(reason: str) -> dict[str, Any]:
@@ -827,7 +831,7 @@ def _freeze_notice_body(freeze: Mapping[str, Any], *, base_dir: str | Path | Non
         f"- Freeze: `{freeze_id}` (recorded {freeze.get('recorded_at')}).",
     ]
     if revert and opened is not None:
-        authority = revert_merge_authority(opened["purity"]["revert_files"], base_dir=base_dir)
+        authority = revert_merge_authority(opened["purity"]["revert_changes"], base_dir=base_dir)
         url = f" — {opened['pr_url']}" if opened.get("pr_url") else ""
         lines.append(f"- Revert PR: #{revert['pr_number']} at `{revert['head_sha']}`{url}.")
         if authority["mergeable_by_aria"]:
@@ -1144,7 +1148,7 @@ def _revert_and_deliver(
                         purity=purity, base_dir=base_dir)
         # Under the freeze this PR is the only one that may merge: whether
         # ARIA's merge lane can merge it decides whether a person must.
-        authority = revert_merge_authority(purity["revert_files"], base_dir=base_dir)
+        authority = revert_merge_authority(purity["revert_changes"], base_dir=base_dir)
         decision = DECISION_OPENED if authority["mergeable_by_aria"] else DECISION_OPENED_AWAITING_HUMAN
         return _record(candidate, decision, cycle_id=cycle_id, base_dir=base_dir, detail={
             "branch": branch, "base_sha": base_sha, "head_sha": revert_sha, "purity": purity,

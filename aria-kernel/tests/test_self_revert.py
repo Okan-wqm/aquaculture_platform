@@ -1072,34 +1072,34 @@ class RevertMergeAuthorityTests(unittest.TestCase):
         self.tools = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
 
-    def _verdict(self, paths: list[str], *, profile: str, unlocked: bool = True) -> dict[str, Any]:
+    def _verdict(self, changes: list[Any], *, profile: str, unlocked: bool = True) -> dict[str, Any]:
         operator_set_profile(profile, base_dir=self.tools, scheduler_ceiling="autonomous")
         if unlocked:
             with mock.patch("aria_kernel.autonomy_unlock.evaluate_autonomy_unlock", side_effect=_unlocked):
-                return revert_merge_authority(paths, base_dir=self.tools)
-        return revert_merge_authority(paths, base_dir=self.tools)
+                return revert_merge_authority(changes, base_dir=self.tools)
+        return revert_merge_authority(changes, base_dir=self.tools)
 
     def test_an_unowned_l1_revert_under_merge_authority_is_arias(self) -> None:
-        verdict = self._verdict(["docs/runbooks/guide.md"], profile="autonomous")
+        verdict = self._verdict([("M", "docs/runbooks/guide.md")], profile="autonomous")
         self.assertEqual((verdict["mergeable_by_aria"], verdict["lane"], verdict["reason"]), (True, "L1", None))
 
     def test_no_grant_and_no_pr_merge_is_not_arias(self) -> None:
-        verdict = self._verdict(["docs/runbooks/guide.md"], profile="strict")
+        verdict = self._verdict([("M", "docs/runbooks/guide.md")], profile="strict")
         self.assertFalse(verdict["mergeable_by_aria"])
         self.assertTrue(verdict["reason"].startswith("merge_lane_not_granted"), verdict["reason"])
 
     def test_a_profile_without_action_authority_is_not_arias(self) -> None:
-        verdict = self._verdict(["docs/runbooks/guide.md"], profile="observe")
+        verdict = self._verdict([("M", "docs/runbooks/guide.md")], profile="observe")
         self.assertFalse(verdict["mergeable_by_aria"])
         self.assertTrue(verdict["reason"].startswith("merge_lane_profile_holds_no_authority"), verdict["reason"])
 
     def test_a_lane_that_is_not_unlocked_is_not_arias(self) -> None:
-        verdict = self._verdict(["docs/runbooks/guide.md"], profile="autonomous", unlocked=False)
+        verdict = self._verdict([("M", "docs/runbooks/guide.md")], profile="autonomous", unlocked=False)
         self.assertFalse(verdict["mergeable_by_aria"])
         self.assertTrue(verdict["reason"].startswith("autonomy_unlock_required"), verdict["reason"])
 
     def test_a_code_owned_path_is_never_arias(self) -> None:
-        verdict = self._verdict(["docs/aria/CURRENT_STATE.md"], profile="autonomous")
+        verdict = self._verdict([("M", "docs/aria/CURRENT_STATE.md")], profile="autonomous")
         self.assertFalse(verdict["mergeable_by_aria"])
         self.assertEqual(verdict["reason"], "revert_touches_code_owned_paths")
 
@@ -1127,16 +1127,51 @@ class RevertMergeAuthorityTests(unittest.TestCase):
         purity = self_revert.prove_revert_purity(workspace=repo, merge_sha=merge_sha, revert_sha=git("rev-parse", "HEAD"))
         self.assertTrue(purity["pure"], purity)
         self.assertEqual(purity["revert_files"], ["docs/aria/owned.md", "docs/runbooks/moved.md"])
-        verdict = self._verdict(purity["revert_files"], profile="autonomous")
+        verdict = self._verdict(purity["revert_changes"], profile="autonomous")
         self.assertFalse(verdict["mergeable_by_aria"])
         # The owned source lands in the code-owners lane beside the moved
         # file's L1: a mixed change the unreviewed lane never takes.
         self.assertEqual(verdict["reason"], "risk_policy_refuses:risk_mixed_lanes")
         # Judged on the destination alone it would have been ARIA's.
-        self.assertTrue(self._verdict(["docs/runbooks/moved.md"], profile="autonomous")["mergeable_by_aria"])
+        self.assertTrue(self._verdict([("A", "docs/runbooks/moved.md")], profile="autonomous")["mergeable_by_aria"])
+
+    def test_the_lane_reads_each_path_under_the_status_the_revert_gives_it(self) -> None:
+        # Reverting a merge that added a unit test deletes that test. L1
+        # admits a spec file only as an addition, so the deletion leaves L1.
+        deleted = self._verdict([("D", "apps/farm-service/src/batch/__tests__/x.spec.ts")], profile="autonomous")
+        self.assertEqual(deleted["lane"], "L2")
+        added = self._verdict([("A", "apps/farm-service/src/batch/__tests__/x.spec.ts")], profile="autonomous")
+        self.assertEqual(added["lane"], "L1")
+        # A path with no status can never be L1.
+        unknown = self._verdict([("", "docs/runbooks/guide.md")], profile="autonomous")
+        self.assertEqual(unknown["reason"], "risk_policy_refuses:risk_change_status_unknown")
+
+    def test_purity_records_each_changed_path_with_its_status(self) -> None:
+        repo = Path(self.tmp.name) / "repo"
+        repo.mkdir()
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "aria@example.invalid")
+        git("config", "user.name", "ARIA")
+        (repo / "docs").mkdir()
+        (repo / "docs" / "guide.md").write_text("one\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-q", "-m", "docs: seed")
+        (repo / "docs" / "guide.md").write_text("two\n", encoding="utf-8")
+        (repo / "docs" / "new.md").write_text("new\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-q", "-m", "docs: change and add")
+        merge_sha = git("rev-parse", "HEAD")
+        git("revert", "--no-edit", merge_sha)
+        purity = self_revert.prove_revert_purity(workspace=repo, merge_sha=merge_sha, revert_sha=git("rev-parse", "HEAD"))
+        self.assertTrue(purity["pure"], purity)
+        self.assertEqual(purity["revert_changes"], [["D", "docs/new.md"], ["M", "docs/guide.md"]])
 
     def test_a_blocked_path_is_never_arias(self) -> None:
-        verdict = self._verdict(["apps/billing-service/src/x.ts"], profile="autonomous")
+        verdict = self._verdict([("M", "apps/billing-service/src/x.ts")], profile="autonomous")
         self.assertFalse(verdict["mergeable_by_aria"])
         self.assertTrue(verdict["reason"].startswith("risk_policy_refuses:"), verdict["reason"])
 

@@ -15,9 +15,12 @@ more authority; only an operator can grant it, and these tests are where the
 difference is provable rather than asserted.
 
 The second half is that raising the ceiling did not raise the roof.
-`pr_merge` remains autonomous-only, `RealAutoMergeRunner` still forces
-`dry_run` for every profile that is not `autonomous`, `merge_pr_if_ready`
-still demands the unlock ladder, and charter M-6.1 keeps runtime merge on
+`pr_merge` remains autonomous-only, and the ONLY other merge authority is an
+operator's merge-lane grant (ARIA-HIGH-205): one lane, an expiry, a recorded
+operator act, carried forward and never written by the cycle.
+`RealAutoMergeRunner` forces `dry_run` whenever neither exists,
+`merge_pr_if_ready` refuses before GitHub and checks the grant against the
+measured lane, it still demands the unlock ladder, and charter M-6.1 keeps runtime merge on
 that one path under an operator-granted ceiling, with the existing two-role
 human approval at L3. ARIA may lower or freeze authority but cannot grant or
 raise it; closure implementation PRs remain human-approved and do not count
@@ -669,8 +672,8 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
                     base_dir=tools,
                     readiness_claim_id="claim-1",
                 )
-        self.assertIn("profile_violation", str(caught.exception))
-        self.assertIn("pr_merge", str(caught.exception))
+        self.assertIn("merge_lane_not_granted", str(caught.exception))
+        self.assertIn("'strict'", str(caught.exception))
 
     def test_the_unlock_ladder_refuses_a_ledger_that_has_not_earned_it(self) -> None:
         """The gate the merge path spends, exercised rather than grepped.
@@ -715,7 +718,8 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
         self.assertIn("assert_autonomy_unlocked", called)
-        self.assertIn("enforce_profile_for_action", called)
+        self.assertIn("assert_merge_authority_available", called)
+        self.assertIn("assert_merge_authorized", called)
 
     def test_the_auto_merge_runner_forces_dry_run_for_strict(self) -> None:
         from unittest.mock import patch
@@ -727,6 +731,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
 
         runner = select_auto_merge_runner(
             profile="strict",
+            executes_merges=True,
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [4242],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
@@ -761,6 +766,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
 
         runner = select_auto_merge_runner(
             profile="autonomous",
+            executes_merges=True,
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [4242],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
@@ -779,6 +785,8 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
         def _must_not_evaluate(**kwargs):  # pragma: no cover - must not run
             raise AssertionError("autonomous took the dry-run evaluation path")
 
+        from aria_kernel.runtime_profile import set_profile
+
         with tempfile.TemporaryDirectory() as tmp, \
                 patch(
                     "aria_kernel.watchdog_freeze.open_watchdog_incidents",
@@ -786,6 +794,9 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
                 ), \
                 patch("aria_kernel.auto_merge.merge_if_green", _must_not_evaluate), \
                 patch("aria_kernel.merge_authority.merge_pr_if_ready", _record_merge_authority):
+            # Merge authority is read from the control plane the run uses
+            # (ARIA-HIGH-205), so the store holds the profile under test.
+            set_profile("autonomous", operator_approval_ref="op:728", base_dir=Path(tmp) / "aria-tools")
             result = runner(base_dir=Path(tmp) / "aria-tools", workspace_root=tmp)
         self.assertEqual(reached_merge_authority, [4242])
         self.assertEqual(observed_workspace_roots, [tmp])

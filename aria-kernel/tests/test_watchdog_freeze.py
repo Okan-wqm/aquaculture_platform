@@ -240,9 +240,16 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
     def _runner(self, payload):
         from aria_kernel.auto_merge_runners import select_auto_merge_runner
 
+        from aria_kernel.runtime_profile import set_profile
+
+        # The runner reads merge authority from the control plane it runs
+        # against (ARIA-HIGH-205), so the store must hold what the runner is
+        # told it runs as.
+        set_profile("autonomous", operator_approval_ref="op:test", base_dir=self.base)
         adapter = _Adapter(payload)
         return select_auto_merge_runner(
             profile="autonomous",
+            executes_merges=True,
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11, 22, 33],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
@@ -305,6 +312,7 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
         adapter = _Adapter(RuntimeError("must not be asked"))
         runner = select_auto_merge_runner(
             profile="strict",
+            executes_merges=True,
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",

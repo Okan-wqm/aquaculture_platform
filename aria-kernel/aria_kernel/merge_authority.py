@@ -23,7 +23,7 @@ from .incident_ledger import (
 from .policy_approval import verify_policy_approval
 from .risk_policy import record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
-from .runtime_profile import enforce_profile_for_action
+from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .self_merge_freeze import assert_self_merge_not_frozen
@@ -50,7 +50,11 @@ def merge_pr_if_ready(
     eligibility, the change-ledger triple gate, and a final live re-evaluation
     immediately before invoking ``adapter.merge_pr``.
     """
-    profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ARIA-HIGH-205 — merge authority is `autonomous` or an operator's
+    # merge-lane grant (runtime_profile). Refused here, before any merge work,
+    # when neither exists; the lane the grant must cover is checked against
+    # the MEASURED risk lane below, once the risk decision has computed it.
+    profile = assert_merge_authority_available(base_dir=base_dir)
     # ARIA-HIGH-203 — the auto-merge master switch IS this gate. The policy's
     # `enabled` flag defaults to False (auto_merge.DEFAULT_POLICY) so an
     # evaluation outside merge authority is never eligible, and the runner
@@ -93,6 +97,7 @@ def merge_pr_if_ready(
             + "; ".join(str(item) for item in risk.get("reason_codes") or [])
         )
     lane = str(risk.get("lane") or "")
+    assert_merge_authorized(lane=lane, base_dir=base_dir)
     unlock = assert_autonomy_unlocked(lane=lane, base_dir=base_dir)
     policy_approval: dict[str, Any] | None = None
     if lane == "L3":

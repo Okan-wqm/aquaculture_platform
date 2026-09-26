@@ -110,11 +110,13 @@ class RealAutoMergeRunner:
         self,
         *,
         profile: str,
+        executes_merges: bool,
         adapter_factory: Callable[[], Any] | None = None,
         pr_enumerator: Callable[[Any], list[int]] | None = None,
         readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
     ) -> None:
         self.profile = profile
+        self.executes_merges = executes_merges
         self.adapter_factory = adapter_factory
         self.pr_enumerator = pr_enumerator
         self.readiness_claim_resolver = readiness_claim_resolver
@@ -149,10 +151,22 @@ class RealAutoMergeRunner:
 
         adapter = self.adapter_factory()
         candidate_prs = self.pr_enumerator(adapter)
-        # Strict observes (dry_run=True); autonomous enters the real merge
-        # authority path, which remains disabled-by-default through policy,
-        # readiness, and runtime profile gates.
-        dry_run = self.profile != "autonomous"
+        # ARIA-HIGH-205 — live exactly when THIS runner is the merge lane
+        # (`aria-kernel merge-lane run`, aria-merge-runner.yml) AND merge
+        # authority exists: the `autonomous` profile, or an operator's
+        # merge-lane grant in force under a profile that holds action
+        # authority. The nightly cycle constructs the runner with
+        # executes_merges=False and only ever evaluates: merge execution
+        # moved to the attestable GitHub-hosted lane (ARIA-HIGH-198), and a
+        # grant must not turn the self-hosted cycle into a second, refused
+        # merge path that writes risk and unlock rows every night. The
+        # grant's lane is enforced per PR inside merge_pr_if_ready against
+        # the measured risk lane.
+        from .runtime_profile import merge_authority_available
+
+        dry_run = not (
+            self.executes_merges and merge_authority_available(base_dir=base_dir)
+        )
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
         # Containment must not buy silence (ORPHAN-HIGH-578): a candidate
@@ -200,6 +214,7 @@ class RealAutoMergeRunner:
                     # answers with a different shape is a refusal every consumer
                     # has to special-case.
                     "dry_run": dry_run,
+                    "executes_merges": self.executes_merges,
                     "profile": self.profile,
                     "decisions": [
                         {
@@ -290,6 +305,7 @@ class RealAutoMergeRunner:
                 "candidates_evaluated": len(candidate_prs),
                 "decisions": decisions,
                 "dry_run": dry_run,
+                "executes_merges": self.executes_merges,
                 "profile": self.profile,
             },
             item_failures,
@@ -299,6 +315,7 @@ class RealAutoMergeRunner:
 def select_auto_merge_runner(
     *,
     profile: str,
+    executes_merges: bool,
     adapter_factory: Callable[[], Any] | None = None,
     pr_enumerator: Callable[[Any], list[int]] | None = None,
     readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
@@ -313,6 +330,7 @@ def select_auto_merge_runner(
     if profile in _REAL_RUNNER_PROFILES:
         return RealAutoMergeRunner(
             profile=profile,
+            executes_merges=executes_merges,
             adapter_factory=adapter_factory,
             pr_enumerator=pr_enumerator,
             readiness_claim_resolver=readiness_claim_resolver,

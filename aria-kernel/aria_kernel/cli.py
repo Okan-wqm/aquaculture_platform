@@ -1089,6 +1089,14 @@ def build_parser() -> argparse.ArgumentParser:
     merge_run.add_argument("--workspace-root", type=Path, default=Path("."))
     # ARIA-HIGH-200 — only an operator's recorded act lifts ARIA's own
     # self-merge freeze; no ARIA workflow holds that authority.
+    # ARIA-HIGH-205 — the operator's merge-lane grant: one lane, an expiry,
+    # a recorded operator act (gov:/review:). No ARIA workflow runs these.
+    merge_grant = add_subparser(merge_sub, "grant")
+    merge_grant.add_argument("--lane", required=True)
+    merge_grant.add_argument("--expires-at", required=True)
+    merge_grant.add_argument("--operator-approval-ref", required=True)
+    merge_revoke = add_subparser(merge_sub, "revoke")
+    merge_revoke.add_argument("--operator-approval-ref", required=True)
     merge_unfreeze = add_subparser(merge_sub, "unfreeze")
     merge_unfreeze.add_argument("--freeze-id", required=True)
     merge_unfreeze.add_argument("--operator-approval-ref", required=True)
@@ -3704,6 +3712,8 @@ def _main(argv: list[str] | None = None) -> int:
         )
         merge_runner = select_auto_merge_runner(
             profile=merge_profile,
+            # The merge lane is the one runner that may execute a merge.
+            executes_merges=True,
             adapter_factory=lambda: merge_adapter,
             pr_enumerator=(
                 (lambda _adapter: [args.pr]) if args.pr is not None
@@ -3713,6 +3723,24 @@ def _main(argv: list[str] | None = None) -> int:
         )
         merge_result = merge_runner(base_dir=args.tools_dir, workspace_root=args.workspace_root)
         print(json.dumps(merge_result, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "merge-lane" and args.merge_command in {"grant", "revoke"}:
+        from .runtime_profile import revoke_merge_lane_grant, set_merge_lane_grant
+
+        if args.merge_command == "grant":
+            grant_state = set_merge_lane_grant(
+                lane=args.lane,
+                expires_at=args.expires_at,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+            )
+        else:
+            grant_state = revoke_merge_lane_grant(
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+            )
+        print(json.dumps(grant_state, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "merge-lane" and args.merge_command == "unfreeze":
@@ -5967,6 +5995,9 @@ def _main(argv: list[str] | None = None) -> int:
         )
         auto_merge_runner = select_auto_merge_runner(
             profile=profile,
+            # The nightly cycle evaluates only; merges execute in the merge
+            # lane (`merge-lane run`, ARIA-HIGH-198/205).
+            executes_merges=False,
             adapter_factory=lambda: github_adapter,
             pr_enumerator=lambda adapter: enumerate_prs_with_readiness_claims(
                 adapter,

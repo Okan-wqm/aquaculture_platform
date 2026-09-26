@@ -101,6 +101,7 @@ this module and the documented control-plane exception.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -260,6 +261,36 @@ SCHEDULER_MAX_PROPOSABLE_PROFILE: str = "strict"
 # `set_by` value that marks a HUMAN control-plane gesture. Any other setter
 # is a machine as far as the ceiling is concerned.
 OPERATOR_SET_BY: str = "operator"
+
+# ---------------------------------------------------------------------
+# ARIA-HIGH-205 — the MERGE-LANE GRANT: merge authority an operator hands a
+# lane, in the same control plane as the profile and its ceiling.
+#
+# `pr_merge` is an `autonomous`-only cell, and `autonomous` is unreachable
+# from an unattended lane by construction (SCHEDULER_MAX_PROPOSABLE_PROFILE).
+# That is right for the whole profile — it also widens every other action —
+# and it left ARIA no way to merge anything, because the nightly cycle
+# rewrites the saved profile to at most `strict` and the merge runner reads
+# the saved profile. The grant is the narrow answer: one lane, an expiry, a
+# recorded operator act, and no path by which the cycle can write it. It is a
+# field of `runtime-profile.json` rather than a second store because "how
+# much may ARIA do" must have one answer (the ceiling's reasoning above), and
+# every ordinary profile transition CARRIES IT FORWARD untouched, the same
+# rule that keeps a machine from erasing the ceiling by doing its work.
+MERGE_LANE_GRANT_STATE_KEY: str = "merge_lane_grant"
+
+# The lanes an operator may grant. L2/L3 stay operator merges: the risk policy
+# defines L1 as the lane that needs no reviewer, and CODEOWNERS paths can never
+# be in it (risk_policy), so a grant cannot reach code-owned paths either.
+MERGE_LANE_GRANTABLE_LANES: frozenset[str] = frozenset({"L1"})
+
+# A grant that never expires is a profile change by another name. The bound
+# forces a recorded operator act at least this often.
+MERGE_LANE_GRANT_MAX_DAYS: int = 90
+
+# A recorded operator act, never an environment acknowledgment: a workflow can
+# set its own environment (same rule as self_merge_freeze).
+MERGE_LANE_GRANT_APPROVAL_KINDS: frozenset[str] = frozenset({"gov", "review"})
 
 
 def permitted_actions(profile: str) -> frozenset[str]:
@@ -602,6 +633,7 @@ def set_profile(
     root = ensure_tools_dir(base_dir)
     previous_profile = get_profile(base_dir=root)
     previous_ceiling = get_scheduler_profile_ceiling(base_dir=root)
+    carried_grant = _raw_merge_lane_grant(base_dir=root)
     is_operator = set_by == OPERATOR_SET_BY
     if scheduler_ceiling is None:
         active_ceiling = previous_ceiling
@@ -629,37 +661,16 @@ def set_profile(
         "previous_profile": previous_profile,
         SCHEDULER_CEILING_STATE_KEY: active_ceiling,
         "previous_scheduler_profile_ceiling": previous_ceiling,
+        MERGE_LANE_GRANT_STATE_KEY: carried_grant,
         "set_at": utc_now(),
         "set_by": set_by,
         "operator_approval_ref": operator_approval_ref,
     }
-    state_file = root / PROFILE_STATE_FILENAME
-    rewrite_declared_json(
-        state_file,
-        state,
-        expected_surface="runtime_profile_state",
-        bypass_profile_gate=True,
-    )
-    history_row = {
-        "$schema": "aria/runtime-profile-history/v1",
-        "schema_version": 1,
-        **state,
-    }
-    append_declared_jsonl(
-        _profile_history_file(root),
-        history_row,
-        expected_surface="runtime_profile_history",
-        bypass_profile_gate=True,
-    )
-    # Plan 026R §A.4 — control-plane exception: set_profile is the ONE
-    # path that may emit a governance event under any profile (the
-    # operator MUST be able to THAW a frozen kernel, which itself
-    # records via runtime_profile_changed). bypass_profile_gate=True
-    # documents the exception explicitly per the §A.4 SSoT.
-    append_tools_governance(
+    return _write_control_plane_state(
         root,
-        "runtime_profile_changed",
-        {
+        state,
+        event_kind="runtime_profile_changed",
+        event_details={
             "previous_profile": previous_profile,
             "active_profile": profile,
             "previous_scheduler_profile_ceiling": previous_ceiling,
@@ -667,9 +678,248 @@ def set_profile(
             "operator_approval_ref": operator_approval_ref,
             "set_by": set_by,
         },
+    )
+
+
+def _write_control_plane_state(
+    root: Path,
+    state: dict[str, Any],
+    *,
+    event_kind: str,
+    event_details: dict[str, Any],
+) -> dict[str, Any]:
+    """The ONE writer of the control plane: state file, history row, event.
+
+    Every transition of `runtime-profile.json` — a profile change, a ceiling,
+    a merge-lane grant or its revocation — lands through here, so the state,
+    its history and the governance trail cannot disagree about what changed.
+
+    Plan 026R §A.4 — control-plane exception: this is the ONE path that may
+    write the control plane and emit its event under any profile (the operator
+    MUST be able to THAW a frozen kernel, which itself records through here).
+    bypass_profile_gate=True documents the exception explicitly per the §A.4
+    SSoT.
+    """
+    rewrite_declared_json(
+        root / PROFILE_STATE_FILENAME,
+        state,
+        expected_surface="runtime_profile_state",
         bypass_profile_gate=True,
     )
+    append_declared_jsonl(
+        _profile_history_file(root),
+        {"$schema": "aria/runtime-profile-history/v1", "schema_version": 1, **state},
+        expected_surface="runtime_profile_history",
+        bypass_profile_gate=True,
+    )
+    append_tools_governance(root, event_kind, event_details, bypass_profile_gate=True)
     return state
+
+
+def _raw_merge_lane_grant(*, base_dir: str | Path | None) -> dict[str, Any] | None:
+    """The grant exactly as recorded, expired or not — what a transition carries."""
+    payload, _state_file, diagnostic = _read_profile_state(base_dir)
+    if diagnostic is not None or payload is None:
+        return None
+    grant = payload.get(MERGE_LANE_GRANT_STATE_KEY)
+    return dict(grant) if isinstance(grant, dict) else None
+
+
+def _parse_utc(text: object) -> datetime | None:
+    if not isinstance(text, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def get_merge_lane_grant(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """The grant in force: recorded, well-formed, grantable lane, unexpired.
+
+    Fail-closed like the ceiling: an unreadable file, a malformed grant or an
+    expired one all read as "no grant", which can only narrow authority.
+    """
+    grant = _raw_merge_lane_grant(base_dir=base_dir)
+    if grant is None or grant.get("lane") not in MERGE_LANE_GRANTABLE_LANES:
+        return None
+    expires_at = _parse_utc(grant.get("expires_at"))
+    moment = now or datetime.now(timezone.utc)
+    if expires_at is None or expires_at <= moment:
+        return None
+    return grant
+
+
+def set_merge_lane_grant(
+    *,
+    lane: str,
+    expires_at: str,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+    set_by: str = OPERATOR_SET_BY,
+) -> dict[str, Any]:
+    """Grant merge authority for ``lane`` until ``expires_at`` — operator only.
+
+    ``set_by`` is self-declared, as the ceiling's docstring says plainly; what
+    this stops is drift: the cycle's code path declares itself and is refused,
+    and nothing in the package outside the CLI calls this function
+    (tests/test_merge_lane_grant.py pins that).
+    """
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+
+    if set_by != OPERATOR_SET_BY:
+        raise GovernanceError(f"merge_lane_grant_requires_operator: set_by={set_by!r}")
+    if lane not in MERGE_LANE_GRANTABLE_LANES:
+        raise GovernanceError(
+            f"merge_lane_grant_lane_not_grantable: {lane!r} "
+            f"(grantable: {sorted(MERGE_LANE_GRANTABLE_LANES)})"
+        )
+    expiry = _parse_utc(expires_at)
+    now = datetime.now(timezone.utc)
+    if expiry is None or expiry <= now or expiry > now + timedelta(days=MERGE_LANE_GRANT_MAX_DAYS):
+        raise GovernanceError(
+            f"merge_lane_grant_expiry_invalid: {expires_at!r} must be a timezone-aware "
+            f"time after now and within {MERGE_LANE_GRANT_MAX_DAYS} days"
+        )
+    kind = (operator_approval_ref or "").partition(":")[0]
+    if kind not in MERGE_LANE_GRANT_APPROVAL_KINDS:
+        raise GovernanceError(
+            f"merge_lane_grant_requires_recorded_operator_act:{kind or 'none'}"
+        )
+    root = ensure_tools_dir(base_dir)
+    try:
+        approval = verify_operator_approval_ref(
+            operator_approval_ref, base_dir=root, surface="merge_lane_grant",
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"merge_lane_grant_approval_unrecorded: {exc}") from exc
+    grant = {
+        "lane": lane,
+        "expires_at": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "granted_at": utc_now(),
+        "operator_approval_ref": operator_approval_ref,
+        "approval": approval,
+    }
+    return _transition_merge_lane_grant(
+        root, grant, event_kind="merge_lane_granted",
+        operator_approval_ref=operator_approval_ref, set_by=set_by,
+    )
+
+
+def revoke_merge_lane_grant(
+    *,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+    set_by: str = OPERATOR_SET_BY,
+) -> dict[str, Any]:
+    """Withdraw the grant. Narrowing authority needs no operator proof, only
+    a reason on the record — the same asymmetry as lowering the ceiling."""
+    if not (operator_approval_ref or "").strip():
+        raise GovernanceError("merge_lane_revoke_requires_reason")
+    return _transition_merge_lane_grant(
+        ensure_tools_dir(base_dir), None, event_kind="merge_lane_revoked",
+        operator_approval_ref=operator_approval_ref, set_by=set_by,
+    )
+
+
+def _transition_merge_lane_grant(
+    root: Path,
+    grant: dict[str, Any] | None,
+    *,
+    event_kind: str,
+    operator_approval_ref: str,
+    set_by: str,
+) -> dict[str, Any]:
+    payload, _state_file, diagnostic = _read_profile_state(root)
+    if diagnostic is not None:
+        raise GovernanceError(f"merge_lane_grant_control_plane_unreadable: {diagnostic}")
+    current = payload or {}
+    previous_grant = _raw_merge_lane_grant(base_dir=root)
+    state = {
+        "active_profile": get_profile(base_dir=root),
+        "previous_profile": current.get("previous_profile"),
+        SCHEDULER_CEILING_STATE_KEY: get_scheduler_profile_ceiling(base_dir=root),
+        "previous_scheduler_profile_ceiling": current.get("previous_scheduler_profile_ceiling"),
+        MERGE_LANE_GRANT_STATE_KEY: grant,
+        "set_at": utc_now(),
+        "set_by": set_by,
+        "operator_approval_ref": operator_approval_ref,
+    }
+    return _write_control_plane_state(
+        root,
+        state,
+        event_kind=event_kind,
+        event_details={
+            "previous_merge_lane_grant": previous_grant,
+            MERGE_LANE_GRANT_STATE_KEY: grant,
+            "operator_approval_ref": operator_approval_ref,
+            "set_by": set_by,
+        },
+    )
+
+
+def merge_authority_available(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """Does ANY merge authority exist right now?
+
+    `autonomous` holds it outright; any other profile that holds action
+    authority holds it through a grant in force. `frozen` and `observe` hold
+    none, whatever a grant says: a grant narrows who may merge, it never
+    thaws a stopped kernel.
+    """
+    profile = get_profile(base_dir=base_dir)
+    if "pr_merge" in permitted_actions(profile):
+        return True
+    return (
+        profile in PROFILES_WITH_ACTION_AUTHORITY
+        and get_merge_lane_grant(base_dir=base_dir, now=now) is not None
+    )
+
+
+def assert_merge_authority_available(*, base_dir: str | Path | None = None) -> str:
+    """Refuse before any merge work when no merge authority exists at all."""
+    profile = get_profile(base_dir=base_dir)
+    if not merge_authority_available(base_dir=base_dir):
+        if profile not in PROFILES_WITH_ACTION_AUTHORITY:
+            raise GovernanceError(
+                f"merge_lane_profile_holds_no_authority: profile {profile!r}"
+            )
+        raise GovernanceError(
+            f"merge_lane_not_granted: profile {profile!r} holds no pr_merge and no "
+            "merge-lane grant is in force (`aria-kernel merge-lane grant`)"
+        )
+    return profile
+
+
+def assert_merge_authorized(
+    *,
+    lane: str,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Refuse a merge whose measured risk lane the authority does not cover."""
+    profile = get_profile(base_dir=base_dir)
+    if "pr_merge" in permitted_actions(profile):
+        return profile
+    if profile not in PROFILES_WITH_ACTION_AUTHORITY:
+        raise GovernanceError(
+            f"merge_lane_profile_holds_no_authority: profile {profile!r}"
+        )
+    grant = get_merge_lane_grant(base_dir=base_dir, now=now)
+    if grant is None or grant.get("lane") != lane:
+        raise GovernanceError(
+            f"merge_lane_not_granted: lane {lane!r} under profile {profile!r} "
+            f"(grant in force: {grant.get('lane') if grant else None})"
+        )
+    return profile
 
 
 def list_profile_history(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -832,6 +1082,15 @@ __all__ = [
     "DEFAULT_SCHEDULER_PROFILE_CEILING",
     "FROZEN_PROFILE",
     "OPERATOR_SET_BY",
+    "MERGE_LANE_GRANT_STATE_KEY",
+    "MERGE_LANE_GRANTABLE_LANES",
+    "MERGE_LANE_GRANT_MAX_DAYS",
+    "get_merge_lane_grant",
+    "set_merge_lane_grant",
+    "revoke_merge_lane_grant",
+    "merge_authority_available",
+    "assert_merge_authority_available",
+    "assert_merge_authorized",
     "SCHEDULER_CEILING_STATE_KEY",
     "SCHEDULER_MAX_PROPOSABLE_PROFILE",
     "ACTION_PERMISSIONS",

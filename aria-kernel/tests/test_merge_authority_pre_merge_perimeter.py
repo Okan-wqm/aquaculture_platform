@@ -60,7 +60,11 @@ def _gate_patches(head_sha: str = _SHA):
     """Every gate before the perimeter passes; the perimeter is the test."""
     return [
         patch(
-            "aria_kernel.merge_authority.enforce_profile_for_action",
+            "aria_kernel.merge_authority.assert_merge_authority_available",
+            return_value="autonomous",
+        ),
+        patch(
+            "aria_kernel.merge_authority.assert_merge_authorized",
             return_value="autonomous",
         ),
         patch(
@@ -645,7 +649,7 @@ class NativeImplementationContextTests(unittest.TestCase):
 
         adapter = SnapshotGitHubAdapter({"pr": pr, "github": {"pr_diff": diff_text}})
         runner = RealAutoMergeRunner(
-            profile="autonomous", adapter_factory=lambda: adapter,
+            profile="autonomous", executes_merges=True, adapter_factory=lambda: adapter,
             pr_enumerator=lambda selected: [pr["number"]],
             readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
         )
@@ -739,7 +743,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                 "pr": pr_observation, "github": {"pr_diff": diff_text},
             })
             selected_runner = RealAutoMergeRunner(
-                profile="autonomous", adapter_factory=lambda: selected_adapter,
+                profile="autonomous", executes_merges=True, adapter_factory=lambda: selected_adapter,
                 pr_enumerator=lambda selected: [pr["number"]],
                 readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
             )

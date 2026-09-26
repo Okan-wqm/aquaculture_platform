@@ -202,6 +202,49 @@ jobs:
               artifacts: [($w + "/artifact.zip")]
             }' > "${WORK_DIR}/surfaces.json"
 
+      # ARIA-HIGH-218 — the rollback bundle is PUBLISHED, not left in the
+      # store: a bundle of the target ref is the repository's whole history,
+      # too large for aria/state, and the merge lane verifies it on another
+      # runner. It is built outside the store, uploaded as an Actions
+      # artifact, downloaded back through the API, and the claim's rollback
+      # and retention proofs name that artifact by id and digest.
+      - name: Build the rollback bundle
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 -m aria_kernel readiness build-rollback-bundle \
+            --target-ref "$(jq -r '.target_ref' "${WORK_DIR}/pr-flat.json")" \
+            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --output-dir "${RUNNER_TEMP}/rollback" > "${WORK_DIR}/rollback-bundle.json"
+
+      - name: Publish the rollback bundle
+        id: rollback_upload
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-rollback-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rollback/*.bundle
+          if-no-files-found: error
+          # DEFAULT_ROLLBACK_RETENTION_DAYS; the claim measures what GitHub
+          # granted and refuses a shorter retention.
+          retention-days: 30
+
+      - name: Download the published rollback bundle
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: aria-kernel
+          ARTIFACT_ID: ${{ steps.rollback_upload.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          python3 -m aria_kernel readiness fetch-artifact \
+            --repo "${GITHUB_REPOSITORY}" \
+            --artifact-id "${ARTIFACT_ID}" \
+            --output-dir "${WORK_DIR}/rollback-artifact" > "${WORK_DIR}/rollback-artifact.json"
+
       - name: Assemble the readiness claim
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -252,7 +295,9 @@ jobs:
             --artifact-file "${WORK_DIR}/artifact.json" \
             --surfaces-file "${WORK_DIR}/surfaces.json" \
             --workspace-root "$GITHUB_WORKSPACE" \
-            --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id}'
+            --rollback-bundle-file "${WORK_DIR}/rollback-bundle.json" \
+            --rollback-artifact-file "${WORK_DIR}/rollback-artifact.json" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id, already_recorded}'
 
       # The credential is minted here and consumed by the next step only.
       - name: Mint the aria/state push credential

@@ -88,7 +88,7 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         self._mint(permissions=tf.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS)
         self.assertEqual(self.posted[0]["body"]["permissions"], {
             "pull_requests": "write", "contents": "write", "administration": "read",
-            "checks": "read", "statuses": "read", "issues": "read",
+            "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
         })
 
     def test_the_named_sets_are_immutable(self) -> None:

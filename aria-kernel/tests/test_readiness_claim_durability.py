@@ -29,8 +29,13 @@ from aria_kernel.enterprise_readiness import (
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.merge_authority import merge_pr_if_ready
-from aria_kernel.readiness_proofs import produce_readiness_claim, produce_remote_cas_proof
+from aria_kernel.readiness_proofs import (
+    build_rollback_bundle,
+    produce_readiness_claim,
+    produce_remote_cas_proof,
+)
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.published_artifacts import PublishedArtifacts
 
 _HEAD = "a" * 40
 _NEWER_HEAD = "e" * 40
@@ -187,8 +192,23 @@ class _ClaimFixture(unittest.TestCase):
             path = evidence / f"{surface}.txt"
             path.write_text(f"clean {surface}\n", encoding="utf-8")
             self.surfaces[surface] = [path]
+        # ARIA-HIGH-218 — the rollback bundle is published as an Actions
+        # artifact; the merge gate downloads it back through this store.
+        self.artifacts = PublishedArtifacts(repo="okan/aqua")
+        serving = self.artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
+
+    def _publish_rollback_bundle(self) -> tuple[dict, object]:
+        built = build_rollback_bundle(
+            target_ref="main", head_sha=_HEAD, workspace_root=self.workspace,
+            output_dir=Path(self.tmp.name) / "rollback",
+        )
+        artifact_id = self.artifacts.publish_files(Path(built["bundle_path"]))
+        return built, self.artifacts.fetch(repo="okan/aqua", artifact_id=artifact_id)
 
     def _produce(self) -> dict:
+        built, published = self._publish_rollback_bundle()
         return produce_readiness_claim(
             pr_number=77, repo="okan/aqua", target_ref="main",
             head_ref="feat/x", head_sha=_HEAD,
@@ -202,6 +222,8 @@ class _ClaimFixture(unittest.TestCase):
             },
             surface_paths=self.surfaces,
             workspace_root=self.workspace,
+            rollback_bundle=built,
+            rollback_artifact=published,
             base_dir=self.tools,
             probe=_probe,
             rules_probe=_rules,

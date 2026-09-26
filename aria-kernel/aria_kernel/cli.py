@@ -1873,6 +1873,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON file: DLP surface name -> list of file paths (diff/prompt/transcript/logs/artifacts).",
     )
     readiness_claim.add_argument("--workspace-root", required=True)
+    # ARIA-HIGH-218 — the rollback bundle is published as an Actions
+    # artifact and proven by reference: what `build-rollback-bundle` built,
+    # and the artifact as `fetch-artifact` downloaded it back.
+    readiness_claim.add_argument(
+        "--rollback-bundle-file", required=True,
+        help="JSON file written by `readiness build-rollback-bundle`.",
+    )
+    readiness_claim.add_argument(
+        "--rollback-artifact-file", required=True,
+        help="JSON file written by `readiness fetch-artifact` for the uploaded bundle artifact.",
+    )
+    rollback_build = add_subparser(
+        readiness_sub,
+        "build-rollback-bundle",
+        help="Create and git-verify the rollback bundle the claim lane publishes as an artifact.",
+    )
+    rollback_build.add_argument("--target-ref", required=True)
+    rollback_build.add_argument("--head-sha", required=True)
+    rollback_build.add_argument("--workspace-root", required=True)
+    rollback_build.add_argument("--output-dir", required=True)
+    artifact_fetch = add_subparser(
+        readiness_sub,
+        "fetch-artifact",
+        help="Download a published Actions artifact through the API and record what it is.",
+    )
+    artifact_fetch.add_argument("--repo", required=True)
+    artifact_fetch.add_argument("--artifact-id", required=True)
+    artifact_fetch.add_argument("--output-dir", required=True)
     # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
     # or shrinks the baseline; without it the command is check-only and
     # exits nonzero on NEW unreachable closures.
@@ -3621,11 +3649,36 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "readiness" and args.readiness_command == "build-rollback-bundle":
+        from .readiness_proofs import build_rollback_bundle
+
+        built = build_rollback_bundle(
+            target_ref=args.target_ref,
+            head_sha=args.head_sha,
+            workspace_root=args.workspace_root,
+            output_dir=args.output_dir,
+        )
+        print(json.dumps(built, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "fetch-artifact":
+        from .readiness_proofs import fetch_published_artifact
+
+        record = fetch_published_artifact(
+            repo=args.repo, artifact_id=args.artifact_id, output_dir=args.output_dir,
+        )
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "readiness" and args.readiness_command == "produce-claim":
-        from .readiness_proofs import produce_readiness_claim
+        from .readiness_proofs import load_published_artifact, produce_readiness_claim
 
         artifact = json.loads(Path(args.artifact_file).read_text(encoding="utf-8"))
         surfaces = json.loads(Path(args.surfaces_file).read_text(encoding="utf-8"))
+        rollback_bundle = json.loads(Path(args.rollback_bundle_file).read_text(encoding="utf-8"))
+        rollback_artifact = load_published_artifact(
+            json.loads(Path(args.rollback_artifact_file).read_text(encoding="utf-8")),
+        )
         result = produce_readiness_claim(
             pr_number=args.pr_number,
             repo=args.repo,
@@ -3639,6 +3692,8 @@ def _main(argv: list[str] | None = None) -> int:
             artifact=artifact,
             surface_paths=surfaces,
             workspace_root=args.workspace_root,
+            rollback_bundle=rollback_bundle,
+            rollback_artifact=rollback_artifact,
             base_dir=args.tools_dir,
         )
         print(json.dumps(result, indent=2, sort_keys=True))

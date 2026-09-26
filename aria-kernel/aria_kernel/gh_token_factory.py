@@ -296,11 +296,15 @@ DEFAULT_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
 # token without them reads nothing there, so each gate refused as
 # unreadable. Each is a permission the App must hold (a missing one fails
 # the mint with HTTP 422, by name — docs/runbooks/aria-github-app-setup.md).
+# ARIA-HIGH-218 — and actions:read: the readiness claim's rollback and
+# retention proofs name a published Actions artifact, and the merge gate
+# verifies them by downloading it (`actions_artifacts.fetch_actions_artifact`).
 MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
     **DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
     "checks": "read",
     "statuses": "read",
     "issues": "read",
+    "actions": "read",
 })
 # A token that may only READ the repository's runner roster
 # (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner

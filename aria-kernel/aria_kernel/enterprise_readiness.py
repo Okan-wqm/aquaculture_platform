@@ -468,7 +468,14 @@ def verify_enterprise_readiness(
     adapter: Any,
     readiness_claim_id: str,
     base_dir: str | Path | None = None,
+    artifact_fetcher: Any = None,
 ) -> EnterpriseReadinessVerdict:
+    """Verify the claim against its ledgers, the live PR and the published evidence.
+
+    ``artifact_fetcher`` downloads a published Actions artifact
+    (``actions_artifacts.fetch_actions_artifact`` when omitted): the
+    rollback and retention proofs are verified by download (ARIA-HIGH-218).
+    """
     if not isinstance(readiness_claim_id, str) or not readiness_claim_id.strip():
         raise GovernanceError("readiness_claim_id_required")
     root = ensure_tools_dir(base_dir)
@@ -508,8 +515,9 @@ def verify_enterprise_readiness(
 
     _verify_waiver_ledger(root, claim, reasons, failures)
     _verify_branch_protection_ledger(root, claim, reasons, failures)
-    _verify_retention_or_rollback_ledger(root, claim, "rollback_proof", "enterprise/rollback-proofs.jsonl", "enterprise_rollback_proofs", "rollback_proof_required", reasons, failures)
-    _verify_retention_or_rollback_ledger(root, claim, "retention_proof", "enterprise/retention-proofs.jsonl", "enterprise_retention_proofs", "retention_proof_required", reasons, failures)
+    downloads = _PublishedArtifactDownloads(artifact_fetcher)
+    _verify_retention_or_rollback_ledger(root, claim, "rollback_proof", "enterprise/rollback-proofs.jsonl", "enterprise_rollback_proofs", "rollback_proof_required", reasons, failures, downloads)
+    _verify_retention_or_rollback_ledger(root, claim, "retention_proof", "enterprise/retention-proofs.jsonl", "enterprise_retention_proofs", "retention_proof_required", reasons, failures, downloads)
     _verify_workflow_run_ledger(root, claim, reasons, failures)
     _verify_artifact_ledger(root, claim, reasons, failures)
     _verify_dlp_token_ledger(root, claim, "dlp_proof", "enterprise/dlp-proofs.jsonl", "enterprise_dlp_proofs", "dlp_proof_required", reasons, failures)
@@ -634,6 +642,14 @@ def _evaluate_retention_or_rollback(
         if not isinstance(proof.get(field_name), str) or not proof.get(field_name, "").strip():
             reasons.append(f"{proof_name}_{field_name}_required")
             failures.append(f"{proof_name}_required")
+    # ARIA-HIGH-218 — the merge lane verifies these bytes on another runner,
+    # so they must name a publication it can download: the archive is the
+    # Actions artifact, the source is the bundle member inside it. A path
+    # under the claim lane's tools root reaches no other host.
+    reference = _published_rollback_reference(proof)
+    if reference is None:
+        reasons.append(f"{proof_name}_uri_not_published")
+        failures.append(f"{proof_name}_required")
     for field_name in ("source_sha256", "archive_sha256"):
         if not _is_sha256_digest(str(proof.get(field_name) or "")):
             reasons.append(f"{proof_name}_{field_name}_required")
@@ -819,6 +835,41 @@ def _verify_branch_protection_ledger(root: Path, claim: dict[str, Any], reasons:
         failures.append("branch_protection_required")
 
 
+def _published_rollback_reference(proof: dict[str, Any]) -> tuple[str, str, str] | None:
+    """``(repo, artifact_id, member)`` when the proof names one published
+    artifact coherently: the archive is the artifact, the source is a member
+    of that same artifact. ``None`` otherwise."""
+    from .actions_artifacts import parse_actions_artifact_uri
+
+    try:
+        archive_repo, archive_id, archive_member = parse_actions_artifact_uri(str(proof.get("archive_uri") or ""))
+        source_repo, source_id, member = parse_actions_artifact_uri(str(proof.get("source_uri") or ""))
+    except GovernanceError:
+        return None
+    if archive_member is not None or member is None or (archive_repo, archive_id) != (source_repo, source_id):
+        return None
+    return archive_repo, archive_id, member
+
+
+class _PublishedArtifactDownloads:
+    """One download per artifact per verification: the rollback and the
+    retention proof name the same artifact, and both are verified against
+    the same bytes."""
+
+    def __init__(self, fetcher: Any) -> None:
+        self._fetcher = fetcher
+        self._downloads: dict[tuple[str, str], Any] = {}
+
+    def fetch(self, repo: str, artifact_id: str) -> Any:
+        key = (repo, artifact_id)
+        if key not in self._downloads:
+            from . import actions_artifacts
+
+            fetcher = self._fetcher or actions_artifacts.fetch_actions_artifact
+            self._downloads[key] = fetcher(repo=repo, artifact_id=artifact_id)
+        return self._downloads[key]
+
+
 def _verify_retention_or_rollback_ledger(
     root: Path,
     claim: dict[str, Any],
@@ -828,6 +879,7 @@ def _verify_retention_or_rollback_ledger(
     failure_class: str,
     reasons: list[str],
     failures: list[str],
+    downloads: _PublishedArtifactDownloads,
 ) -> None:
     proof = claim.get(proof_name) if isinstance(claim.get(proof_name), dict) else {}
     id_key = "retention_proof_id" if proof_name == "retention_proof" else "rollback_proof_id"
@@ -850,18 +902,36 @@ def _verify_retention_or_rollback_ledger(
         reasons.append(f"{proof_name}_not_ledger_bound")
         failures.append(failure_class)
         return
-    for uri_key, hash_key in (("source_uri", "source_sha256"), ("archive_uri", "archive_sha256")):
-        uri = str(match.get(uri_key) or "")
-        expected = str(match.get(hash_key) or "")
-        try:
-            actual = _sha256_file(_resolve_tools_uri(root, uri))
-        except GovernanceError as exc:
-            reasons.append(f"{proof_name}_{uri_key}_unreadable:{exc}")
-            failures.append(failure_class)
-            continue
-        if actual != expected:
-            reasons.append(f"{proof_name}_{hash_key}_byte_mismatch")
-            failures.append(failure_class)
+    # ARIA-HIGH-218 — verified THROUGH the published reference: the artifact
+    # is downloaded from GitHub and both digests are recomputed from what
+    # came back — the archive over the zip, the source over the bundle
+    # member inside it.
+    reference = _published_rollback_reference(match)
+    if reference is None:
+        reasons.append(f"{proof_name}_uri_not_published")
+        failures.append(failure_class)
+        return
+    repo, artifact_id, member = reference
+    from .actions_artifacts import artifact_member
+
+    try:
+        published = downloads.fetch(repo, artifact_id)
+    except GovernanceError as exc:
+        reasons.append(f"{proof_name}_archive_uri_unreadable:{exc}")
+        failures.append(failure_class)
+        return
+    if published.zip_sha256 != str(match.get("archive_sha256") or ""):
+        reasons.append(f"{proof_name}_archive_sha256_byte_mismatch")
+        failures.append(failure_class)
+    try:
+        member_bytes = artifact_member(published, member)
+    except GovernanceError as exc:
+        reasons.append(f"{proof_name}_source_uri_unreadable:{exc}")
+        failures.append(failure_class)
+        return
+    if _sha256_bytes(member_bytes) != str(match.get("source_sha256") or ""):
+        reasons.append(f"{proof_name}_source_sha256_byte_mismatch")
+        failures.append(failure_class)
 
 
 def _verify_workflow_run_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -1072,23 +1142,10 @@ def _workflow_run_id_valid(value: Any) -> bool:
     )
 
 
-def _resolve_tools_uri(root: Path, uri: str) -> Path:
-    if not uri or Path(uri).is_absolute() or uri.startswith("aria-tools/"):
-        raise GovernanceError("enterprise_proof_uri_must_be_relative_to_tools_root")
-    resolved = (root / uri).resolve()
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError as exc:
-        raise GovernanceError("enterprise_proof_uri_escapes_tools_root") from exc
-    if not resolved.exists() or not resolved.is_file():
-        raise GovernanceError("enterprise_proof_uri_missing")
-    return resolved
-
-
-def _sha256_file(path: Path) -> str:
+def _sha256_bytes(data: bytes) -> str:
     import hashlib
 
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _is_full_sha(value: str) -> bool:

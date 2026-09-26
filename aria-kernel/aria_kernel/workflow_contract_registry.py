@@ -683,6 +683,24 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=15,
+                # ARIA-HIGH-218 — the rollback bundle is built outside the
+                # store, published as an Actions artifact, downloaded back
+                # through the API, and only then proven by the claim; the
+                # claim is published to aria/state after it is recorded.
+                required_steps=(
+                    _RESTORE_STEP,
+                    "Build the rollback bundle",
+                    "Publish the rollback bundle",
+                    "Download the published rollback bundle",
+                    "Assemble the readiness claim",
+                    _PUBLISH_STEP,
+                ),
+                step_order=(
+                    ("Build the rollback bundle", "Publish the rollback bundle"),
+                    ("Publish the rollback bundle", "Download the published rollback bundle"),
+                    ("Download the published rollback bundle", "Assemble the readiness claim"),
+                    ("Assemble the readiness claim", _PUBLISH_STEP),
+                ),
             ),
         ),
     ),

@@ -27,6 +27,7 @@ from aria_kernel.genesis_lifecycle import current_lifecycle_state, record_transi
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.published_artifacts import PublishedArtifacts
 
 
 class GenesisLifecycleReducerTests(unittest.TestCase):
@@ -89,21 +90,23 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         self.tools = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
         self._source_ref_cache: dict[str, dict] = {}
+        # ARIA-HIGH-218 — the rollback bundle is a published Actions artifact
+        # the verifier downloads; this store serves it.
+        self.artifacts = PublishedArtifacts(repo="example/aqua")
+        self.rollback_artifact_id = self.artifacts.publish(
+            {"rollback-aaaaaaaaaaaa.bundle": b"# v2 git bundle\nfixture\n"},
+        )
+        serving = self.artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def _ready_claim(self, *, readiness_claim_id: str = "ready-42") -> dict:
         (self.tools / "evidence-bundle.json").write_text('{"ok":true}\n', encoding="utf-8")
-        (self.tools / "rollback-source.json").write_text('{"source":true}\n', encoding="utf-8")
-        (self.tools / "rollback-archive.json").write_text('{"archive":true}\n', encoding="utf-8")
-        (self.tools / "retention-source.json").write_text('{"source":true}\n', encoding="utf-8")
-        (self.tools / "retention-archive.json").write_text('{"archive":true}\n', encoding="utf-8")
         digest = self._sha(self.tools / "evidence-bundle.json")
-        rollback_source = self._sha(self.tools / "rollback-source.json")
-        rollback_archive = self._sha(self.tools / "rollback-archive.json")
-        retention_source = self._sha(self.tools / "retention-source.json")
-        retention_archive = self._sha(self.tools / "retention-archive.json")
+        published = self.artifacts.references(self.rollback_artifact_id, "rollback-aaaaaaaaaaaa.bundle")
         pr_number = 42
         repo = "example/aqua"
         target_ref = "refs/heads/main"
@@ -149,21 +152,15 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             **common,
             "validated": True,
             "rollback_proof_id": "rollback-1",
-            "source_uri": "rollback-source.json",
-            "archive_uri": "rollback-archive.json",
-            "source_sha256": rollback_source,
-            "archive_sha256": rollback_archive,
+            **published,
             "source_ledger_ref": self._source_ref("rollback"),
         }
         retention = {
             **common,
             "validated": True,
             "retention_proof_id": "retention-1",
-            "source_uri": "retention-source.json",
-            "archive_uri": "retention-archive.json",
-            "source_sha256": retention_source,
-            "archive_sha256": retention_archive,
-            "retention_days": 365,
+            **published,
+            "retention_days": 30,
             "source_ledger_ref": self._source_ref("retention"),
         }
         dlp = {
@@ -487,7 +484,8 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
     def test_rollback_byte_mismatch_rejected(self) -> None:
         claim = self._ready_claim()
         self._record_ready_proofs(claim)
-        (self.tools / "rollback-source.json").write_text('{"mutated":true}\n', encoding="utf-8")
+        # The published artifact is not what the proofs pinned any more.
+        self.artifacts.replace_bytes(self.rollback_artifact_id, b"PK\x05\x06" + b"\x00" * 18)
         record_enterprise_readiness_claim(claim, base_dir=self.tools)
 
         class Adapter:

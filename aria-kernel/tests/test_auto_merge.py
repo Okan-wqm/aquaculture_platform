@@ -222,7 +222,6 @@ class AutoMergeTests(unittest.TestCase):
             record_branch_protection_proof,
             record_dlp_proof,
             record_enterprise_readiness_claim,
-            record_remote_cas_proof,
             record_retention_proof,
             record_rollback_proof,
             record_token_proof,
@@ -277,10 +276,17 @@ class AutoMergeTests(unittest.TestCase):
             return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
         artifact_sha = write_artifact("evidence-bundle.json", '{"ok":true}\n')
-        rollback_source = write_artifact("rollback-source.json", '{"source":true}\n')
-        rollback_archive = write_artifact("rollback-archive.json", '{"archive":true}\n')
-        retention_source = write_artifact("retention-source.json", '{"source":true}\n')
-        retention_archive = write_artifact("retention-archive.json", '{"archive":true}\n')
+        # ARIA-HIGH-218 — the rollback bundle is a published Actions artifact
+        # the merge verifier downloads; this store serves it.
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        artifacts = PublishedArtifacts(repo=repo)
+        bundle_member = f"rollback-{head_sha[:12]}.bundle"
+        rollback_artifact_id = artifacts.publish({bundle_member: b"# v2 git bundle\nfixture\n"})
+        published = artifacts.references(rollback_artifact_id, bundle_member)
+        serving = artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
         artifact_ref = {
             "schema_version": 2,
             "artifact_id": "artifact-1",
@@ -290,15 +296,6 @@ class AutoMergeTests(unittest.TestCase):
             "produced_by_workflow_run_id": "123",
             "source_surface": "github_actions_artifact",
         }
-        cas = {
-            **common,
-            "state": "fresh",
-            "lease_id": f"lease-{pr_number}",
-            "epoch": 1,
-            "expires_at": "2999-06-02T00:00:00Z",
-            "source_ledger_ref": source_ref("cas"),
-        }
-        record_remote_cas_proof(cas, base_dir=self.tools_dir)
         branch = {
             **common,
             "$schema": "aria/branch-protection-proof/v3",
@@ -322,21 +319,15 @@ class AutoMergeTests(unittest.TestCase):
             **common,
             "validated": True,
             "rollback_proof_id": f"rollback-{pr_number}",
-            "source_uri": "rollback-source.json",
-            "archive_uri": "rollback-archive.json",
-            "source_sha256": rollback_source,
-            "archive_sha256": rollback_archive,
+            **published,
             "source_ledger_ref": source_ref("rollback"),
         }
         retention = {
             **common,
             "validated": True,
             "retention_proof_id": f"retention-{pr_number}",
-            "source_uri": "retention-source.json",
-            "archive_uri": "retention-archive.json",
-            "source_sha256": retention_source,
-            "archive_sha256": retention_archive,
-            "retention_days": 365,
+            **published,
+            "retention_days": 30,
             "source_ledger_ref": source_ref("retention"),
         }
         workflow_run = {
@@ -411,7 +402,6 @@ class AutoMergeTests(unittest.TestCase):
             "evidence_bundle": {"path": "evidence-bundle.json", "sha256": artifact_sha},
             "workflow_run_ids": [123],
             "artifact_refs": [artifact_ref],
-            "remote_cas_proof": cas,
             "rollback_proof": rollback,
             "retention_proof": retention,
             "waiver_ledger": {"open_expired_waivers": [], "source_ledger_ref": source_ref("waiver")},
@@ -447,7 +437,7 @@ class AutoMergeTests(unittest.TestCase):
             {
                 **common,
                 "rollback_bundle_id": f"bundle-{pr_number}",
-                "rollback_plan_sha256": rollback_source,
+                "rollback_plan_sha256": published["source_sha256"],
             },
             base_dir=self.tools_dir,
         )

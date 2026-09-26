@@ -497,10 +497,12 @@ class RemoteCasProofTests(unittest.TestCase):
 
 
 class RollbackRetentionProofTests(unittest.TestCase):
-    """F5-e — a real git bundle, verified by git, archived byte-identically."""
+    """F5-e — a real git bundle, verified by git, published and proven by reference."""
 
     def setUp(self) -> None:
         import subprocess
+
+        from tests._helpers.published_artifacts import PublishedArtifacts
 
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
@@ -513,6 +515,7 @@ class RollbackRetentionProofTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.name", "T"], cwd=self.repo, check=True)
         subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.repo, check=True)
+        self.artifacts = PublishedArtifacts(repo="okan/aqua")
         self.binding = dict(
             pr_number=77, repo="okan/aqua", target_ref="main",
             head_ref="feat/x", head_sha="a" * 40,
@@ -523,14 +526,27 @@ class RollbackRetentionProofTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_real_bundle_yields_both_proofs_with_equal_digests(self) -> None:
+    def _published(self) -> dict:
+        from aria_kernel.readiness_proofs import build_rollback_bundle
+
+        built = build_rollback_bundle(
+            target_ref="main", head_sha="a" * 40, workspace_root=self.repo,
+            output_dir=Path(self.tmp.name) / "rollback",
+        )
+        artifact_id = self.artifacts.publish_files(Path(built["bundle_path"]))
+        return {"bundle": built, "published": self.artifacts.fetch(repo="okan/aqua", artifact_id=artifact_id)}
+
+    def test_real_bundle_yields_both_proofs_bound_to_the_published_bytes(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
 
-        report = produce_rollback_and_retention_proofs(**self.binding)
+        evidence = self._published()
+        report = produce_rollback_and_retention_proofs(**self.binding, **evidence)
         rollback = report["rollback_proof"]
         retention = report["retention_proof"]
         self.assertTrue(rollback["validated"])
-        self.assertEqual(rollback["source_sha256"], rollback["archive_sha256"])
+        # The source is the bundle member, the archive the artifact's zip.
+        self.assertEqual(rollback["source_sha256"], evidence["bundle"]["bundle_sha256"])
+        self.assertEqual(rollback["archive_sha256"], evidence["published"].zip_sha256)
         self.assertTrue(rollback["source_sha256"].startswith("sha256:"))
         self.assertTrue(retention["validated"])
         self.assertEqual(retention["retention_days"], 30)
@@ -538,20 +554,17 @@ class RollbackRetentionProofTests(unittest.TestCase):
         for proof in (rollback, retention):
             resolved = find_row_by_source_ledger_ref(self.tools, proof["source_ledger_ref"])
             self.assertIsInstance(resolved, dict)
-        # the archived artifact exists and is byte-identical; uris are
-        # RELATIVE to the tools root — exactly what the claim verifier
-        # re-reads (absolute/file:// forms are rejected there)
-        archive = self.tools / report["archive_uri"]
-        source = self.tools / report["bundle_uri"]
-        self.assertEqual(archive.read_bytes(), source.read_bytes())
+        self.assertTrue(report["archive_uri"].startswith("actions-artifact:okan/aqua/"))
+        self.assertTrue(report["bundle_uri"].endswith("#rollback-aaaaaaaaaaaa.bundle"))
 
     def test_missing_target_ref_fails_closed(self) -> None:
-        from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
+        from aria_kernel.readiness_proofs import build_rollback_bundle
 
-        bad = dict(self.binding)
-        bad["target_ref"] = "no-such-branch"
         with self.assertRaisesRegex(GovernanceError, "bundle_create_failed"):
-            produce_rollback_and_retention_proofs(**bad)
+            build_rollback_bundle(
+                target_ref="no-such-branch", head_sha="a" * 40, workspace_root=self.repo,
+                output_dir=Path(self.tmp.name) / "rollback",
+            )
 
     def test_claim_id_is_required(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
@@ -559,13 +572,13 @@ class RollbackRetentionProofTests(unittest.TestCase):
         bad = dict(self.binding)
         bad["readiness_claim_id"] = " "
         with self.assertRaisesRegex(GovernanceError, "claim_id_required"):
-            produce_rollback_and_retention_proofs(**bad)
+            produce_rollback_and_retention_proofs(**bad, **self._published())
 
     def test_retention_days_must_be_positive(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
 
         with self.assertRaisesRegex(GovernanceError, "retention_days"):
-            produce_rollback_and_retention_proofs(**self.binding, retention_days=0)
+            produce_rollback_and_retention_proofs(**self.binding, **self._published(), retention_days=0)
 
 
 class TokenProofTests(unittest.TestCase):
@@ -763,6 +776,27 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
             path = evidence / f"{surface}.txt"
             path.write_text(f"clean {surface}\n", encoding="utf-8")
             self.surfaces[surface] = [path]
+        # ARIA-HIGH-218 — the rollback bundle is published as an Actions
+        # artifact and proven by reference; the verifier downloads it.
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        self.artifacts = PublishedArtifacts(repo="okan/aqua")
+        serving = self.artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
+
+    def _rollback(self, head_sha: str) -> dict:
+        from aria_kernel.readiness_proofs import build_rollback_bundle
+
+        built = build_rollback_bundle(
+            target_ref="main", head_sha=head_sha, workspace_root=self.workspace,
+            output_dir=Path(self.tmp.name) / "rollback",
+        )
+        artifact_id = self.artifacts.publish_files(Path(built["bundle_path"]))
+        return {
+            "rollback_bundle": built,
+            "rollback_artifact": self.artifacts.fetch(repo="okan/aqua", artifact_id=artifact_id),
+        }
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -811,6 +845,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
             },
             surface_paths=self.surfaces,
             workspace_root=self.workspace,
+            **self._rollback("a" * 40),
             base_dir=self.tools,
             probe=_probe_for(_strong_payload()),
             rules_probe=_rules(),
@@ -861,6 +896,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
                 },
                 surface_paths=self.surfaces,
                 workspace_root=self.workspace,
+                **self._rollback("c" * 40),
                 base_dir=self.tools,
                 probe=_probe_for(_strong_payload()),
                 rules_probe=_rules(),
@@ -888,6 +924,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
                 },
                 surface_paths=self.surfaces,
                 workspace_root=self.workspace,
+                **self._rollback("d" * 40),
                 base_dir=self.tools,
                 probe=_probe_for(_strong_payload()),
                 rules_probe=_rules(),

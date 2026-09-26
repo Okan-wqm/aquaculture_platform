@@ -29,12 +29,13 @@ Webhook off. Repository permissions, exactly:
 | Checks          | Read-only      | required-checks gate in the merge lane                           |
 | Commit statuses | Read-only      | required-checks gate in the merge lane                           |
 | Issues          | Read-only      | watchdog merge freeze (`watchdog_freeze`) read by the merge lane |
+| Actions         | Read-only      | rollback bundle artifact downloaded by the merge lane's verifier |
 | Everything else | No access      |                                                                  |
 
 The token sets are named in the factory: `DEFAULT_INSTALLATION_TOKEN_PERMISSIONS` (contents,
 pull requests, administration), `MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS` (default plus checks,
-statuses, issues) and `RUNNER_STATUS_PERMISSIONS` (administration only). A mint that asks for a
-permission the installation has not granted fails with HTTP 422.
+statuses, issues, actions) and `RUNNER_STATUS_PERMISSIONS` (administration only). A mint that asks
+for a permission the installation has not granted fails with HTTP 422.
 
 ## 2. Accept the permissions on the installation
 

@@ -205,6 +205,29 @@ class ProduceClaimCliTests(unittest.TestCase):
             "logs": [str(Path(self.tmp.name) / "pr-flat.json")],
             "artifacts": [str(Path(self.tmp.name) / "artifact.zip")],
         }), encoding="utf-8")
+        # ARIA-HIGH-218 — the published rollback bundle, as the lane's
+        # `build-rollback-bundle` and `fetch-artifact` steps record it.
+        from aria_kernel.readiness_proofs import fetch_published_artifact
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        artifacts = PublishedArtifacts(repo="okan/aqua")
+        artifact_id = artifacts.publish({"rollback-aaaaaaaaaaaa.bundle": b"bundle"})
+        with artifacts.serve():
+            record = fetch_published_artifact(
+                repo="okan/aqua", artifact_id=artifact_id,
+                output_dir=Path(self.tmp.name) / "rollback-artifact",
+            )
+        rollback_artifact = Path(self.tmp.name) / "rollback-artifact.json"
+        rollback_artifact.write_text(json.dumps(record), encoding="utf-8")
+        rollback_bundle = Path(self.tmp.name) / "rollback-bundle.json"
+        rollback_bundle.write_text(json.dumps({
+            "bundle_name": "rollback-aaaaaaaaaaaa.bundle",
+            "bundle_sha256": "sha256:" + "c" * 64,
+        }), encoding="utf-8")
+        self.base_argv += [
+            "--rollback-bundle-file", str(rollback_bundle),
+            "--rollback-artifact-file", str(rollback_artifact),
+        ]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

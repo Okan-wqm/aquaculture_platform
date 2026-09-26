@@ -208,7 +208,6 @@ def _gates() -> list:
         patch("aria_kernel.merge_authority.evaluate_auto_merge", return_value={"eligible": True, "head_sha": _HEAD}),
         patch("aria_kernel.merge_authority.run_hard_fail_checks",
               return_value=SimpleNamespace(passed=True, failures=(), results=())),
-        patch("aria_kernel.expert_review_gate._ensure_implementation_expert_requests", return_value=()),
     ]
 
 

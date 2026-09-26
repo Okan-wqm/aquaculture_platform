@@ -270,20 +270,16 @@ def merge_pr_if_ready(
                 # Bind the final live PR observation to native implementation
                 # evidence after head re-evaluation. Missing roots or joins
                 # remain explicit gaps; the existing registry owns refusal.
-                perimeter_context = _capture_pre_merge_context(
+                # ARIA-HIGH-217 — evaluated on the PR head (the workspace the
+                # perimeter reads), and it only evaluates: the expert-review
+                # requests it used to create here are made at claim time
+                # (request_implementation_expert_review), so a panel exists
+                # before the merge lane asks whether it agreed.
+                perimeter_context, hard_fail_report = _evaluate_pre_merge_perimeter(
                     workspace_root=workspace_root,
                     base_dir=base_dir,
                     pr=fresh_pr,
                     diff_text=fresh_diff,
-                )
-                hard_fail_report = run_hard_fail_checks(
-                    perimeter_context, gate=GATE_PRE_MERGE,
-                )
-                from .expert_review_gate import _ensure_implementation_expert_requests
-
-                _ensure_implementation_expert_requests(
-                    perimeter_context, hard_fail_report,
-                    base_dir=base_dir, cycle_id=cycle_id,
                 )
                 if not hard_fail_report.passed:
                     result = dict(decision)
@@ -717,6 +713,116 @@ def _base_branch(pr: dict[str, Any]) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _evaluate_pre_merge_perimeter(
+    *,
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+    pr: dict[str, Any],
+    diff_text: str | None,
+    while_shaped: Callable[[HardFailContext, Any], Any] | None = None,
+) -> tuple[HardFailContext, Any]:
+    """Capture and check the pre-merge perimeter ON THE PR HEAD.
+
+    ARIA-HIGH-217 — the capture reads a committed snapshot at the PR head,
+    and the branch-tip lock reads HEAD, the PR branch and the base branch.
+    The lanes run from a checkout of ``main``, where neither can ever hold,
+    so the perimeter is evaluated in the workspace
+    ``merge_lane_workspace.pr_head_workspace`` shapes. That is the given
+    workspace itself when it already stands on the head, otherwise a
+    throwaway worktree of it. ``while_shaped(context, report)`` runs before
+    the shaped workspace is removed. A workspace that cannot be shaped is a
+    named gap (``merge_lane_workspace_unavailable:<why>``). A PR observation
+    too incomplete to shape one is left to the capture, which names it
+    (``pr_commit_identity_unavailable``).
+    """
+    from .implementation_safety import _PreMergeEvidence
+    from .merge_lane_workspace import (
+        MergeLaneWorkspaceRefusal,
+        pr_head_workspace,
+        pr_workspace_identity,
+    )
+
+    def evaluate(root: str | Path | None) -> tuple[HardFailContext, Any]:
+        context = _capture_pre_merge_context(
+            workspace_root=root, base_dir=base_dir, pr=pr, diff_text=diff_text,
+        )
+        report = run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
+        if while_shaped is not None:
+            while_shaped(context, report)
+        return context, report
+
+    if workspace_root is None:
+        return evaluate(None)
+    try:
+        pr_workspace_identity(pr)
+    except MergeLaneWorkspaceRefusal:
+        return evaluate(workspace_root)
+    try:
+        with pr_head_workspace(source_root=workspace_root, pr=pr) as shaped:
+            return evaluate(shaped)
+    except MergeLaneWorkspaceRefusal as exc:
+        context = HardFailContext(
+            diff_text=diff_text,
+            base_branch=_base_branch(pr),
+            pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
+            pre_merge_evidence=_PreMergeEvidence((f"merge_lane_workspace_unavailable:{exc}",)),
+        )
+        return context, run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
+
+
+def request_implementation_expert_review(
+    *,
+    adapter: Any,
+    pr_number: int,
+    base_dir: str | Path | None,
+    workspace_root: str | Path,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Request the expert panel's review of a PR's implementation, at claim time.
+
+    ARIA-HIGH-217 — the requests used to be made inside the merge
+    authority's perimeter, which never passed from the merge lane's
+    checkout of ``main``, so no panel was ever requested and the
+    expert-consensus predicate could never pass. The readiness-claim lane
+    now calls this once the PR's CI is green. It evaluates the same
+    perimeter on the PR head and requests the review when the implementation
+    checks hold (``expert_review_gate.request_implementation_expert_reviews``).
+    Request ids derive from the implementation binding, so a repeat for the
+    same head returns the same requests.
+    """
+    from .expert_review_gate import request_implementation_expert_reviews
+
+    pr = adapter.get_pr(pr_number)
+    state = str(pr.get("state") or "").upper()
+    result: dict[str, Any] = {
+        "pr_number": pr_number,
+        "head_sha": _head_sha(pr),
+        "requested": [],
+    }
+    if state != "OPEN":
+        result["reasons"] = [f"pr_not_open:{state or 'unobserved'}"]
+        return result
+    requested: list[str] = []
+
+    def request(context: HardFailContext, report: Any) -> None:
+        requested.extend(request_implementation_expert_reviews(
+            context, report, base_dir=base_dir, cycle_id=cycle_id,
+        ))
+
+    _context, report = _evaluate_pre_merge_perimeter(
+        workspace_root=workspace_root,
+        base_dir=base_dir,
+        pr=pr,
+        diff_text=adapter.get_pr_diff(pr_number),
+        while_shaped=request,
+    )
+    result["requested"] = requested
+    result["perimeter"] = {
+        item.name: {"passed": item.passed, "reason": item.reason} for item in report.results
+    }
+    return result
 
 
 def _capture_pre_merge_context(
@@ -1420,4 +1526,9 @@ def _join_pre_merge_implementation(
         return {}, (reason,)
 
 
-__all__ = ["merge_pr_if_ready"]
+__all__ = [
+    "merge_pr_if_ready",
+    "pending_enqueued_heads",
+    "reconcile_enqueued_merges",
+    "request_implementation_expert_review",
+]

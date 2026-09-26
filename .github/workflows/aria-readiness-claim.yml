@@ -56,6 +56,15 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
 
+      # ARIA-HIGH-217 — the pre-merge perimeter is evaluated on the PR head:
+      # a worktree of this checkout, with `main` moved to the implementation
+      # base for the span of the evaluation and restored after it. Git will
+      # not move a branch a worktree stands on, so the checkout lets go of
+      # main (merge_lane_workspace.pr_head_workspace refuses by name
+      # otherwise).
+      - name: Detach the checkout from main
+        run: git checkout --quiet --detach
+
       - name: Persist enterprise workflow preflight
         env:
           PYTHONPATH: aria-kernel
@@ -305,6 +314,30 @@ jobs:
             --rollback-bundle-file "${WORK_DIR}/rollback-bundle.json" \
             --rollback-artifact-file "${WORK_DIR}/rollback-artifact.json" \
             --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id, already_recorded}'
+
+      # ARIA-HIGH-217 — the expert panel is requested here, once CI is green
+      # for the head. The perimeter the request depends on is evaluated on
+      # the PR head (a worktree of this checkout; the head is fetched with
+      # the job token). The merge lane's perimeter only asks whether the
+      # panel agreed. It used to make these requests itself, from a checkout
+      # of main where the perimeter never held, so none was ever made.
+      - name: Request expert review of the implementation
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${HEADER}"
+          python3 -m aria_kernel readiness request-expert-review \
+            --pr "${PR_NUMBER}" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{pr_number, head_sha, requested, reasons}'
 
       # The credential is minted here and consumed by the next step only.
       - name: Mint the aria/state push credential

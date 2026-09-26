@@ -33,8 +33,8 @@ autonomous-fix path.
    BLOCKS and escalates to HUMAN_REQUIRED instead of accepting the approval. A
    reviewer that dreams cannot approve a fix.
 
-The final merge perimeter uses this module to request review of a natively
-accepted implementation. The evaluator below is also available to existing
+The readiness-claim lane uses this module to request review of a natively
+accepted implementation (ARIA-HIGH-217), before the merge lane asks. The evaluator below is also available to existing
 callers. The ``expert_consensus_evidence_verified`` registry predicate remains
 closed until accepted expert results are joined; pending requests are not
 consensus evidence.
@@ -105,7 +105,7 @@ def select_expert_reviewers(
     return experts
 
 
-def _ensure_implementation_expert_requests(
+def request_implementation_expert_reviews(
     context: _HardFailContext,
     report: _HardFailReport,
     *,
@@ -114,8 +114,12 @@ def _ensure_implementation_expert_requests(
 ) -> tuple[str, ...]:
     """Request final review of the implementation admitted by native checks.
 
-    This producer runs after the registry at the real merge perimeter. Pending
-    requests are not verdicts and cannot make the existing report pass.
+    ARIA-HIGH-217 — called at claim time
+    (``merge_authority.request_implementation_expert_review``) with the
+    pre-merge perimeter evaluated on the PR head. It used to run inside the
+    merge authority's perimeter, which never held from the merge lane's
+    checkout of main, so no review was ever requested. Pending requests are
+    not verdicts and cannot make the perimeter pass.
     """
     from .agent_invocations import create_agent_invocation_request
     from .implementation_safety import _native_implementation_is_bound
@@ -347,4 +351,5 @@ __all__ = [
     "select_expert_reviewers",
     "evaluate_expert_consensus",
     "enforce_expert_consensus_gate",
+    "request_implementation_expert_reviews",
 ]

@@ -89,6 +89,15 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
 
+      # ARIA-HIGH-217 — the pre-merge perimeter is evaluated on the PR head:
+      # a worktree of this checkout, with `main` moved to the implementation
+      # base for the span of the evaluation and restored after it. Git will
+      # not move a branch a worktree stands on, so the checkout lets go of
+      # main (merge_lane_workspace.pr_head_workspace refuses by name
+      # otherwise).
+      - name: Detach the checkout from main
+        run: git checkout --quiet --detach
+
       - name: Persist enterprise workflow preflight
         env:
           PYTHONPATH: aria-kernel

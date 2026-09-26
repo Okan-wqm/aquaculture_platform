@@ -190,6 +190,10 @@ _REPORT_DATE_EXPR = r"\$\{\{\s*steps\.resolved\.outputs\.date\s*\}\}"
 # restore name now because they share one action.
 _RESTORE_STEP = "Restore ARIA state from the aria/state branch"
 _PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+# ARIA-HIGH-217 — lanes that evaluate the pre-merge perimeter shape the PR
+# head as a worktree of their checkout, so the checkout lets go of main.
+_DETACH_STEP = "Detach the checkout from main"
+_EXPERT_REVIEW_STEP = "Request expert review of the implementation"
 _EXECUTOR_RESTORE_STEP = _RESTORE_STEP
 _EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
 _EXECUTOR_PENDING_STEP = "Find next pending request"
@@ -687,12 +691,17 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # store, published as an Actions artifact, downloaded back
                 # through the API, and only then proven by the claim; the
                 # claim is published to aria/state after it is recorded.
+                # ARIA-HIGH-217 — the expert panel is requested here, on the
+                # PR head (a worktree of the detached checkout), and the
+                # requests are published with the claim.
                 required_steps=(
+                    _DETACH_STEP,
                     _RESTORE_STEP,
                     "Build the rollback bundle",
                     "Publish the rollback bundle",
                     "Download the published rollback bundle",
                     "Assemble the readiness claim",
+                    _EXPERT_REVIEW_STEP,
                     _PUBLISH_STEP,
                 ),
                 step_order=(
@@ -700,6 +709,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     ("Publish the rollback bundle", "Download the published rollback bundle"),
                     ("Download the published rollback bundle", "Assemble the readiness claim"),
                     ("Assemble the readiness claim", _PUBLISH_STEP),
+                    (_DETACH_STEP, _EXPERT_REVIEW_STEP),
+                    (_RESTORE_STEP, _EXPERT_REVIEW_STEP),
+                    (_EXPERT_REVIEW_STEP, _PUBLISH_STEP),
                 ),
             ),
         ),
@@ -757,6 +769,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # step records each candidate's attestation, bound to the
                 # run, in the store it restored.
                 required_steps=(
+                    _DETACH_STEP,
                     _RESTORE_STEP,
                     "Mint the aria/state push credential",
                     "Run the merge lane",
@@ -766,7 +779,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # ARIA-HIGH-222 — the aria/state credential exists before the
                 # merge step, which publishes each merge's intent before the
                 # merge call.
+                # ARIA-HIGH-217 — the perimeter is evaluated on the PR head,
+                # a worktree of the checkout, which must not stand on main.
                 step_order=(
+                    (_DETACH_STEP, "Run the merge lane"),
                     (_RESTORE_STEP, "Run the merge lane"),
                     ("Mint the aria/state push credential", "Run the merge lane"),
                     ("Run the merge lane", _PUBLISH_STEP),

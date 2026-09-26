@@ -1905,6 +1905,18 @@ def build_parser() -> argparse.ArgumentParser:
     artifact_fetch.add_argument("--repo", required=True)
     artifact_fetch.add_argument("--artifact-id", required=True)
     artifact_fetch.add_argument("--output-dir", required=True)
+    # ARIA-HIGH-217 — the expert panel is requested at claim time, on the PR
+    # head; the merge authority's perimeter only evaluates it.
+    expert_review = add_subparser(
+        readiness_sub,
+        "request-expert-review",
+        help="Request the expert panel's review of a PR's implementation, evaluated on its head.",
+    )
+    expert_review.add_argument("--pr", type=int, required=True)
+    expert_review.add_argument(
+        "--workspace-root", required=True,
+        help="The lane's checkout; the PR head is shaped as a worktree of it.",
+    )
     # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
     # or shrinks the baseline; without it the command is check-only and
     # exits nonzero on NEW unreachable closures.
@@ -3672,6 +3684,19 @@ def _main(argv: list[str] | None = None) -> int:
             repo=args.repo, artifact_id=args.artifact_id, output_dir=args.output_dir,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "request-expert-review":
+        from .auto_merge import GhCliGitHubAdapter
+        from .merge_authority import request_implementation_expert_review
+
+        review = request_implementation_expert_review(
+            adapter=GhCliGitHubAdapter(cwd=args.workspace_root),
+            pr_number=args.pr,
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+        )
+        print(json.dumps(review, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "produce-claim":

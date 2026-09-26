@@ -755,13 +755,31 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertFalse(runner_result["dry_run"])
         self.assertEqual(adapter.merge_calls, [])
 
-        # The final perimeter must request review of the accepted implementation,
-        # not reuse a pre-worker plan panel or a review of the base commit.
+        # ARIA-HIGH-217 — the merge perimeter only evaluates. The panel is
+        # requested at claim time, on the PR head, for the accepted
+        # implementation (not a pre-worker plan panel, not the base commit).
         from aria_kernel.agent_invocations import list_agent_invocation_requests
+        self.assertEqual(list_agent_invocation_requests(
+            base_dir=tools, role="specialist_domain_review",
+        ), [])
+        review = merge_owner.request_implementation_expert_review(
+            adapter=adapter, pr_number=pr["number"], base_dir=tools, workspace_root=repo,
+        )
         expert_requests = list_agent_invocation_requests(
             base_dir=tools, role="specialist_domain_review",
         )
         self.assertEqual(len(expert_requests), 2)
+        self.assertEqual(sorted(review["requested"]), sorted(row["request_id"] for row in expert_requests))
+        self.assertTrue(review["perimeter"]["branch_tip_lock_and_recheck"]["passed"])
+        # The same head asks for the same panel: request ids derive from the
+        # implementation binding, so a repeat claim run adds nothing.
+        repeat = merge_owner.request_implementation_expert_review(
+            adapter=adapter, pr_number=pr["number"], base_dir=tools, workspace_root=repo,
+        )
+        self.assertEqual(repeat["requested"], review["requested"])
+        self.assertEqual(len(list_agent_invocation_requests(
+            base_dir=tools, role="specialist_domain_review",
+        )), 2)
         self.assertEqual({row["target_agent"] for row in expert_requests},
             {"farm-expert", "security-reviewer"})
         for expert_request in expert_requests:

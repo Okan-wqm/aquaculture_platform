@@ -143,7 +143,6 @@ def _gates_after_readiness() -> list:
             "aria_kernel.merge_authority.run_hard_fail_checks",
             return_value=SimpleNamespace(passed=True, failures=(), results=()),
         ),
-        patch("aria_kernel.expert_review_gate._ensure_implementation_expert_requests", return_value=()),
     ]
 
 
@@ -340,7 +339,11 @@ class LeaseAtMergeTests(_ClaimFixture):
             failures=(SimpleNamespace(name="branch_tip_lock_and_recheck", reason="fixture"),),
         )
         with patch("aria_kernel.merge_authority.run_hard_fail_checks", return_value=refused):
-            patches = [*_gates_before_readiness(), *_gates_after_readiness()[:-2]]
+            # The perimeter's own verdict is this test's fixture control.
+            patches = [
+                *_gates_before_readiness(),
+                *(item for item in _gates_after_readiness() if item.attribute != "run_hard_fail_checks"),
+            ]
             for item in patches:
                 item.start()
             try:

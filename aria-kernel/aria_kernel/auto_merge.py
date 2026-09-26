@@ -13,14 +13,15 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .change_paths import ChangePaths
 from .risk_policy import (
     HUMAN_MERGE_DECISION,
     HUMAN_MERGE_LABEL,
     STATUS_UNKNOWN_LANE,
     ChangeInput,
+    RiskPolicyVerdict,
     change_entries,
     classify_path,
+    classify_pr_change,
 )
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -189,13 +190,7 @@ def classify_changed_files(
         from .risk_policy import classify_change
 
         verdict = classify_change([(status, path) if status else path for status, path in entries])
-        enterprise_risk = {
-            "valid": verdict.valid,
-            "lane": verdict.lane,
-            "policy_hash": verdict.policy_hash,
-            "reason_codes": list(verdict.reason_codes),
-            "matched_lanes": list(verdict.matched_lanes),
-        }
+        enterprise_risk = _enterprise_risk(verdict)
     except Exception as exc:
         enterprise_risk = {
             "valid": False,
@@ -217,6 +212,16 @@ def classify_changed_files(
     }
 
 
+def _enterprise_risk(verdict: RiskPolicyVerdict) -> dict[str, Any]:
+    return {
+        "valid": verdict.valid,
+        "lane": verdict.lane,
+        "policy_hash": verdict.policy_hash,
+        "reason_codes": list(verdict.reason_codes),
+        "matched_lanes": list(verdict.matched_lanes),
+    }
+
+
 def evaluate_auto_merge(
     *,
     pr: dict[str, Any],
@@ -226,16 +231,15 @@ def evaluate_auto_merge(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
-    change: ChangePaths | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     """Whether ``pr`` may auto-merge; records the decision.
 
-    ``change`` is the git read of the PR's change (the merge authority's
-    risk decision, ``risk_policy.decided_change``). Path risk is classified
-    from its (status, path) entries when it is bound to the PR's head (and
-    base, when the PR names one). Without it the platform's file list is
-    all there is, which carries no status: nothing in it can be L1
-    (ARIA-CRITICAL-215).
+    ARIA-CRITICAL-215 — path risk is the PR's change as the checkout at
+    ``workspace_root`` holds it, read and classified by the one reader of a
+    PR's lane (``risk_policy.classify_pr_change``) with every file's git
+    status. There is no status-blind reading: a checkout without the PR's
+    commits is refused by name (``risk_change_paths_unavailable``).
     """
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
@@ -251,16 +255,13 @@ def evaluate_auto_merge(
     # Post-fix: empty / missing falls through to the
     # "latest PR head SHA unavailable" reason below; gate blocks.
     latest_head_sha = _first_string(github, "latest_head_sha")
-    changed_files = pr.get("changed_files", pr.get("files", []))
-    if not isinstance(changed_files, list):
-        changed_files = []
-    pr_base_sha = _first_string(pr, "base_sha", "baseRefOid")
-    if change is not None and change.head_rev == head_sha and (pr_base_sha is None or change.base_rev == pr_base_sha):
-        risk = classify_changed_files(change, policy=active_policy)
-    else:
-        if change is not None:
-            reasons.append("auto_merge_change_not_bound_to_pr: the git change read is not this PR head")
-        risk = classify_changed_files(changed_files, policy=active_policy)
+    read = classify_pr_change(pr, workspace_root=workspace_root)
+    risk = {
+        **classify_changed_files(read.change if read.change is not None else [], policy=active_policy),
+        # The PR's lane is the reader's verdict, which also carries the
+        # platform-list cross-check and names an unreadable change.
+        "enterprise_risk": _enterprise_risk(read.verdict),
+    }
 
     # Plan 022 §H-2 — diff content scan. classify_changed_files only
     # looks at path globs; pre-fix a low-risk path (apps/**/*.ts) could
@@ -714,7 +715,7 @@ def _merge_if_green_with_executor(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
-    change: ChangePaths | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     if not dry_run:
         raise GovernanceError(
@@ -744,7 +745,7 @@ def _merge_if_green_with_executor(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
-        change=change,
+        workspace_root=workspace_root,
     )
     return decision
 
@@ -758,8 +759,10 @@ def merge_if_green(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
-    change: ChangePaths | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
+    """Evaluation only (``dry_run``); ``workspace_root`` is the checkout the
+    PR's change is read from (``evaluate_auto_merge``)."""
     return _merge_if_green_with_executor(
         adapter=adapter,
         pr_number=pr_number,
@@ -768,7 +771,7 @@ def merge_if_green(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
-        change=change,
+        workspace_root=workspace_root,
     )
 
 

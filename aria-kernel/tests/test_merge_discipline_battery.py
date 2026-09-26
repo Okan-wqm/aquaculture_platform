@@ -42,7 +42,7 @@ class FullBatteryGateTests(unittest.TestCase):
     def _decide(self, github_payload):
         with tempfile.TemporaryDirectory(prefix="aria-717-") as tmp:
             return evaluate_auto_merge(
-                pr=pr(), github=github_payload, base_dir=Path(tmp) / "aria-tools",
+                pr=pr(), github=github_payload, base_dir=Path(tmp) / "aria-tools", workspace_root=None,
             )
 
     def test_optional_red_check_run_blocks(self) -> None:

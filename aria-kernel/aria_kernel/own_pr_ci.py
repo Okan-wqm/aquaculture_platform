@@ -110,6 +110,7 @@ def scan_own_prs(
             github=snapshot["github"],
             base_dir=root,
             cycle_id=cycle_id,
+            workspace_root=workspace_root,
         )
         jobs = red_jobs_of(snapshot["github"])
         status = "open" if jobs else "cleared"

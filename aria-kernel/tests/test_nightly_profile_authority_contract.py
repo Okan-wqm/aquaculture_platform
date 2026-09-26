@@ -710,7 +710,9 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
         self.assertIsInstance(runner, RealAutoMergeRunner)
         observed: list[bool] = []
 
-        def _fake_merge_if_green(*, adapter, pr_number, base_dir, dry_run):
+        def _fake_merge_if_green(*, adapter, pr_number, base_dir, dry_run, workspace_root):
+            # ARIA-CRITICAL-215 — the evaluation is handed the checkout.
+            self.assertIsNotNone(workspace_root)
             observed.append(dry_run)
             return {"decision": "blocked", "eligible": False, "pr_number": pr_number, "reasons": []}
 

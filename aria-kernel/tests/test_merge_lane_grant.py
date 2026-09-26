@@ -238,7 +238,10 @@ class MergeLaneGrantTests(unittest.TestCase):
             observed.append("live")
             return {"decision": "blocked", "eligible": False, "pr_number": pr_number, "reasons": []}
 
-        def _record_evaluation(*, adapter, pr_number, base_dir, dry_run):
+        def _record_evaluation(*, adapter, pr_number, base_dir, dry_run, workspace_root):
+            # ARIA-CRITICAL-215 — the evaluation reads the PR's change from
+            # the runner's checkout.
+            self.assertEqual(workspace_root, self.tmp.name)
             observed.append("dry" if dry_run else "evaluate-live")
             return {"decision": "blocked", "eligible": False, "pr_number": pr_number, "reasons": []}
 

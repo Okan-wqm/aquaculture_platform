@@ -22,7 +22,7 @@ from .incident_ledger import (
     record_merge_failed_incident,
 )
 from .policy_approval import verify_policy_approval
-from .risk_policy import decided_change, record_risk_decision_for_pr
+from .risk_policy import record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
 from .runner_attestation import verify_runner_attestation
@@ -148,10 +148,8 @@ def merge_pr_if_ready(
         base_dir=base_dir,
     )
 
-    # ARIA-CRITICAL-215 — both eligibility evaluations classify the (status,
-    # path) entries the risk decision read from git, never the platform's
-    # status-blind list.
-    change = decided_change(risk)
+    # ARIA-CRITICAL-215 — both eligibility evaluations read the PR's change
+    # from the same checkout through the same reader as the risk decision.
     decision = _merge_if_green_with_executor(
         adapter=adapter,
         pr_number=pr_number,
@@ -160,7 +158,7 @@ def merge_pr_if_ready(
         cycle_id=cycle_id,
         dry_run=True,
         diff_text=diff_text,
-        change=change,
+        workspace_root=workspace_root,
     )
     result = decision
     if decision.get("eligible"):
@@ -205,7 +203,7 @@ def merge_pr_if_ready(
                 cycle_id=cycle_id,
                 dry_run=True,
                 diff_text=fresh_diff,
-                change=change,
+                workspace_root=workspace_root,
             )
             latest_head_sha = fresh_decision.get("head_sha")
             if not fresh_decision.get("eligible"):

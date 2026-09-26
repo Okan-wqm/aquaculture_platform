@@ -363,6 +363,13 @@ def escalation_adjudicability(record: dict[str, Any]) -> AdjudicabilityVerdict:
 
         verdict = classify_change(list(changed_files))
         lane = str(getattr(verdict, "lane", "") or "")
+        if "risk_change_status_unknown" in verdict.reason_codes:
+            # ARIA-CRITICAL-215 — a stored record names bare paths and no
+            # commits, so whether a file was added or changed (the one fact
+            # that makes a doc or a test L1 or L2) is not recorded and no
+            # checkout can be asked. Refused by what it lacks; a path whose
+            # lane needs no status (L3, blocked, L2 source) keeps its lane.
+            return AdjudicabilityVerdict(False, "changed_files_status_unknown:stored_paths_name_no_change")
         if not getattr(verdict, "valid", False):
             return AdjudicabilityVerdict(
                 False, f"risk_policy_refused:{lane or 'invalid'}",

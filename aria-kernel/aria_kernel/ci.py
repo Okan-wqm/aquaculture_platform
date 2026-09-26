@@ -116,6 +116,7 @@ def record_ci_report(
     workflow_inventory: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     inventory = workflow_inventory or latest_workflow_inventory(base_dir=base_dir) or {"workflows": []}
@@ -136,6 +137,7 @@ def record_ci_report(
         workflow_inventory=inventory,
         base_dir=base_dir,
         cycle_id=cycle_id,
+        workspace_root=workspace_root,
     )
     row = {
         "schema_version": 1,
@@ -161,7 +163,11 @@ def evaluate_pr_ci_gate(
     workflow_inventory: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
+    """The PR's CI gate row. ARIA-CRITICAL-215 — the lane is read from the
+    PR's change in the checkout at ``workspace_root``, through the reader
+    the merge authority uses; the row records it (``enterprise_risk``)."""
     inventory = workflow_inventory or latest_workflow_inventory(base_dir=base_dir) or {"workflows": []}
     auto = evaluate_auto_merge(
         pr=pr,
@@ -170,6 +176,7 @@ def evaluate_pr_ci_gate(
         base_dir=base_dir,
         cycle_id=cycle_id,
         dry_run=True,
+        workspace_root=workspace_root,
     )
     blockers = list(auto.get("reasons", []))
     protected_gates = _protected_workflow_gates(inventory, github)
@@ -195,6 +202,7 @@ def evaluate_pr_ci_gate(
         "required_checks": auto.get("required_checks"),
         "check_result": auto.get("check_result"),
         "protected_workflow_gates": protected_gates,
+        "enterprise_risk": auto["risk"]["enterprise_risk"],
     }
     # F5-a — WHY: gate rows become source_ledger_ref targets for the
     # readiness-claim chain, which needs row_id + row_type on the source
@@ -224,6 +232,7 @@ def wait_pr_checks(
             workflow_inventory=snapshot.get("workflow_inventory"),
             base_dir=base_dir,
             cycle_id=cycle_id,
+            workspace_root=workspace_root,
         )
     if pr_number is None:
         raise GovernanceError("pr_number is required when no snapshot is provided")
@@ -235,6 +244,7 @@ def wait_pr_checks(
         workflow_inventory=latest_workflow_inventory(base_dir=base_dir),
         base_dir=base_dir,
         cycle_id=cycle_id,
+        workspace_root=workspace_root,
     )
 
 
@@ -707,7 +717,11 @@ def _fallback_agents(failure: dict[str, Any]) -> list[str]:
 
 def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, Any]:
     root = Path(workspace_root).resolve()
-    pr = _gh_json(root, ["pr", "view", str(pr_number), "--json", "number,baseRefName,headRefOid,files"])
+    # ARIA-CRITICAL-215 — the base commit and the uncapped file count are what
+    # the lane reader (`risk_policy.classify_pr_change`) reads the change with.
+    pr = _gh_json(
+        root, ["pr", "view", str(pr_number), "--json", "number,baseRefName,baseRefOid,headRefOid,files,changedFiles"],
+    )
     checks = _gh_json(root, ["pr", "checks", str(pr_number), "--json", "name,state,link,workflow"])
     # Map gh-cli state strings -> CompletedProcess-style (status,
     # conclusion) tuples used by the auto-merge / verification gates.

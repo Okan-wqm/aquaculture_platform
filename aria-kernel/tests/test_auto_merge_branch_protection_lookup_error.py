@@ -76,6 +76,7 @@ class BranchProtectionLookupErrorTests(unittest.TestCase):
                 "@@ -1 +1 @@\n"
                 "+const x = 1;\n"
             ),
+            workspace_root=None,
         )
         self.assertTrue(
             any("branch_protection_lookup_failed" in r for r in result["reasons"]),

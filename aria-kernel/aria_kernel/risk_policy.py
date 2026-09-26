@@ -192,30 +192,63 @@ def classify_change(
     )
 
 
-def read_pr_change(pr: dict[str, Any], workspace_root: str | Path | None) -> ChangePaths:
-    """The PR's change as the checkout's git holds it (``change_paths``)."""
-    return read_change_paths(
-        workspace_root,
-        _first_string(pr, "base_sha", "baseRefOid"),
-        _first_string(pr, "head_sha", "headRefOid", "head"),
-    )
+@dataclass(frozen=True)
+class PrChangeVerdict:
+    """A PR's lane, read from the change its checkout holds.
 
-
-def decided_change(risk_row: dict[str, Any]) -> ChangePaths | None:
-    """The change a recorded risk decision classified, or None when it read none.
-
-    The merge authority hands this to its eligibility evaluations, so they
-    classify exactly the (status, path) entries the decision read from git,
-    never the platform's status-blind list.
+    ``change`` is None when the checkout does not hold the PR's commits;
+    ``disagreement`` names why the platform's file list cannot describe the
+    git change, when it cannot.
     """
-    entries = risk_row.get("changed_entries")
-    base_sha, head_sha = risk_row.get("base_sha"), risk_row.get("head_sha")
-    if not isinstance(entries, list) or not entries or not isinstance(base_sha, str) or not isinstance(head_sha, str):
-        return None
-    return ChangePaths(
-        base_rev=base_sha, head_rev=head_sha,
-        entries=tuple((str(status), str(path)) for status, path in entries),
+
+    verdict: RiskPolicyVerdict
+    change: ChangePaths | None
+    disagreement: str | None
+    listed_paths: tuple[str, ...]
+    listed_count: int | None
+
+
+def classify_pr_change(
+    pr: dict[str, Any],
+    *,
+    workspace_root: str | Path | None,
+    policy: dict[str, Any] | None = None,
+) -> PrChangeVerdict:
+    """THE reader of a PR's lane (ARIA-CRITICAL-214/215).
+
+    The change is read from the checkout at ``workspace_root``
+    (``change_paths``: the PR's base..head, rename sources kept, every
+    file's git status, never capped) and classified with those statuses.
+    The platform's file list is a cross-check only: when it cannot describe
+    the git change the verdict is ``risk_pr_files_disagree_with_git``, and
+    when the checkout does not hold the commits it is
+    ``risk_change_paths_unavailable``. Every reader of a PR's lane (the risk
+    decision, each eligibility evaluation, the CI gate) asks here, so none
+    of them classifies a status-blind list and all of them agree.
+    """
+    listed = pr.get("changed_files", pr.get("files", []))
+    listed_paths = tuple(_changed_file_path(item) for item in listed) if isinstance(listed, list) else ()
+    count = pr.get("changed_files_count", pr.get("changedFiles"))
+    listed_count = count if type(count) is int else None
+    try:
+        change = read_change_paths(
+            workspace_root,
+            _first_string(pr, "base_sha", "baseRefOid"),
+            _first_string(pr, "head_sha", "headRefOid", "head"),
+        )
+    except GovernanceError:
+        return PrChangeVerdict(
+            _refused(policy, "risk_change_paths_unavailable", ()), None, None, listed_paths, listed_count,
+        )
+    disagreement = platform_file_list_disagreement(
+        change, listed_paths=list(listed_paths), listed_count=listed_count,
     )
+    verdict = (
+        _refused(policy, "risk_pr_files_disagree_with_git", change.paths)
+        if disagreement is not None
+        else classify_change(change, policy=policy)
+    )
+    return PrChangeVerdict(verdict, change, disagreement, listed_paths, listed_count)
 
 
 def record_risk_decision_for_pr(
@@ -226,33 +259,15 @@ def record_risk_decision_for_pr(
     policy: dict[str, Any] | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
-    """Classify the PR's change as git holds it, and record the decision.
+    """Classify the PR's change as git holds it (``classify_pr_change``), and
+    record the decision.
 
-    ARIA-CRITICAL-214 — the path set is read from the checkout at
-    ``workspace_root`` (``change_paths.read_change_paths``: rename sources
-    kept, never capped), not taken from the platform's file list, which
-    names only the new side of a rename and stops at 100 entries. That list
-    is a cross-check: when it cannot describe the git change, the decision
-    is refused by name. There is no way to hand this function a path list.
+    ARIA-CRITICAL-214 — there is no way to hand this function a path list:
+    the platform's list names only the new side of a rename and stops at
+    100 entries, so it is only ever a cross-check.
     """
-    listed = pr.get("changed_files", pr.get("files", []))
-    listed_paths = [_changed_file_path(item) for item in listed] if isinstance(listed, list) else []
-    listed_count = pr.get("changed_files_count")
-    disagreement: str | None = None
-    change: ChangePaths | None = None
-    try:
-        change = read_pr_change(pr, workspace_root)
-    except GovernanceError:
-        verdict = _refused(policy, "risk_change_paths_unavailable", ())
-    else:
-        disagreement = platform_file_list_disagreement(
-            change, listed_paths=listed_paths, listed_count=listed_count,
-        )
-        if disagreement is not None:
-            verdict = _refused(policy, "risk_pr_files_disagree_with_git", change.paths)
-        else:
-            # ARIA-CRITICAL-215 — classified with each file's git status.
-            verdict = classify_change(change, policy=policy)
+    read = classify_pr_change(pr, workspace_root=workspace_root, policy=policy)
+    verdict = read.verdict
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -272,10 +287,10 @@ def record_risk_decision_for_pr(
         "matched_lanes": list(verdict.matched_lanes),
         "base_sha": _first_string(pr, "base_sha", "baseRefOid"),
         "changed_files_source": CHANGE_PATHS_SOURCE,
-        "changed_entries": [[status, path] for status, path in change.entries] if change is not None else [],
-        "platform_listed_files": len(listed_paths),
-        "platform_file_count": listed_count if type(listed_count) is int else None,
-        "platform_disagreement": disagreement,
+        "changed_entries": [[status, path] for status, path in read.change.entries] if read.change is not None else [],
+        "platform_listed_files": len(read.listed_paths),
+        "platform_file_count": read.listed_count,
+        "platform_disagreement": read.disagreement,
     }
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "risk-decisions.jsonl",
@@ -561,10 +576,10 @@ __all__ = [
     "codeowners_globs",
     "codeowners_last_match",
     "codeowners_rules",
-    "decided_change",
+    "PrChangeVerdict",
+    "classify_pr_change",
     "load_risk_policy",
     "merge_route_for_change",
-    "read_pr_change",
     "record_risk_decision_for_pr",
     "risk_policy_hash",
 ]

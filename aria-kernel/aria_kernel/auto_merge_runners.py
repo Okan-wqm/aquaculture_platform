@@ -278,6 +278,9 @@ class RealAutoMergeRunner:
                         pr_number=pr_number,
                         base_dir=base_dir,
                         dry_run=True,
+                        # ARIA-CRITICAL-215 — the evaluation reads the PR's
+                        # change from this checkout, as the merge does.
+                        workspace_root=workspace_root,
                     )
                     if dry_run
                     else merge_pr_if_ready(

@@ -1846,6 +1846,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON file with the PR payload (number, head_sha/headRefOid, base/head refs).",
     )
     readiness_ci.add_argument("--cycle-id", default=None)
+    readiness_ci.add_argument(
+        "--workspace-root", default=".",
+        help="Checkout the PR's change is read from for its risk lane (ARIA-CRITICAL-215).",
+    )
     readiness_claim = add_subparser(
         readiness_sub,
         "produce-claim",
@@ -3613,6 +3617,7 @@ def _main(argv: list[str] | None = None) -> int:
         pr = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
         result = record_ci_report(
             pr=pr, github=github, cycle_id=args.cycle_id, base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

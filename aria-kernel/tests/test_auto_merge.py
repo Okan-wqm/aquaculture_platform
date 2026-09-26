@@ -15,7 +15,7 @@ from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.merge_authority import merge_pr_if_ready
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.operator_acts import operator_set_profile
 
 HEAD_SHA = "a" * 40
@@ -54,12 +54,6 @@ def pr(**overrides):
     }
     payload.update(overrides)
     return payload
-
-
-def git_change(head_sha="abc1234"):
-    """The merge authority's git read of the fixture PR's one docs edit
-    (ARIA-CRITICAL-215: path risk is classified from git statuses)."""
-    return ChangePaths(base_rev="d" * 40, head_rev=head_sha, entries=(("M", "docs/runbooks/auto-merge.md"),))
 
 
 def github(**overrides):
@@ -134,11 +128,13 @@ class AutoMergeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools_dir)
-        # ARIA-CRITICAL-214 — the merge authority's risk decision reads the
+        # ARIA-CRITICAL-214/215 — every reader of a PR's lane reads the
         # change from a git checkout. These snapshot fixtures carry no
         # repository (the reason the perimeter is stubbed below as well), so
-        # the git read answers with the fixture PR's one docs path; the
-        # reader itself is pinned in test_risk_change_paths.py.
+        # the git read answers with the fixture PR's one docs edit; the
+        # reader itself is pinned in test_risk_change_paths.py and
+        # test_lane_readers_read_git.py.
+        self.workspace = Path(self.tmp.name)
         change_paths = patch(
             "aria_kernel.risk_policy.read_change_paths",
             return_value=ChangePaths(
@@ -467,7 +463,9 @@ class AutoMergeTests(unittest.TestCase):
         return readiness_claim_id
 
     def test_policy_disabled_blocks_even_low_risk_green_pr(self):
-        decision = evaluate_auto_merge(pr=pr(), github=github(), policy={}, base_dir=self.tools_dir)
+        decision = evaluate_auto_merge(
+            pr=pr(), github=github(), policy={}, base_dir=self.tools_dir, workspace_root=self.workspace,
+        )
         self.assertFalse(decision["eligible"])
         self.assertIn("policy disabled", decision["reasons"])
 
@@ -477,6 +475,7 @@ class AutoMergeTests(unittest.TestCase):
             github=github(),
             policy=enabled_policy(),
             base_dir=self.tools_dir,
+            workspace_root=self.workspace,
         )
         self.assertFalse(decision["eligible"])
         self.assertIn("base branch must be main", decision["reasons"])
@@ -517,7 +516,7 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             cycle_id="cycle-auto",
-            change=git_change(),
+            workspace_root=self.workspace,
         )
         self.assertTrue(decision["eligible"])
         self.assertEqual(decision["decision"], "eligible")
@@ -525,17 +524,19 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(json.loads(rows[-1])["decision"], "eligible")
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
-    def test_without_the_git_change_the_platform_list_is_never_l1(self):
-        # ARIA-CRITICAL-215 — the platform's list carries no status.
-        blind = evaluate_auto_merge(pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir)
-        self.assertFalse(blind["eligible"])
-        self.assertIn("enterprise risk policy rejected diff: risk_change_status_unknown", blind["reasons"])
-        stale = evaluate_auto_merge(
-            pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir,
-            change=git_change(head_sha="f" * 40),
-        )
-        self.assertFalse(stale["eligible"])
-        self.assertTrue(any(reason.startswith("auto_merge_change_not_bound_to_pr") for reason in stale["reasons"]))
+    def test_a_checkout_without_the_prs_commits_is_refused_by_name(self):
+        # ARIA-CRITICAL-215 — the evaluation reads the change from git; the
+        # platform's status-blind list is never classified in its place.
+        with patch(
+            "aria_kernel.risk_policy.read_change_paths",
+            side_effect=GovernanceError("change_paths_unavailable: git diff failed: bad object"),
+        ):
+            decision = evaluate_auto_merge(
+                pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir,
+                workspace_root=self.workspace,
+            )
+        self.assertFalse(decision["eligible"])
+        self.assertIn("enterprise risk policy rejected diff: risk_change_paths_unavailable", decision["reasons"])
 
     def test_required_checks_fail_closed_when_unreadable_empty_missing_or_pending(self):
         cases = [
@@ -561,7 +562,10 @@ class AutoMergeTests(unittest.TestCase):
         for snapshot in cases:
             with self.subTest(snapshot=snapshot):
                 self.assertFalse(
-                    evaluate_auto_merge(pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir)[
+                    evaluate_auto_merge(
+                        pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir,
+                        workspace_root=self.workspace,
+                    )[
                         "eligible"
                     ],
                 )
@@ -576,7 +580,10 @@ class AutoMergeTests(unittest.TestCase):
         for snapshot in cases:
             with self.subTest(snapshot=snapshot):
                 self.assertFalse(
-                    evaluate_auto_merge(pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir)[
+                    evaluate_auto_merge(
+                        pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir,
+                        workspace_root=self.workspace,
+                    )[
                         "eligible"
                     ],
                 )
@@ -781,6 +788,7 @@ class AutoMergeTests(unittest.TestCase):
                 policy=enabled_policy(),
                 base_dir=self.tools_dir,
                 dry_run=False,
+                workspace_root=self.workspace,
             )
         self.assertEqual(adapter.merge_calls, [])
 

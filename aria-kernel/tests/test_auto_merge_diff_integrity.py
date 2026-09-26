@@ -107,6 +107,7 @@ class DiffIntegrityTests(unittest.TestCase):
             github=_make_github(),
             policy=_make_policy(),
             diff_text=_valid_diff(),
+            workspace_root=None,
         )
         # No P-6 blocking reasons fire on the happy path.
         for reason in result["reasons"]:
@@ -121,6 +122,7 @@ class DiffIntegrityTests(unittest.TestCase):
             github=_make_github(),
             policy=_make_policy(),
             diff_text="",
+            workspace_root=None,
         )
         self.assertTrue(
             any("auto_merge_requires_nonempty_unified_diff" in r
@@ -134,6 +136,7 @@ class DiffIntegrityTests(unittest.TestCase):
             github=_make_github(),
             policy=_make_policy(),
             diff_text="   \n\n  \t  \n",
+            workspace_root=None,
         )
         self.assertTrue(
             any("auto_merge_requires_nonempty_unified_diff" in r
@@ -150,6 +153,7 @@ class DiffIntegrityTests(unittest.TestCase):
             github=_make_github(),
             policy=_make_policy(),
             diff_text="this is not a unified diff at all",
+            workspace_root=None,
         )
         self.assertTrue(
             any("auto_merge_diff_unparseable_or_empty" in r

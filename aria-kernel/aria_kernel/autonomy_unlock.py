@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,20 @@ ACCEPTANCE_EVENT_TYPES: frozenset[str] = frozenset({
 # single skipped night, without accepting a hole big enough to mean the
 # lane stopped. ORPHAN-HIGH-530's outage was seventeen days.
 MAX_ACCEPTANCE_GAP_HOURS = 72
+
+
+def unlock_clock() -> datetime:
+    """THE evaluation time of every unlock verdict ARIA acts on (ARIA-HIGH-223).
+
+    The staleness half of the continuity rule needs one, and the merge
+    gate's own evaluation passed none: ``verdict_from_rows`` defaulted
+    ``now`` to None and skipped the check, so thirty cycles that ended a
+    month ago still unlocked L1. ``now`` is now REQUIRED there, and every
+    caller that evaluates for real — the merge gate and the scheduler
+    (``evaluate_autonomy_unlock``), the mock ladder, the evidence status —
+    takes its clock from here.
+    """
+    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -115,7 +129,7 @@ def _continuity_reasons(
     rows: list[dict[str, Any]],
     *,
     requirements: dict[str, int],
-    now: datetime | None,
+    now: datetime,
     max_gap_hours: int,
 ) -> list[str]:
     """Refusals for evidence that is COUNTED but not CONSECUTIVE.
@@ -203,18 +217,19 @@ def _continuity_reasons(
                 f"between {earlier.strftime('%Y-%m-%dT%H:%M:%SZ')} and "
                 f"{later.strftime('%Y-%m-%dT%H:%M:%SZ')}"
             )
-    if now is not None:
-        # The same rule applied to the open end. Thirty perfect cycles
-        # that all ended a month ago describe a system that WAS stable,
-        # which is not the claim an unlock rests on.
-        latest = chain[-1][0]
-        since = now - latest
-        if since > limit:
-            reasons.append(
-                "autonomy_unlock_continuity_stale:"
-                f"{int(since.total_seconds() // 3600)}h>{max_gap_hours}h "
-                f"since {latest.strftime('%Y-%m-%dT%H:%M:%SZ')}"
-            )
+    # The same rule applied to the open end. Thirty perfect cycles that all
+    # ended a month ago describe a system that WAS stable, which is not the
+    # claim an unlock rests on. Unconditional (ARIA-HIGH-223): it used to
+    # run only when a caller remembered to pass a clock, and the merge gate
+    # did not.
+    latest = chain[-1][0]
+    since = now - latest
+    if since > limit:
+        reasons.append(
+            "autonomy_unlock_continuity_stale:"
+            f"{int(since.total_seconds() // 3600)}h>{max_gap_hours}h "
+            f"since {latest.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
     return reasons
 
 
@@ -236,8 +251,8 @@ def verdict_from_rows(
     rows: list[dict[str, Any]],
     *,
     lane: str,
+    now: datetime,
     policy: dict[str, Any] | None = None,
-    now: datetime | None = None,
     max_gap_hours: int = MAX_ACCEPTANCE_GAP_HOURS,
 ) -> AutonomyUnlockVerdict:
     """Compute an unlock verdict from already-loaded acceptance-event rows.
@@ -246,6 +261,10 @@ def verdict_from_rows(
     SEPARATE mock-mode ledger with the IDENTICAL counting + threshold logic,
     without the real ``evaluate_autonomy_unlock`` ever reading the mock ledger.
     The real and mock paths thus share one rule and one policy, but two ledgers.
+
+    ``now`` is the evaluation time and has no default (ARIA-HIGH-223): a
+    verdict computed without one is a verdict that skipped the staleness
+    half of the rule. Callers that act take it from :func:`unlock_clock`.
     """
     if lane not in {"L1", "L2", "L3"}:
         return AutonomyUnlockVerdict(
@@ -310,7 +329,7 @@ def evaluate_autonomy_unlock(
         ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
         expected_surface="enterprise_acceptance_events",
     )
-    return verdict_from_rows(rows, lane=lane, policy=policy)
+    return verdict_from_rows(rows, lane=lane, now=unlock_clock(), policy=policy)
 
 
 def assert_autonomy_unlocked(
@@ -479,4 +498,5 @@ __all__ = [
     "verdict_from_rows",
     "load_autonomy_unlock_policy",
     "record_acceptance_event",
+    "unlock_clock",
 ]

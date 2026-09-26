@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
 import hashlib
 import json
 import os
@@ -2925,10 +2924,10 @@ class _StreamingEvidenceAccumulator:
         self.promoted_fingerprints: set[str] = set()
         self.autonomy_state = AutonomyStateAccumulator()
         self.acceptance_event_counts: Counter[str] = Counter()
-        self.acceptance_success_event_counts: Counter[str] = Counter()
         self.acceptance_unlock_counts: Counter[str] = Counter()
-        self.acceptance_success_stamps: list[datetime] = []
-        self.acceptance_success_undateable = False
+        # ARIA-HIGH-223 — the fields the unlock rule reads, per row, so the
+        # streamed verdict is `verdict_from_rows` itself rather than a copy.
+        self.acceptance_rows: list[dict[str, Any]] = []
         self.count_rejected: set[str] = set()
         self.native_counts: dict[str, Counter[str]] = {
             capability: Counter(rows=0, terminal=0, admissible=0)
@@ -3070,15 +3069,11 @@ class _StreamingEvidenceAccumulator:
                     and row.get("status") == "violation"
                 ):
                     self.metrics["acceptance_critical_violations"] += 1
-                if str(row.get("status")) == "success":
-                    self.acceptance_success_event_counts[event_type] += 1
-                    from .tool_registry import parse_utc_stamp
-
-                    stamp = parse_utc_stamp(row.get("recorded_at"))
-                    if stamp is None:
-                        self.acceptance_success_undateable = True
-                    else:
-                        self.acceptance_success_stamps.append(stamp)
+                self.acceptance_rows.append({
+                    "event_type": row.get("event_type"),
+                    "status": row.get("status"),
+                    "recorded_at": row.get("recorded_at"),
+                })
             elif surface == "enterprise_autonomy_unlock_events":
                 self.acceptance_unlock_counts[
                     "valid" if row.get("valid") is True else "invalid"
@@ -3443,16 +3438,17 @@ def _unlock_verdict_counts(
     repo_root: Path,
     target_sha: str,
 ) -> tuple[dict[str, int], str | None]:
-    from .autonomy_unlock import verdict_from_rows
+    from .autonomy_unlock import unlock_clock, verdict_from_rows
 
     policy, blocker = _unlock_policy_at_target(repo_root, target_sha)
     if policy is None:
         return ({"autonomy_unlock_policy_available": 0}, blocker)
     accepted_rows = [dict(row) for row in rows]
     counts: dict[str, int] = {"autonomy_unlock_policy_available": 1}
+    now = unlock_clock()
     try:
         for lane in ("L1", "L2", "L3"):
-            verdict = verdict_from_rows(accepted_rows, lane=lane, policy=policy)
+            verdict = verdict_from_rows(accepted_rows, lane=lane, now=now, policy=policy)
             counts[f"autonomy_unlock_{lane.lower()}_valid"] = int(verdict.valid)
             if lane == "L3":
                 counts.update({
@@ -3510,60 +3506,21 @@ def _stream_unlock_verdict_counts(
     repo_root: Path,
     target_sha: str,
 ) -> tuple[dict[str, int], str | None]:
-    policy, blocker = _unlock_policy_at_target(repo_root, target_sha)
-    if policy is None:
-        return {"autonomy_unlock_policy_available": 0}, blocker
-    event_counts = {
-        "observe_successes": accumulator.acceptance_success_event_counts[
-            "observe_success"
-        ],
-        "l1_autonomous_successes": accumulator.acceptance_success_event_counts[
-            "l1_autonomous_success"
-        ],
-        "l2_supervised_successes": accumulator.acceptance_success_event_counts[
-            "l2_supervised_success"
-        ],
-        "l2_autonomous_successes": accumulator.acceptance_success_event_counts[
-            "l2_autonomous_success"
-        ],
-        "l3_approval_successes": accumulator.acceptance_success_event_counts[
-            "l3_approval_success"
-        ],
-        "rollback_successes": accumulator.acceptance_success_event_counts[
-            "rollback_success"
-        ],
-        "critical_violations": accumulator.metrics[
-            "acceptance_critical_violations"
-        ],
-    }
-    stamps = sorted(accumulator.acceptance_success_stamps)
-    continuity_valid = not accumulator.acceptance_success_undateable and all(
-        later - earlier <= timedelta(hours=72)
-        for earlier, later in zip(stamps, stamps[1:])
+    """The streamed ledger's unlock verdicts, by THE rule (ARIA-HIGH-223).
+
+    This used to carry its own copy of the continuity rule — a literal 72h
+    over every pair of success rows, forever, with no clock — so the
+    evidence status disagreed with the merge gate in both directions: a late
+    row the lane does not count re-locked it, and evidence that stopped
+    accruing stayed valid. It now hands the projected rows to
+    ``_unlock_verdict_counts``, i.e. ``autonomy_unlock.verdict_from_rows``
+    at ``unlock_clock()``.
+    """
+    return _unlock_verdict_counts(
+        tuple(accumulator.acceptance_rows),
+        repo_root=repo_root,
+        target_sha=target_sha,
     )
-    counts: dict[str, int] = {"autonomy_unlock_policy_available": 1}
-    try:
-        requirements = policy["lane_requirements"]
-        for lane in ("L1", "L2", "L3"):
-            valid = (
-                event_counts["critical_violations"] == 0
-                and continuity_valid
-                and all(
-                    event_counts.get(key, 0) >= required
-                    for key, required in requirements[lane].items()
-                )
-            )
-            counts[f"autonomy_unlock_{lane.lower()}_valid"] = int(valid)
-        counts.update({
-            f"acceptance_{key}": value
-            for key, value in event_counts.items()
-        })
-    except Exception:  # noqa: BLE001 - validated policy still fails closed
-        return (
-            {"autonomy_unlock_policy_available": 1, "count_rejected": 1},
-            "count_rejected:autonomy_unlock",
-        )
-    return counts, None
 
 
 def _policy_at_target(

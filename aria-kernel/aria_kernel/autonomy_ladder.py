@@ -35,6 +35,7 @@ from typing import Any
 from .autonomy_unlock import (
     AutonomyUnlockVerdict,
     record_acceptance_event,
+    unlock_clock,
     verdict_from_rows,
 )
 from .ledger import append_jsonl, load_declared_jsonl, load_jsonl
@@ -197,7 +198,7 @@ def evaluate_mock_unlock(
     """
     path = _mock_ledger_path(base_dir)
     rows = load_jsonl(path) if path.exists() else []
-    return verdict_from_rows(rows, lane=lane, policy=policy)
+    return verdict_from_rows(rows, lane=lane, now=unlock_clock(), policy=policy)
 
 
 __all__ = [

@@ -240,3 +240,50 @@ Evidence: `git_containment.py:667-672`; the delivery test's fake git saw `GIT_CO
 
 Rule: A push carries exactly the identity the kernel chose for it; ambient git configuration never
 reaches the kernel's own git calls.
+
+## ARIA-MEDIUM-235 — Self-revert judges its merge authority on bare paths
+
+`self_revert._patch_id` reduced the revert diff's `(status, path)` pairs to a sorted path set, and
+`revert_merge_authority` passed bare paths to `risk_policy.classify_change`. L1 admits a path only
+under an allowed git status, so every revert classified `risk_change_status_unknown` and opened
+awaiting a human merge; 24 tests in `test_self_revert.py` failed on the integration branch.
+
+Files: `aria-kernel/aria_kernel/self_revert.py`, `aria-kernel/aria_kernel/risk_policy.py`.
+
+Rule: Every reader of a change's lane reads each path under the git status the change gives it.
+
+## ARIA-MEDIUM-236 — A retried delivery re-validates an already validated change
+
+A delivery refused after `change_validated` is retried at the same tip; the retried apply gate's new
+runs changed the attested refs, and `emit_change_validated` refused the second row as
+`change_validated_content_drift`. Closed as a duplicate: 277141d80 (ARIA-MEDIUM-231) makes the refs
+one ok run per command at the committed tip, so a retry writes identical content.
+
+Files: `aria-kernel/aria_kernel/implementation_delivery.py`,
+`aria-kernel/aria_kernel/validation_runs_ledger.py`.
+
+Rule: An immutable chain row is written once; a retry reuses it.
+
+## ARIA-HIGH-237 — A run's findings were appended one row at a time
+
+`record_raw_findings_for_run` called `append_jsonl` once per finding, and every declared append
+verified the whole hash chain and read the whole file first: 2.39 s per finding on aria/state's
+57.5 MB `raw-findings.jsonl`. With lint-rules-adapter (about 5,575 findings per run) the tools phase
+outgrew its 14,959 s budget, and every `aria-auto-cycle` run from 179 to 184 died with
+`PhaseDeadlineExceeded`.
+
+Files: `aria-kernel/aria_kernel/feedback_store.py`, `aria-kernel/aria_kernel/ledger.py`,
+`aria-kernel/aria_kernel/calibration_bootstrap.py`.
+
+Rule: A producer's cost is proportional to what it writes, not to the ledger's size times its rows.
+
+## ARIA-HIGH-238 — Operator approvals that nothing verifies
+
+Unit O moved the grant, unfreeze, profile and promote surfaces to approvals proven by the
+operator's GitHub act. About 25 other kernel modules (for example `self_modification`,
+`autonomous_host_lease`, `cost_budget`, `circuit_breaker`, `agent_genesis`, `proposal`) still take
+`operator_approval_ref` as a free string and never call `operator_approval.verify_operator_approval`.
+Owner okan, deadline 2026-10-31.
+
+Rule: Every operator approval is proven by the operator's own GitHub act; a ref no one verifies is
+not an approval.

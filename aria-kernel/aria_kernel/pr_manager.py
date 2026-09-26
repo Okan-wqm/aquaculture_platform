@@ -575,6 +575,11 @@ def _create_pull_request(
     # change whose paths cannot be read is routed to a person too.
     route = merge_route_for_change(workspace_path, payload.get("base_sha"), payload.get("head_sha"))
     payload["merge_route"] = route
+    intent = record_intent(
+        request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
+        intended_postcondition=intended_postcondition,
+        base_dir=base_dir,
+    )
     argv = [
         "gh", "pr", "create",
         "--base", ARIA_PR_BASE,
@@ -584,11 +589,6 @@ def _create_pull_request(
     ]
     if route["human_merge"]:
         argv += ["--label", HUMAN_MERGE_LABEL]
-    intent = record_intent(
-        request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
-        intended_postcondition=intended_postcondition,
-        base_dir=base_dir,
-    )
     try:
         completed = subprocess.run(
             argv,

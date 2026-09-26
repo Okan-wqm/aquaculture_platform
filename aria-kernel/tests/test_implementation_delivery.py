@@ -562,6 +562,12 @@ class AdmissionTests(_DeliveredBranch):
         )
         from aria_kernel.validation_env import build_validation_env
 
+        # The rust homes this test names are the fake HOME's: the host's own
+        # RUSTUP_HOME / CARGO_HOME / RUSTUP_TOOLCHAIN would outrank them (the
+        # room honours an explicit home, asserted below), so they are not
+        # inherited from the runner that happens to host the suite.
+        ambient = {name: value for name, value in os.environ.items()
+                   if name not in ("RUSTUP_HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN")}
         node = self.root / "toolchain" / "node" / "bin"
         node.mkdir(parents=True)
         (node / "npx").write_text("#!/bin/sh\necho npx\n", encoding="utf-8")
@@ -569,7 +575,7 @@ class AdmissionTests(_DeliveredBranch):
         self.assertEqual(SANDBOX_TMP_MOUNT, ("--perms", "1777", "--tmpfs", "/tmp"))
         # No Cargo.toml: no toolchain declared, nothing rust-shaped in the argv.
         self.assertEqual(validation_toolchains_for(self.repo), ())
-        environment = build_validation_env({**os.environ, "PATH": f"{node}:{os.defpath}"}).env
+        environment = build_validation_env({**ambient, "PATH": f"{node}:{os.defpath}"}).env
         argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
                                           git=None, environment=environment, store=self.tools)
         tmp_at = argv.index("--perms")
@@ -588,7 +594,7 @@ class AdmissionTests(_DeliveredBranch):
         for name in ("cargo", "rustc"):
             (cargo_bin / name).write_text("#!/bin/sh\necho " + name + "\n", encoding="utf-8")
             (cargo_bin / name).chmod(0o755)
-        with_rust = build_validation_env({**os.environ, "HOME": str(home), "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
+        with_rust = build_validation_env({**ambient, "HOME": str(home), "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
         argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
                                           git=None, environment=with_rust, store=self.tools)
         ro = [argv[i + 1] for i, t in enumerate(argv) if t == "--ro-bind"]
@@ -596,6 +602,16 @@ class AdmissionTests(_DeliveredBranch):
         self.assertIn(str(home / ".rustup"), ro)
         self.assertEqual(argv[argv.index("RUSTUP_HOME") + 1], str(home / ".rustup"))
         self.assertEqual(argv[argv.index("CARGO_HOME") + 1], str(home / ".cargo"))
+        # An explicit RUSTUP_HOME is the operator's and outranks HOME: that
+        # home is the one bound and named.
+        explicit = self.root / "rustup-elsewhere"
+        (explicit / "toolchains").mkdir(parents=True)
+        with_explicit = build_validation_env({**ambient, "HOME": str(home), "RUSTUP_HOME": str(explicit),
+                                              "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
+        explicit_argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                                   git=None, environment=with_explicit, store=self.tools)
+        self.assertEqual(explicit_argv[explicit_argv.index("RUSTUP_HOME") + 1], str(explicit))
+        self.assertIn(str(explicit), [explicit_argv[i + 1] for i, t in enumerate(explicit_argv) if t == "--ro-bind"])
         self.assertNotIn(str(self.tools), ro)
         # The host's shape the suites walk (`/var/log`): an empty directory
         # inside, never the host's logs.

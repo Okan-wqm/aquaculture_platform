@@ -607,17 +607,26 @@ def refs_for_change(
     ARIA-MEDIUM-231 — only runs at the committed tip
     (:func:`list_validation_runs_at_committed_tip`): a green staging
     baseline at ``base_sha`` must not validate a tip nothing ran against.
+    And ONE ref per command — its first ok run at the tip — so the set is a
+    function of the tip, not of how many times its suite ran: a delivery
+    refused after the row was written (credential, push, PR) is retried at
+    the same tip and records the suite again, and a set that grew with it
+    read as ``change_validated_content_drift`` and stopped the retry.
     """
-    return [
-        {
+    refs: list[dict[str, Any]] = []
+    attested: set[str] = set()
+    for row in list_validation_runs_at_committed_tip(change_id, base_dir=base_dir):
+        command = str(row.get("cmd") or "")
+        if row.get("status") != "ok" or command in attested:
+            continue
+        attested.add(command)
+        refs.append({
             "cmd": row.get("cmd"),
             "exit_code": row.get("exit_code"),
             "log_path": row.get("log_path"),
             "ran_at": row.get("recorded_at"),
-        }
-        for row in list_validation_runs_at_committed_tip(change_id, base_dir=base_dir)
-        if row.get("status") == "ok"
-    ]
+        })
+    return refs
 
 
 __all__ = [

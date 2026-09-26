@@ -140,6 +140,29 @@ class ChangeValidatedProducerTests(unittest.TestCase):
         )
         self.assertEqual(refs_for_change(planned["change_id"], base_dir=self.base), [])
 
+    def test_a_retry_at_the_same_tip_finds_the_same_row(self) -> None:
+        """A delivery refused AFTER the row was written (the credential, the
+        push, the PR) is retried at the same tip, and its gate records the
+        suite there again. The row is a fact about the tip: the retry must
+        re-attest the same row, not read the grown run list as drift and
+        stop the delivery that the first attempt's refusal left pending."""
+        for cmd in CANONICAL_VALIDATION_COMMANDS:
+            self._record(cmd, 0)
+        first = self._deliver_step()
+        for cmd in CANONICAL_VALIDATION_COMMANDS:
+            self._record(cmd, 0)
+        second = self._deliver_step()
+        self.assertEqual(second, first)
+        refs = refs_for_change(self.change_id, base_dir=self.base)
+        self.assertEqual([ref["cmd"] for ref in refs], list(CANONICAL_VALIDATION_COMMANDS))
+
+    def test_a_command_that_passed_after_failing_at_the_tip_is_attested_by_its_passing_run(self) -> None:
+        self._record("nx affected --target=test", 1)
+        self._record("nx affected --target=test", 0)
+        self._record("nx affected --target=test", 0)
+        refs = refs_for_change(self.change_id, base_dir=self.base)
+        self.assertEqual([(ref["cmd"], ref["exit_code"]) for ref in refs], [("nx affected --target=test", 0)])
+
     def test_refs_are_the_ok_runs_in_the_matrix_shape(self) -> None:
         self._record("nx affected --target=test", 0)
         self._record("nx affected --target=lint", 1)

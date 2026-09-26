@@ -31336,6 +31336,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/plans/037-merge-lane-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/plans/2026-05-25-aria-codex-cli-xhigh-architecture-plan.md",
       "prettier_managed": true
     },
@@ -37001,6 +37007,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-09-26-aria-chain-gaps.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-26-aria-merge-lane-review.md",
       "prettier_managed": true
     },
     {

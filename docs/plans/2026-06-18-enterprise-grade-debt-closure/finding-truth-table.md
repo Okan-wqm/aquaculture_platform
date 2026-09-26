@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `94757a7777ec9b22d8e2ff12e642974a0ecba89e9a78fa3ab6ca86b2c21a030d`
+Registry tip: `425247b4909c62c3fc1b1c33880034d107ebc122774cdd85407a1d35d9b6facd`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,6 +246,9 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ARIA-CRITICAL-214`   | OPEN           | 2026-09-26   | claude                     | real-open                 |
+| `ARIA-CRITICAL-215`   | OPEN           | 2026-09-26   | claude                     | real-open                 |
+| `ARIA-CRITICAL-216`   | OPEN           | 2026-09-26   | claude                     | real-open                 |
 
 ## Mutation Rules
 
@@ -379,6 +382,12 @@ Allowed truth buckets:
   restart replays an entrypoint from one release contract into a container from another. Real open
   work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
+
+- `ARIA-CRITICAL-214`, `ARIA-CRITICAL-215`, `ARIA-CRITICAL-216` (2026-09-26, plan 037 merge-lane
+  review): a rename's source escaped the risk classifier, the L1 scope reached paths no CI gate covers, and
+  operator approval was a free string. Real open work until the plan 037 integration merges (units L and O
+  carry the `Closes:` lines); owner claude (registry owner_user okan), deadline 2026-10-31
+  (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

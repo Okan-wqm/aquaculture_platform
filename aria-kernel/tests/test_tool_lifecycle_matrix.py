@@ -71,6 +71,13 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _recorded_approval(self) -> str:
+        # ARIA-HIGH-209 — transition_tool resolves the approval ref.
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.base, "operator_action", {"event_id": "evt-e10"})
+        return "gov:evt-e10"
+
     def test_forbidden_active_sources_constant_shape(self) -> None:
         self.assertEqual(
             _FORBIDDEN_ACTIVE_SOURCES,
@@ -136,7 +143,7 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
                     precision=0.9,
                     critical_false_positives=0,
                     evidence_chains_valid=True,
-                    operator_approval=True,
+                    operator_approval_ref=self._recorded_approval(),
                 )
             except GovernanceError as exc:
                 self.assertNotIn(

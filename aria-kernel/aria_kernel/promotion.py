@@ -5,7 +5,7 @@ from typing import Any
 
 from .fixture_runner import latest_fixture_status
 from .readiness import adapter_active_readiness, is_zero_finding_stable_shadow_run
-from .tool_registry import GovernanceError, get_tool, transition_tool
+from .tool_registry import GovernanceError, get_tool, resolve_transition_approval, transition_tool
 
 
 def promote_tool(
@@ -18,6 +18,13 @@ def promote_tool(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
+    # ARIA-HIGH-209 — a supplied ref is authority only once it resolves to a
+    # recorded operator act (and, for ACTIVE, not an env acknowledgment).
+    # Refused here, before any gate runs; transition_tool resolves it again
+    # at consume time and records it on the transition.
+    operator_approval = resolve_transition_approval(
+        operator_approval_ref, target_status=target_status, base_dir=base_dir,
+    )
     fixture_status = latest_fixture_status(tool_id, base_dir=base_dir)
     fixture_passed = fixture_status["current_tool_passed"]
     if target_status == "SHADOW" and tool["status"] == "CALIBRATE" and not fixture_passed:
@@ -46,7 +53,7 @@ def promote_tool(
         # invented string.
         auto_promote_token: str | None = None
         panel_pending = False
-        if operator_approval_ref:
+        if operator_approval is not None:
             pass
         elif panel_approval_ref:
             from .promotion_veto import tool_scope_touches_kernel
@@ -99,7 +106,7 @@ def promote_tool(
             target_status,
             reason=reason,
             base_dir=base_dir,
-            operator_approval=bool(operator_approval_ref),
+            operator_approval_ref=operator_approval_ref,
             auto_promote_token=auto_promote_token,
             precision=1.0 if readiness["zero_finding_lane"] else readiness["precision"],
             critical_false_positives=readiness["critical_false_positives"],
@@ -111,6 +118,7 @@ def promote_tool(
         reason=reason,
         base_dir=base_dir,
         fixture_suite_passed=fixture_passed,
+        operator_approval_ref=operator_approval_ref,
     )
 
 

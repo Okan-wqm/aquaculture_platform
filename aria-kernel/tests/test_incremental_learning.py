@@ -287,11 +287,15 @@ class IncrementalLearningTests(unittest.TestCase):
         # be a pin that can never fail; the zero-finding lane bypasses the
         # judged-precision question entirely, which is what is pinned here.
         self.assertNotIn("precision_not_anchor_judged", report["reports"][0]["blocked_by"])
+        # ARIA-HIGH-209 — the approval ref resolves to a recorded operator act.
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools_dir, "operator_action", {"event_id": "ops-zero-ack"})
         promoted = promote_tool(
             "learning-adapter",
             "ACTIVE",
             reason="operator approved zero-finding adapter",
-            operator_approval_ref="ops-zero-ack",
+            operator_approval_ref="gov:ops-zero-ack",
             base_dir=self.tools_dir,
         )
         self.assertEqual(promoted["status"], "ACTIVE")

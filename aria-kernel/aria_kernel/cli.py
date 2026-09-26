@@ -1037,7 +1037,10 @@ def build_parser() -> argparse.ArgumentParser:
     tool_promote.add_argument("--tool-id", required=True)
     tool_promote.add_argument("--target-status", required=True, choices=("SHADOW", "ACTIVE"))
     tool_promote.add_argument("--reason", required=True, type=_validate_reason)
-    tool_promote.add_argument("--operator-approval-ref", default=None)
+    tool_promote.add_argument(
+        "--operator-approval-ref", default=None,
+        help="Recorded operator act: gov:<event_id> or review:<path>#<id> (ACTIVE refuses ack-env:).",
+    )
     # JJ-2b (ORPHAN-HIGH-732) — the panel authority's command surface. The
     # ref is a RESOLVED human-required adjudication id, and the kernel
     # RESOLVES it (promotion_veto.resolve_panel_approval): a ref that names
@@ -1760,6 +1763,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     readiness_probe_bp.add_argument("--repo", required=True)
     readiness_probe_bp.add_argument("--branch", default="main")
+    # ARIA-HIGH-209 — the SHADOW -> ACTIVE gate's blockers, visible to the
+    # operator before a promotion is attempted.
+    readiness_adapter = add_subparser(
+        readiness_sub,
+        "adapter",
+        help="Print an adapter's ACTIVE-promotion readiness and every blocker.",
+    )
+    readiness_adapter.add_argument("--tool-id", required=True)
     # ORPHAN-HIGH-763 — the two lane-side verbs the claim chain was missing.
     # `produce-claim` had NO command entry at all (half of why the F5-g
     # assembler had zero production callers), and `record-ci-report` exposes
@@ -3525,6 +3536,17 @@ def _main(argv: list[str] | None = None) -> int:
             return 2
         print(json.dumps(row, indent=2, sort_keys=True))
         return 0 if row["valid"] is True else 1
+
+    if args.command == "readiness" and args.readiness_command == "adapter":
+        from .readiness import adapter_active_readiness
+
+        try:
+            view = adapter_active_readiness(args.tool_id, base_dir=args.tools_dir)
+        except GovernanceError as exc:
+            print(json.dumps({"tool_id": args.tool_id, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(view, indent=2, sort_keys=True))
+        return 0 if view["active_ready"] is True else 1
 
     if args.command == "readiness" and args.readiness_command == "record-ci-report":
         from .ci import record_ci_report

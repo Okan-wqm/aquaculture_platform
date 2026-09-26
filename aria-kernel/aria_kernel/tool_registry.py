@@ -1080,7 +1080,6 @@ def unquarantine_tool(
         reason=f"unquarantine: {reason} (operator_approval_ref={operator_approval_ref})",
         root_cause_note=root_cause_note,
         fixture_update_ref=fixture_update_ref,
-        operator_approval=True,
         base_dir=base_dir,
     )
 
@@ -1333,7 +1332,7 @@ def transition_tool(
     root_cause_note: str | None = None,
     fixture_update_ref: str | None = None,
     fixture_suite_passed: bool = False,
-    operator_approval: bool = False,
+    operator_approval_ref: str | None = None,
     auto_promote_token: str | None = None,
     panel_approval_token: str | None = None,
     precision: float | None = None,
@@ -1384,11 +1383,21 @@ def transition_tool(
     can bypass evidence chain integrity — it is still the LAST clause and
     still short-circuits independently of who vouched. Precision + FP
     thresholds above this line are also UNCHANGED.
+
+    ARIA-HIGH-209 — ``operator_approval`` is no longer a caller-supplied
+    boolean: the caller passes ``operator_approval_ref`` and this function
+    RESOLVES it (``resolve_transition_approval``) at consume time, the same
+    standard the two tokens meet. ``operator_approval`` below is the
+    resolved record, and the ref plus that record land in
+    ``last_transition`` so every promotion names the act that authorized it.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
     if not reason:
         raise GovernanceError("transition reason is required")
+    operator_approval = resolve_transition_approval(
+        operator_approval_ref, target_status=target_status, base_dir=base_dir,
+    )
 
     tool = get_tool(tool_id, base_dir)
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
@@ -1485,10 +1494,53 @@ def transition_tool(
                 "from": current,
                 "to": target_status,
                 "reason": reason,
+                **(
+                    {
+                        "operator_approval_ref": str(operator_approval_ref).strip(),
+                        "operator_approval": operator_approval,
+                    }
+                    if operator_approval is not None
+                    else {}
+                ),
             },
         },
         base_dir,
     )
+
+
+# ARIA-HIGH-209 — an ACTIVE promotion widens what reaches the operator, so
+# it needs a RECORDED operator act; an environment acknowledgment is not
+# one (self_merge_freeze.UNFREEZE_APPROVAL_KINDS draws the same line).
+ACTIVE_APPROVAL_KINDS = frozenset({"gov", "review"})
+
+
+def resolve_transition_approval(
+    operator_approval_ref: str | None,
+    *,
+    target_status: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve a lifecycle transition's operator approval ref, or refuse it.
+
+    ``None``/blank → ``None`` (no operator authority claimed). Any other
+    value must resolve through ``operator_approval.verify_operator_approval_ref``;
+    for an ACTIVE target its kind must be one of ``ACTIVE_APPROVAL_KINDS``.
+    """
+    ref = (operator_approval_ref or "").strip()
+    if not ref:
+        return None
+    # Late import: operator_approval imports ensure_tools_dir from here.
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+
+    try:
+        approval = verify_operator_approval_ref(ref, base_dir=base_dir, surface="tool_transition")
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"tool_transition_approval_unrecorded:{exc}") from exc
+    if target_status == "ACTIVE" and approval["kind"] not in ACTIVE_APPROVAL_KINDS:
+        raise GovernanceError(
+            f"tool_transition_active_requires_recorded_operator_act:{approval['kind']}"
+        )
+    return approval
 
 
 def _require_string(tool: dict[str, Any], field: str) -> None:

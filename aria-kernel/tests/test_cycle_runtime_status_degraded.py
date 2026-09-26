@@ -399,7 +399,7 @@ class FullCycleTests(unittest.TestCase):
         from aria_kernel.tool_registry import transition_tool
 
         transition_tool("crashing-tool", "ARCHIVED", reason="retired after the streak",
-                        operator_approval=True, base_dir=self.tools_dir)
+                        base_dir=self.tools_dir)
         self.assertEqual(degradation_report(self.tools_dir)["degraded"], [])
         self.assertEqual(_check_tools(self.tools_dir).status, "ok")
         self.assertEqual([row["request_id"] for row in list_human_required(base_dir=self.tools_dir)],

@@ -58,7 +58,7 @@ def register_active_for_test(tool, base_dir):
     the lifecycle: SHADOW first-register, then transition_tool() with
     synthetic gate values that satisfy the ACTIVE precondition checks.
     Production callers cannot call this helper — it lives in the test
-    namespace only and uses operator_approval=True / precision=1.0 /
+    namespace only and uses a recorded gov: approval ref / precision=1.0 /
     evidence_chains_valid=True purely for fixture wiring.
 
     For initial-lifecycle states (DRAFT/SANDBOX/SHADOW) and intentional
@@ -92,9 +92,21 @@ def register_active_for_test(tool, base_dir):
         precision=1.0,
         critical_false_positives=0,
         evidence_chains_valid=True,
-        operator_approval=True,
+        operator_approval_ref=_recorded_fixture_approval(base_dir),
         base_dir=base_dir,
     )
+
+
+def _recorded_fixture_approval(base_dir):
+    """ARIA-HIGH-209 — transition_tool resolves the approval ref, so the
+    fixture records the operator act it cites."""
+    from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+    append_tools_governance(
+        ensure_tools_dir(base_dir), "operator_action",
+        {"event_id": "test-fixture-promotion", "action": "approve"},
+    )
+    return "gov:test-fixture-promotion"
 
 
 def valid_tool(**overrides):

@@ -545,7 +545,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         checkout_state_store,
         findings_root,
         open_state_store,
-        prepare_and_publish_state,
+        publish_with_contention_replay,
         store_environment,
         read_published_snapshot,
         tools_root,
@@ -617,11 +617,15 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         # ONE call, ONE lock. The preamble binds one exact base, drops what
         # the parent tree carries that no snapshot can claim (recording it),
         # records an acknowledged reduction, and builds the snapshot from the
-        # healed store; the publish commits it against that base — the same
-        # steps the contention-replay orchestrator runs under its lock, so
-        # this command and that orchestrator cannot disagree about what a
-        # publish stages, and nothing can run between the two halves here.
-        result = prepare_and_publish_state(
+        # healed store; the publish commits it against that base.
+        #
+        # ARIA-HIGH-222 — through the contention-replay orchestrator, which
+        # every aria workflow reaches through this verb. A lane that lost
+        # the fast-forward race to another lane's push used to be refused
+        # and its rows died with the runner — a lost merge decision blinds
+        # self-revert; the orchestrator rebuilds them onto the winner and
+        # pushes again, and commits nothing when no row changed.
+        result = publish_with_contention_replay(
             store,
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
@@ -3876,11 +3880,22 @@ def _main(argv: list[str] | None = None) -> int:
             profile=merge_profile, base_dir=args.tools_dir, cwd=str(args.workspace_root),
             merge_lane=True,
         )
+        from .merge_authority import state_store_intent_publisher
+
         merge_runner = select_auto_merge_runner(
             profile=merge_profile,
             # The merge lane is the one runner that may execute a merge.
             executes_merges=True,
             base_dir=args.tools_dir,
+            # ARIA-HIGH-222 — each merge's intent is on aria/state before
+            # the merge call, published from the store under this checkout.
+            intent_publisher=state_store_intent_publisher(
+                repo_root=args.workspace_root,
+                run_label=(
+                    f"{os.environ.get('GITHUB_RUN_ID') or 'local'}-"
+                    f"{os.environ.get('GITHUB_RUN_ATTEMPT') or '0'}"
+                ),
+            ),
             adapter_factory=lambda: merge_adapter,
             pr_enumerator=(
                 (lambda _adapter: [args.pr]) if args.pr is not None

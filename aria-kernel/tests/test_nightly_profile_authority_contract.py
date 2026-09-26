@@ -747,7 +747,8 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
         reached_merge_authority: list[int] = []
         observed_workspace_roots: list[str | None] = []
 
-        def _record_merge_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None):
+        def _record_merge_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None,
+                                    intent_publisher=None):
             reached_merge_authority.append(pr_number)
             observed_workspace_roots.append(workspace_root)
             # `blocked` and not a merge: the gates BELOW this point (profile,

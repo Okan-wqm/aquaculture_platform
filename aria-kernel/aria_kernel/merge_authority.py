@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .auto_merge import (
     GitHubAdapter,
@@ -47,8 +47,14 @@ def merge_pr_if_ready(
     diff_text: str | None = None,
     readiness_claim_id: str | None = None,
     workspace_root: str | Path | None = None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single real-merge authority for ARIA-governed PRs.
+
+    ``intent_publisher`` publishes the store with the ``merge_intent`` row
+    recorded immediately before the merge call (ARIA-HIGH-222); the merge
+    lane passes :func:`state_store_intent_publisher`. Without one, or when
+    the publish does not land, no merge is attempted.
 
     ``auto_merge.merge_if_green`` remains evaluation-only. This wrapper owns
     the real merge boundary: attempts must pass the runtime-profile gate,
@@ -323,63 +329,76 @@ def merge_pr_if_ready(
                         _append_decision(base_dir, result)
                     else:
                         try:
-                            merge_kwargs: dict[str, Any] = {
-                                "method": "squash",
-                                "expected_head_sha": head_sha,
-                            }
-                            authority_token = f"merge-authority:{pr_number}:{head_sha}"
-                            armed = False
-                            if hasattr(adapter, "arm_merge_authority"):
-                                adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
-                                merge_kwargs["authority_token"] = authority_token
-                                armed = True
-                            try:
-                                merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
-                            except Exception as exc:  # pragma: no cover - exercised by adapter fakes
-                                record_merge_failed_incident(
-                                    pr=fresh_pr,
-                                    readiness_claim_id=readiness_claim_id,
-                                    reason=str(exc),
-                                    base_dir=base_dir,
-                                )
-                                result = dict(decision)
-                                result.update(
-                                    {
-                                        "recorded_at": utc_now(),
-                                        "decision": "failed",
-                                        "eligible": False,
-                                        "reasons": [str(exc)],
-                                        "merge_lease": _lease_summary(merge_lease),
-                                    },
-                                )
-                                _append_decision(base_dir, result)
+                            intent_refusal = _publish_merge_intent(
+                                intent_publisher,
+                                decision=decision,
+                                pr_number=pr_number,
+                                head_sha=head_sha,
+                                readiness_claim_id=readiness_claim_id,
+                                merge_lease=_lease_summary(merge_lease),
+                                base_dir=base_dir,
+                                cycle_id=cycle_id,
+                            )
+                            if intent_refusal is not None:
+                                result = intent_refusal
                             else:
-                                result = dict(decision)
-                                result.update(
-                                    {
-                                        "recorded_at": utc_now(),
-                                        "decision": "merged",
-                                        "eligible": True,
-                                        "merge_result": merge_result,
-                                        "merge_lease": _lease_summary(merge_lease),
-                                    },
-                                )
-                                _append_decision(base_dir, result)
-                                finalize_merge_incident(
-                                    pr=fresh_pr,
-                                    readiness_claim_id=readiness_claim_id,
-                                    merge_result=merge_result,
-                                    base_dir=base_dir,
-                                )
-                                record_pr_lifecycle(
-                                    fresh_pr,
-                                    event="merged",
-                                    base_dir=base_dir,
-                                    cycle_id=cycle_id,
-                                )
-                            finally:
-                                if armed and hasattr(adapter, "clear_merge_authority"):
-                                    adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                                merge_kwargs: dict[str, Any] = {
+                                    "method": "squash",
+                                    "expected_head_sha": head_sha,
+                                }
+                                authority_token = f"merge-authority:{pr_number}:{head_sha}"
+                                armed = False
+                                if hasattr(adapter, "arm_merge_authority"):
+                                    adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
+                                    merge_kwargs["authority_token"] = authority_token
+                                    armed = True
+                                try:
+                                    merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
+                                except Exception as exc:  # pragma: no cover - exercised by adapter fakes
+                                    record_merge_failed_incident(
+                                        pr=fresh_pr,
+                                        readiness_claim_id=readiness_claim_id,
+                                        reason=str(exc),
+                                        base_dir=base_dir,
+                                    )
+                                    result = dict(decision)
+                                    result.update(
+                                        {
+                                            "recorded_at": utc_now(),
+                                            "decision": "failed",
+                                            "eligible": False,
+                                            "reasons": [str(exc)],
+                                            "merge_lease": _lease_summary(merge_lease),
+                                        },
+                                    )
+                                    _append_decision(base_dir, result)
+                                else:
+                                    result = dict(decision)
+                                    result.update(
+                                        {
+                                            "recorded_at": utc_now(),
+                                            "decision": "merged",
+                                            "eligible": True,
+                                            "merge_result": merge_result,
+                                            "merge_lease": _lease_summary(merge_lease),
+                                        },
+                                    )
+                                    _append_decision(base_dir, result)
+                                    finalize_merge_incident(
+                                        pr=fresh_pr,
+                                        readiness_claim_id=readiness_claim_id,
+                                        merge_result=merge_result,
+                                        base_dir=base_dir,
+                                    )
+                                    record_pr_lifecycle(
+                                        fresh_pr,
+                                        event="merged",
+                                        base_dir=base_dir,
+                                        cycle_id=cycle_id,
+                                    )
+                                finally:
+                                    if armed and hasattr(adapter, "clear_merge_authority"):
+                                        adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
                         finally:
                             release_remote_cas_lease(
                                 base_dir=ensure_tools_dir(base_dir),
@@ -422,6 +441,101 @@ def _grant_in_force(base_dir: str | Path | None) -> dict[str, Any] | None:
         "expires_at": grant.get("expires_at"),
         "operator_approval_ref": grant.get("operator_approval_ref"),
     }
+
+
+def _publish_merge_intent(
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    *,
+    decision: dict[str, Any],
+    pr_number: int,
+    head_sha: str,
+    readiness_claim_id: str,
+    merge_lease: dict[str, Any],
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+) -> dict[str, Any] | None:
+    """Record and PUBLISH the intent to merge, before the merge call.
+
+    ARIA-HIGH-222 — the merge's own decision row is written after the call
+    returns and reaches aria/state only when the lane publishes at its end.
+    A lane that lost that publish (a race, a runner that died) merged a PR
+    nothing recorded, and self-revert, which acts only on ARIA's own merges,
+    could never see it. The ``merge_intent`` row names the PR, the head and
+    the claim, and is on the published tip before the merge is attempted,
+    so a merge can never be invisible: an intent whose PR later merged at
+    that head is an ARIA merge (``self_revert``). Returns the blocked
+    decision when the intent could not be published — then no merge call is
+    made — and ``None`` when it was.
+    """
+    from .state_store import StateStoreError
+
+    intent = dict(decision)
+    intent.update(
+        {
+            "recorded_at": utc_now(),
+            "decision": "merge_intent",
+            "eligible": True,
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            "readiness_claim_id": readiness_claim_id,
+            "merge_lease": merge_lease,
+            "cycle_id": cycle_id,
+        },
+    )
+    _append_decision(base_dir, intent)
+    reason: str | None = None
+    if intent_publisher is None:
+        reason = "merge_intent_publisher_required"
+    else:
+        try:
+            publication = intent_publisher(intent)
+        except (GovernanceError, StateStoreError) as exc:
+            reason = f"merge_intent_unpublished:{exc.__class__.__name__}:{exc}"
+        else:
+            if not isinstance(publication, dict) or publication.get("published") is not True:
+                reason = "merge_intent_unpublished:" + str(
+                    (publication or {}).get("reason") if isinstance(publication, dict) else publication
+                )
+    if reason is None:
+        return None
+    refusal = dict(decision)
+    refusal.update(
+        {
+            "recorded_at": utc_now(),
+            "decision": "blocked",
+            "eligible": False,
+            "reasons": [reason],
+            "stage": "merge_intent",
+            "merge_lease": merge_lease,
+        },
+    )
+    _append_decision(base_dir, refusal)
+    return refusal
+
+
+def state_store_intent_publisher(
+    *,
+    repo_root: str | Path,
+    run_label: str,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """The merge lane's intent publisher: the store under ``repo_root``,
+    published through the contention-replay orchestrator every lane uses."""
+    from .state_store import open_state_store, publish_with_contention_replay
+    from .workspace import canonical_identity
+
+    root = Path(repo_root).resolve()
+
+    def publish(intent: dict[str, Any]) -> dict[str, Any]:
+        store = open_state_store(root)
+        return publish_with_contention_replay(
+            store,
+            snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",
+            cycle_id=f"merge-intent-{run_label}",
+            lane="merge",
+            repo_hash=canonical_identity(root),
+        )
+
+    return publish
 
 
 def _acquire_merge_lease(

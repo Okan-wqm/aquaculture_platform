@@ -1927,9 +1927,9 @@ def prepare_publishable_snapshot(
 ) -> PreparedPublish:
     """The one publish preamble: bind the base, heal, record, build.
 
-    Every production publisher (``prepare_and_publish_state`` behind the
-    ``state publish`` CLI, and the contention-replay orchestrator) runs
-    this before the publish, and the order inside is the point:
+    The one production publisher (the contention-replay orchestrator
+    behind the ``state publish`` CLI, ARIA-HIGH-222) runs this before every
+    publish attempt, and the order inside is the point:
 
     1. the base is ONE exact commit, read once and handed to the publish
        as ``expected_base_head`` so the snapshot and the commit describe
@@ -1999,45 +1999,27 @@ def prepare_publishable_snapshot(
         )
 
 
-def prepare_and_publish_state(
-    store: StateStore,
-    *,
-    snapshot_id: str,
-    cycle_id: str,
-    lane: str,
-    repo_hash: str,
-    parent_commit: str | None = None,
-) -> dict[str, Any]:
-    """The single-attempt publish: preamble and publish under ONE lock.
+def _rows_unchanged_since_published(store: StateStore, prepared: PreparedPublish) -> bool:
+    """True when the prepared snapshot attests exactly the published rows.
 
-    What the ``state publish`` CLI runs. The preamble stages an index
-    omission and appends governance rows; the publish commits what the
-    preamble prepared against the exact base the preamble read. Holding
-    the lifecycle lock across both — as the contention-replay orchestrator
-    already does around its attempts — is what makes "another lifecycle
-    holder ran between the two" impossible rather than merely refused by
-    the base-head check afterwards. The verdict carries what the preamble
-    did, so the lane's log says what was healed and what was accepted.
+    Compared against the PUBLISHED tip (``read_published_snapshot``), never
+    the worktree HEAD: a commit this store made and never pushed is rows
+    the remote does not have. A preamble that healed the tree or recorded
+    an acknowledged loss changed it, whatever the surfaces say.
     """
-    with _state_store_lifecycle_lock(store.repo_root):
-        prepared = prepare_publishable_snapshot(
-            store,
-            snapshot_id=snapshot_id,
-            cycle_id=cycle_id,
-            lane=lane,
-            repo_hash=repo_hash,
-            parent_commit=parent_commit,
-        )
-        result = _publish_state_locked(
-            store,
-            snapshot=prepared.snapshot,
-            cycle_id=cycle_id,
-            repo_hash=repo_hash,
-            expected_base_head=prepared.base_head,
-        )
-    result["dropped_inherited_entries"] = list(prepared.dropped_inherited_entries)
-    result["accepted_losses_recorded"] = list(prepared.accepted_losses_recorded)
-    return result
+    if prepared.dropped_inherited_entries or prepared.accepted_losses_recorded:
+        return False
+    # Only a remote tip is published. A store that has never pushed anchors
+    # on its own HEAD, which may be a commit the remote never received.
+    tracking = f"refs/remotes/{store.remote}/{store.branch}"
+    if _publication_anchor(store) != tracking:
+        return False
+    if prepared.base_head != _read_commit_ref(store.root, tracking):
+        return False
+    published = read_published_snapshot(store)
+    if published is None:
+        return False
+    return prepared.snapshot.get("surfaces") == published.get("surfaces")
 
 
 def publish_with_contention_replay(
@@ -2048,7 +2030,17 @@ def publish_with_contention_replay(
     lane: str,
     repo_hash: str,
     max_attempts: int = PUBLISH_MAX_ATTEMPTS,
+    parent_commit: str | None = None,
 ) -> dict[str, Any]:
+    """The publish every lane runs (``state publish``, ARIA-HIGH-222).
+
+    Every lane used to publish single-attempt: a lane that lost the
+    fast-forward race to another lane's push was refused, and the rows it
+    recorded — a merge decision among them — died with its runner. This
+    rebuilds the loser's rows onto the winner's tree and pushes again, up
+    to ``max_attempts``; and a store whose rows equal the published tip's
+    commits nothing (``no_row_changes``).
+    """
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_with_contention_replay_locked(
             store,
@@ -2057,6 +2049,7 @@ def publish_with_contention_replay(
             lane=lane,
             repo_hash=repo_hash,
             max_attempts=max_attempts,
+            parent_commit=parent_commit,
         )
 
 
@@ -2068,6 +2061,7 @@ def _publish_with_contention_replay_locked(
     lane: str,
     repo_hash: str,
     max_attempts: int = PUBLISH_MAX_ATTEMPTS,
+    parent_commit: str | None = None,
 ) -> dict[str, Any]:
     """Publish, and on a lost race rebuild onto the winner and try again.
 
@@ -2097,6 +2091,8 @@ def _publish_with_contention_replay_locked(
         raise ValueError(f"publish_max_attempts_must_be_positive: {max_attempts}")
 
     last_refusal: StateStoreRefusal | None = None
+    dropped: list[dict[str, str]] = []
+    accepted: list[str] = []
     for attempt in range(1, max_attempts + 1):
         if _read_commit_ref(store.root, "HEAD") is None:
             raise StatePublishOutcomeUnknown(
@@ -2110,10 +2106,26 @@ def _publish_with_contention_replay_locked(
             cycle_id=cycle_id,
             lane=lane,
             repo_hash=repo_hash,
+            parent_commit=parent_commit,
         )
+        dropped.extend(prepared.dropped_inherited_entries)
+        accepted.extend(prepared.accepted_losses_recorded)
         base_head = prepared.base_head
         base = prepared.previous
         snapshot = prepared.snapshot
+        if attempt == 1 and _rows_unchanged_since_published(store, prepared):
+            # ARIA-HIGH-222 — nothing this lane recorded is missing from the
+            # published tip, so there is nothing to publish: a commit here
+            # would carry a new snapshot id over identical rows.
+            return {
+                "published": False,
+                "reason": "no_row_changes",
+                "snapshot_id": snapshot.get("snapshot_id"),
+                "manifest_root": snapshot.get("manifest_root"),
+                "attempts": attempt,
+                "dropped_inherited_entries": dropped,
+                "accepted_losses_recorded": accepted,
+            }
         try:
             result = publish_state(
                 store,
@@ -2153,6 +2165,8 @@ def _publish_with_contention_replay_locked(
                     "push_outcome": "reconciled",
                     "remote_tip": resolved_head,
                     "attempts": attempt,
+                    "dropped_inherited_entries": dropped,
+                    "accepted_losses_recorded": accepted,
                 }
             if attempt == max_attempts:
                 break
@@ -2190,7 +2204,12 @@ def _publish_with_contention_replay_locked(
             if attempt == max_attempts:
                 break
             continue
-        return {**result, "attempts": attempt}
+        return {
+            **result,
+            "attempts": attempt,
+            "dropped_inherited_entries": dropped,
+            "accepted_losses_recorded": accepted,
+        }
 
     raise StateStoreRefusal(
         f"state_publish_contention_unresolved: {max_attempts} attempts all lost the "
@@ -6111,7 +6130,6 @@ __all__ = [
     "build_publishable_snapshot",
     "checkout_state_store",
     "findings_root",
-    "prepare_and_publish_state",
     "prepare_publishable_snapshot",
     "publish_state",
     "read_published_snapshot",

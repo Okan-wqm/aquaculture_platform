@@ -224,6 +224,11 @@ class RecordingGitHubAdapter:
         self._record("close_issue", title=title, labels=list(labels))
         return {"outcome": "recorded", "reason": f"profile_{self.profile}_uses_recording_adapter"}
 
+    def list_open_pull_request_heads(self) -> dict[int, str] | None:
+        # Nothing was observed, so nothing is a merge candidate.
+        self._record("list_open_pull_request_heads")
+        return None
+
 
 # --- Kernel-owned issues (ARIA-MEDIUM-227) ---------------------------------
 #
@@ -502,7 +507,7 @@ class RealChecksReader:
 
         completed = _subprocess.run(
             ["gh", "pr", "list", "--state", "merged", "--limit", str(limit),
-             "--json", "number,headRefName,mergeCommit"],
+             "--json", "number,headRefName,headRefOid,mergeCommit"],
             cwd=self._cwd, capture_output=True, text=True, check=False,
         )
         if completed.returncode != 0:

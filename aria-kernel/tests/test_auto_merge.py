@@ -77,6 +77,12 @@ def github(**overrides):
     return payload
 
 
+def _published_intent(intent):
+    """ARIA-HIGH-222 — the merge lane publishes the merge_intent row before
+    the merge call; these fixtures have no aria/state to publish to."""
+    return {"published": True, "intent": intent["decision"]}
+
+
 class FakeGitHubAdapter:
     def __init__(self, pr_payload, github_payload, *, latest_heads=None, fail_merge=False):
         self.pr_payload = pr_payload
@@ -619,6 +625,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "merged", result.get("reasons"))
         self.assertNotIn("policy disabled", result.get("reasons") or [])
@@ -655,11 +662,14 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "merged")
         self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": HEAD_SHA}])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
-        self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
+        # ARIA-HIGH-222 — the intent is recorded (and published) before the
+        # merge call, the outcome after it.
+        self.assertEqual([row["decision"] for row in decisions], ["eligible", "merge_intent", "merged"])
 
     @patch(
         "aria_kernel.merge_authority.run_hard_fail_checks",
@@ -691,6 +701,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "failed")
         lifecycle_path = self.tools_dir / "pr-lifecycle.jsonl"
@@ -729,6 +740,7 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "blocked")
         self.assertEqual(adapter.merge_calls, [])
@@ -761,6 +773,7 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "blocked")
         joined = " ".join(result["reasons"])

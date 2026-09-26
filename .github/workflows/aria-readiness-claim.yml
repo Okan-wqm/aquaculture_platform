@@ -24,8 +24,15 @@ permissions:
   # Reading the completed run, its artifacts, and the PR payload.
   actions: read
 
+# ARIA-HIGH-222 — one claim lane per PR head. A single global group held
+# one running and ONE pending run: a third completion while a claim was
+# running replaced the pending one, and that head's claim was silently never
+# made. Keyed on the head the completed run tested, runs for different heads
+# no longer queue behind each other, and a repeat for the same head waits
+# for the first (which records the claim; the repeat reuses it). A manual
+# dispatch carries no workflow_run and refuses by name in its first step.
 concurrency:
-  group: aria-readiness-claim
+  group: aria-readiness-claim-${{ github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:

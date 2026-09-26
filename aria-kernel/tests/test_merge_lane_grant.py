@@ -234,7 +234,8 @@ class MergeLaneGrantTests(unittest.TestCase):
     def test_a_strict_run_with_a_grant_runs_live_and_without_it_observes(self) -> None:
         observed: list[str] = []
 
-        def _record_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None):
+        def _record_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None,
+                              intent_publisher=None):
             observed.append("live")
             return {"decision": "blocked", "eligible": False, "pr_number": pr_number, "reasons": []}
 

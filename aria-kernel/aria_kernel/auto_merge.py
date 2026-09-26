@@ -848,6 +848,14 @@ class SnapshotGitHubAdapter:
             self.payload.get("github", {}).get("open_issues", {"readable": True, "issues": []}),
         )
 
+    def list_open_pull_request_heads(self) -> dict[int, str]:
+        pr = self.payload.get("pr", {})
+        state = str(pr.get("state") or "").upper()
+        head = pr.get("head_sha") or pr.get("headRefOid")
+        if state != "OPEN" or not isinstance(pr.get("number"), int) or not isinstance(head, str):
+            return {}
+        return {pr["number"]: head}
+
     def get_pr_diff(self, number: int) -> str | None:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
         payload. Returns None when the fixture didn't supply a diff so
@@ -1180,6 +1188,23 @@ class GhCliGitHubAdapter:
             raise GovernanceError(f"pull request review node {node_id!r} unreadable")
         edited = node.get("lastEditedAt")
         return edited if isinstance(edited, str) else None
+
+    def list_open_pull_request_heads(self) -> dict[int, str]:
+        """``{number: head sha}`` of EVERY open PR (ARIA-HIGH-222), paged to
+        the end through the REST listing — the merge lane's candidate set
+        must not stop at a page boundary."""
+        path = f"repos/{self.owner}/{self.repo}/pulls?state=open&per_page=100"
+        if is_gh_api_path_forbidden(path):
+            raise GovernanceError(f"forbidden gh api path: {path}")
+        stdout = self._gh_stdout(
+            ["api", "--paginate", path, "--jq", ".[] | [.number, .head.sha] | @tsv"],
+        )
+        heads: dict[int, str] = {}
+        for line in stdout.splitlines():
+            number, _, head_sha = line.partition("\t")
+            if number.strip().isdigit() and head_sha.strip():
+                heads[int(number)] = head_sha.strip()
+        return heads
 
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         if args and is_gh_api_path_forbidden(str(args[0])):

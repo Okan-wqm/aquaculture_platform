@@ -196,6 +196,7 @@ class PreMergePerimeterTests(unittest.TestCase):
                 pr_number=77,
                 base_dir=self.tools,
                 readiness_claim_id="claim:77:aaaaaaaaaaaa",
+                intent_publisher=lambda intent: {"published": True},
             )
         finally:
             for p in patches:

@@ -134,7 +134,24 @@ jobs:
           tools-dir: ${{ env.ARIA_TOOLS_DIR }}
           lane: merge
 
+      # ARIA-HIGH-222 — minted BEFORE the merge: every merge's intent is
+      # published to aria/state before its merge call, so the merge step
+      # carries the aria/state credential as well as the publish step. A
+      # lane whose restore did not land has no credential, cannot publish an
+      # intent, and so merges nothing.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
       - name: Run the merge lane
+        id: merge
         env:
           PYTHONPATH: aria-kernel
           # The merge credential is the App installation token; a PAT
@@ -145,6 +162,11 @@ jobs:
           ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
           ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          # The aria/state credential, for the merge intents this step
+          # publishes; git reads it for the store's push only.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
         run: |
           set -euo pipefail
           # ubuntu-latest has no operator home dir; materialize the PEM
@@ -190,31 +212,29 @@ jobs:
           # GH_TOKEN reaches the merge command only, never the job env.
           # Both invocations are spelled out so the CLI-contract invariant
           # (test_workflow_kernel_cli_contract) parses each one.
+          # The verdict goes to a file so the candidate count can be read
+          # from it; it is printed whatever the lane's exit status, and the
+          # step then exits with that status.
+          RESULT="$RUNNER_TEMP/aria-merge-lane-result.json"
+          STATUS=0
           if [ -n "$PR_NUMBER" ]; then
             GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
               --pr "$PR_NUMBER" \
               --tools-dir "$ARIA_TOOLS_DIR" \
-              --workspace-root "$GITHUB_WORKSPACE"
+              --workspace-root "$GITHUB_WORKSPACE" > "$RESULT" || STATUS=$?
           else
             GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
               --tools-dir "$ARIA_TOOLS_DIR" \
-              --workspace-root "$GITHUB_WORKSPACE"
+              --workspace-root "$GITHUB_WORKSPACE" > "$RESULT" || STATUS=$?
           fi
-
-      # The credential is minted here and consumed by the next step only.
-      - name: Mint the aria/state push credential
-        id: publish_credential
-        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
-        env:
-          PUBLISH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
-          echo "::add-mask::${HEADER}"
-          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+          cat "$RESULT"
+          # ARIA-HIGH-222 — a run with no candidate (no open PR whose head
+          # holds a claim) is a no-op: it recorded nothing worth a publish.
+          echo "candidates=$(jq -r '.candidates_evaluated // 0' "$RESULT")" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
 
       - name: Publish ARIA state to the aria/state branch
-        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        if: (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true') && steps.merge.outputs.candidates != '0'
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader

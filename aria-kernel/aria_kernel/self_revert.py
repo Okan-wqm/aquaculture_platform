@@ -624,15 +624,48 @@ def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> 
 # ---------------------------------------------------------------- triggers
 
 
+# ARIA-HIGH-222 — decisions that name an ARIA merge ATTEMPT at an exact
+# head. A ``merge_intent`` row is published before the merge call, so it
+# survives a lane whose final ``merged`` row was lost with its runner; it
+# counts as ARIA's merge once the post-merge reconciler (``own_pr_ci``) has
+# recorded that PR merged AT THAT HEAD.
+_ATTEMPT_DECISIONS: frozenset[str] = frozenset({"merge_intent"})
+
+
 def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
     path = ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl"
     if not path.exists():
         return set()
-    return {
-        int(row["pr_number"])
-        for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions")
-        if row.get("decision") == "merged" and isinstance(row.get("pr_number"), int)
-    }
+    merged: set[int] = set()
+    attempts: set[tuple[int, str]] = set()
+    for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
+        if not isinstance(row.get("pr_number"), int):
+            continue
+        if row.get("decision") == "merged":
+            merged.add(int(row["pr_number"]))
+        elif row.get("decision") in _ATTEMPT_DECISIONS and isinstance(row.get("head_sha"), str):
+            attempts.add((int(row["pr_number"]), str(row["head_sha"])))
+    if attempts:
+        merged_at_head = {
+            (number, str(outcome.get("head_sha") or ""))
+            for number, outcome in _merge_outcome_heads(base_dir)
+        }
+        merged.update(number for number, head_sha in attempts if (number, head_sha) in merged_at_head)
+    return merged
+
+
+def _merge_outcome_heads(base_dir: str | Path | None) -> list[tuple[int, dict[str, Any]]]:
+    """Every merge-outcome row that names the head its PR merged at."""
+    from .own_pr_ci import merge_outcomes_path
+
+    path = merge_outcomes_path(base_dir)
+    if not path.exists():
+        return []
+    return [
+        (int(row["pr_number"]), row)
+        for row in load_declared_jsonl(path, expected_surface="merge_outcomes")
+        if isinstance(row.get("pr_number"), int) and row.get("head_sha")
+    ]
 
 
 def _latest_merge_outcomes(base_dir: str | Path | None) -> dict[int, dict[str, Any]]:

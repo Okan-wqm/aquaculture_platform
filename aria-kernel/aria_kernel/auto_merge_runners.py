@@ -114,12 +114,16 @@ class RealAutoMergeRunner:
         adapter_factory: Callable[[], Any] | None = None,
         pr_enumerator: Callable[[Any], list[int]] | None = None,
         readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
+        intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.profile = profile
         self.executes_merges = executes_merges
         self.adapter_factory = adapter_factory
         self.pr_enumerator = pr_enumerator
         self.readiness_claim_resolver = readiness_claim_resolver
+        # ARIA-HIGH-222 — publishes the merge_intent row before each merge
+        # call; the merge authority refuses to merge without it.
+        self.intent_publisher = intent_publisher
 
     def __call__(
         self,
@@ -289,6 +293,7 @@ class RealAutoMergeRunner:
                         base_dir=base_dir,
                         readiness_claim_id=readiness_claim_id,
                         workspace_root=workspace_root,
+                        intent_publisher=self.intent_publisher,
                     )
                 ),
             )
@@ -332,6 +337,7 @@ def select_auto_merge_runner(
     pr_enumerator: Callable[[Any], list[int]] | None = None,
     readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
     base_dir: str | Path | None = None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -359,6 +365,7 @@ def select_auto_merge_runner(
             adapter_factory=adapter_factory,
             pr_enumerator=pr_enumerator,
             readiness_claim_resolver=readiness_claim_resolver,
+            intent_publisher=intent_publisher,
         )
     if profile in _NOOP_RUNNER_PROFILES:
         return NoOpAutoMergeRunner(profile=profile)
@@ -373,19 +380,32 @@ def enumerate_prs_with_readiness_claims(
     *,
     base_dir: str | Path | None,
 ) -> list[int]:
-    _ = adapter
+    """The merge candidates: open PRs whose CURRENT head holds a readiness claim.
+
+    ARIA-HIGH-222 — every PR that ever held a claim used to be a candidate,
+    so the lane evaluated merged and closed PRs on every run and there was
+    never a run with nothing to do: the hourly schedule published every
+    hour. A candidate is now a PR GitHub lists as open whose live head is a
+    head a claim names — the set a merge could act on. An adapter that
+    observes nothing (the recording adapter) yields no candidates.
+    """
     tools_root = ensure_tools_dir(base_dir)
     rows = load_declared_jsonl(
         tools_root / "enterprise" / "readiness-claims.jsonl",
         expected_surface="enterprise_readiness_claims",
     )
-    numbers: set[int] = set()
+    claimed: set[tuple[int, str]] = set()
     for row in rows:
         try:
-            numbers.add(int(row.get("pr_number")))
+            claimed.add((int(row.get("pr_number")), str(row.get("head_sha") or "")))
         except (TypeError, ValueError):
             continue
-    return sorted(numbers)
+    if not claimed:
+        return []
+    open_heads = adapter.list_open_pull_request_heads()
+    if open_heads is None:
+        return []
+    return sorted(number for number, head_sha in open_heads.items() if (number, head_sha) in claimed)
 
 
 def resolve_readiness_claim_id_from_claims(

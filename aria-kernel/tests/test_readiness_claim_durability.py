@@ -290,6 +290,7 @@ class LeaseAtMergeTests(_ClaimFixture):
                 return merge_pr_if_ready(
                     adapter=adapter, pr_number=77, base_dir=self.tools,
                     readiness_claim_id=claim_id,
+                    intent_publisher=lambda intent: {"published": True},
                 )
         finally:
             for item in reversed(patches):

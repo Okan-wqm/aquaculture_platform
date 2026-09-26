@@ -750,14 +750,19 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 required_steps=(
                     _RESTORE_STEP,
                     "Probe runner attestation",
+                    "Mint the aria/state push credential",
                     "Run the merge lane",
                     _PUBLISH_STEP,
                 ),
                 # The attestation must describe the store the merge reads,
                 # and must exist before the merge gate asks for it.
+                # ARIA-HIGH-222 — the aria/state credential exists before the
+                # merge step, which publishes each merge's intent before the
+                # merge call.
                 step_order=(
                     (_RESTORE_STEP, "Probe runner attestation"),
                     ("Probe runner attestation", "Run the merge lane"),
+                    ("Mint the aria/state push credential", "Run the merge lane"),
                     ("Run the merge lane", _PUBLISH_STEP),
                 ),
             ),

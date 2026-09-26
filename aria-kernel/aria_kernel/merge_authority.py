@@ -26,7 +26,11 @@ from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
-from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
+from .runtime_profile import (
+    assert_merge_authority_available,
+    assert_merge_authorized,
+    get_merge_lane_grant,
+)
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .self_merge_freeze import assert_self_merge_not_frozen
@@ -80,6 +84,23 @@ def merge_pr_if_ready(
     live_pr = adapter.get_pr(pr_number)
     if not isinstance(live_pr, dict) or not live_pr:
         raise GovernanceError("merge_authority_live_pr_required")
+    # ARIA-MEDIUM-226 — a PR that is no longer open is not a merge
+    # candidate. The candidate set is every PR that ever held a readiness
+    # claim, so without this every merged or closed PR was evaluated on
+    # every run: a risk decision, a lifecycle observation and a decision
+    # row each time, for a PR nothing could merge. Named, and nothing is
+    # written; an unobserved state is refused rather than read as open.
+    pr_state = str(live_pr.get("state") or "").strip().upper()
+    if not pr_state:
+        raise GovernanceError("merge_authority_pr_state_unobserved")
+    if pr_state != "OPEN":
+        return {
+            "decision": "skipped_pr_not_open",
+            "eligible": False,
+            "pr_number": pr_number,
+            "pr_state": pr_state,
+            "reasons": [f"pr_not_open:{pr_state}"],
+        }
     # ARIA-HIGH-211 — a PR marked for a person's merge is not this lane's
     # candidate: named, not evaluated, before any gate writes a row for it.
     human_merge = human_merge_decision(pr_number, base_dir=base_dir, live_pr=live_pr)
@@ -383,9 +404,24 @@ def merge_pr_if_ready(
             "cycle_id": cycle_id,
             "readiness_claim_id": readiness_claim_id,
             "readiness_failure_classes": list(readiness.failure_classes),
+            # ARIA-MEDIUM-226 — the operator grant this decision ran under:
+            # lane, expiry and the approval that gave it (None under a
+            # profile that holds pr_merge itself).
+            "merge_lane_grant": _grant_in_force(base_dir),
         },
     )
     return result
+
+
+def _grant_in_force(base_dir: str | Path | None) -> dict[str, Any] | None:
+    grant = get_merge_lane_grant(base_dir=base_dir)
+    if grant is None:
+        return None
+    return {
+        "lane": grant.get("lane"),
+        "expires_at": grant.get("expires_at"),
+        "operator_approval_ref": grant.get("operator_approval_ref"),
+    }
 
 
 def _acquire_merge_lease(

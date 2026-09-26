@@ -331,6 +331,7 @@ def select_auto_merge_runner(
     adapter_factory: Callable[[], Any] | None = None,
     pr_enumerator: Callable[[Any], list[int]] | None = None,
     readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
+    base_dir: str | Path | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -338,8 +339,20 @@ def select_auto_merge_runner(
     constants at the top of this module AND ``runtime_profile.PROFILES``
     AND the V3 invariant tests I-V3-02 + I-V3-03 (or a new I-V3-XX
     for the new profile). Untyped insertion raises ``ValueError``.
+
+    ARIA-MEDIUM-226 — the merge lane (``executes_merges``) gets the real
+    runner whenever ``runtime_profile.merge_authority_available`` says merge
+    authority exists: the predicate the runner itself and the merge
+    authority read. Keyed on the profile alone, a ``standard`` profile
+    holding an operator's merge-lane grant got the no-op runner here while
+    the authority below would have merged — the grant could never be used.
+    The nightly cycle (``executes_merges=False``) is unchanged.
     """
-    if profile in _REAL_RUNNER_PROFILES:
+    from .runtime_profile import merge_authority_available
+
+    if profile in _REAL_RUNNER_PROFILES or (
+        executes_merges and merge_authority_available(base_dir=base_dir)
+    ):
         return RealAutoMergeRunner(
             profile=profile,
             executes_merges=executes_merges,

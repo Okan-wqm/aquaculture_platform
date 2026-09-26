@@ -912,11 +912,14 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision",
+                "number,state,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision",
             ],
         )
         return {
             "number": payload.get("number"),
+            # ARIA-MEDIUM-226 — OPEN / CLOSED / MERGED: the merge authority
+            # skips a PR that is no longer open before any gate writes a row.
+            "state": payload.get("state"),
             "repository": f"{self.owner}/{self.repo}",
             "repo": f"{self.owner}/{self.repo}",
             "target_ref": payload.get("baseRefName"),
@@ -954,15 +957,39 @@ class GhCliGitHubAdapter:
         return {"readable": True, "required_checks": sorted({str(check) for check in checks if check})}
 
     def get_checks(self, head_sha: str) -> dict[str, Any]:
-        runs = self._gh_api_json([f"repos/{self.owner}/{self.repo}/commits/{head_sha}/check-runs"]).get(
-            "check_runs",
-            [],
-        )
-        statuses = self._gh_api_json([f"repos/{self.owner}/{self.repo}/commits/{head_sha}/status"]).get(
-            "statuses",
-            [],
-        )
+        """Every check run and commit status on ``head_sha``, or unreadable.
+
+        ARIA-MEDIUM-226 — both endpoints page (30 per page by default), so
+        the first page alone let a head with more runs than one page look
+        green on the ones it happened to return. Each listing is read at
+        ``per_page=100`` to the end and must add up to the ``total_count``
+        GitHub reports; a short or uncounted listing is unreadable, which
+        the gate refuses, never a partial list it would judge.
+        """
+        base = f"repos/{self.owner}/{self.repo}/commits/{head_sha}"
+        runs, runs_gap = self._listed_to_total(f"{base}/check-runs", "check_runs")
+        statuses, statuses_gap = self._listed_to_total(f"{base}/status", "statuses")
+        gaps = [gap for gap in (runs_gap, statuses_gap) if gap]
+        if gaps:
+            return {"readable": False, "runs": [], "reason": ";".join(gaps)}
         return {"readable": True, "runs": [*runs, *statuses]}
+
+    def _listed_to_total(self, path: str, key: str) -> tuple[list[dict[str, Any]], str | None]:
+        items: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            payload = self._gh_api_json([f"{path}?per_page=100&page={page}"])
+            total = payload.get("total_count")
+            batch = payload.get(key)
+            if not isinstance(total, int) or isinstance(total, bool) or not isinstance(batch, list):
+                return [], f"{key}_total_count_absent"
+            items.extend(item for item in batch if isinstance(item, dict))
+            if len(items) >= total or not batch:
+                break
+            page += 1
+        if len(items) != total:
+            return [], f"{key}_incomplete:{len(items)}/{total}"
+        return items, None
 
     def get_reviews(self, number: int) -> dict[str, Any]:
         return {"readable": True, "items": self.get_pr(number).get("reviews", [])}

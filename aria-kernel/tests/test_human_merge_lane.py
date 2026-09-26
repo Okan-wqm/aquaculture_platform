@@ -166,7 +166,8 @@ class TheMergeLaneNamesItTests(unittest.TestCase):
 
         class _Adapter:
             def get_pr(self, number: int) -> dict[str, Any]:
-                return {"number": number, "head_sha": "e" * 40, "labels": [{"name": HUMAN_MERGE_LABEL}]}
+                return {"number": number, "state": "OPEN", "head_sha": "e" * 40,
+                        "labels": [{"name": HUMAN_MERGE_LABEL}]}
 
         with mock.patch("aria_kernel.merge_authority.assert_merge_authority_available", return_value="autonomous"), \
                 mock.patch("aria_kernel.merge_authority.assert_merge_not_watchdog_frozen", return_value=None):

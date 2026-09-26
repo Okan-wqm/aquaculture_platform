@@ -32,6 +32,9 @@ def enabled_policy(**overrides):
 def pr(**overrides):
     payload = {
         "number": 42,
+        # ARIA-MEDIUM-226 — the live adapter reports the PR's state; only an
+        # OPEN PR is a merge candidate.
+        "state": "OPEN",
         "repository": "example/aqua",
         "base_branch": "main",
         "head_ref": "feature/docs",

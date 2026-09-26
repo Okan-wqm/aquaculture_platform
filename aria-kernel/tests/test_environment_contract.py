@@ -558,10 +558,12 @@ class MergeRunVerbTest(unittest.TestCase):
                 seen["prs"] = seen["enumerator"](object())
                 return {"status": "ok", "merges_completed": 0}
 
-        def fake_select(*, profile, executes_merges, adapter_factory, pr_enumerator, readiness_claim_resolver):
+        def fake_select(*, profile, executes_merges, adapter_factory, pr_enumerator, readiness_claim_resolver,
+                        **selection):
             seen["profile"] = profile
             seen["executes_merges"] = executes_merges
             seen["enumerator"] = pr_enumerator
+            seen["selection"] = selection
             return _Runner()
 
         with TemporaryDirectory() as tmp:

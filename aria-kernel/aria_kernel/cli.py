@@ -3874,11 +3874,13 @@ def _main(argv: list[str] | None = None) -> int:
         merge_profile = get_profile(base_dir=args.tools_dir)
         merge_adapter = select_github_adapter(
             profile=merge_profile, base_dir=args.tools_dir, cwd=str(args.workspace_root),
+            merge_lane=True,
         )
         merge_runner = select_auto_merge_runner(
             profile=merge_profile,
             # The merge lane is the one runner that may execute a merge.
             executes_merges=True,
+            base_dir=args.tools_dir,
             adapter_factory=lambda: merge_adapter,
             pr_enumerator=(
                 (lambda _adapter: [args.pr]) if args.pr is not None

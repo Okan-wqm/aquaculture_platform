@@ -50,6 +50,7 @@ def _commit(repo: Path, message: str) -> str:
 def _pr(base: str, head: str, listed: list[str], count: int | None) -> dict:
     payload: dict = {
         "number": 7,
+        "state": "OPEN",
         "repository": "okan/aqua",
         "base_branch": "main",
         "head_ref": "aria/impl/x",

@@ -373,6 +373,7 @@ def select_github_adapter(
     profile: str,
     base_dir: str | Path,
     cwd: str | Path = ".",
+    merge_lane: bool = False,
 ) -> Any:
     """Plan ARIA-V3 §A2 — profile-derived adapter factory.
 
@@ -389,9 +390,20 @@ def select_github_adapter(
     operator hygiene. RecordingGitHubAdapter still writes every
     intended call to the audit log so the override is observable.
     """
-    if _aria_dry_run_active() and profile in _REAL_ADAPTER_PROFILES:
+    from .runtime_profile import merge_authority_available
+
+    # ARIA-MEDIUM-226 — the merge lane talks to GitHub whenever merge
+    # authority exists (`runtime_profile.merge_authority_available`, the one
+    # predicate the runner and the merge authority read): a `standard`
+    # profile holding an operator's merge-lane grant must merge through the
+    # real adapter, not record intended calls. Every other caller keeps the
+    # profile table.
+    real = profile in _REAL_ADAPTER_PROFILES or (
+        merge_lane and merge_authority_available(base_dir=base_dir)
+    )
+    if _aria_dry_run_active() and real:
         return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)
-    if profile in _REAL_ADAPTER_PROFILES:
+    if real:
         return GhCliGitHubAdapter(cwd=cwd)
     if profile in _RECORDING_ADAPTER_PROFILES:
         return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)

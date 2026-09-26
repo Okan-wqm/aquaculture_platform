@@ -45,6 +45,7 @@ class _Adapter:
     def get_pr(self, pr_number: int) -> dict:
         return {
             "number": pr_number,
+            "state": "OPEN",
             "repository": "okan/aqua",
             "base_branch": "main",
             "head_ref": "feat/x",
@@ -64,9 +65,10 @@ class _Adapter:
 def _gate_patches(head_sha: str = _SHA):
     """Every gate before the perimeter passes; the perimeter is the test."""
     return [
-        # The runner decides dry-run from the authority recorded in the tools
-        # dir (profile or merge-lane grant, ARIA-HIGH-205), not from the profile
-        # it was constructed with; like the gates below it is a fixture control.
+        # The runner derives dry-run from the authority recorded in the tools
+        # dir (an autonomous profile or a merge-lane grant, ARIA-HIGH-205) —
+        # the same predicate the authority asserts (ARIA-MEDIUM-226), not the
+        # profile it was constructed with; both are fixture controls here.
         patch(
             "aria_kernel.runtime_profile.merge_authority_available",
             return_value=True,
@@ -601,7 +603,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "IMPLEMENTATION_RECORDED")
         self.assertEqual(accepted_result_for_request(request_id=request["request_id"], base_dir=tools)["ledger_hash"],
             submitted["row"]["ledger_hash"])
-        pr = {"number": 732, "base_branch": "main", "base_sha": staged["base_sha"],
+        pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
             "head_ref": staged["branch"], "head_sha": head_sha, "body": "Native implementation result fixture.",
             "changed_files": [source_path], "change_id": staged["change_id"],
             "proposal_id": staged["proposal_id"], "url": pr_url}
@@ -1028,7 +1030,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         from aria_kernel.auto_merge import GhCliGitHubAdapter
 
         native_pr = {
-            "number": 732, "baseRefName": "main", "baseRefOid": "b" * 40,
+            "number": 732, "state": "OPEN", "baseRefName": "main", "baseRefOid": "b" * 40,
             "headRefName": "aria/change-732", "headRefOid": "c" * 40,
             "body": "Review this exact implementation revision.",
             "url": "https://github.com/fixture-owner/fixture-repo/pull/732",
@@ -1056,6 +1058,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         self.assertEqual(projected["changed_files_count"], native_pr["changedFiles"])
         self.assertEqual(projected["labels"], native_pr["labels"])
         self.assertEqual(projected["repository"], "fixture-owner/fixture-repo")
+        self.assertEqual(projected["state"], "OPEN")
         self.assertEqual(transport.call_count, 2)
 
 

@@ -14,7 +14,10 @@ WHY THIS IS ONLY SAFE ON TOP OF ORPHAN-HIGH-421
   gets a fresh claim_id, so a single agent could hold every role and pass.
   This module therefore folds a verdict ONLY after
   :func:`independence_check.verify_principal_disjointness` confirms
-  distinct ``agent_id`` values against the claims ledger.
+  distinct principals — each seat's minted agent bound to the route that
+  executed it (ARIA-MEDIUM-225) — and resolves ONLY when the resolve
+  quorum spans a quorum of distinct executed routes
+  (:func:`independence_check.verify_route_distinctness`).
 
 THE IRREDUCIBLE CLASS
   Some escalations must never be agent-clearable, because an agent
@@ -64,7 +67,11 @@ from .human_required import (
     list_human_required,
     resolve_human_required,
 )
-from .independence_check import RoundDispatch, verify_principal_disjointness
+from .independence_check import (
+    RoundDispatch,
+    verify_principal_disjointness,
+    verify_route_distinctness,
+)
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .must_satisfy import upcast_sealed_items
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
@@ -74,6 +81,21 @@ ADJUDICATION_ROLE: str = "human_required_adjudication"
 
 # A three-member panel with a two-vote quorum: one dissent blocks nothing
 # on its own, but one "cannot tell" does (see module docstring).
+#
+# ARIA-MEDIUM-225 — a RESOLVE quorum must also span DEFAULT_QUORUM distinct
+# executed routes (provider, model): resolving clears an escalation, and one
+# model answering under two agent names is one opinion, not two. Why the
+# quorum and not all three seats: the registered panel
+# (`agent_surface`: aria-evidence-judge, aria-adversarial-judge,
+# aria-consensus-arbiter) runs on the profiles judge_opus, judge_glm and
+# arbiter — opus, glm-5.3, opus — so while one provider serves opus (the
+# normal fleet state) the panel spans exactly two routes. Requiring three
+# pairwise-distinct routes would make every panel unclearable; requiring the
+# clearing quorum to span two means no single model can clear an escalation
+# on its own, which is the property the panel exists to provide. The
+# satisfiability of that requirement is pinned by
+# test_the_registered_panel_can_field_a_route_diverse_quorum. A refusal
+# clears nothing, so a refuse quorum carries no route requirement.
 DEFAULT_PANEL_SIZE: int = 3
 DEFAULT_QUORUM: int = 2
 
@@ -657,6 +679,28 @@ def fold_adjudication(
             OUTCOME_STILL_ESCALATED, f"insufficient_evidence_votes:{insufficient_votes}",
         )
     if resolve_votes >= quorum:
+        # ARIA-MEDIUM-225 — the voters that CLEAR must span `quorum`
+        # executed routes (see DEFAULT_QUORUM). Same role labels as the
+        # independence check, so a reason names the same seat in both.
+        routes_ok, route_reasons = verify_route_distinctness(
+            dispatches=[
+                RoundDispatch(
+                    role=f"adjudicator_{index}",
+                    request_id=opinion.request_id,
+                    revision_id=None,
+                    agent_text=None,
+                )
+                for index, opinion in enumerate(opinions)
+                if opinion.verdict == RESOLVE_VERDICT
+            ],
+            base_dir=root,
+            min_distinct_routes=quorum,
+        )
+        if not routes_ok:
+            return _verdict(
+                OUTCOME_STILL_ESCALATED,
+                f"resolve_quorum_routes_not_distinct:{','.join(route_reasons)}",
+            )
         return _verdict(OUTCOME_RESOLVED, f"quorum_resolve:{resolve_votes}/{quorum}")
     if refuse_votes >= quorum:
         return _verdict(OUTCOME_REFUSED, f"quorum_refuse:{refuse_votes}/{quorum}")

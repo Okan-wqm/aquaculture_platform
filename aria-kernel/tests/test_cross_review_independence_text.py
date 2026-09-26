@@ -63,6 +63,7 @@ from aria_kernel.independence_check import (  # noqa: E402
     verify_independence,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
+from tests._helpers.independence_seats import seal_accepted_seat  # noqa: E402
 
 _QUEUE_ROLE = CROSS_REVIEW_ROLE[1]
 _REQUEST_ID = "req-cross-review-001"
@@ -178,7 +179,18 @@ class DiversityLayerActuallyRuns(unittest.TestCase):
             )
             request_id = str(request["request_id"])
             self.request_ids[role] = request_id
-            claim_request(request_id=request_id, agent_id=agent, base_dir=self.tools)
+            claim = claim_request(request_id=request_id, agent_id=agent, base_dir=self.tools)
+            # ARIA-MEDIUM-225 — the seat is bound through its accepted,
+            # sealed response (the agent it ran as, the route it ran on).
+            seal_accepted_seat(
+                self.tools,
+                request_id=request_id,
+                claim_id=str(claim["claim_id"]),
+                agent_id=agent,
+                subagent_type=str(request["target_agent"]),
+                dispatch_model="opus",
+                role=role,
+            )
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

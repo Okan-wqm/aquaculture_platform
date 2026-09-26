@@ -2373,7 +2373,39 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
 # Kept beside the counter it feeds. The executor's release sites are the
 # source of these strings; a new harness-fault reason added there without a
 # row here fails test_every_executor_release_reason_is_classified.
+#
+# ARIA-MEDIUM-225 — the contract-violation class: the agent's own answer on
+# THIS request failed the role's shape contract before submit. One violation
+# says nothing about the request (re-asking usually succeeds), so the class is
+# harness-priced; but priced that way without end, a request whose agent never
+# writes a readable answer is requeued forever and every retry is another
+# model call. Each reason here is FREE for the first FREE_CONTRACT_VIOLATIONS
+# releases of a request and charged to its budget after that
+# (`_request_fault_requeue_count`), so the path reaches DEFAULT_MAX_REQUEUES
+# like every other: at most FREE_CONTRACT_VIOLATIONS + DEFAULT_MAX_REQUEUES + 1
+# attempts before HUMAN_REQUIRED. Two free re-asks is the request budget's own
+# size: a malformed answer gets as many free retries as a request fault gets
+# charged ones.
+CONTRACT_VIOLATION_RELEASE_REASONS: frozenset[str] = frozenset({
+    # Y5 (ORPHAN-706) — a judge envelope without a readable verdict block is
+    # released BEFORE submit instead of sealed as an accepted-but-unfoldable
+    # result. The malformed output says nothing about the REQUEST (the same
+    # finding judged again usually succeeds), so the requeue must not burn
+    # the request's budget the way the old submit_rejected path did.
+    "judge_verdict_contract_violation",
+    # B6 — the same class for a self-change answer that lacks a contract
+    # field (self_change_bridge.validate_self_change_response): the shape says
+    # nothing about the mission, and re-asking usually succeeds.
+    "self_change_contract_violation",
+    # ARIA-HIGH-097 — the same class for an adjudicator answer without a
+    # readable details.adjudication block: the shape says nothing about the
+    # escalation, and re-asking usually succeeds.
+    "adjudication_contract_violation",
+})
+FREE_CONTRACT_VIOLATIONS: int = 2
+
 HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    *CONTRACT_VIOLATION_RELEASE_REASONS,
     "native_runtime_admission_unavailable",
     # ARIA-HIGH-107 — the fleet's first provider in contention stayed
     # undecided (a stalled status probe) inside the liveness bound; the
@@ -2399,20 +2431,6 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # class again: the harness's gap billed as the agent's fault. A
     # rejection with ANY other reason stays `submit_rejected`.
     "evidence_verification_unavailable",
-    # Y5 (ORPHAN-706) — a judge envelope without a readable verdict block is
-    # released BEFORE submit instead of sealed as an accepted-but-unfoldable
-    # result. The malformed output says nothing about the REQUEST (the same
-    # finding judged again usually succeeds), so the requeue must not burn
-    # the request's budget the way the old submit_rejected path did.
-    "judge_verdict_contract_violation",
-    # B6 — the same class for a self-change answer that lacks a contract
-    # field (self_change_bridge.validate_self_change_response): the shape says
-    # nothing about the mission, and re-asking usually succeeds.
-    "self_change_contract_violation",
-    # ARIA-HIGH-097 — the same class for an adjudicator answer without a
-    # readable details.adjudication block: the shape says nothing about the
-    # escalation, and re-asking usually succeeds.
-    "adjudication_contract_violation",
     "kernel_prompt_renderer_unavailable",
     # ARIA-HIGH-115 — the executor could not hold the implementer's signing
     # identity in the tree it runs in (`implementation_identity`): the
@@ -2557,15 +2575,29 @@ def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) ->
     poisonous request derive back below the ceiling. An unclassified reason
     counts as the request's fault — fail toward the human, never toward
     silent infinite retry.
+
+    ARIA-MEDIUM-225 — a contract violation is free for the request's first
+    ``FREE_CONTRACT_VIOLATIONS`` and counted after that: repeated, it IS a
+    statement about the request (see ``CONTRACT_VIOLATION_RELEASE_REASONS``).
     """
-    return sum(
-        1
-        for row in rows
-        if row.get("request_id") == request_id
-        and row.get("event") in ("requeued", "human_required")
-        and not _is_harness_fault_reason(str(row.get("reason") or ""))
-        and str(row.get("reason") or "") not in OPERATOR_RELEASE_REASONS
-    )
+    count = 0
+    contract_violations = 0
+    for row in rows:
+        if row.get("request_id") != request_id:
+            continue
+        if row.get("event") not in ("requeued", "human_required"):
+            continue
+        reason = str(row.get("reason") or "")
+        if reason in OPERATOR_RELEASE_REASONS:
+            continue
+        if reason in CONTRACT_VIOLATION_RELEASE_REASONS:
+            contract_violations += 1
+            if contract_violations > FREE_CONTRACT_VIOLATIONS:
+                count += 1
+            continue
+        if not _is_harness_fault_reason(reason):
+            count += 1
+    return count
 
 
 # The canonical result vocabulary, and the legacy spellings that still live in
@@ -4057,17 +4089,25 @@ def release_claim(
             row,
             expected_surface="agent_invocation_claims",
         )
-        # Escalation follows the same fault-ownership rule as derivation.
-        if _is_harness_fault_reason(reason):
-            requeue_count = _request_fault_requeue_count(claims, request_id)
+        # Escalation follows the same fault-ownership rule as derivation —
+        # the SAME function, applied to the ledger with this release's
+        # requeue row in it, so the row written here and every later
+        # derivation cannot disagree about whether it was charged
+        # (ARIA-MEDIUM-225: a contract violation past the free bound is).
+        charged_before = _request_fault_requeue_count(claims, request_id)
+        requeue_count = _request_fault_requeue_count(
+            [*claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
+            request_id,
+        )
+        if requeue_count == charged_before:
             requeue_event_kind = "requeued"
         else:
-            requeue_count = _request_fault_requeue_count(claims, request_id) + 1
             requeue_event_kind = (
                 "requeued"
                 if requeue_count <= DEFAULT_MAX_REQUEUES
                 else "human_required"
             )
+        if not _is_harness_fault_reason(reason):
             # ARIA-HIGH-124 (round 2) — a request-class release of a request
             # the releaser has ALREADY escalated (an open HUMAN_REQUIRED
             # record: the executor writes it before it releases — a branch

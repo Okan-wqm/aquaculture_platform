@@ -260,6 +260,123 @@ class PanelFold(unittest.TestCase):
         self.assertTrue(verdict.independence_ok, verdict.independence_reasons)
         self.assertEqual(verdict.outcome, hra.OUTCOME_RESOLVED, verdict.reason)
 
+    # ARIA-MEDIUM-225 — the principal is the agent AND the route that ran
+    # it. Three seats answered by one model are three names on one mind:
+    # independent by agent, and still unable to clear an escalation.
+    def test_one_model_behind_every_seat_does_not_clear(self) -> None:
+        request_ids = self._open()
+        for request_id in request_ids:
+            seed_adjudicator_opinion(
+                self.tools, request_id, agent_id="ci-executor:gha-1",
+                verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+                dispatch_model="opus",
+            )
+        verdict = hra.fold_adjudication(
+            escalation_request_id=self.escalation_id, base_dir=self.tools,
+        )
+        self.assertTrue(verdict.independence_ok, verdict.independence_reasons)
+        self.assertEqual(verdict.resolve_votes, 3)
+        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
+        self.assertTrue(
+            verdict.reason.startswith("resolve_quorum_routes_not_distinct:"), verdict.reason,
+        )
+        self.assertFalse(verdict.clears_escalation)
+
+    def test_a_resolve_quorum_carried_by_one_route_does_not_clear(self) -> None:
+        """The two opus seats agree and the glm seat dissents: the quorum
+        is two agents on ONE route, which is one model's opinion twice."""
+        request_ids = self._open()
+        seed_adjudicator_opinion(
+            self.tools, request_ids[0], agent_id="judge-a",
+            verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+        )
+        seed_adjudicator_opinion(
+            self.tools, request_ids[1], agent_id="judge-b", verdict=hra.REFUSE_VERDICT,
+        )
+        seed_adjudicator_opinion(
+            self.tools, request_ids[2], agent_id="judge-c",
+            verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+        )
+        verdict = hra.fold_adjudication(
+            escalation_request_id=self.escalation_id, base_dir=self.tools,
+        )
+        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED, verdict.reason)
+        self.assertIn("anthropic/opus", verdict.reason)
+
+    def test_the_route_is_read_from_the_native_attempt_row(self) -> None:
+        """Both opus-profile seats resolve, but the fleet ran one of them on
+        another vendor: the attempt row, not the profile, names the route."""
+        request_ids = self._open()
+        seed_adjudicator_opinion(
+            self.tools, request_ids[0], agent_id="judge-a",
+            verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+            dispatch_model="gpt-5.2-codex", runtime_attempt_provider="openai",
+        )
+        seed_adjudicator_opinion(
+            self.tools, request_ids[1], agent_id="judge-b", verdict=hra.REFUSE_VERDICT,
+        )
+        seed_adjudicator_opinion(
+            self.tools, request_ids[2], agent_id="judge-c",
+            verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+        )
+        verdict = hra.fold_adjudication(
+            escalation_request_id=self.escalation_id, base_dir=self.tools,
+        )
+        self.assertEqual(verdict.outcome, hra.OUTCOME_RESOLVED, verdict.reason)
+
+    def test_a_seat_answered_as_another_agent_is_not_independent(self) -> None:
+        request_ids = self._open()
+        for index, request_id in enumerate(request_ids):
+            seed_adjudicator_opinion(
+                self.tools, request_id, agent_id=f"judge-{index}",
+                verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+                subagent_type="aria-evidence-judge" if index == 1 else None,
+            )
+        verdict = hra.fold_adjudication(
+            escalation_request_id=self.escalation_id, base_dir=self.tools,
+        )
+        self.assertFalse(verdict.independence_ok)
+        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
+        self.assertTrue(
+            any(
+                reason.startswith("adjudicator_1_response_principal_mismatch:")
+                for reason in verdict.independence_reasons
+            ),
+            verdict.independence_reasons,
+        )
+
+    def test_a_seat_with_no_executed_route_is_not_independent(self) -> None:
+        request_ids = self._open()
+        for index, request_id in enumerate(request_ids):
+            seed_adjudicator_opinion(
+                self.tools, request_id, agent_id=f"judge-{index}",
+                verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_DROP,
+                stamp_route=index != 1,
+            )
+        verdict = hra.fold_adjudication(
+            escalation_request_id=self.escalation_id, base_dir=self.tools,
+        )
+        self.assertFalse(verdict.independence_ok)
+        self.assertIn("adjudicator_1_executed_route_unavailable", verdict.independence_reasons)
+        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
+
+    def test_the_registered_panel_can_field_a_route_diverse_quorum(self) -> None:
+        """The rule above is satisfiable: the registered panel's profiles span
+        at least a quorum of distinct routes. A profile edit that put every
+        seat on one model would make every panel unclearable, and fails here."""
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+        from aria_kernel.model_fleet import dispatching_provider_for_model
+
+        targets = list(dict.fromkeys(allowed_targets_for_role(hra.ADJUDICATION_ROLE) or ()))
+        routes = {
+            (dispatching_provider_for_model(model), model)
+            for model in (
+                read_agent_runtime_profile(target).model
+                for target in targets[: hra.DEFAULT_PANEL_SIZE]
+            )
+        }
+        self.assertGreaterEqual(len(routes), hra.DEFAULT_QUORUM, routes)
+
     # I-PANEL-10b — a shared principal cannot be minted: a role whose target
     # list names one agent twice is short of distinct seats and refused.
     def test_i_panel_10b_shared_principal_panel_cannot_be_minted(self) -> None:

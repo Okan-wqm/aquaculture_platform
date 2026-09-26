@@ -224,3 +224,19 @@ Evidence: MISSION_SPEC.md:213-219; test_nightly_profile_authority_contract.py:80
 `docs/aria/CURRENT_STATE.md`.
 
 Rule: The documents of record describe what the code does.
+
+## ARIA-HIGH-234 — The kernel's own git calls inherit ambient git config injection
+
+`git_containment._publish_environment` copies the process environment minus the `GIT_DIR`
+family, so `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` / `GIT_CONFIG_PARAMETERS`
+reach the publication's ref writes and the delivery's push. A CI step can carry
+`AUTHORIZATION: basic` in `GIT_CONFIG_VALUE_0`, so a delivery that mints no credential pushes
+under the job's identity, and `url.*.insteadOf` can send the push elsewhere. `validation_env`
+and `self_revert` already strip the triple; this path did not.
+
+Evidence: `git_containment.py:667-672`; the delivery test's fake git saw `GIT_CONFIG_KEY_0` and
+`GIT_CONFIG_VALUE_0` on a host that sets them. Files: `aria-kernel/aria_kernel/git_containment.py`,
+`aria-kernel/aria_kernel/implementation_delivery.py`.
+
+Rule: A push carries exactly the identity the kernel chose for it; ambient git configuration never
+reaches the kernel's own git calls.

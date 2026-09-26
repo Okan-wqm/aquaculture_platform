@@ -1014,5 +1014,41 @@ class TemporaryDirectoryTests(unittest.TestCase):
         self.assertEqual(done.stdout.strip(), impl.SANDBOX_TMPDIR)
 
 
+class PublishEnvironmentTests(unittest.TestCase):
+    """The kernel's own git calls (the publication's ref writes, the
+    delivery's push) never inherit git config injected through the ambient
+    environment. A CI step can carry ``AUTHORIZATION: basic`` in
+    ``GIT_CONFIG_VALUE_0`` (validation_env.py says so), and a push without a
+    minted credential would otherwise go out under that job's identity."""
+
+    AMBIENT = {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic eDpmaXh0dXJl",
+        "GIT_CONFIG_KEY_1": "url.https://mirror.invalid/.insteadOf",
+        "GIT_CONFIG_VALUE_1": "https://github.com/",
+        "GIT_CONFIG_PARAMETERS": "'core.hookspath'='.husky'",
+    }
+
+    def test_ambient_git_config_injection_is_not_inherited(self) -> None:
+        with mock.patch.dict(os.environ, self.AMBIENT):
+            env = gc._publish_environment()
+        for name in self.AMBIENT:
+            with self.subTest(name=name):
+                self.assertNotIn(name, env)
+        self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(env["GIT_CONFIG_SYSTEM"], os.devnull)
+
+    def test_git_under_the_publish_environment_sees_no_injected_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, self.AMBIENT):
+            subprocess.run(["git", "init", "-q", tmp], check=True, env=gc._publish_environment())
+            read = subprocess.run(
+                ["git", "config", "--get", "http.https://github.com/.extraheader"],
+                cwd=tmp, env=gc._publish_environment(), capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(read.returncode, 1, read.stdout)
+        self.assertEqual(read.stdout, "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -664,10 +664,22 @@ def stand_on_implementation_branch(containment: GitContainment, *, branch: str, 
     return replace(containment, seeded_refs=(*containment.seeded_refs, (branch, base_sha)))
 
 
+# Ambient git configuration injected through the environment. None of it
+# reaches the kernel's own git calls: a CI step can carry `AUTHORIZATION:
+# basic` in `GIT_CONFIG_VALUE_0` (the note on VALIDATION_BASELINE_ENV_NAMES),
+# so a push that mints no credential would otherwise go out under that job's
+# identity, and `url.*.insteadOf` could send it elsewhere. The delivery's own
+# credential is added back explicitly (`delivery_credentials`), after this.
+_AMBIENT_GIT_CONFIG_NAMES: frozenset[str] = frozenset({"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
+_AMBIENT_GIT_CONFIG_PREFIXES: tuple[str, ...] = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+
+
 def _publish_environment() -> dict[str, str]:
     env = {name: value for name, value in os.environ.items()
            if name not in (GIT_OBJECT_DIRECTORY_ENV, "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_DIR",
-                           "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")}
+                           "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+           and name not in _AMBIENT_GIT_CONFIG_NAMES
+           and not name.startswith(_AMBIENT_GIT_CONFIG_PREFIXES)}
     env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
     return env
 

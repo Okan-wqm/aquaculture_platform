@@ -104,6 +104,32 @@ class BranchProtectionProofTests(unittest.TestCase):
             rules_probe=_rules(bypass_actors=({"actor_id": 9, "actor_type": "Team"},)),
         )
         self.assertEqual(report["proof"]["bypass_actors"], [{"actor_id": 9, "actor_type": "Team"}])
+        # ARIA-HIGH-207 — a measured bypass actor is a red proof, named.
+        self.assertFalse(report["proof"]["valid"])
+        self.assertIn("bypass_actors_present", report["proof"]["probe_reasons"])
+        self.assertIn("bypass_actors_present", report["probe_reasons"])
+
+    def test_unmeasured_bypass_actors_make_the_proof_invalid(self) -> None:
+        # ARIA-HIGH-207 — "could not see the field" is not "no bypass actors".
+        def unmeasured(*, repo, branch):
+            return [101], None
+
+        report = produce_branch_protection_proof(
+            **self.binding, probe=_probe_for(_strong_payload()), rules_probe=unmeasured,
+        )
+        proof = report["proof"]
+        self.assertFalse(proof["valid"])
+        self.assertIsNone(proof["bypass_actors"])
+        self.assertIn("bypass_actors_unmeasured", proof["probe_reasons"])
+        self.assertIn("bypass_actors_unmeasured", report["probe_reasons"])
+
+    def test_measured_empty_bypass_actors_keep_the_proof_valid(self) -> None:
+        report = produce_branch_protection_proof(
+            **self.binding, probe=_probe_for(_strong_payload()), rules_probe=_rules(bypass_actors=()),
+        )
+        self.assertTrue(report["proof"]["valid"])
+        self.assertEqual(report["proof"]["bypass_actors"], [])
+        self.assertNotIn("bypass_actors_unmeasured", report["probe_reasons"])
 
     def test_probe_without_payload_fails_closed(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "probe_no_payload"):
@@ -175,6 +201,69 @@ class ReviewRequirementsAreMeasuredTests(unittest.TestCase):
                 "branch_protection_required_approving_review_count_unmeasured",
                 reasons_for(required_approving_review_count=count),
             )
+
+
+class BranchRulesProbeTests(unittest.TestCase):
+    """ARIA-HIGH-207 — the gh-api rules probe fails closed on a field it
+    could not measure: GitHub omits ``bypass_actors`` for a token that
+    cannot read it, and an absent or null field must not read as ``[]``."""
+
+    @staticmethod
+    def _run_with(detail: dict):
+        import json
+        import subprocess
+
+        def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
+            path = argv[-1]
+            if path.endswith("/rules/branches/main"):
+                body = [{"type": "pull_request", "ruleset_id": 101}]
+            elif path.endswith("/rulesets/101"):
+                body = detail
+            else:
+                return subprocess.CompletedProcess(argv, 1, "", f"unexpected {path}")
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+        return run
+
+    def _probe(self, detail: dict):
+        import subprocess
+        from unittest.mock import patch
+
+        from aria_kernel.readiness_proofs import _probe_branch_rules
+
+        with patch.object(subprocess, "run", self._run_with(detail)):
+            return _probe_branch_rules(repo="okan/aqua", branch="main")
+
+    def test_absent_bypass_actors_are_unmeasured(self) -> None:
+        self.assertEqual(self._probe({"id": 101}), ([101], None))
+
+    def test_null_bypass_actors_are_unmeasured(self) -> None:
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": None}), ([101], None))
+
+    def test_empty_bypass_actors_are_measured_empty(self) -> None:
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": []}), ([101], []))
+
+    def test_listed_bypass_actors_are_returned(self) -> None:
+        actor = {"actor_id": 5, "actor_type": "Integration", "bypass_mode": "always"}
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": [actor]}), ([101], [actor]))
+
+    def test_claim_gate_names_unmeasured_bypass_actors(self) -> None:
+        from aria_kernel.enterprise_readiness import _evaluate_branch_protection
+
+        def reasons_for(**overrides) -> list[str]:
+            reasons: list[str] = []
+            _evaluate_branch_protection({"branch_protection_proof": dict(overrides)}, reasons, [])
+            return reasons
+
+        self.assertIn("branch_protection_bypass_actors_unmeasured", reasons_for(bypass_actors=None))
+        self.assertIn("branch_protection_bypass_actors_unmeasured", reasons_for())
+        self.assertIn(
+            "branch_protection_bypass_actors_forbidden",
+            reasons_for(bypass_actors=[{"actor_id": 1}]),
+        )
+        reasons = reasons_for(bypass_actors=[])
+        self.assertNotIn("branch_protection_bypass_actors_unmeasured", reasons)
+        self.assertNotIn("branch_protection_bypass_actors_forbidden", reasons)
 
 
 class RemoteCasProofTests(unittest.TestCase):

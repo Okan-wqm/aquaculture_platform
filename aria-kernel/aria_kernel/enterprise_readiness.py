@@ -617,8 +617,13 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
     if not isinstance(ruleset_ids, list) or not ruleset_ids:
         reasons.append("branch_protection_ruleset_ids_required")
         failures.append("branch_protection_required")
+    # ARIA-HIGH-207 — an absent or non-list field is unmeasured, which is
+    # its own named failure; only a measured empty list passes.
     bypass_actors = proof.get("bypass_actors")
-    if bypass_actors not in ([], ()):
+    if not isinstance(bypass_actors, (list, tuple)):
+        reasons.append("branch_protection_bypass_actors_unmeasured")
+        failures.append("branch_protection_required")
+    elif bypass_actors:
         reasons.append("branch_protection_bypass_actors_forbidden")
         failures.append("branch_protection_required")
     _require_source_ledger_ref(proof.get("source_ledger_ref"), "branch_protection", reasons, failures, "branch_protection_required")

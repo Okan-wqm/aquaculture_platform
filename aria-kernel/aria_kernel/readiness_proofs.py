@@ -366,6 +366,11 @@ def produce_branch_protection_proof(
         row=snapshot,
     )
     ruleset_ids, bypass_actors = rules_probe(repo=repo, branch=target_ref)
+    # ARIA-HIGH-207 — the bypass-actor verdict is part of the proof's own
+    # validity, named like every other probe reason: an unmeasured field
+    # (None) and a measured non-empty list are both red; only a measured
+    # empty list is green.
+    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors))
     measured = _measured_protection_fields(payload)
     proof: dict[str, Any] = {
         "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
@@ -379,11 +384,12 @@ def produce_branch_protection_proof(
         # recorded here so a red proof names itself before any claim reads it.
         "valid": bool(
             ok
+            and bypass_actors == []
             and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
         ),
         "snapshot_hash": snapshot["payload_hash"],
         "ruleset_ids": list(ruleset_ids),
-        "bypass_actors": list(bypass_actors),
+        "bypass_actors": None if bypass_actors is None else list(bypass_actors),
         "probe_reasons": list(reasons),
         "source_ledger_ref": source_ledger_ref,
         **measured,
@@ -401,12 +407,30 @@ def produce_branch_protection_proof(
     }
 
 
-def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[list[int], list[dict[str, Any]]]:
+BYPASS_ACTORS_UNMEASURED = "bypass_actors_unmeasured"
+BYPASS_ACTORS_PRESENT = "bypass_actors_present"
+
+
+def _bypass_actor_reasons(bypass_actors: list[dict[str, Any]] | None) -> tuple[str, ...]:
+    if bypass_actors is None:
+        return (BYPASS_ACTORS_UNMEASURED,)
+    if bypass_actors:
+        return (BYPASS_ACTORS_PRESENT,)
+    return ()
+
+
+def _probe_branch_rules(
+    *, repo: str, branch: str, gh_cli: str = "gh",
+) -> tuple[list[int], list[dict[str, Any]] | None]:
     """gh-api rules probe: (active ruleset ids, aggregated bypass actors).
 
     Read-only, best-effort on the ID list (an empty result is recorded as
     empty and the claim gate decides), but a FAILURE to reach the API is
     an exception — silence must never read as "no bypass actors".
+
+    ARIA-HIGH-207 — GitHub omits ``bypass_actors`` from a ruleset detail
+    when the token cannot read it. A ruleset whose field is absent or not a
+    list makes the aggregate ``None`` (unmeasured), never ``[]``.
     """
     import json
     import subprocess
@@ -422,6 +446,7 @@ def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[
     rules = json.loads(proc.stdout)
     ruleset_ids = sorted({int(rule["ruleset_id"]) for rule in rules if isinstance(rule, dict) and "ruleset_id" in rule})
     bypass_actors: list[dict[str, Any]] = []
+    unmeasured = False
     for ruleset_id in ruleset_ids:
         detail_proc = subprocess.run(
             [gh_cli, "api", f"repos/{repo}/rulesets/{ruleset_id}"],
@@ -430,9 +455,12 @@ def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[
         if detail_proc.returncode != 0:
             raise GovernanceError(f"ruleset_detail_probe_failed:{ruleset_id}")
         detail = json.loads(detail_proc.stdout)
-        for actor in detail.get("bypass_actors") or []:
-            bypass_actors.append(actor)
-    return ruleset_ids, bypass_actors
+        actors = detail.get("bypass_actors") if isinstance(detail, dict) else None
+        if not isinstance(actors, list):
+            unmeasured = True
+            continue
+        bypass_actors.extend(actors)
+    return ruleset_ids, (None if unmeasured else bypass_actors)
 
 
 # --------------------------------------------------------------------------

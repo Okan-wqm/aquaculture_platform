@@ -41,13 +41,14 @@ import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, append_declared_jsonl_rows
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 __all__ = [
     "LabelInput",
     "record_seeding_finding",
+    "record_seeding_findings",
     "label_finding",
     "finalize_corpus",
     "list_corpus_status",
@@ -103,21 +104,40 @@ def record_seeding_finding(
       function persists each one to the seeding ledger. The operator
       then runs ``label_finding(...)`` on each entry.
     """
+    return record_seeding_findings(tool_id=tool_id, findings=[finding], base_dir=base_dir)[0]
+
+
+def record_seeding_findings(
+    *,
+    tool_id: str,
+    findings: list[dict[str, Any]],
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Persist one LIVE adapter run's findings to the seeding ledger at once.
+
+    ARIA-HIGH-237 — a declared append verifies the ledger's whole chain
+    before it writes, so a run seeded one finding at a time paid one full
+    verification per finding. The run's rows are one batch: every finding
+    is checked before anything is written, and the chain is verified once.
+    """
     if not tool_id or not isinstance(tool_id, str):
         raise GovernanceError("record_seeding_finding_requires_tool_id")
-    fingerprint = str(finding.get("finding_fingerprint") or "")
-    if not fingerprint:
-        raise GovernanceError(
-            "record_seeding_finding_requires_finding_fingerprint"
-        )
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "tool_id": tool_id,
-        "finding": finding,
-        "labeled": False,
-    }
-    return append_declared_jsonl(seeding_path(base_dir, tool_id), row, expected_surface="operator_feedback_seeding")
+    if not findings:
+        return []
+    rows: list[dict[str, Any]] = []
+    for finding in findings:
+        if not str(finding.get("finding_fingerprint") or ""):
+            raise GovernanceError(
+                "record_seeding_finding_requires_finding_fingerprint"
+            )
+        rows.append({
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "tool_id": tool_id,
+            "finding": finding,
+            "labeled": False,
+        })
+    return append_declared_jsonl_rows(seeding_path(base_dir, tool_id), rows, expected_surface="operator_feedback_seeding")
 
 
 def label_finding(

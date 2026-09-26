@@ -815,7 +815,6 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
             probe=_probe_for(_strong_payload()),
             rules_probe=_rules(),
             mint=lambda **kw: self._Lease(),
-            owner="runner-g",
         )
         self.assertTrue(report["readiness_claim_id"].startswith("claim:77:"))
         claim = report["claim"]

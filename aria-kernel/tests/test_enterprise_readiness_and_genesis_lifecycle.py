@@ -127,14 +127,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "head_sha": head_sha,
             "readiness_claim_id": readiness_claim_id,
         }
-        cas = {
-            **common,
-            "state": "fresh",
-            "lease_id": "lease-1",
-            "epoch": 1,
-            "expires_at": "2999-06-02T00:00:00Z",
-            "source_ledger_ref": self._source_ref("cas"),
-        }
         branch = {
             **common,
             "$schema": "aria/branch-protection-proof/v3",
@@ -223,7 +215,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "evidence_bundle": {"path": "evidence-bundle.json"},
             "workflow_run_ids": ["123"],
             "artifact_refs": [artifact_ref],
-            "remote_cas_proof": cas,
             "rollback_proof": rollback,
             "retention_proof": retention,
             "waiver_ledger": {"open_expired_waivers": [], "source_ledger_ref": self._source_ref("waiver")},
@@ -262,7 +253,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
     def _record_ready_proofs(self, claim: dict) -> None:
         artifact_ref = claim["artifact_refs"][0]
         digest = artifact_ref["sha256"]
-        record_remote_cas_proof(claim["remote_cas_proof"], base_dir=self.tools)
         record_branch_protection_proof(claim["branch_protection_proof"], base_dir=self.tools)
         record_rollback_proof(claim["rollback_proof"], base_dir=self.tools)
         record_retention_proof(claim["retention_proof"], base_dir=self.tools)
@@ -353,7 +343,7 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             base_dir=self.tools,
         )
         self.assertFalse(verdict.valid)
-        self.assertIn("remote_cas_proof_required", verdict.failure_classes)
+        self.assertIn("rollback_proof_required", verdict.failure_classes)
         self.assertIn("artifact_refs_untrusted", verdict.failure_classes)
 
     def test_verify_rejects_missing_live_pr_head_and_target(self) -> None:
@@ -389,16 +379,34 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "duplicate_readiness_claim_id"):
             record_enterprise_readiness_claim(claim, base_dir=self.tools)
 
-    def test_remote_cas_proof_requires_source_ledger_ref(self) -> None:
+    def _cas_proof(self) -> dict:
+        # ARIA-HIGH-219 — the lease is taken at merge, not carried by the
+        # claim; its proof row is still bound to the claim it merged under.
         claim = self._ready_claim()
-        proof = dict(claim["remote_cas_proof"])
+        return {
+            **{key: claim[key] for key in (
+                "repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id",
+            )},
+            "state": "fresh",
+            "lease_id": "lease-1",
+            "epoch": 1,
+            "expires_at": "2999-06-02T00:00:00Z",
+            "source_ledger_ref": self._source_ref("cas"),
+        }
+
+    def test_the_claim_carries_no_lease(self) -> None:
+        claim = self._ready_claim()
+        self.assertNotIn("remote_cas_proof", claim)
+        self.assertTrue(evaluate_enterprise_readiness_claim(claim).valid)
+
+    def test_remote_cas_proof_requires_source_ledger_ref(self) -> None:
+        proof = self._cas_proof()
         proof.pop("source_ledger_ref")
         with self.assertRaisesRegex(GovernanceError, "requires_source_ledger_ref"):
             record_remote_cas_proof(proof, base_dir=self.tools)
 
     def test_source_ledger_ref_must_resolve_to_declared_row(self) -> None:
-        claim = self._ready_claim()
-        proof = dict(claim["remote_cas_proof"])
+        proof = self._cas_proof()
         proof["source_ledger_ref"] = {
             "surface": "ci_source",
             "ledger_path": "ci/source.jsonl",

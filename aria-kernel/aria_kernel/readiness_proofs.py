@@ -547,6 +547,13 @@ def _probe_branch_rules(
 # was a museum piece. This producer is its first caller: acquiring (or
 # same-owner refreshing) the lease IS the evidence, snapshotted to a
 # ledger row the proof's source ref resolves into.
+#
+# ARIA-HIGH-219 — its caller is the merge authority, at the point of merge
+# (`merge_authority.merge_pr_if_ready`, after the pre-merge perimeter and
+# immediately before the merge call). It used to run inside the claim
+# assembler, which put a five-minute lease inside a claim that is fixed per
+# (PR, head): every head whose required checks finished later than that
+# could never merge.
 # --------------------------------------------------------------------------
 
 
@@ -1179,6 +1186,20 @@ def allocate_readiness_claim_id(*, pr_number: int, head_sha: str) -> str:
     return f"claim:{pr_number}:{head_sha[:12]}"
 
 
+def _recorded_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | None:
+    """The claim row already recorded under ``readiness_claim_id``, if any."""
+    path = root / "enterprise" / "readiness-claims.jsonl"
+    if not path.exists():
+        return None
+    return next(
+        (
+            row for row in load_declared_jsonl(path, expected_surface="enterprise_readiness_claims")
+            if row.get("readiness_claim_id") == readiness_claim_id
+        ),
+        None,
+    )
+
+
 def produce_readiness_claim(
     *,
     pr_number: int,
@@ -1194,7 +1215,6 @@ def produce_readiness_claim(
     surface_paths: dict[str, list[str | Path]],
     workspace_root: str | Path,
     retention_days: int = DEFAULT_ROLLBACK_RETENTION_DAYS,
-    owner: str | None = None,
     base_dir: str | Path | None = None,
     probe: Any = None,
     rules_probe: Any = None,
@@ -1205,6 +1225,11 @@ def produce_readiness_claim(
     Raises GovernanceError with the full reason list when ANY family's
     evidence fails — a partial claim is never recorded, because a claim
     row the verifier would reject is audit theater with a row id.
+
+    ARIA-HIGH-219 — the claim is durable and one per (PR, head): it holds
+    no lease, and a head that already has its claim gets that claim back
+    (``already_recorded``) with no evidence re-produced, so a re-run of the
+    claim lane for the same head is a no-op rather than a duplicate refusal.
     """
     root = ensure_tools_dir(base_dir)
     readiness_claim_id = allocate_readiness_claim_id(pr_number=pr_number, head_sha=head_sha)
@@ -1212,6 +1237,14 @@ def produce_readiness_claim(
         pr_number=pr_number, repo=repo, target_ref=target_ref,
         head_ref=head_ref, head_sha=head_sha,
     )
+    existing = _recorded_claim(root, readiness_claim_id)
+    if existing is not None:
+        return {
+            "readiness_claim_id": readiness_claim_id,
+            "claim": existing,
+            "already_recorded": True,
+            "workflow_run_ids": list(existing.get("workflow_run_ids") or []),
+        }
 
     workflow_report = produce_workflow_run_proofs(**binding, readiness_claim_id=readiness_claim_id, base_dir=root)
     # Only LEDGER-PROVEN runs enter the claim: the verifier cross-checks
@@ -1235,9 +1268,6 @@ def produce_readiness_claim(
     bp_report = produce_branch_protection_proof(
         **binding, readiness_claim_id=readiness_claim_id, base_dir=root,
         probe=probe, rules_probe=rules_probe,
-    )
-    cas_report = produce_remote_cas_proof(
-        **binding, readiness_claim_id=readiness_claim_id, owner=owner, base_dir=root,
     )
     rollback_report = produce_rollback_and_retention_proofs(
         **binding, readiness_claim_id=readiness_claim_id,
@@ -1356,7 +1386,6 @@ def produce_readiness_claim(
         "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
         "workflow_run_ids": sorted(run_ids),
         "artifact_refs": [dict(artifact_ref_row)],
-        "remote_cas_proof": cas_report["proof"],
         "rollback_proof": rollback_report["rollback_proof"],
         "retention_proof": rollback_report["retention_proof"],
         "waiver_ledger": {
@@ -1371,11 +1400,11 @@ def produce_readiness_claim(
     return {
         "readiness_claim_id": readiness_claim_id,
         "claim": recorded,
+        "already_recorded": False,
         "workflow_run_ids": sorted(run_ids),
         "family_reports": {
             "workflow_runs": workflow_report,
             "branch_protection": {"valid": bp_report["proof"].get("valid")},
-            "remote_cas": {"lease_id": cas_report["lease_id"], "epoch": cas_report["epoch"]},
             "rollback_retention": {"bundle": rollback_report["rollback_bundle_id"]},
             "token": {"mode": token_report["token_mode"], "valid": token_report["valid"]},
             "dlp": {"status": dlp_report["status"], "finding_count": dlp_report["finding_count"]},

@@ -1873,7 +1873,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON file: DLP surface name -> list of file paths (diff/prompt/transcript/logs/artifacts).",
     )
     readiness_claim.add_argument("--workspace-root", required=True)
-    readiness_claim.add_argument("--owner", default=None)
     # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
     # or shrinks the baseline; without it the command is check-only and
     # exits nonzero on NEW unreachable closures.
@@ -3640,7 +3639,6 @@ def _main(argv: list[str] | None = None) -> int:
             artifact=artifact,
             surface_paths=surfaces,
             workspace_root=args.workspace_root,
-            owner=args.owner,
             base_dir=args.tools_dir,
         )
         print(json.dumps(result, indent=2, sort_keys=True))

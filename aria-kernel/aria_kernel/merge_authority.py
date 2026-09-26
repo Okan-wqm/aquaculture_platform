@@ -13,6 +13,7 @@ from .auto_merge import (
     human_merge_decision,
     record_pr_lifecycle,
 )
+from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
 from .implementation_safety import GATE_PRE_MERGE, HardFailContext, run_hard_fail_checks
@@ -22,6 +23,7 @@ from .incident_ledger import (
     record_merge_failed_incident,
 )
 from .policy_approval import verify_policy_approval
+from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import assert_merge_authority_available, assert_merge_authorized
@@ -273,61 +275,96 @@ def merge_pr_if_ready(
                     )
                     _append_decision(base_dir, result)
                 else:
-                    merge_kwargs: dict[str, Any] = {
-                        "method": "squash",
-                        "expected_head_sha": head_sha,
-                    }
-                    authority_token = f"merge-authority:{pr_number}:{head_sha}"
-                    armed = False
-                    if hasattr(adapter, "arm_merge_authority"):
-                        adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
-                        merge_kwargs["authority_token"] = authority_token
-                        armed = True
+                    # ARIA-HIGH-219 — mutual exclusion is taken HERE, at the
+                    # point of merge, after every gate and the perimeter have
+                    # passed: one writer per target ref for the span of one
+                    # merge call. The readiness claim carries no lease — it is
+                    # durable and bound to its head.
                     try:
-                        merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
-                    except Exception as exc:  # pragma: no cover - exercised by adapter fakes
-                        record_merge_failed_incident(
+                        merge_lease = _acquire_merge_lease(
                             pr=fresh_pr,
+                            pr_number=pr_number,
+                            head_sha=head_sha,
                             readiness_claim_id=readiness_claim_id,
-                            reason=str(exc),
                             base_dir=base_dir,
                         )
+                    except GovernanceError as exc:
                         result = dict(decision)
                         result.update(
                             {
                                 "recorded_at": utc_now(),
-                                "decision": "failed",
+                                "decision": "blocked",
                                 "eligible": False,
-                                "reasons": [str(exc)],
+                                "reasons": ["merge_lease_unavailable", str(exc)],
+                                "stage": "merge_lease",
                             },
                         )
                         _append_decision(base_dir, result)
                     else:
-                        result = dict(decision)
-                        result.update(
-                            {
-                                "recorded_at": utc_now(),
-                                "decision": "merged",
-                                "eligible": True,
-                                "merge_result": merge_result,
-                            },
-                        )
-                        _append_decision(base_dir, result)
-                        finalize_merge_incident(
-                            pr=fresh_pr,
-                            readiness_claim_id=readiness_claim_id,
-                            merge_result=merge_result,
-                            base_dir=base_dir,
-                        )
-                        record_pr_lifecycle(
-                            fresh_pr,
-                            event="merged",
-                            base_dir=base_dir,
-                            cycle_id=cycle_id,
-                        )
-                    finally:
-                        if armed and hasattr(adapter, "clear_merge_authority"):
-                            adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                        try:
+                            merge_kwargs: dict[str, Any] = {
+                                "method": "squash",
+                                "expected_head_sha": head_sha,
+                            }
+                            authority_token = f"merge-authority:{pr_number}:{head_sha}"
+                            armed = False
+                            if hasattr(adapter, "arm_merge_authority"):
+                                adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
+                                merge_kwargs["authority_token"] = authority_token
+                                armed = True
+                            try:
+                                merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
+                            except Exception as exc:  # pragma: no cover - exercised by adapter fakes
+                                record_merge_failed_incident(
+                                    pr=fresh_pr,
+                                    readiness_claim_id=readiness_claim_id,
+                                    reason=str(exc),
+                                    base_dir=base_dir,
+                                )
+                                result = dict(decision)
+                                result.update(
+                                    {
+                                        "recorded_at": utc_now(),
+                                        "decision": "failed",
+                                        "eligible": False,
+                                        "reasons": [str(exc)],
+                                        "merge_lease": _lease_summary(merge_lease),
+                                    },
+                                )
+                                _append_decision(base_dir, result)
+                            else:
+                                result = dict(decision)
+                                result.update(
+                                    {
+                                        "recorded_at": utc_now(),
+                                        "decision": "merged",
+                                        "eligible": True,
+                                        "merge_result": merge_result,
+                                        "merge_lease": _lease_summary(merge_lease),
+                                    },
+                                )
+                                _append_decision(base_dir, result)
+                                finalize_merge_incident(
+                                    pr=fresh_pr,
+                                    readiness_claim_id=readiness_claim_id,
+                                    merge_result=merge_result,
+                                    base_dir=base_dir,
+                                )
+                                record_pr_lifecycle(
+                                    fresh_pr,
+                                    event="merged",
+                                    base_dir=base_dir,
+                                    cycle_id=cycle_id,
+                                )
+                            finally:
+                                if armed and hasattr(adapter, "clear_merge_authority"):
+                                    adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                        finally:
+                            release_remote_cas_lease(
+                                base_dir=ensure_tools_dir(base_dir),
+                                lease_id=merge_lease["lease_id"],
+                                owner=str(merge_lease["proof"]["owner"]),
+                            )
     append_tools_governance(
         ensure_tools_dir(base_dir),
         "merge_authority_decision",
@@ -349,6 +386,45 @@ def merge_pr_if_ready(
         },
     )
     return result
+
+
+def _acquire_merge_lease(
+    *,
+    pr: dict[str, Any],
+    pr_number: int,
+    head_sha: str,
+    readiness_claim_id: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Take the CAS lease one merge call runs under (ARIA-HIGH-219).
+
+    Recorded as a remote-CAS proof bound to the readiness claim the merge
+    runs under, and released by the caller once the call returns, so the
+    next candidate of the same run takes its own lease. A fresh lease
+    another merger holds raises ``remote_cas_lease_blocked`` — the caller
+    refuses the merge by name with no merge side effect.
+    """
+    return produce_remote_cas_proof(
+        pr_number=pr_number,
+        repo=_first_string(pr, "repository", "repo", "repo_full_name"),
+        target_ref=_base_branch(pr) or "",
+        head_ref=_first_string(pr, "head_ref", "headRefName"),
+        head_sha=head_sha,
+        readiness_claim_id=readiness_claim_id,
+        base_dir=base_dir,
+    )
+
+
+def _lease_summary(lease: dict[str, Any]) -> dict[str, Any]:
+    return {"lease_id": lease["lease_id"], "epoch": lease["epoch"]}
+
+
+def _first_string(pr: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = pr.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
 
 
 def _head_sha(pr: dict[str, Any]) -> str:

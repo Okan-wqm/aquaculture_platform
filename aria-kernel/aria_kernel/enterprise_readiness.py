@@ -43,7 +43,13 @@ REQUIRED_READINESS_FIELDS: tuple[str, ...] = (
     "head_sha",
     "workflow_run_ids",
     "artifact_refs",
-    "remote_cas_proof",
+    # ARIA-HIGH-219 — no "remote_cas_proof": the CAS lease lives five
+    # minutes and a claim is fixed per (PR, head), so a claim that carried
+    # its lease died before a slower required check could turn green, and
+    # its head could never be claimed again. A claim is durable; it is
+    # valid while the live PR head is the head it names (the live binding
+    # in verify_enterprise_readiness), and mutual exclusion is taken by
+    # merge_authority.merge_pr_if_ready immediately before the merge call.
     "rollback_proof",
     "retention_proof",
     "waiver_ledger",
@@ -157,7 +163,6 @@ def evaluate_enterprise_readiness_claim(claim: dict[str, Any]) -> EnterpriseRead
                 reasons.append(f"artifact_ref_workflow_run_unbound:{index}:{artifact.produced_by_workflow_run_id}")
                 failures.append("artifact_refs_untrusted")
 
-    _evaluate_remote_cas(claim, reasons, failures)
     _evaluate_branch_protection(claim, reasons, failures)
     _evaluate_retention_or_rollback(claim, "rollback_proof", "rollback_proof_id", reasons, failures)
     _evaluate_retention_or_rollback(claim, "retention_proof", "retention_proof_id", reasons, failures)
@@ -501,7 +506,6 @@ def verify_enterprise_readiness(
     _compare_live_field(live_pr, claim, ("head_ref", "headRefName", "head_branch"), "head_ref", "readiness_live_head_ref_mismatch", reasons, failures)
     _compare_live_field(live_pr, claim, ("head_sha", "headRefOid", "head"), "head_sha", "readiness_live_head_sha_mismatch", reasons, failures, require_full_sha=True)
 
-    _verify_cas_ledger(root, claim, reasons, failures)
     _verify_waiver_ledger(root, claim, reasons, failures)
     _verify_branch_protection_ledger(root, claim, reasons, failures)
     _verify_retention_or_rollback_ledger(root, claim, "rollback_proof", "enterprise/rollback-proofs.jsonl", "enterprise_rollback_proofs", "rollback_proof_required", reasons, failures)
@@ -533,32 +537,6 @@ def source_ledger_ref_from_row(
         row_type=row_type,
         row=row,
     )
-
-
-def _evaluate_remote_cas(claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
-    proof = claim.get("remote_cas_proof")
-    if not isinstance(proof, dict):
-        reasons.append("remote_cas_proof_required")
-        failures.append("remote_cas_proof_required")
-        return
-    _require_common_binding(claim, proof, "remote_cas", reasons, failures)
-    if proof.get("state") != "fresh":
-        reasons.append("remote_cas_proof_not_fresh")
-        failures.append("remote_cas_proof_required")
-    if not isinstance(proof.get("lease_id"), str) or not proof.get("lease_id", "").strip():
-        reasons.append("remote_cas_lease_id_required")
-        failures.append("remote_cas_binding_required")
-    if not isinstance(proof.get("epoch"), int) or proof.get("epoch") < 0:
-        reasons.append("remote_cas_epoch_required")
-        failures.append("remote_cas_binding_required")
-    expires_at = proof.get("expires_at")
-    if not isinstance(expires_at, str) or not expires_at.strip():
-        reasons.append("remote_cas_expiry_required")
-        failures.append("remote_cas_binding_required")
-    elif not _expiry_is_future(expires_at):
-        reasons.append("remote_cas_expiry_must_be_future")
-        failures.append("remote_cas_binding_required")
-    _require_source_ledger_ref(proof.get("source_ledger_ref"), "remote_cas", reasons, failures, "remote_cas_proof_required")
 
 
 def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -761,32 +739,6 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
                 reasons.append(f"token_proof_{field_name}_forbidden")
                 failures.append(failure)
     _require_source_ledger_ref(proof.get("source_ledger_ref"), proof_name, reasons, failures, failure)
-
-
-def _verify_cas_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
-    cas = claim.get("remote_cas_proof") if isinstance(claim.get("remote_cas_proof"), dict) else {}
-    rows = load_declared_jsonl(
-        root / "enterprise" / "remote-cas-proofs.jsonl",
-        expected_surface="enterprise_remote_cas_proofs",
-    )
-    match = next(
-        (
-            row for row in reversed(rows)
-            if _row_common_matches(row, claim)
-            and str(row.get("lease_id") or "") == str(cas.get("lease_id") or "")
-            and int(row.get("epoch") or -1) == int(cas.get("epoch") or -2)
-            and str(row.get("expires_at") or "") == str(cas.get("expires_at") or "")
-            and str(row.get("state") or "") == "fresh"
-            and _source_ref_matches(root, row, cas.get("source_ledger_ref"))
-        ),
-        None,
-    )
-    if match is None:
-        reasons.append("remote_cas_proof_not_ledger_bound")
-        failures.append("remote_cas_proof_required")
-    elif not _expiry_is_future(str(match.get("expires_at") or "")):
-        reasons.append("remote_cas_ledger_expiry_must_be_future")
-        failures.append("remote_cas_proof_required")
 
 
 def _verify_waiver_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -1018,7 +970,6 @@ def _row_common_matches(row: dict[str, Any], claim: dict[str, Any]) -> bool:
 
 def _validate_claim_source_refs(root: Path, claim: dict[str, Any]) -> None:
     proof_names = (
-        "remote_cas_proof",
         "rollback_proof",
         "retention_proof",
         "waiver_ledger",

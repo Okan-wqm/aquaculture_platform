@@ -199,6 +199,10 @@ class TheAppTokenNeverLeavesTheProcess(unittest.TestCase):
             os.environ.pop("GH_TOKEN", None)
             code = ra.main(["--repository", "o/r", "--required-labels", "self-hosted,linux,claude",
                             "--app-token", "--workspace-root", str(token_file.parent), "--cycle-id", "runner-preflight-42"])
+            # Observed inside the patched environment: once patch.dict exits it
+            # restores the ambient one, which could neither show an export nor
+            # be free of a GH_TOKEN the host set for itself.
+            seen["gh_token_after_main"] = os.environ.get("GH_TOKEN")
         return code, out.getvalue(), err.getvalue(), seen
 
     def test_the_mint_asks_for_administration_read_only_and_the_lease_is_revoked(self) -> None:
@@ -213,7 +217,7 @@ class TheAppTokenNeverLeavesTheProcess(unittest.TestCase):
         self.assertEqual(seen["fetched_token"], "ghs_read_only_fixture")
         self.assertEqual(len(seen["revoked"]), 1, "the lease lives exactly as long as the read")
         self.assertFalse(seen["revoked"][0].token_file.exists())
-        self.assertNotIn("GH_TOKEN", os.environ, "the token is never exported")
+        self.assertIsNone(seen["gh_token_after_main"], "the token is never exported")
 
     def test_a_refused_mint_is_a_named_unreadable_status_never_a_pass(self) -> None:
         code, _out, err, seen = self._run_app_token(RuntimeError("ARIA_REQUIRE_MODE_A=true but ARIA_GH_APP_INSTALLATION_ID is unset"))

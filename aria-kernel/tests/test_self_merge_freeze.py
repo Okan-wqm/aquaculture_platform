@@ -2,7 +2,8 @@
 
 Pins the state machine (freeze → registered revert → operator unfreeze), the
 single thing a frozen merge authority admits, and that the freeze is read by
-the one real-merge authority.
+the one real-merge authority. ARIA-CRITICAL-216: the operator's unfreeze is a
+GitHub comment or review approving that freeze id, read from a fake GitHub.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from aria_kernel.self_merge_freeze import (
     unfreeze_self_merge,
 )
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from tests._helpers.operator_acts import github_operator_acts
 
 MERGE_SHA = "a" * 40
 PURE = {"pure": True, "patch_id": "p" * 40}
@@ -38,6 +40,9 @@ class SelfMergeFreezeTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.tools = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        acts = github_operator_acts()
+        self.github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
 
     def _freeze(self) -> dict:
         return freeze_self_merge(
@@ -54,9 +59,8 @@ class SelfMergeFreezeTests(unittest.TestCase):
             purity=PURE, base_dir=self.tools,
         )
 
-    def _operator_ref(self) -> str:
-        event = append_tools_governance(self.tools, "operator_unfreeze_decision", {"by": "operator"})
-        return f"gov:{event['event_id']}"
+    def _operator_ref(self, freeze_id: str) -> str:
+        return self.github.approve("self_merge_unfreeze", {"freeze_id": freeze_id})
 
     def test_no_freeze_admits_every_pr(self) -> None:
         self.assertIsNone(active_freeze(base_dir=self.tools))
@@ -101,28 +105,41 @@ class SelfMergeFreezeTests(unittest.TestCase):
     def test_an_environment_acknowledgment_cannot_unfreeze(self) -> None:
         freeze_id = self._freeze()["freeze_id"]
         with mock.patch.dict("os.environ", {"ARIA_UNFREEZE_ACK": "yes"}):
-            with self.assertRaisesRegex(GovernanceError, "requires_recorded_operator_act:ack-env"):
+            with self.assertRaisesRegex(GovernanceError, "self_merge_unfreeze_approval_unrecorded.*gh:<owner>"):
                 unfreeze_self_merge(
                     freeze_id=freeze_id, operator_approval_ref="ack-env:ARIA_UNFREEZE_ACK",
                     base_dir=self.tools,
                 )
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
 
-    def test_an_unrecorded_governance_ref_cannot_unfreeze(self) -> None:
+    def test_a_governance_event_cannot_unfreeze_even_when_recorded(self) -> None:
+        # ARIA-CRITICAL-216: ARIA writes governance events, so one that
+        # exists proves nothing about an operator.
+        freeze_id = self._freeze()["freeze_id"]
+        event = append_tools_governance(self.tools, "operator_unfreeze_decision", {"by": "operator"})
+        for ref in (f"gov:{event['event_id']}", "gov:evt-never-recorded"):
+            with self.subTest(ref=ref), self.assertRaisesRegex(
+                GovernanceError, "self_merge_unfreeze_approval_unrecorded",
+            ):
+                unfreeze_self_merge(freeze_id=freeze_id, operator_approval_ref=ref, base_dir=self.tools)
+        self.assertIsNotNone(active_freeze(base_dir=self.tools))
+
+    def test_the_act_must_name_this_freeze(self) -> None:
         freeze_id = self._freeze()["freeze_id"]
         with self.assertRaisesRegex(GovernanceError, "self_merge_unfreeze_approval_unrecorded"):
             unfreeze_self_merge(
-                freeze_id=freeze_id, operator_approval_ref="gov:evt-never-recorded",
+                freeze_id=freeze_id, operator_approval_ref=self._operator_ref("freeze-other"),
                 base_dir=self.tools,
             )
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
 
-    def test_a_recorded_operator_act_lifts_the_freeze(self) -> None:
+    def test_an_operator_github_act_lifts_the_freeze(self) -> None:
         freeze_id = self._freeze()["freeze_id"]
         row = unfreeze_self_merge(
-            freeze_id=freeze_id, operator_approval_ref=self._operator_ref(), base_dir=self.tools,
+            freeze_id=freeze_id, operator_approval_ref=self._operator_ref(freeze_id), base_dir=self.tools,
         )
-        self.assertEqual(row["approval"]["kind"], "gov")
+        self.assertEqual(row["approval"]["kind"], "gh")
+        self.assertEqual(row["approval"]["scope"], {"freeze_id": freeze_id})
         self.assertIsNone(active_freeze(base_dir=self.tools))
         self.assertIsNone(assert_self_merge_not_frozen(pr_number=7, head_sha="c" * 40, base_dir=self.tools))
 
@@ -136,7 +153,8 @@ class SelfMergeFreezeTests(unittest.TestCase):
     def test_unfreezing_an_inactive_freeze_is_refused(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "self_merge_unfreeze_unknown_or_inactive"):
             unfreeze_self_merge(
-                freeze_id="freeze-none", operator_approval_ref=self._operator_ref(), base_dir=self.tools,
+                freeze_id="freeze-none", operator_approval_ref=self._operator_ref("freeze-none"),
+                base_dir=self.tools,
             )
 
 
@@ -154,10 +172,10 @@ class SelfMergeFreezeTests(unittest.TestCase):
         freeze_id = self._freeze()["freeze_id"]
         base = ["--tools-dir", str(self.tools), "merge-lane", "unfreeze", "--freeze-id", freeze_id]
         with mock.patch.dict("os.environ", {"ARIA_UNFREEZE_ACK": "yes"}):
-            with self.assertRaisesRegex(GovernanceError, "requires_recorded_operator_act"):
+            with self.assertRaisesRegex(GovernanceError, "self_merge_unfreeze_approval_unrecorded"):
                 cli.main(base + ["--operator-approval-ref", "ack-env:ARIA_UNFREEZE_ACK"])
         with mock.patch("sys.stdout", new_callable=io.StringIO):
-            self.assertEqual(cli.main(base + ["--operator-approval-ref", self._operator_ref()]), 0)
+            self.assertEqual(cli.main(base + ["--operator-approval-ref", self._operator_ref(freeze_id)]), 0)
         self.assertIsNone(active_freeze(base_dir=self.tools))
 
 

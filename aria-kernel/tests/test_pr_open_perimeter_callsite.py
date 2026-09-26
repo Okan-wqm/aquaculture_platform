@@ -54,9 +54,9 @@ from aria_kernel.implementation_safety import (
 )
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.proposal import approve_proposal, record_proposal
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.operator_acts import operator_set_profile
 
 CHANGED_FILE = "apps/farm-service/src/pond/pond-density.service.ts"
 # Inside implementation_safety.READONLY_PATHS — ARIA rewriting its own kernel.
@@ -89,11 +89,7 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
         self.base_dir.mkdir()
         ensure_tools_dir(self.base_dir)
         # open_pr_for_action enforces runtime profile = 'strict' (Plan 020 §1.B).
-        set_profile(
-            "strict",
-            operator_approval_ref="test-fixture",
-            base_dir=self.base_dir,
-        )
+        operator_set_profile("strict", base_dir=self.base_dir)
 
     def _git(self, *args: str) -> None:
         subprocess.run(["git", *args], cwd=self.workspace, check=True, capture_output=True)

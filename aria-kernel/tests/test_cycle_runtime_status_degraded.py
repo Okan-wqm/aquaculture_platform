@@ -41,6 +41,7 @@ from aria_kernel.tool_degradation import (
     consecutive_degraded_cycles,
     degradation_report,
 )
+from tests._helpers.operator_acts import github_operator_acts
 from tests._helpers.production_shaped import cycle_workspace
 from tests.test_enterprise_cycle import fake_tool_argv, self_output_tool, shadow_tool, tool_output
 
@@ -280,6 +281,13 @@ class FullCycleTests(unittest.TestCase):
 
         return run_enterprise_cycle(workspace_root=self.root, cycle_id=cycle_id, base_dir=self.tools_dir)
 
+    def _operator_release(self) -> str:
+        """ARIA-CRITICAL-216 — lifting a quarantine is an operator's GitHub act."""
+        acts = github_operator_acts()
+        github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
+        return github.approve("tool_unquarantine", {"tool": "self-output-tool"})
+
     def test_one_evidence_error_tool_degrades_the_cycle_and_names_it(self) -> None:
         register_tool(shadow_tool(), base_dir=self.tools_dir)
         register_tool(self_output_tool(), base_dir=self.tools_dir)
@@ -485,7 +493,7 @@ class FullCycleTests(unittest.TestCase):
         # and that is a NEW streak of one, keyed on night 4, not night 5 of
         # the old one under a record id the operator may have resolved.
         unquarantine_tool(
-            "self-output-tool", operator_approval_ref="op-098", reason="adapter fixed",
+            "self-output-tool", operator_approval_ref=self._operator_release(), reason="adapter fixed",
             root_cause_note="evidence pointed at the run ledger", fixture_update_ref="fixtures/self-output-tool@2",
             base_dir=self.tools_dir,
         )
@@ -502,7 +510,7 @@ class FullCycleTests(unittest.TestCase):
         # Released again with a fix that takes: back in the roster, answering
         # ok, the streak is over and the doctor's organ is clean again.
         unquarantine_tool(
-            "self-output-tool", operator_approval_ref="op-098-2", reason="adapter fixed",
+            "self-output-tool", operator_approval_ref=self._operator_release(), reason="adapter fixed",
             root_cause_note="evidence pointed at the run ledger", fixture_update_ref="fixtures/self-output-tool@3",
             base_dir=self.tools_dir,
         )

@@ -32,6 +32,16 @@ def record_policy_approval(
     *,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Record one L3 approval stage — an operator's GitHub act, not a name.
+
+    ARIA-CRITICAL-216: ``actor`` was a string the recorder typed, so the
+    separation of duties this ledger enforces was between two spellings.
+    A stage now carries ``operator_approval_ref``, an operator's comment or
+    review approving ``surface=l3_policy_approval pr=<n> head_sha=<sha>
+    stage=<stage>``; the actor IS the login that posted it.
+    """
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
+
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -40,6 +50,22 @@ def record_policy_approval(
     }
     row.setdefault("row_id", f"{row.get('approval_id')}:{row.get('stage')}")
     _validate_approval_row(row)
+    try:
+        proof = verify_operator_approval(
+            str(row["operator_approval_ref"]),
+            surface="l3_policy_approval",
+            scope=_stage_scope(row),
+            base_dir=base_dir,
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"policy_approval_operator_act_unrecorded: {exc}") from exc
+    claimed = str(row.get("actor") or "").strip()
+    if claimed and claimed.casefold() != proof["login"].casefold():
+        raise GovernanceError(
+            f"policy_approval_actor_is_the_github_login: {claimed!r} is not {proof['login']!r}"
+        )
+    row["actor"] = proof["login"]
+    row["approval"] = proof
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "policy-approvals.jsonl",
         row,
@@ -68,6 +94,7 @@ def verify_policy_approval(
         and row.get("policy_hash") == policy_hash
         and row.get("state", "approved") == "approved"
         and _expiry_is_future(str(row.get("expires_at") or ""))
+        and _proven_by_operator_act(row)
     ]
     stages = {str(row.get("stage") or "") for row in matches}
     missing = sorted(required_stages - stages)
@@ -85,8 +112,26 @@ def verify_policy_approval(
     }
 
 
+def _stage_scope(row: dict[str, Any]) -> dict[str, str]:
+    return {"pr": str(row["pr_number"]), "head_sha": str(row["head_sha"]), "stage": str(row["stage"])}
+
+
+def _proven_by_operator_act(row: dict[str, Any]) -> bool:
+    """A stage counts only as the GitHub act it was recorded with."""
+    proof = row.get("approval")
+    return (
+        isinstance(proof, dict)
+        and proof.get("kind") == "gh"
+        and proof.get("surface") == "l3_policy_approval"
+        and proof.get("login") == row.get("actor")
+        and proof.get("scope") == _stage_scope(row)
+    )
+
+
 def _validate_approval_row(row: dict[str, Any]) -> None:
-    required = ("approval_id", "stage", "actor", "pr_number", "head_sha", "policy_hash", "expires_at")
+    required = (
+        "approval_id", "stage", "operator_approval_ref", "pr_number", "head_sha", "policy_hash", "expires_at",
+    )
     missing = [key for key in required if not row.get(key)]
     if missing:
         raise GovernanceError("policy_approval_missing_fields:" + ",".join(missing))

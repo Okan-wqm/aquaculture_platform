@@ -92,11 +92,16 @@ def promote_consensus_findings(
     RESOLVES (gov:<event>, review:<path>#<id>, ack-env:<VAR>); without
     one the promotion refuses, which the cycle records as a blocked step
     rather than a silent empty promotion.
+
+    ARIA-CRITICAL-216 classifies this as a RECORD surface: admitting a
+    consensus finding widens what the operator sees, not what ARIA may do
+    (acting on a finding still needs the profile and grant authority), so
+    the recorded-reference grammar is the right proof here and only here.
     """
     import os
 
     from .finding import emit_finding
-    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+    from .operator_approval import OperatorApprovalUnrecorded, verify_recorded_reference
 
     repo_path = Path(repo_root).resolve()
     root = ensure_tools_dir(base_dir)
@@ -104,7 +109,7 @@ def promote_consensus_findings(
         ack = os.environ.get("ARIA_CONSENSUS_PROMOTION_ACK", "").strip()
         operator_approval_ref = f"ack-env:ARIA_CONSENSUS_PROMOTION_ACK" if ack else None
     try:
-        verify_operator_approval_ref(
+        verify_recorded_reference(
             operator_approval_ref, base_dir=root, surface="consensus_finding_promotion",
         )
     except OperatorApprovalUnrecorded as exc:

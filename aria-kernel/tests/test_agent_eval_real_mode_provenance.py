@@ -40,8 +40,8 @@ from aria_kernel.agent_eval import EVAL_FIXTURE_SCHEMA, run_agent_eval
 from aria_kernel.agent_invocations import record_invocation_prompt, record_transcript
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 
 def _seed_fixture(tools: Path) -> None:
@@ -246,12 +246,7 @@ class RealModeProvenanceTests(unittest.TestCase):
         self.tools = self.tmp / "aria-tools"
         ensure_tools_dir(self.tools)
         # Plan 020 Phase 1.B — agent_eval writes require strict profile.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:plan-023-a8",
-            base_dir=self.tools,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.tools)
         _seed_fixture(self.tools)
 
     def tearDown(self) -> None:

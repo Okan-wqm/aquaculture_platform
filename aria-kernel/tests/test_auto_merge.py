@@ -15,6 +15,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 HEAD_SHA = "a" * 40
 DRIFT_HEAD_SHA = "b" * 40
@@ -139,10 +140,9 @@ class AutoMergeTests(unittest.TestCase):
             emit_change_planned,
             emit_change_validated,
         )
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.validation_runs_ledger import record_validation_run
 
-        set_profile("strict", operator_approval_ref="t", base_dir=self.tools_dir)
+        operator_set_profile("strict", base_dir=self.tools_dir)
         planned = emit_change_planned(
             plan_id=f"plan-auto-{pr_number}",
             finding_id=f"F-auto-{pr_number}",
@@ -551,8 +551,7 @@ class AutoMergeTests(unittest.TestCase):
         switch is now the operator-controlled profile the authority enforces."""
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-switch", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -587,8 +586,7 @@ class AutoMergeTests(unittest.TestCase):
         # Seed a passing chain so the merge proceeds.
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -623,8 +621,7 @@ class AutoMergeTests(unittest.TestCase):
     def test_failed_merge_does_not_record_merged_lifecycle(self, _perimeter):
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -664,8 +661,7 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn("merge_failed", [row.get("incident_event") for row in incidents])
 
     def test_merge_command_not_called_when_checks_are_pending(self):
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
@@ -697,8 +693,7 @@ class AutoMergeTests(unittest.TestCase):
         # the test reaches the head-SHA drift surface as intended.
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(

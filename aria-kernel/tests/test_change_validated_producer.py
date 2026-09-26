@@ -26,8 +26,8 @@ from aria_kernel.auto_merge import _evaluate_triple_gate, record_pr_lifecycle
 from aria_kernel.change_ledger import emit_change_committed, emit_change_planned, emit_change_validated
 from aria_kernel.implementation_delivery import _record_change_validated
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.validation_runs_ledger import record_validation_run, refs_for_change
+from tests._helpers.operator_acts import operator_set_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,7 +36,7 @@ class ChangeValidatedProducerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-h196-"))
         self.base = self.tmp / "aria-tools"
-        set_profile("strict", operator_approval_ref="t", base_dir=self.base)
+        operator_set_profile("strict", base_dir=self.base)
         self.log = self.tmp / "log.txt"
         self.log.write_text("ok\n", encoding="utf-8")
         self.commit_sha = "abc1234567890"

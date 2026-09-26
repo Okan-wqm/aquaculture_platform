@@ -44,6 +44,7 @@ from aria_kernel.implementation_delivery import (
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POC_DIR = _REPO_ROOT / "tools" / "aria-poc"
@@ -660,11 +661,10 @@ class AdmissionTests(_DeliveredBranch):
         import sys
 
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.validation import run_validation_commands
         from aria_kernel.validation_runs_ledger import _validation_log_path, verify_validation_run
 
-        set_profile("strict", operator_approval_ref="test:wrapper", base_dir=self.tools, set_by="operator", scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         emit_change_planned(
             plan_id="plan-w", finding_id="F-1", intended_affected_files=["src/app.ts"],
             intended_validation_refs=["npm run type-check"], architectural_tier=1, base_dir=self.tools,
@@ -880,7 +880,6 @@ class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
         from aria_kernel.change_ledger import emit_change_planned
         from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.ledger import load_declared_jsonl as _load
-        from aria_kernel.runtime_profile import set_profile
 
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
@@ -908,8 +907,7 @@ class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
         )
         npm.chmod(0o755)
         self.addCleanup(self._kill_survivors)
-        set_profile("strict", operator_approval_ref="test:timeout", base_dir=self.tools, set_by="operator",
-                    scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         emit_change_planned(
             plan_id="plan-timeout", finding_id="F-1", intended_affected_files=["src/app.ts"],
             intended_validation_refs=["npm run type-check"], architectural_tier=1, base_dir=self.tools,

@@ -23,10 +23,10 @@ from unittest.mock import patch
 from aria_kernel.cli import main as cli_main
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import approve_proposal, record_proposal
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # ORPHAN-CRITICAL-428 — the product file this synthetic PR touches.
@@ -48,12 +48,7 @@ def _seed_tools() -> Path:
     # profile gate. The pr CLI tests intentionally drive the open_pr
     # path; opt into strict here so the gate does not short-circuit
     # before the test can exercise its argv-binding assertions.
-    set_profile(
-        "strict",
-        operator_approval_ref="test:plan-020-phase-1.B:pr-cli",
-        base_dir=tools,
-        set_by="operator",
-    )
+    operator_set_profile("strict", base_dir=tools)
     # Plan 023 v3 §P-3 — open_pr_for_action now fails hard when
     # `git rev-parse <branch>` fails. The seeded action carries
     # branch='aria/cli-test'; init a real git repo + create that

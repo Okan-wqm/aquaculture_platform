@@ -30,7 +30,6 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.production_shaped import production_converged_plan
 
@@ -40,6 +39,7 @@ from aria_kernel.implementation_safety import (
     BashDenylistHit,
     verify_bash_command_allowed,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 KERNEL_PR_CREATE = [
     "python3", "-m", "aria_kernel", "pr", "create",
@@ -139,13 +139,7 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
         # with a machine identity was arranging a world the kernel no
         # longer permits — so it declares the grant first, exactly as the
         # workflow's profile_gate does.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:orphan-critical-727:envelope-ids",
-            base_dir=self.tools,
-            set_by="operator",
-            scheduler_ceiling="strict",
-        )
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         self.plan = production_converged_plan(
             tools_dir=self.tools, workspace_root=self.repo,
         )

@@ -80,12 +80,12 @@ on:
         default: '1'
         type: string
       unquarantine_tool_ids:
-        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; requires approval ref)'
+        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; one approval ref per id)'
         required: false
         default: ''
         type: string
       unquarantine_approval_ref:
-        description: 'Operator approval reference for the unquarantine (recorded in governance)'
+        description: 'Comma-separated gh:<owner>/<repo>#<n>/comment/<id> (or /review/<id>) refs, one per tool id in order: operator GitHub acts carrying `aria-kernel operator approval-template --surface tool_unquarantine tool=<id>`'
         required: false
         default: ''
         type: string
@@ -122,6 +122,9 @@ permissions:
   # cycle's pressure instead of a silently blocked PR. Read-only pair.
   checks: read
   pull-requests: read
+  # ARIA-CRITICAL-216 — the operator unquarantine step reads the operator's
+  # approval comment back from GitHub; issue comments need this read.
+  issues: read
 
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
@@ -516,24 +519,36 @@ jobs:
       # nightly never touches it. Added because six adapters were quarantined
       # by an environment fault (missing node deps priced as tool guilt) and
       # unquarantine_tool was API-only — no operator-reachable caller.
+      # ARIA-CRITICAL-216 — each ref is an operator's GitHub act approving one
+      # tool, verified by the kernel through the API and spent once, so the
+      # refs pair with the ids one to one.
       - name: Operator unquarantine (dispatch-gated)
         if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.unquarantine_tool_ids != ''
         env:
           TOOL_IDS: ${{ github.event.inputs.unquarantine_tool_ids }}
           APPROVAL_REF: ${{ github.event.inputs.unquarantine_approval_ref }}
           ARIA_TOOLS: ${{ env.ARIA_TOOLS_DIR }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [ -n "${APPROVAL_REF}" ] || { echo '::error::unquarantine requires an approval ref'; exit 1; }
           if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
             echo '::error::tool ids must be comma-separated slugs'; exit 1
           fi
+          GH_REF='gh:[A-Za-z0-9-]+/[A-Za-z0-9._-]+#[0-9]+/(comment|review)/[0-9]+'
+          if ! printf '%s' "${APPROVAL_REF}" | grep -Eq "^${GH_REF}(,${GH_REF})*\$"; then
+            echo '::error::approval refs must be comma-separated gh:<owner>/<repo>#<n>/comment|review/<id>'; exit 1
+          fi
           IFS=',' read -ra IDS <<< "${TOOL_IDS}"
-          for id in "${IDS[@]}"; do
+          IFS=',' read -ra REFS <<< "${APPROVAL_REF}"
+          if [ "${#IDS[@]}" -ne "${#REFS[@]}" ]; then
+            echo '::error::one approval ref per tool id, in the same order'; exit 1
+          fi
+          for i in "${!IDS[@]}"; do
             PYTHONPATH=aria-kernel python3 -m aria_kernel tool unquarantine \
-              --tool-id "${id}" \
+              --tool-id "${IDS[$i]}" \
               --reason "operator dispatch: environment-fault quarantine lifted" \
-              --operator-approval-ref "${APPROVAL_REF}" \
+              --operator-approval-ref "${REFS[$i]}" \
               --root-cause-note "quarantined by missing workspace node deps (ORPHAN-HIGH-607); the tool never executed" \
               --fixture-update-ref "n/a: no fixture change; environment fault" \
               --tools-dir "${ARIA_TOOLS}"

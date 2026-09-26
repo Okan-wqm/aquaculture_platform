@@ -92,7 +92,7 @@ class PromoteToolTokenPathTests(unittest.TestCase):
                        return_value={"tool_id": "adapter-x", "status": "ACTIVE"}):
                 promote_tool(
                     "adapter-x", "ACTIVE", reason="op",
-                    operator_approval_ref="gov:APPROVAL-1", base_dir=root,
+                    operator_approval_ref="gh:Okan-wqm/aquaculture_platform#1/comment/1", base_dir=root,
                 )
 
 

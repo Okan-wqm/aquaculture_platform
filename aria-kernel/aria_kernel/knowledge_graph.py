@@ -644,12 +644,14 @@ def record_anti_pattern(
         )
     # ARIA-AUDIT-015: length was never authority. The signature must be a
     # resolvable operator reference (gov:<event>, review:<path>#<id>, or
-    # ack-env:<VAR>); a plausible-looking bare string refuses.
-    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+    # ack-env:<VAR>); a plausible-looking bare string refuses. An anti-pattern
+    # SKIPS work — it grants ARIA nothing — so this is a RECORD surface
+    # (ARIA-CRITICAL-216), not an authority grant.
+    from .operator_approval import OperatorApprovalUnrecorded, verify_recorded_reference
 
     root = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root)
     try:
-        verify_operator_approval_ref(
+        verify_recorded_reference(
             operator_signature,
             base_dir=root,
             surface="knowledge_graph_anti_pattern",

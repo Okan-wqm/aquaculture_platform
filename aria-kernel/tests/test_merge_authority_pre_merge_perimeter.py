@@ -30,6 +30,7 @@ from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXEC
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.node_modules import installed_node_modules
+from tests._helpers.operator_acts import operator_set_profile
 
 _SHA = "a" * 40
 _SOURCE = Path(__file__).resolve().parents[1] / "aria_kernel" / "merge_authority.py"
@@ -198,7 +199,6 @@ class NativePreMergeContextTests(unittest.TestCase):
         from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
         from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
         from aria_kernel.plan_convergence import plan_status
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.snapshot import build_repo_snapshot
         from aria_kernel.tool_registry import ensure_tools_binding
         from aria_kernel.workspace import canonical_identity
@@ -221,7 +221,7 @@ class NativePreMergeContextTests(unittest.TestCase):
             source_path: "export const sampleIntervalMs = 30000;\n",
         })
         tools = root / "store" / "tools"
-        set_profile("strict", operator_approval_ref="test:pre-merge-context", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
             tools_dir=tools, workspace_root=repo,
@@ -335,7 +335,6 @@ class NativeImplementationContextTests(unittest.TestCase):
         from aria_kernel.knowledge_graph import register_convention_signer
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_convergence import plan_status
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding, utc_now
         from aria_kernel.tool_registry import update_tools_index as actual_index_writer
         from aria_kernel.validation import run_validation_commands
@@ -423,7 +422,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         os.environ["NX_HEAD"] = "HEAD"
         installed = installed_node_modules("nx", "typescript", "eslint", "ts-node")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
-        set_profile("strict", operator_approval_ref="test:native-pre-merge-result", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
             tools_dir=tools, workspace_root=repo, plan_id="plan-native-implementation-result",

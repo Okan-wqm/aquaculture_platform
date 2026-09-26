@@ -31360,6 +31360,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/policy/operators.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/policy/policy-approval.json",
       "prettier_managed": true
     },

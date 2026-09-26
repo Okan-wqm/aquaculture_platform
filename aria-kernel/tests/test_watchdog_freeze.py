@@ -22,6 +22,7 @@ from aria_kernel.watchdog_freeze import (
     load_incident_signature,
     open_watchdog_incidents,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class _Adapter:
@@ -240,12 +241,11 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
     def _runner(self, payload):
         from aria_kernel.auto_merge_runners import select_auto_merge_runner
 
-        from aria_kernel.runtime_profile import set_profile
 
         # The runner reads merge authority from the control plane it runs
         # against (ARIA-HIGH-205), so the store must hold what the runner is
         # told it runs as.
-        set_profile("autonomous", operator_approval_ref="op:test", base_dir=self.base)
+        operator_set_profile("autonomous", base_dir=self.base)
         adapter = _Adapter(payload)
         return select_auto_merge_runner(
             profile="autonomous",

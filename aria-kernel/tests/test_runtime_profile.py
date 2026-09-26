@@ -44,6 +44,7 @@ from aria_kernel.runtime_profile import (
     set_profile,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 
 def _seed_tools(prefix: str = "aria-rt-profile-") -> Path:
@@ -313,11 +314,7 @@ class SetProfileTransitionTests(unittest.TestCase):
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
     def test_set_profile_to_strict_persists_state_and_history(self) -> None:
-        result = set_profile(
-            "strict",
-            operator_approval_ref="operator-test:plan-020-phase-1",
-            base_dir=self.tools,
-        )
+        result = operator_set_profile("strict", base_dir=self.tools)
         self.assertEqual(result["active_profile"], "strict")
         self.assertEqual(result["previous_profile"], "standard")
         # State file written
@@ -327,7 +324,36 @@ class SetProfileTransitionTests(unittest.TestCase):
         history = list_profile_history(base_dir=self.tools)
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["active_profile"], "strict")
-        self.assertEqual(history[0]["operator_approval_ref"], "operator-test:plan-020-phase-1")
+        # ARIA-CRITICAL-216 — standard -> strict widens authority, so the
+        # ref is an operator's GitHub act and the proof rides with the row.
+        self.assertTrue(history[0]["operator_approval_ref"].startswith("gh:"))
+        self.assertEqual(
+            history[0]["operator_approval"]["scope"], {"profile": "strict", "ceiling": "standard"},
+        )
+
+    def test_a_raise_needs_an_operator_github_act_and_a_lowering_a_reason(self) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
+        event = append_tools_governance(self.tools, "operator_action", {"action": "approve"})
+        for ref in ("operator-test:plan-020-phase-1", f"gov:{event['event_id']}"):
+            for profile, ceiling in (("strict", None), ("autonomous", None), ("standard", "strict")):
+                with self.subTest(ref=ref, profile=profile, ceiling=ceiling), self.assertRaisesRegex(
+                    GovernanceError, "runtime_profile_raise_approval_unrecorded",
+                ):
+                    set_profile(profile, operator_approval_ref=ref, base_dir=self.tools, scheduler_ceiling=ceiling)
+        self.assertEqual(get_profile(base_dir=self.tools), "standard")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        for profile in ("standard", "observe", "frozen"):
+            self.assertEqual(
+                set_profile(profile, operator_approval_ref="incident: narrow", base_dir=self.tools)["active_profile"],
+                profile,
+            )
+        # A thaw back inside the recorded ceiling widens nothing the operator
+        # had not already granted.
+        self.assertEqual(
+            set_profile("strict", operator_approval_ref="incident over", base_dir=self.tools)["active_profile"],
+            "strict",
+        )
 
     def test_set_profile_emits_runtime_profile_changed_governance_event(self) -> None:
         set_profile(
@@ -362,7 +388,7 @@ class SetProfileTransitionTests(unittest.TestCase):
         self.assertEqual(thaw["previous_profile"], "frozen")
 
     def test_history_is_append_only_and_ordered(self) -> None:
-        set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         set_profile("observe", operator_approval_ref="op:2", base_dir=self.tools)
         set_profile("frozen", operator_approval_ref="op:3", base_dir=self.tools)
         rows = list_profile_history(base_dir=self.tools)
@@ -401,7 +427,7 @@ class EnforceProfileForActionTests(unittest.TestCase):
             enforce_profile_for_action("pr_merge", base_dir=self.tools)
 
     def test_strict_permits_all_non_merge_actions(self) -> None:
-        set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         for action in ACTION_PERMISSIONS:
             if action == "pr_merge":
                 with self.assertRaises(GovernanceError):
@@ -448,7 +474,7 @@ class EnforceProfileForWriteTests(unittest.TestCase):
             self.assertEqual(enforce_profile_for_write(surface, base_dir=self.tools), "standard")
 
     def test_strict_permits_every_known_surface(self) -> None:
-        set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         for surface in KNOWN_WRITE_SURFACES:
             self.assertEqual(enforce_profile_for_write(surface, base_dir=self.tools), "strict")
 
@@ -618,7 +644,7 @@ class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
         self.assertEqual(
             get_scheduler_profile_ceiling(base_dir=self.tools), "standard",
         )
-        set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         self.assertEqual(
             get_scheduler_profile_ceiling(base_dir=self.tools), "standard",
             "an operator setting the ACTIVE profile has not granted a "
@@ -668,12 +694,7 @@ class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
     def test_a_machine_may_lower_the_ceiling_but_never_raise_it(self) -> None:
         from aria_kernel.runtime_profile import get_scheduler_profile_ceiling
 
-        set_profile(
-            "standard",
-            operator_approval_ref="op:grant",
-            base_dir=self.tools,
-            scheduler_ceiling="strict",
-        )
+        operator_set_profile("standard", base_dir=self.tools, scheduler_ceiling="strict")
         set_profile(
             "standard",
             operator_approval_ref="lane:run=1",
@@ -702,12 +723,7 @@ class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
         """Same state file, same history ledger, same governance event as
         every other profile fact — which is the reason it lives here rather
         than in a second store an operator would have to keep in sync."""
-        set_profile(
-            "standard",
-            operator_approval_ref="op:adr-041",
-            base_dir=self.tools,
-            scheduler_ceiling="strict",
-        )
+        operator_set_profile("standard", base_dir=self.tools, scheduler_ceiling="strict")
         state = json.loads((self.tools / PROFILE_STATE_FILENAME).read_text())
         self.assertEqual(state["scheduler_profile_ceiling"], "strict")
         self.assertEqual(state["previous_scheduler_profile_ceiling"], "standard")
@@ -734,12 +750,7 @@ class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
             get_scheduler_profile_ceiling_with_diagnostic,
         )
 
-        set_profile(
-            "standard",
-            operator_approval_ref="op:grant",
-            base_dir=self.tools,
-            scheduler_ceiling="strict",
-        )
+        operator_set_profile("standard", base_dir=self.tools, scheduler_ceiling="strict")
         state_file = self.tools / PROFILE_STATE_FILENAME
         payload = json.loads(state_file.read_text())
         payload["scheduler_profile_ceiling"] = "omnipotent"

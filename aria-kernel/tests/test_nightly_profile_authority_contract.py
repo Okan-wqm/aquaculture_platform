@@ -48,6 +48,7 @@ from pathlib import Path
 import yaml
 
 from tests.test_executor_workflow_sandbox_contract import executable_yaml
+from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml"
@@ -398,17 +399,11 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
         EXISTING control plane — `set_profile`, one state file, one history
         ledger — so raising it is auditable the way every other profile
         transition already is."""
-        from aria_kernel.runtime_profile import set_profile
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             self._seed_valid_ladder(tools, "granted")
-            set_profile(
-                "standard",
-                operator_approval_ref="op:adr-041-step-3",
-                base_dir=tools,
-                scheduler_ceiling="strict",
-            )
+            operator_set_profile("standard", base_dir=tools, scheduler_ceiling="strict")
             result = self._run_gate(tools)
         self.assertEqual(result["ceiling"], "strict")
         self.assertEqual(result["profile"], "strict")
@@ -419,16 +414,10 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
         """An operator who raised the ceiling still does not get strict out
         of a short ladder. The ceiling bounds the verdict; it never replaces
         it, so both gates must agree before the night can open a PR."""
-        from aria_kernel.runtime_profile import set_profile
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
-            set_profile(
-                "standard",
-                operator_approval_ref="op:adr-041-step-3",
-                base_dir=tools,
-                scheduler_ceiling="strict",
-            )
+            operator_set_profile("standard", base_dir=tools, scheduler_ceiling="strict")
             result = self._run_gate(tools)
         self.assertEqual(result["ceiling"], "strict")
         self.assertEqual(result["l1_valid"], "false")
@@ -491,12 +480,7 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
-            set_profile(
-                "standard",
-                operator_approval_ref="op:grant",
-                base_dir=tools,
-                scheduler_ceiling="strict",
-            )
+            operator_set_profile("standard", base_dir=tools, scheduler_ceiling="strict")
             set_profile(
                 "strict",
                 operator_approval_ref="aria-auto-cycle:run=7",
@@ -566,7 +550,6 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
             load_autonomy_unlock_policy,
             record_acceptance_event,
         )
-        from aria_kernel.runtime_profile import set_profile
 
         for held in ("frozen", "observe"):
             with self.subTest(persisted=held), tempfile.TemporaryDirectory() as tmp:
@@ -574,12 +557,7 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
                 # A ladder that WOULD be satisfied, so the hold is the only
                 # thing standing between the operator and an override.
                 self._seed_valid_ladder(tools, "hold-seed")
-                set_profile(
-                    held,
-                    operator_approval_ref="op:incident",
-                    base_dir=tools,
-                    scheduler_ceiling="strict",
-                )
+                operator_set_profile(held, base_dir=tools, scheduler_ceiling="strict")
                 before = _tree_fingerprint(tools)
                 result = self._run_gate(tools)
                 self.assertEqual(result["profile"], held)
@@ -614,18 +592,12 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
         """
         from aria_kernel.runtime_profile import (
             SCHEDULER_MAX_PROPOSABLE_PROFILE,
-            set_profile,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             self._seed_valid_ladder(tools, "demote-seed")
-            set_profile(
-                "autonomous",
-                operator_approval_ref="op:auto",
-                base_dir=tools,
-                scheduler_ceiling="autonomous",
-            )
+            operator_set_profile("autonomous", base_dir=tools, scheduler_ceiling="autonomous")
             result = self._run_gate(tools)
         self.assertEqual(result["profile"], SCHEDULER_MAX_PROPOSABLE_PROFILE)
         self.assertEqual(result["profile"], "strict")
@@ -652,7 +624,6 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
 
     def test_merge_authority_refuses_under_strict_before_touching_github(self) -> None:
         from aria_kernel.merge_authority import merge_pr_if_ready
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import GovernanceError
 
         class _AdapterThatMustNotBeAsked:
@@ -664,7 +635,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
-            set_profile("strict", operator_approval_ref="op:728", base_dir=tools)
+            operator_set_profile("strict", base_dir=tools)
             with self.assertRaises(GovernanceError) as caught:
                 merge_pr_if_ready(
                     adapter=_AdapterThatMustNotBeAsked(),
@@ -785,7 +756,6 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
         def _must_not_evaluate(**kwargs):  # pragma: no cover - must not run
             raise AssertionError("autonomous took the dry-run evaluation path")
 
-        from aria_kernel.runtime_profile import set_profile
 
         with tempfile.TemporaryDirectory() as tmp, \
                 patch(
@@ -796,7 +766,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
                 patch("aria_kernel.merge_authority.merge_pr_if_ready", _record_merge_authority):
             # Merge authority is read from the control plane the run uses
             # (ARIA-HIGH-205), so the store holds the profile under test.
-            set_profile("autonomous", operator_approval_ref="op:728", base_dir=Path(tmp) / "aria-tools")
+            operator_set_profile("autonomous", base_dir=Path(tmp) / "aria-tools")
             result = runner(base_dir=Path(tmp) / "aria-tools", workspace_root=tmp)
         self.assertEqual(reached_merge_authority, [4242])
         self.assertEqual(observed_workspace_roots, [tmp])

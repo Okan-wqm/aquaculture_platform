@@ -43,6 +43,14 @@ veriyor (rename, L1 kapsamı, onay kanıtı).
   biçimiyle).
 - `ARIA_GH_TOKEN` operatörün kişisel hesabı değil, ayrı bir makine hesabı olmalı.
 
+Onay akışı (birim O): `aria-kernel operator approval-template --surface <yüzey> alan=değer ...`
+yapıştırılacak `ARIA-APPROVE ...` satırını basar. Operatör satırı kendi hesabıyla onaylar için açılan
+issue'ya ya da ilgili PR'a yorum olarak veya PR review gövdesi olarak gönderir, sonra komuta
+`--operator-approval-ref gh:<owner>/<repo>#<no>/comment/<id>` (review için `.../review/<id>`)
+verir. Eylem düzenlenmemiş, 7 günden yeni ve `docs/aria/policy/operators.json` içindeki bir hesaptan
+olmalı; bir eylem tek bir yetki verir. Yetkiyi daraltan komutlar (revoke, freeze, profili ya da
+tavanı düşürmek) yalnız bir gerekçe ister.
+
 ## Doğrulama
 
 Her birim test-önce; ilgili modüller ayrı bir baseline worktree'ye karşı (git stash yok); banned

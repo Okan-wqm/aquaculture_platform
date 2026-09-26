@@ -2875,7 +2875,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
         from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
         from aria_kernel.implementation_reconciler import reconcile_recorded_implementations
         from aria_kernel.ledger import load_declared_jsonl
-        from aria_kernel.operator_approval import verify_operator_approval_ref
+        from aria_kernel.operator_approval import verify_recorded_reference
         from aria_kernel.plan_convergence import (
             fold_plan_state,
             record_implementation_outcome,
@@ -3048,7 +3048,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
             for name, relative in learning_paths.items():
                 self.assertEqual((restored_tools / relative).read_bytes(), carried_bytes[name])
             self.assertEqual(
-                verify_operator_approval_ref(
+                verify_recorded_reference(
                     approval_ref, base_dir=restored_tools, surface="knowledge_graph_anti_pattern",
                 )["event_id"],
                 approval["event_id"],

@@ -1063,6 +1063,12 @@ def unquarantine_tool(
     routes through transition_tool() so the lifecycle audit trail
     (root_cause_note + fixture_update_ref + last_transition entry) is
     preserved.
+
+    ARIA-CRITICAL-216 — putting a tool back into circulation raises
+    authority, so ``operator_approval_ref`` must be an operator's GitHub act
+    approving ``surface=tool_unquarantine tool=<id>``. transition_tool
+    resolves it and records it on the transition; any non-empty string
+    used to pass.
     """
     if not (operator_approval_ref or "").strip():
         raise GovernanceError("unquarantine_tool requires operator_approval_ref")
@@ -1077,9 +1083,10 @@ def unquarantine_tool(
     return transition_tool(
         tool_id,
         target_status="CALIBRATE",
-        reason=f"unquarantine: {reason} (operator_approval_ref={operator_approval_ref})",
+        reason=f"unquarantine: {reason}",
         root_cause_note=root_cause_note,
         fixture_update_ref=fixture_update_ref,
+        operator_approval_ref=operator_approval_ref,
         base_dir=base_dir,
     )
 
@@ -1390,24 +1397,24 @@ def transition_tool(
     standard the two tokens meet. ``operator_approval`` below is the
     resolved record, and the ref plus that record land in
     ``last_transition`` so every promotion names the act that authorized it.
+
+    ARIA-CRITICAL-216 — that act is an operator's GitHub comment or review
+    (``operator_approval.verify_operator_approval``), resolved after the
+    structural gates so a transition refused on its own terms does not
+    spend it. Leaving QUARANTINED is the other authority-raising
+    transition: its only exits are CALIBRATE, on such an act (what
+    ``unquarantine_tool`` asks for), and the narrowing ones in
+    ``_QUARANTINE_EXITS_WITHOUT_APPROVAL``.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
     if not reason:
         raise GovernanceError("transition reason is required")
-    operator_approval = resolve_transition_approval(
-        operator_approval_ref, target_status=target_status, base_dir=base_dir,
-    )
 
     tool = get_tool(tool_id, base_dir)
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
         raise GovernanceError(f"{target_status} tool requires runner configuration")
     current = tool["status"]
-    if current == "QUARANTINED" and target_status == "CALIBRATE":
-        if not root_cause_note or not fixture_update_ref:
-            raise GovernanceError(
-                "QUARANTINED -> CALIBRATE requires root_cause_note and fixture_update_ref",
-            )
     if current == "CALIBRATE" and target_status == "SHADOW" and not fixture_suite_passed:
         raise GovernanceError("CALIBRATE -> SHADOW requires fixture_suite_passed")
     if target_status == "ACTIVE":
@@ -1418,7 +1425,9 @@ def transition_tool(
         # ``QUARANTINED → ACTIVE`` silently succeeded because no
         # branch handled them. The matrix below names every forbidden
         # source explicitly so the kernel rejects the typo /
-        # malicious / accident.
+        # malicious / accident. These gates run before the approval
+        # resolves, so a promotion refused on its own terms does not
+        # spend the operator's act.
         if current in _FORBIDDEN_ACTIVE_SOURCES:
             raise GovernanceError(
                 f"tool_lifecycle_forbidden_active_promotion: "
@@ -1433,6 +1442,34 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+    leaving_quarantine = (
+        current == "QUARANTINED" and target_status not in _QUARANTINE_EXITS_WITHOUT_APPROVAL
+    )
+    if leaving_quarantine:
+        if target_status != "CALIBRATE":
+            raise GovernanceError(
+                f"tool_lifecycle_forbidden_quarantine_exit: QUARANTINED -> {target_status} "
+                "is not permitted; the way back is CALIBRATE (unquarantine_tool)"
+            )
+        if not root_cause_note or not fixture_update_ref:
+            raise GovernanceError(
+                "QUARANTINED -> CALIBRATE requires root_cause_note and fixture_update_ref",
+            )
+    operator_approval = resolve_transition_approval(
+        operator_approval_ref,
+        tool_id=tool_id,
+        current_status=current,
+        target_status=target_status,
+        base_dir=base_dir,
+    )
+    if leaving_quarantine and operator_approval is None:
+        raise GovernanceError(
+            "tool_unquarantine_requires_operator_approval: QUARANTINED -> CALIBRATE "
+            "puts the tool back into circulation; it needs an operator's GitHub act "
+            "(surface=tool_unquarantine)"
+        )
+    if target_status == "ACTIVE":
+        if current == "SHADOW":
             # Plan ARIA-V6 §2e v2 B-V1-1 — literal predicate pinned by
             # I-V6.4-04 source-substring invariant. The order of the
             # boolean clauses is load-bearing: evidence_chains_valid
@@ -1508,39 +1545,46 @@ def transition_tool(
     )
 
 
-# ARIA-HIGH-209 — an ACTIVE promotion widens what reaches the operator, so
-# it needs a RECORDED operator act; an environment acknowledgment is not
-# one (self_merge_freeze.UNFREEZE_APPROVAL_KINDS draws the same line).
-ACTIVE_APPROVAL_KINDS = frozenset({"gov", "review"})
+# ARIA-CRITICAL-216 — a QUARANTINED tool leaving for anything but these
+# widens what runs; these two only narrow, so they need no operator act.
+_QUARANTINE_EXITS_WITHOUT_APPROVAL: frozenset[str] = frozenset({"QUARANTINED", "ARCHIVED"})
 
 
 def resolve_transition_approval(
     operator_approval_ref: str | None,
     *,
+    tool_id: str,
+    current_status: str,
     target_status: str,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any] | None:
     """Resolve a lifecycle transition's operator approval ref, or refuse it.
 
     ``None``/blank → ``None`` (no operator authority claimed). Any other
-    value must resolve through ``operator_approval.verify_operator_approval_ref``;
-    for an ACTIVE target its kind must be one of ``ACTIVE_APPROVAL_KINDS``.
+    value claims an operator act and must be one (ARIA-HIGH-209,
+    ARIA-CRITICAL-216): a GitHub comment or review by a listed operator
+    approving ``surface=tool_unquarantine tool=<id>`` when the tool leaves
+    QUARANTINED, or ``surface=tool_promote tool=<id> target=<status>`` for
+    any other transition. ``gov:``/``review:``/``ack-env:`` are refused.
     """
     ref = (operator_approval_ref or "").strip()
     if not ref:
         return None
     # Late import: operator_approval imports ensure_tools_dir from here.
-    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
 
+    leaving_quarantine = (
+        current_status == "QUARANTINED" and target_status not in _QUARANTINE_EXITS_WITHOUT_APPROVAL
+    )
     try:
-        approval = verify_operator_approval_ref(ref, base_dir=base_dir, surface="tool_transition")
+        return verify_operator_approval(
+            ref,
+            surface="tool_unquarantine" if leaving_quarantine else "tool_promote",
+            scope={"tool": tool_id} if leaving_quarantine else {"tool": tool_id, "target": target_status},
+            base_dir=base_dir,
+        )
     except OperatorApprovalUnrecorded as exc:
         raise GovernanceError(f"tool_transition_approval_unrecorded:{exc}") from exc
-    if target_status == "ACTIVE" and approval["kind"] not in ACTIVE_APPROVAL_KINDS:
-        raise GovernanceError(
-            f"tool_transition_active_requires_recorded_operator_act:{approval['kind']}"
-        )
-    return approval
 
 
 def _require_string(tool: dict[str, Any], field: str) -> None:

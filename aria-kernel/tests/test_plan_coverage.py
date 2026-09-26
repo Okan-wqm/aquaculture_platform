@@ -15,6 +15,7 @@ from pathlib import Path
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
 from tests._helpers.node_modules import installed_node_modules
+from tests._helpers.operator_acts import operator_set_profile
 
 PLAN_CONTENT = {
     "schema_version": 2,
@@ -155,7 +156,6 @@ class NativePlanCoverageTests(unittest.TestCase):
             content_hash, plan_status, record_coverage, record_critique,
             request_critics, start_plan,
         )
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
@@ -212,7 +212,7 @@ class NativePlanCoverageTests(unittest.TestCase):
             self.assertEqual((repo / path).read_bytes(), expected_bytes)
             self.assertEqual(subprocess.check_output(["git", "show", head + ":" + path], cwd=repo), expected_bytes)
         ensure_tools_binding(tools, workspace_root=repo)
-        set_profile("strict", operator_approval_ref="test:native-plan-coverage", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         plan_id = "plan-native-nested-coverage"
         plan_content = {
             "schema_version": 2, "title": "Inspect interval dependency coverage",

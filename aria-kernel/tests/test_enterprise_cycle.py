@@ -59,28 +59,24 @@ def register_active_for_test(tool, base_dir):
         return quarantine_tool(
             tool["tool_id"], "test fixture quarantine", base_dir=base_dir,
         )
-    return transition_tool(
-        tool["tool_id"],
-        target_status=target,
-        reason="test fixture promotion",
-        precision=1.0,
-        critical_false_positives=0,
-        evidence_chains_valid=True,
-        operator_approval_ref=_recorded_fixture_approval(base_dir),
-        base_dir=base_dir,
-    )
+    # ARIA-CRITICAL-216 — the promotion is an operator's GitHub act (faked).
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        return transition_tool(
+            tool["tool_id"],
+            target_status=target,
+            reason="test fixture promotion",
+            precision=1.0,
+            critical_false_positives=0,
+            evidence_chains_valid=True,
+            operator_approval_ref=github.approve(
+                "tool_promote", {"tool": tool["tool_id"], "target": target},
+            ),
+            base_dir=base_dir,
+        )
 
 
-def _recorded_fixture_approval(base_dir):
-    """ARIA-HIGH-209 — transition_tool resolves the approval ref, so the
-    fixture records the operator act it cites."""
-    from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
-
-    append_tools_governance(
-        ensure_tools_dir(base_dir), "operator_action",
-        {"event_id": "test-fixture-promotion", "action": "approve"},
-    )
-    return "gov:test-fixture-promotion"
 
 
 def fake_tool_argv(output):

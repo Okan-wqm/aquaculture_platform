@@ -58,7 +58,8 @@ ledger, the same governance event) rather than into a second switch:
   observation window needs it.
 - an operator raises it with
   ``aria-kernel profile set --profile <p> --scheduler-ceiling strict
-  --operator-approval-ref <ref>``.
+  --operator-approval-ref <gh:...>``, the ref naming the operator's GitHub
+  act that approves it (ARIA-CRITICAL-216).
 - a scheduled lane resolves ``bound_profile_to_ceiling(ladder_verdict,
   ceiling)`` — it may choose WITHIN the grant and never above it.
 - `set_profile` REFUSES a non-operator setter (`set_by != "operator"`)
@@ -288,10 +289,6 @@ MERGE_LANE_GRANTABLE_LANES: frozenset[str] = frozenset({"L1"})
 # forces a recorded operator act at least this often.
 MERGE_LANE_GRANT_MAX_DAYS: int = 90
 
-# A recorded operator act, never an environment acknowledgment: a workflow can
-# set its own environment (same rule as self_merge_freeze).
-MERGE_LANE_GRANT_APPROVAL_KINDS: frozenset[str] = frozenset({"gov", "review"})
-
 
 def permitted_actions(profile: str) -> frozenset[str]:
     """Every governed action kind ``profile`` permits — DERIVED.
@@ -353,6 +350,30 @@ _NON_FILE_PROFILE_SURFACES: frozenset[str] = frozenset({
 PLAN_020_WRITE_SURFACES: frozenset[str] = (
     profile_surfaces() | _NON_FILE_PROFILE_SURFACES
 )
+
+
+def _widens_authority(
+    *,
+    previous_profile: str,
+    previous_ceiling: str,
+    profile: str,
+    ceiling: str,
+) -> bool:
+    """Does this transition permit something the recorded grant did not?
+
+    ARIA-CRITICAL-216 — the recorded grant is what the previous state
+    already permitted: its active profile and its scheduler ceiling. A
+    transition that stays inside both (a lane resolving within the ceiling,
+    a thaw back to what the ceiling allows, any freeze or lowering) widens
+    nothing and needs only a reason on the record. One that raises the
+    ceiling, or reaches an action neither permitted, is an authority grant
+    and needs an operator's GitHub act (``set_profile``).
+    """
+    granted = permitted_actions(previous_profile) | permitted_actions(previous_ceiling)
+    return (
+        not profile_within_ceiling(ceiling, previous_ceiling)
+        or not permitted_actions(profile) <= granted
+    )
 
 
 # Plan 026R §A.4 — diagnostic-class write surfaces that bypass the
@@ -588,6 +609,15 @@ def set_profile(
     through runtime-profile-history.jsonl + the runtime_profile_changed
     governance event.
 
+    ARIA-CRITICAL-216 — what the ref must BE depends on the direction. A
+    transition that ``_widens_authority`` (raises the ceiling, or reaches an
+    action the recorded profile and ceiling did not permit) is an authority
+    grant: the ref must be an operator's GitHub act approving exactly
+    ``surface=runtime_profile profile=<p> ceiling=<resulting ceiling>``
+    (``operator_approval.verify_operator_approval``). Every other
+    transition narrows or stays inside the recorded grant, and the ref is
+    the reason on the record.
+
     ORPHAN-HIGH-728 — ``scheduler_ceiling`` is the OPERATOR GRANT an
     unattended lane resolves within. Two rules make it one:
 
@@ -656,6 +686,25 @@ def set_profile(
             f"{sorted(permitted_actions(profile) - permitted_actions(active_ceiling))} "
             f"beyond the operator-recorded ceiling {active_ceiling!r}"
         )
+    approval: dict[str, Any] | None = None
+    if _widens_authority(
+        previous_profile=previous_profile,
+        previous_ceiling=previous_ceiling,
+        profile=profile,
+        ceiling=active_ceiling,
+    ):
+        from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
+
+        try:
+            approval = verify_operator_approval(
+                operator_approval_ref,
+                surface="runtime_profile",
+                scope={"profile": profile, "ceiling": active_ceiling},
+                base_dir=root,
+            )
+        except OperatorApprovalUnrecorded as exc:
+            raise GovernanceError(f"runtime_profile_raise_approval_unrecorded: {exc}") from exc
+    recorded_approval = {"operator_approval": approval} if approval is not None else {}
     state = {
         "active_profile": profile,
         "previous_profile": previous_profile,
@@ -665,6 +714,7 @@ def set_profile(
         "set_at": utc_now(),
         "set_by": set_by,
         "operator_approval_ref": operator_approval_ref,
+        **recorded_approval,
     }
     return _write_control_plane_state(
         root,
@@ -677,6 +727,7 @@ def set_profile(
             SCHEDULER_CEILING_STATE_KEY: active_ceiling,
             "operator_approval_ref": operator_approval_ref,
             "set_by": set_by,
+            **recorded_approval,
         },
     )
 
@@ -777,9 +828,11 @@ def set_merge_lane_grant(
     ``set_by`` is self-declared, as the ceiling's docstring says plainly; what
     this stops is drift: the cycle's code path declares itself and is refused,
     and nothing in the package outside the CLI calls this function
-    (tests/test_merge_lane_grant.py pins that).
+    (tests/test_merge_lane_grant.py pins that). What proves the operator is
+    the ref: an operator's GitHub act approving exactly ``surface=
+    merge_lane_grant lane=<lane> expires=<expiry>`` (ARIA-CRITICAL-216).
     """
-    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
 
     if set_by != OPERATOR_SET_BY:
         raise GovernanceError(f"merge_lane_grant_requires_operator: set_by={set_by!r}")
@@ -795,24 +848,24 @@ def set_merge_lane_grant(
             f"merge_lane_grant_expiry_invalid: {expires_at!r} must be a timezone-aware "
             f"time after now and within {MERGE_LANE_GRANT_MAX_DAYS} days"
         )
-    kind = (operator_approval_ref or "").partition(":")[0]
-    if kind not in MERGE_LANE_GRANT_APPROVAL_KINDS:
-        raise GovernanceError(
-            f"merge_lane_grant_requires_recorded_operator_act:{kind or 'none'}"
-        )
+    # Normalised to UTC before formatting: `Z` on a non-UTC wall clock would
+    # name a different instant (a +03:00 expiry three hours late, a negative
+    # offset one that is born expired). The approval's scope and the stored
+    # grant carry this one text, so they cannot name two instants.
+    expires_text = expiry.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     root = ensure_tools_dir(base_dir)
     try:
-        approval = verify_operator_approval_ref(
-            operator_approval_ref, base_dir=root, surface="merge_lane_grant",
+        approval = verify_operator_approval(
+            operator_approval_ref,
+            surface="merge_lane_grant",
+            scope={"lane": lane, "expires": expires_text},
+            base_dir=root,
         )
     except OperatorApprovalUnrecorded as exc:
         raise GovernanceError(f"merge_lane_grant_approval_unrecorded: {exc}") from exc
     grant = {
         "lane": lane,
-        # Normalised to UTC before formatting: `Z` on a non-UTC wall clock
-        # would store a different instant (a +03:00 expiry three hours late,
-        # a negative offset one that is born expired).
-        "expires_at": expiry.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expires_at": expires_text,
         "granted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "operator_approval_ref": operator_approval_ref,
         "approval": approval,

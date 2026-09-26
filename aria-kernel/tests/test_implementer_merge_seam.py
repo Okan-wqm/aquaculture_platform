@@ -47,7 +47,6 @@ from aria_kernel.plan_convergence import fold_plan_state, plan_body_from_state
 from aria_kernel.plan_origin import commit_contract_for_plan
 from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
 from aria_kernel.proposal import get_proposal
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
@@ -57,6 +56,7 @@ from tests.test_implementation_lifecycle_continuity import (
     seed_reviewer_agent,
 )
 from tests.test_pr_manager_e2e import _fake_child_process
+from tests._helpers.operator_acts import operator_set_profile
 
 # A file whose name carries a banned word, a key change worded with another.
 _PATH_WORD, _WORDING_WORD = BANNED_PHRASES_DEFAULT[2], BANNED_PHRASES_DEFAULT[8]
@@ -83,8 +83,7 @@ class ImplementerMergeSeamTests(unittest.TestCase):
         seed_reviewer_agent(self.repo)
         self._git("add", ".claude")
         self._git("commit", "-q", "-m", "fixture: reviewer agent")
-        set_profile("strict", operator_approval_ref="test:aria-high-104:seam",
-                    base_dir=self.tools, set_by="operator", scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         ensure_tools_binding(self.tools, workspace_root=self.repo)
         drive_plan_to_converged(
             plan_id=PLAN_ID, tools=self.tools, workspace_root=self.repo,

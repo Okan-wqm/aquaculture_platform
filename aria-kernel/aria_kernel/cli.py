@@ -99,6 +99,7 @@ from aria_kernel.skill_genesis import (
     request_skill_genesis,
     sandbox_skill,
 )
+from aria_kernel.operator_approval import AUTHORITY_RAISING_SURFACES
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
 from aria_kernel.context_budget_gate import (
@@ -233,6 +234,18 @@ def add_subparser(
     if _TOOLS_DIR_PARENT not in parents:
         parents.append(_TOOLS_DIR_PARENT)
     return sub_action.add_parser(name, parents=parents, **kwargs)
+
+
+# ARIA-CRITICAL-216 — what an authority-RAISING --operator-approval-ref is,
+# said once for every verb that takes one. Lowering verbs take a reason.
+_GITHUB_APPROVAL_HELP = (
+    "an operator's GitHub act: gh:<owner>/<repo>#<n>/comment/<id> (a comment on an "
+    "issue or PR, e.g. the operator-approvals issue) or gh:<owner>/<repo>#<n>/review/<id> "
+    "(a PR review), posted by a login in docs/aria/policy/operators.json, unedited, whose "
+    "body carries the line `aria-kernel operator approval-template` prints. One act "
+    "authorizes one grant."
+)
+_LOWERING_REASON_HELP = "the reason on the record; narrowing authority needs no operator act"
 
 
 # Plan 024 §F — post-parse table of commands that genuinely require an
@@ -1018,7 +1031,10 @@ def build_parser() -> argparse.ArgumentParser:
     tool_unquarantine = add_subparser(tool_sub, "unquarantine")
     tool_unquarantine.add_argument("--tool-id", required=True)
     tool_unquarantine.add_argument("--reason", required=True, type=_validate_reason)
-    tool_unquarantine.add_argument("--operator-approval-ref", required=True)
+    tool_unquarantine.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: tool_unquarantine tool=<id>.",
+    )
     tool_unquarantine.add_argument("--root-cause-note", required=True)
     tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
@@ -1039,7 +1055,7 @@ def build_parser() -> argparse.ArgumentParser:
     tool_promote.add_argument("--reason", required=True, type=_validate_reason)
     tool_promote.add_argument(
         "--operator-approval-ref", default=None,
-        help="Recorded operator act: gov:<event_id> or review:<path>#<id> (ACTIVE refuses ack-env:).",
+        help=_GITHUB_APPROVAL_HELP + " Surface: tool_promote tool=<id> target=<status>.",
     )
     # JJ-2b (ORPHAN-HIGH-732) — the panel authority's command surface. The
     # ref is a RESOLVED human-required adjudication id, and the kernel
@@ -1093,16 +1109,47 @@ def build_parser() -> argparse.ArgumentParser:
     # ARIA-HIGH-200 — only an operator's recorded act lifts ARIA's own
     # self-merge freeze; no ARIA workflow holds that authority.
     # ARIA-HIGH-205 — the operator's merge-lane grant: one lane, an expiry,
-    # a recorded operator act (gov:/review:). No ARIA workflow runs these.
+    # an operator's GitHub act (ARIA-CRITICAL-216). No ARIA workflow runs these.
     merge_grant = add_subparser(merge_sub, "grant")
     merge_grant.add_argument("--lane", required=True)
     merge_grant.add_argument("--expires-at", required=True)
-    merge_grant.add_argument("--operator-approval-ref", required=True)
+    merge_grant.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: merge_lane_grant lane=<lane> expires=<expiry>.",
+    )
     merge_revoke = add_subparser(merge_sub, "revoke")
-    merge_revoke.add_argument("--operator-approval-ref", required=True)
+    merge_revoke.add_argument("--operator-approval-ref", required=True, help=_LOWERING_REASON_HELP)
     merge_unfreeze = add_subparser(merge_sub, "unfreeze")
     merge_unfreeze.add_argument("--freeze-id", required=True)
-    merge_unfreeze.add_argument("--operator-approval-ref", required=True)
+    merge_unfreeze.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: self_merge_unfreeze freeze_id=<id>.",
+    )
+
+    # ARIA-CRITICAL-216 — the operator's side of every authority grant: the
+    # exact line to post as a comment (on the operator-approvals issue or the
+    # PR) or in a PR review, whose gh: ref the granting verb then takes.
+    operator_parser = add_subparser(
+        sub, "operator",
+        help="Operator approval helpers (an authority grant is an operator's GitHub act).",
+    )
+    operator_sub = operator_parser.add_subparsers(dest="operator_command", required=True)
+    approval_template = add_subparser(
+        operator_sub, "approval-template",
+        help="Print the ARIA-APPROVE line to post as a GitHub comment or PR review.",
+        description=(
+            "Prints the one line an operator posts to approve an authority grant: as a "
+            "comment on an issue or PR, or as the body of a PR review. Pass the comment or "
+            "review as --operator-approval-ref gh:<owner>/<repo>#<n>/comment/<id> (or "
+            ".../review/<id>) to the granting verb. The act must stay unedited, is valid for "
+            "the policy's max age, and authorizes exactly one grant."
+        ),
+    )
+    approval_template.add_argument("--surface", required=True, choices=sorted(AUTHORITY_RAISING_SURFACES))
+    approval_template.add_argument(
+        "fields", nargs="*", metavar="KEY=VALUE",
+        help="every scope field of the surface, e.g. lane=L1 expires=2026-10-10T00:00:00Z",
+    )
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -1261,7 +1308,14 @@ def build_parser() -> argparse.ArgumentParser:
     profile_sub = profile_parser.add_subparsers(dest="profile_command", required=True)
     profile_set = add_subparser(profile_sub, "set")
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
-    profile_set.add_argument("--operator-approval-ref", required=True)
+    profile_set.add_argument(
+        "--operator-approval-ref", required=True,
+        help=(
+            "a transition that raises the profile or the scheduler ceiling past the recorded "
+            "grant needs " + _GITHUB_APPROVAL_HELP + " Surface: runtime_profile "
+            "profile=<profile> ceiling=<resulting ceiling>. Any other transition takes a reason."
+        ),
+    )
     profile_set.add_argument("--set-by", default="operator")
     # ORPHAN-HIGH-728 — the operator gesture ADR-033/ADR-041 reserve for a
     # human, given a verb. Omitted means "leave the grant where it is": a
@@ -2374,7 +2428,11 @@ def build_parser() -> argparse.ArgumentParser:
     pa_record = add_subparser(pa_sub, "record", help="Record one approval stage for a PR.")
     pa_record.add_argument("--approval-id", required=True)
     pa_record.add_argument("--stage", required=True, choices=["risk_owner", "exception_owner"])
-    pa_record.add_argument("--actor", required=True)
+    pa_record.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: l3_policy_approval pr=<n> head_sha=<sha> "
+        "stage=<stage>. The stage's actor is the login that posted it.",
+    )
     pa_record.add_argument("--pr-number", type=int, required=True)
     pa_record.add_argument("--head-sha", required=True)
     pa_record.add_argument("--policy-hash", required=True)
@@ -3790,6 +3848,17 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
             )
         print(json.dumps(grant_state, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "operator" and args.operator_command == "approval-template":
+        from .operator_approval import OperatorApprovalUnrecorded, approval_line
+
+        fields = dict(field.partition("=")[::2] for field in args.fields)
+        try:
+            print(approval_line(args.surface, fields))
+        except OperatorApprovalUnrecorded as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         return 0
 
     if args.command == "merge-lane" and args.merge_command == "unfreeze":
@@ -6247,7 +6316,7 @@ def _main(argv: list[str] | None = None) -> int:
                 row = record_policy_approval({
                     "approval_id": args.approval_id,
                     "stage": args.stage,
-                    "actor": args.actor,
+                    "operator_approval_ref": args.operator_approval_ref,
                     "pr_number": args.pr_number,
                     "head_sha": args.head_sha,
                     "policy_hash": args.policy_hash,

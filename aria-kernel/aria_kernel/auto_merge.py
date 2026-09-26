@@ -1011,6 +1011,38 @@ class GhCliGitHubAdapter:
             ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,body"],
         )
 
+    # ----- operator_approval.OperatorActReader (ARIA-CRITICAL-216) -------
+    #
+    # An authority grant is proven by an operator's comment or PR review;
+    # these are the reads that prove it. Each is a GET whose path is built
+    # here from integers, never taken from a caller, so it does not go
+    # through ALLOWED_GH_API_PATHS: that allowlist is also the agents' `gh
+    # api` boundary, and no agent needs to read an operator's approval.
+
+    def get_issue_comment(self, comment_id: int) -> dict[str, Any]:
+        return self._gh_json(["api", f"repos/{self.owner}/{self.repo}/issues/comments/{int(comment_id)}"])
+
+    def get_pull_request_review(self, number: int, review_id: int) -> dict[str, Any]:
+        return self._gh_json(
+            ["api", f"repos/{self.owner}/{self.repo}/pulls/{int(number)}/reviews/{int(review_id)}"]
+        )
+
+    def get_review_last_edited_at(self, node_id: str) -> str | None:
+        """REST reviews carry no edit time; GraphQL's ``lastEditedAt`` does."""
+        payload = self._gh_json([
+            "api",
+            "graphql",
+            "-f",
+            "query=query($id: ID!) { node(id: $id) { ... on PullRequestReview { lastEditedAt } } }",
+            "-f",
+            f"id={node_id}",
+        ])
+        node = (payload.get("data") or {}).get("node")
+        if not isinstance(node, dict):
+            raise GovernanceError(f"pull request review node {node_id!r} unreadable")
+        edited = node.get("lastEditedAt")
+        return edited if isinstance(edited, str) else None
+
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         if args and is_gh_api_path_forbidden(str(args[0])):
             raise GovernanceError(f"forbidden gh api path: {args[0]}")

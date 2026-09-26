@@ -10,9 +10,10 @@ module is that freeze, one declared ledger
 * ``revert_registered`` — the revert PR (number + head sha) that the freeze
   admits. A frozen merge authority refuses every PR except this one.
 * ``self_merge_unfrozen`` — written only through :func:`unfreeze_self_merge`,
-  which demands an operator approval reference that resolves to a recorded
-  operator act (``gov:`` or ``review:``). ``ack-env`` is refused: an
-  environment variable is something a workflow can set for itself.
+  which demands an operator's GitHub act approving exactly
+  ``surface=self_merge_unfreeze freeze_id=<id>`` (ARIA-CRITICAL-216). A
+  governance event, a review file or an environment variable is refused:
+  ARIA can author every one of them.
 
 A frozen state survives the revert merging: reverting restores the code, it
 does not establish why the change was bad. Lifting the freeze is the
@@ -31,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 SELF_MERGE_FREEZE_SURFACE = "enterprise_self_merge_freeze"
@@ -39,7 +40,6 @@ SELF_MERGE_FREEZE_RELPATH = ("enterprise", "self-merge-freeze.jsonl")
 FROZEN_EVENT = "self_merge_frozen"
 REVERT_REGISTERED_EVENT = "revert_registered"
 UNFROZEN_EVENT = "self_merge_unfrozen"
-UNFREEZE_APPROVAL_KINDS = frozenset({"gov", "review"})
 
 
 def freeze_ledger_path(base_dir: str | Path | None = None) -> Path:
@@ -178,18 +178,16 @@ def unfreeze_self_merge(
     operator_approval_ref: str,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Lift a freeze on an operator's recorded act, and nothing else."""
+    """Lift a freeze on an operator's GitHub act, and nothing else."""
     freeze = active_freeze(base_dir=base_dir)
     if freeze is None or freeze.get("freeze_id") != freeze_id:
         raise GovernanceError(f"self_merge_unfreeze_unknown_or_inactive:{freeze_id}")
-    kind = (operator_approval_ref or "").partition(":")[0]
-    if kind not in UNFREEZE_APPROVAL_KINDS:
-        raise GovernanceError(
-            f"self_merge_unfreeze_requires_recorded_operator_act:{kind or 'none'}"
-        )
     try:
-        approval = verify_operator_approval_ref(
-            operator_approval_ref, base_dir=base_dir, surface="self_merge_unfreeze",
+        approval = verify_operator_approval(
+            operator_approval_ref,
+            surface="self_merge_unfreeze",
+            scope={"freeze_id": freeze_id},
+            base_dir=base_dir,
         )
     except OperatorApprovalUnrecorded as exc:
         raise GovernanceError(f"self_merge_unfreeze_approval_unrecorded:{exc}") from exc
@@ -220,7 +218,6 @@ __all__ = [
     "FROZEN_EVENT",
     "REVERT_REGISTERED_EVENT",
     "SELF_MERGE_FREEZE_SURFACE",
-    "UNFREEZE_APPROVAL_KINDS",
     "UNFROZEN_EVENT",
     "active_freeze",
     "assert_self_merge_not_frozen",

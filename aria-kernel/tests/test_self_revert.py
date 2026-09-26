@@ -47,6 +47,7 @@ from aria_kernel.self_revert import (
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.validation_runs_ledger import list_validation_runs_for_change, record_validation_run
 from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+from tests._helpers.operator_acts import operator_set_profile
 
 MERGED_PR = 41
 REVERT_PR = 77
@@ -98,7 +99,7 @@ class SelfRevertTests(unittest.TestCase):
 
         self.tools = root / "aria-tools"
         ensure_tools_dir(self.tools)
-        set_profile("strict", operator_approval_ref="test-fixture", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         planned = emit_change_planned(
             plan_id="plan-guide", finding_id="F-100", intended_affected_files=["docs/runbooks/guide.md"],
             intended_validation_refs=["npm run lint"], architectural_tier=2, base_dir=self.tools,

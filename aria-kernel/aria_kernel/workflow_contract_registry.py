@@ -708,8 +708,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
     # the persistent self-hosted host, which can never attest ephemeral, so
     # verify_runner_attestation refused every one. This lane runs the same
     # auto-merge runner + merge authority on a GitHub-hosted runner after
-    # aria-readiness-claim completes, attests itself with lane=merge, and
-    # merges with the GitHub App installation token (a GITHUB_TOKEN merge
+    # aria-readiness-claim completes, attests each candidate it merges with
+    # lane=merge (ARIA-HIGH-220: bound to the run, the identity proven by
+    # the job's verified OIDC token — hence id-token: write), and merges
+    # with the GitHub App installation token (a GITHUB_TOKEN merge
     # triggers no push workflows on main and would blind post-merge
     # monitoring) — hence token_source github_app:installation. Its store
     # writes (decisions, attestations) publish to aria/state.
@@ -736,7 +738,11 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_RUNNER_TEMP}/aria-merge-runner-preflight\.json$",
                 ),
                 retention_days=7,
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("id-token", "write"),
+                ),
                 # ARIA-HIGH-208 — minted with
                 # gh_token_factory.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS
                 # (checks, statuses and issues read on top of the default),
@@ -747,21 +753,21 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=15,
+                # ARIA-HIGH-220 — no lane-start attestation step: the merge
+                # step records each candidate's attestation, bound to the
+                # run, in the store it restored.
                 required_steps=(
                     _RESTORE_STEP,
-                    "Probe runner attestation",
                     "Mint the aria/state push credential",
                     "Run the merge lane",
                     _PUBLISH_STEP,
                 ),
-                # The attestation must describe the store the merge reads,
-                # and must exist before the merge gate asks for it.
+                # The merge reads (and attests into) the restored store.
                 # ARIA-HIGH-222 — the aria/state credential exists before the
                 # merge step, which publishes each merge's intent before the
                 # merge call.
                 step_order=(
-                    (_RESTORE_STEP, "Probe runner attestation"),
-                    ("Probe runner attestation", "Run the merge lane"),
+                    (_RESTORE_STEP, "Run the merge lane"),
                     ("Mint the aria/state push credential", "Run the merge lane"),
                     ("Run the merge lane", _PUBLISH_STEP),
                 ),

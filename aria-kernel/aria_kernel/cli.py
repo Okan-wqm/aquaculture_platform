@@ -3948,8 +3948,10 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "runner-attestation" and args.attestation_command == "probe":
-        # FAZ 5a — lane-start producer: one probed attestation row per
-        # recorded readiness claim, keyed exactly as the merge gate reads.
+        # FAZ 5a — the agent lanes' lane-start producer: one probed,
+        # run-bound attestation row per readiness claim, once per lane. The
+        # merge gate reads only the row the merging run records
+        # (ARIA-HIGH-220: `merge-lane run` attests each candidate).
         from aria_kernel.runner_attestation import (
             probe_runner_attestations_for_claims,
         )

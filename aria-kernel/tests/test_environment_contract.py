@@ -39,16 +39,20 @@ if str(_POC_DIR) not in sys.path:
 import ci_executor  # noqa: E402
 
 
-_HEALTHY_ENV = {
-    "RUNNER_NAME": "probe-test-runner",
-    # ARIA-HIGH-198: identity is measured from the platform's own report.
-    "RUNNER_ENVIRONMENT": "github-hosted",
+_AGENT_ENV = {
     "CLAUDE_CODE_OAUTH_TOKEN": "token-present",
-    # ARIA-AUDIT-016: identity claims require the Actions OIDC channel as
-    # platform evidence; tests simulate the runner-side token channel.
-    "ACTIONS_ID_TOKEN_REQUEST_URL": "https://pipelines.actions.githubusercontent.com/xxx",
-    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "test-oidc-token",
+    "ANTHROPIC_API_KEY": "",
 }
+
+
+def _job(**run_overrides):
+    """Run inside a GitHub-hosted Actions job (ARIA-HIGH-198/220): identity
+    is measured from the platform's own report and proven by the job's OIDC
+    token, verified (tests/_helpers/actions_oidc.py)."""
+    from tests._helpers.actions_oidc import ActionsRun
+
+    run = ActionsRun(runner_name="probe-test-runner", **run_overrides)
+    return run, run.active()
 
 
 def _probe(tools: Path, **overrides):
@@ -68,40 +72,46 @@ def _probe(tools: Path, **overrides):
 
 
 class AttestationProducerTest(unittest.TestCase):
-    def test_a_probed_row_satisfies_the_merge_gate(self) -> None:
-        # The whole point: the mandatory gate finally finds a produced row.
+    def test_the_merge_lane_row_satisfies_the_merge_gate_in_the_run_that_recorded_it(self) -> None:
+        # The whole point: the mandatory gate finds a produced row — and
+        # since ARIA-HIGH-220 only the one the merging run recorded.
         from aria_kernel.runner_attestation import verify_runner_attestation
 
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
-                 patch.dict(os.environ, {}, clear=False) as env, \
+            _run, job = _job()
+            with job, patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value="bwrap"):
-                env.pop("ANTHROPIC_API_KEY", None)
-                row = _probe(tools)
-
-            verdict = verify_runner_attestation(
-                pr_number=77, head_sha="a" * 40,
-                readiness_claim_id="rc-77", base_dir=tools,
-            )
+                row = _probe(tools, lane="merge")
+                verdict = verify_runner_attestation(
+                    pr_number=77, head_sha="a" * 40,
+                    readiness_claim_id="rc-77", base_dir=tools,
+                )
 
         self.assertEqual(row["attestation_method"], "probed")
         self.assertEqual(row["probe"]["sandbox_backend"], "bwrap")
         self.assertTrue(verdict["valid"])
 
-    def test_reprobe_is_idempotent_per_claim_triple(self) -> None:
+    def test_reprobe_is_idempotent_per_claim_triple_and_run(self) -> None:
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
+            with patch.dict(os.environ, _AGENT_ENV), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value="bwrap"):
-                first = _probe(tools)
-                second = _probe(tools)
+                _run, job = _job(run_id="100")
+                with job:
+                    first = _probe(tools)
+                    second = _probe(tools)
+                _run, job = _job(run_id="101")
+                with job:
+                    later = _probe(tools)
 
         self.assertEqual(first["row_id"], second["row_id"])
+        self.assertNotEqual(first["row_id"], later["row_id"])
+        self.assertEqual((first["run_id"], later["run_id"]), ("100", "101"))
 
     def test_a_host_without_a_sandbox_cannot_attest(self) -> None:
         # Refusal is the contract working: recording a lying row would
@@ -109,7 +119,8 @@ class AttestationProducerTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
+            _run, job = _job()
+            with job, patch.dict(os.environ, _AGENT_ENV), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value=None):
                 with self.assertRaises(GovernanceError) as caught:
@@ -117,24 +128,27 @@ class AttestationProducerTest(unittest.TestCase):
 
         self.assertIn("sandbox_required", str(caught.exception))
 
-    def test_identity_claims_without_the_oidc_channel_refuse(self) -> None:
-        """ARIA-AUDIT-016: workflow-input defaults are assertions, not evidence."""
-        from aria_kernel.tool_registry import GovernanceError
+    def test_identity_claims_without_the_oidc_token_refuse(self) -> None:
+        """ARIA-AUDIT-016 / ARIA-HIGH-220: without a verified OIDC token
+        naming this run, identity claims are assertions, not evidence."""
+        from tests._helpers.actions_oidc import ActionsRun
 
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            saved = {k: os.environ.pop(k, None) for k in (
-                "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-            )}
-            try:
+            no_channel = {
+                **ActionsRun().environment(),
+                **_AGENT_ENV,
+                "ACTIONS_ID_TOKEN_REQUEST_URL": "",
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "",
+            }
+            with patch.dict(os.environ, no_channel), \
+                 patch("aria_kernel.implementation_safety.sandbox_backend",
+                       return_value="bwrap"):
                 with self.assertRaises(GovernanceError) as caught:
                     _probe(tools)
-                self.assertIn("platform_unverified", str(caught.exception))
-            finally:
-                for k, v in saved.items():
-                    if v is not None:
-                        os.environ[k] = v
+        self.assertIn("platform_unverified", str(caught.exception))
+        self.assertIn("actions_oidc_channel_absent", str(caught.exception))
 
     def test_lane_start_sweep_attests_every_readiness_claim(self) -> None:
         from aria_kernel.runner_attestation import (
@@ -156,7 +170,8 @@ class AttestationProducerTest(unittest.TestCase):
                     },
                     expected_surface="enterprise_readiness_claims",
                 )
-            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
+            _run, job = _job()
+            with job, patch.dict(os.environ, _AGENT_ENV), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value="bwrap"):
                 result = probe_runner_attestations_for_claims(
@@ -172,36 +187,33 @@ class MeasuredRunnerIdentityTest(unittest.TestCase):
     """ARIA-HIGH-198 — the runner's identity is measured, and the merge lane
     attests what it is: a GitHub-hosted host that runs no model."""
 
-    def _probe_in(self, env: dict, **overrides):
+    def _probe_in(self, *, run_overrides: dict | None = None, **overrides):
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            with patch.dict(os.environ, env, clear=False), \
+            _run, job = _job(**(run_overrides or {}))
+            with job, patch.dict(os.environ, _AGENT_ENV), \
                  patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
-                os.environ.pop("ANTHROPIC_API_KEY", None)
                 return _probe(tools, **overrides)
 
     def test_a_self_hosted_runner_is_never_attested_ephemeral(self) -> None:
-        env = {**_HEALTHY_ENV, "RUNNER_ENVIRONMENT": "self-hosted"}
         with self.assertRaises(GovernanceError) as caught:
-            self._probe_in(env, lane="merge")
+            self._probe_in(run_overrides={"runner_environment": "self-hosted"}, lane="merge")
         self.assertIn("ephemeral_runner_required", str(caught.exception))
 
     def test_the_merge_lane_on_a_github_hosted_runner_attests_without_model_or_sandbox(self) -> None:
         from aria_kernel.runner_attestation import verify_runner_attestation
 
-        env = {key: value for key, value in _HEALTHY_ENV.items() if key != "CLAUDE_CODE_OAUTH_TOKEN"}
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
-            with patch.dict(os.environ, env, clear=False), \
+            _run, job = _job()
+            with job, patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "", "ANTHROPIC_API_KEY": ""}), \
                  patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
-                os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-                os.environ.pop("ANTHROPIC_API_KEY", None)
                 row = _probe(tools, lane="merge")
-            verdict = verify_runner_attestation(
-                pr_number=77, head_sha="a" * 40, readiness_claim_id="rc-77", base_dir=tools,
-            )
+                verdict = verify_runner_attestation(
+                    pr_number=77, head_sha="a" * 40, readiness_claim_id="rc-77", base_dir=tools,
+                )
         self.assertEqual(row["runner_group"], "github-hosted")
         self.assertIs(row["ephemeral_runner"], True)
         self.assertEqual(row["claude_auth"], "not_required")
@@ -218,6 +230,7 @@ class MeasuredRunnerIdentityTest(unittest.TestCase):
                 record_runner_attestation({
                     "repo": "okan/aqua", "pr_number": 1, "target_ref": "main", "head_ref": "x",
                     "head_sha": "b" * 40, "readiness_claim_id": "rc-1", "runner_id": "r",
+                    "run_id": "1", "run_attempt": "1",
                     "runner_group": "github-hosted", "ephemeral_runner": True,
                     "approved_runner_group": True, "platform_verified": True,
                     "api_key_auth": False, "claude_auth": "not_required",
@@ -227,7 +240,7 @@ class MeasuredRunnerIdentityTest(unittest.TestCase):
 
     def test_an_unknown_lane_is_refused(self) -> None:
         with self.assertRaises(GovernanceError):
-            self._probe_in(_HEALTHY_ENV, lane="deploy")
+            self._probe_in(lane="deploy")
 
 
 def _checkout_with_one_commit(workspace: Path) -> None:

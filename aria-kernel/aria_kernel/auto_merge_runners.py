@@ -150,7 +150,6 @@ class RealAutoMergeRunner:
             }
         from .auto_merge import merge_if_green
         from .batch_containment import guard_item, with_item_failures
-        from .merge_authority import merge_pr_if_ready
         from .watchdog_freeze import open_watchdog_incidents
 
         adapter = self.adapter_factory()
@@ -167,9 +166,25 @@ class RealAutoMergeRunner:
         # grant's lane is enforced per PR inside merge_pr_if_ready against
         # the measured risk lane.
         from .runtime_profile import merge_authority_available
+        from .runner_attestation import measure_merge_lane_identity
 
-        dry_run = not (
-            self.executes_merges and merge_authority_available(base_dir=base_dir)
+        # ARIA-HIGH-220 — the CLI says this runner is the merge lane
+        # (`executes_merges`); the measured identity must agree: the job's
+        # OIDC token, verified, names this run and the merge-runner workflow
+        # on main, on a GitHub-hosted runner. Anywhere else the runner only
+        # evaluates, and says why.
+        lane_identity = measure_merge_lane_identity() if self.executes_merges else None
+        executes = self.executes_merges and lane_identity is not None and lane_identity["merge_lane"] is True
+        dry_run = not (executes and merge_authority_available(base_dir=base_dir))
+        identity_summary = (
+            None if lane_identity is None else {
+                "verified": lane_identity["merge_lane"] is True,
+                "run_id": lane_identity["run_id"],
+                "run_attempt": lane_identity["run_attempt"],
+                "runner_name": lane_identity["runner_name"],
+                "job_workflow_ref": (lane_identity.get("oidc") or {}).get("job_workflow_ref"),
+                "reasons": list(lane_identity["reasons"]),
+            }
         )
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
@@ -219,6 +234,7 @@ class RealAutoMergeRunner:
                     # has to special-case.
                     "dry_run": dry_run,
                     "executes_merges": self.executes_merges,
+                    "merge_lane_identity": identity_summary,
                     "profile": self.profile,
                     "decisions": [
                         {
@@ -287,12 +303,13 @@ class RealAutoMergeRunner:
                         workspace_root=workspace_root,
                     )
                     if dry_run
-                    else merge_pr_if_ready(
+                    else _merge_candidate(
                         adapter=adapter,
                         pr_number=pr_number,
                         base_dir=base_dir,
                         readiness_claim_id=readiness_claim_id,
                         workspace_root=workspace_root,
+                        lane_identity=lane_identity,
                         intent_publisher=self.intent_publisher,
                     )
                 ),
@@ -323,10 +340,91 @@ class RealAutoMergeRunner:
                 "decisions": decisions,
                 "dry_run": dry_run,
                 "executes_merges": self.executes_merges,
+                "merge_lane_identity": identity_summary,
                 "profile": self.profile,
             },
             item_failures,
         )
+
+
+def _merge_candidate(
+    *,
+    adapter: Any,
+    pr_number: int,
+    base_dir: str | Path,
+    readiness_claim_id: str,
+    workspace_root: str | Path | None,
+    lane_identity: dict[str, Any] | None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Attest this run for the candidate, then hand it to the authority.
+
+    ARIA-HIGH-220 — the attestation row is recorded by the run that is about
+    to merge, for the one claim it merges under, and bound to the run (id,
+    attempt, runner); ``merge_pr_if_ready`` re-measures the identity at the
+    point of merge and accepts only this run's row. It used to be recorded
+    by a lane-start step for every claim ever made, keyed by (PR, head,
+    claim) alone.
+
+    A module-level function that imports and calls the authority by name:
+    the static safety-control reachability graph
+    (tests/invariants/v3/test_safety_control_reachability.py) resolves
+    neither a call through a parameter nor a ``self.`` method call, and
+    would then report every gate behind ``merge_pr_if_ready`` as dead.
+    """
+    from .merge_authority import merge_pr_if_ready
+
+    _attest_candidate(
+        pr_number=pr_number,
+        base_dir=base_dir,
+        readiness_claim_id=readiness_claim_id,
+        lane_identity=lane_identity,
+    )
+    return merge_pr_if_ready(
+        adapter=adapter,
+        pr_number=pr_number,
+        base_dir=base_dir,
+        readiness_claim_id=readiness_claim_id,
+        workspace_root=workspace_root,
+        intent_publisher=intent_publisher,
+    )
+
+
+def _attest_candidate(
+    *,
+    pr_number: int,
+    base_dir: str | Path,
+    readiness_claim_id: str,
+    lane_identity: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Record this run's merge-lane attestation for the claim it merges under."""
+    from .runner_attestation import MERGE_LANE, probe_runner_attestation
+
+    claim = _claim_row(base_dir, readiness_claim_id)
+    return probe_runner_attestation(
+        pr_number=int(pr_number),
+        head_sha=str(claim.get("head_sha") or ""),
+        readiness_claim_id=readiness_claim_id,
+        repo=str(claim.get("repo") or ""),
+        target_ref=str(claim.get("target_ref") or ""),
+        head_ref=str(claim.get("head_ref") or ""),
+        lane=MERGE_LANE,
+        base_dir=base_dir,
+        identity=lane_identity,
+    )
+
+
+def _claim_row(base_dir: str | Path, readiness_claim_id: str) -> dict[str, Any]:
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "enterprise" / "readiness-claims.jsonl",
+        expected_surface="enterprise_readiness_claims",
+    )
+    matches = [row for row in rows if row.get("readiness_claim_id") == readiness_claim_id]
+    if len(matches) != 1:
+        raise GovernanceError(
+            f"readiness_claim_exact_match_required: claim={readiness_claim_id} matches={len(matches)}"
+        )
+    return matches[0]
 
 
 def select_auto_merge_runner(

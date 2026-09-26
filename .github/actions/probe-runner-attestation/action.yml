@@ -8,8 +8,16 @@ description: >-
 # MANDATORY at merge since the enterprise gate landed, and the ledger it reads
 # (aria-tools/enterprise/runner-attestations.jsonl) had ZERO producers: the
 # gate could only ever raise runner_attestation_required_for_merge. This
-# action is the producer, placed at lane start so the attestation describes
-# the host that will actually run the merge.
+# action was that producer, placed at lane start.
+#
+# ARIA-HIGH-220 — it is the AGENT lanes' producer now, and the merge gate no
+# longer reads its rows. The merge gate accepts only the attestation the
+# merging run records for the claim it merges (`merge-lane run` attests each
+# candidate), bound to that run and re-measured at the merge. A row keyed by
+# (PR, head, claim) alone was one any later run on any host could present.
+# Rows this action records are bound to the run too, and the identity is the
+# job's OIDC token verified against GitHub's keys (the job needs
+# `id-token: write`); each claim is attested once per lane, not every run.
 #
 # PROBED, NOT SELF-ASSERTED. The environment facts are measured through the
 # same accessors the runtime uses (sandbox_backend(), the auth env the CLI

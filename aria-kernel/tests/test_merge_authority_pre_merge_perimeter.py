@@ -681,11 +681,18 @@ class NativeImplementationContextTests(unittest.TestCase):
             observed_reports.append((value, actual_report))
             return actual_report
 
+        from tests._helpers.actions_oidc import merge_lane_job
+
         with ExitStack() as stack:
             for gate_patch in _gate_patches(head_sha):
                 stack.enter_context(gate_patch)
             # The runner asks the same route before it resolves a claim.
             stack.enter_context(patch("aria_kernel.auto_merge.human_merge_decision", return_value=None))
+            # ARIA-HIGH-220 — the runner executes only inside the merge-lane
+            # job (verified identity); the attestation row is covered by
+            # test_merge_lane_attestation and its verification is a gate
+            # control above.
+            stack.enter_context(merge_lane_job())
             capture_call = stack.enter_context(patch(
                 "aria_kernel.merge_authority._capture_pre_merge_context",
                 wraps=merge_owner._capture_pre_merge_context,
@@ -774,6 +781,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             with ExitStack() as stack:
                 for gate_patch in _gate_patches(head_sha):
                     stack.enter_context(gate_patch)
+                stack.enter_context(merge_lane_job())
                 stack.enter_context(patch(
                     "aria_kernel.merge_authority.run_hard_fail_checks",
                     side_effect=evaluate_actual_context,

@@ -245,7 +245,12 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
         # The runner reads merge authority from the control plane it runs
         # against (ARIA-HIGH-205), so the store must hold what the runner is
         # told it runs as.
-        operator_set_profile("autonomous", base_dir=self.base)
+        operator_set_profile("autonomous", base_dir=self.base, scheduler_ceiling="autonomous")
+        # ARIA-HIGH-220 — the freeze guards a run that executes merges, and
+        # a run executes only inside the merge-lane job.
+        from tests._helpers.actions_oidc import merge_lane_job
+
+        self.enterContext(merge_lane_job())
         adapter = _Adapter(payload)
         return select_auto_merge_runner(
             profile="autonomous",

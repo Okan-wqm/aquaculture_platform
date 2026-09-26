@@ -19,6 +19,7 @@ from aria_kernel.rollback_bundle import (
 )
 from aria_kernel.runner_attestation import record_runner_attestation, verify_runner_attestation
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.actions_oidc import ActionsRun
 from tests._helpers.operator_acts import github_operator_acts
 
 
@@ -173,6 +174,10 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             "head_sha": HEAD_SHA,
             "readiness_claim_id": "ready-42",
         }
+        # ARIA-HIGH-220 — verification runs inside the merge-lane job and
+        # accepts only a merge-lane row that job recorded.
+        run = ActionsRun(repository="example/aqua", runner_name="runner-1")
+        self.enterContext(run.active())
         with self.assertRaisesRegex(GovernanceError, "runner_attestation_required"):
             verify_runner_attestation(
                 pr_number=42,
@@ -184,14 +189,18 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             {
                 **common,
                 "runner_id": "runner-1",
-                "runner_group": "aria-private",
+                "run_id": run.run_id,
+                "run_attempt": run.run_attempt,
+                "runner_group": "github-hosted",
                 "ephemeral_runner": True,
                 "approved_runner_group": True,
-                "sandbox_available": True,
-                "claude_auth": "managed_claude_code_cli",
+                "attestation_lane": "merge",
+                "claude_auth": "not_required",
                 "api_key_auth": False,
-                # ARIA-AUDIT-016: identity claims carry platform evidence.
+                # ARIA-AUDIT-016 / ARIA-HIGH-220: identity claims carry the
+                # verified OIDC identity of the merge lane.
                 "platform_verified": True,
+                "merge_lane_identity": True,
             },
             base_dir=self.tools,
         )

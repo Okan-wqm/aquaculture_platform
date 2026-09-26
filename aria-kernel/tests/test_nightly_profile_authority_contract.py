@@ -760,7 +760,11 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
             raise AssertionError("autonomous took the dry-run evaluation path")
 
 
-        with tempfile.TemporaryDirectory() as tmp, \
+        from tests._helpers.actions_oidc import merge_lane_job
+
+        # ARIA-HIGH-220 — `executes_merges` is the CLI's word; the lane runs
+        # live only where the measured identity is the merge lane too.
+        with tempfile.TemporaryDirectory() as tmp, merge_lane_job(), \
                 patch(
                     "aria_kernel.watchdog_freeze.open_watchdog_incidents",
                     return_value={"readable": True, "incidents": [], "reason": "clear"},

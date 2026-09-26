@@ -51,6 +51,12 @@ permissions:
   # The merge itself uses the App installation token, not this one.
   contents: write
   actions: read
+  # ARIA-HIGH-220 — the job's OIDC token IS the lane's identity: the kernel
+  # requests it, verifies it against GitHub's signing keys, and merges only
+  # when it names this run and this workflow as it is on main
+  # (runner_attestation.measure_merge_lane_identity). Without it the lane
+  # evaluates and merges nothing.
+  id-token: write
 
 concurrency:
   group: aria-merge-runner
@@ -127,12 +133,11 @@ jobs:
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
-      # The attestation describes THIS host — the one that runs the merge.
-      - name: Probe runner attestation
-        uses: ./.github/actions/probe-runner-attestation
-        with:
-          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
-          lane: merge
+      # ARIA-HIGH-220 — no lane-start attestation step. It recorded a row
+      # for every claim ever made, keyed by (PR, head, claim) alone, which any
+      # later run on any host could present. `merge-lane run` attests each
+      # candidate as it merges it, bound to this run, and the merge
+      # authority re-measures the run's identity at the merge call.
 
       # ARIA-HIGH-222 — minted BEFORE the merge: every merge's intent is
       # published to aria/state before its merge call, so the merge step

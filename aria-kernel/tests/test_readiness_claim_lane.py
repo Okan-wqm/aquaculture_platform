@@ -146,10 +146,26 @@ class MergeRunnerLaneTests(unittest.TestCase):
         # minutes here, test_cycle_chain_rhythm) must not read as stale.
         self.assertGreaterEqual(entry["maxAgeHours"], 3)
 
-    def test_the_host_attests_as_the_merge_lane(self) -> None:
-        probe = self.steps["Probe runner attestation"]
-        self.assertEqual(probe["uses"], "./.github/actions/probe-runner-attestation")
-        self.assertEqual(probe["with"]["lane"], "merge")
+    def test_the_lane_proves_its_identity_with_the_job_oidc_token(self) -> None:
+        # ARIA-HIGH-220 — without id-token: write the job has no OIDC token,
+        # so no attestation it recorded was ever platform-verified.
+        from aria_kernel.runner_attestation import MERGE_LANE_WORKFLOW_PATH
+
+        self.assertEqual(self.workflow["permissions"].get("id-token"), "write")
+        # The identity the kernel accepts names THIS workflow file.
+        self.assertTrue((_REPO / MERGE_LANE_WORKFLOW_PATH).is_file())
+        self.assertEqual(
+            (_REPO / MERGE_LANE_WORKFLOW_PATH).resolve(),
+            (_REPO / ".github" / "workflows" / "aria-merge-runner.yml").resolve(),
+        )
+
+    def test_no_lane_start_step_attests_for_every_claim(self) -> None:
+        # ARIA-HIGH-220 — the lane-start probe recorded a row per claim
+        # ever made, keyed by (PR, head, claim) alone; any later run could
+        # present it. The merge step attests each candidate, bound to its run.
+        uses = [str(step.get("uses") or "") for step in self.job["steps"]]
+        self.assertNotIn("./.github/actions/probe-runner-attestation", uses)
+        self.assertNotIn("Probe runner attestation", self.steps)
 
     def test_the_merge_uses_the_app_token_never_github_token(self) -> None:
         # A GITHUB_TOKEN merge triggers no push workflow on main, which

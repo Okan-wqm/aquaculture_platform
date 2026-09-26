@@ -238,7 +238,8 @@ class AutoMergeTests(unittest.TestCase):
         )
         from aria_kernel.autonomy_unlock import record_acceptance_event
         from aria_kernel.rollback_bundle import record_rollback_bundle, record_rollback_simulation
-        from aria_kernel.runner_attestation import record_runner_attestation
+        from aria_kernel.runner_attestation import MERGE_LANE, probe_runner_attestation
+        from tests._helpers.actions_oidc import ActionsRun
 
         readiness_claim_id = f"ready-{pr_number}"
         repo = "example/aqua"
@@ -426,20 +427,18 @@ class AutoMergeTests(unittest.TestCase):
                 head_sha=f"{index:040x}"[-40:],
                 base_dir=self.tools_dir,
             )
-        record_runner_attestation(
-            {
-                **common,
-                "runner_id": f"runner-{pr_number}",
-                "runner_group": "aria-private",
-                "ephemeral_runner": True,
-                "approved_runner_group": True,
-                "sandbox_available": True,
-                "claude_auth": "managed_claude_code_cli",
-                "api_key_auth": False,
-                # ARIA-AUDIT-016: identity claims carry platform evidence;
-                # fixtures simulate the Actions OIDC channel being present.
-                "platform_verified": True,
-            },
+        # ARIA-HIGH-220 — the test runs inside the merge-lane job: its
+        # verified OIDC identity is what the merge gate re-measures, and the
+        # attestation row is recorded by that same run.
+        self.enterContext(ActionsRun(repository=repo).active())
+        probe_runner_attestation(
+            pr_number=pr_number,
+            head_sha=head_sha,
+            readiness_claim_id=readiness_claim_id,
+            repo=repo,
+            target_ref=target_ref,
+            head_ref=head_ref,
+            lane=MERGE_LANE,
             base_dir=self.tools_dir,
         )
         record_rollback_bundle(

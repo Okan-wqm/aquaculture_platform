@@ -253,7 +253,11 @@ class MergeLaneGrantTests(unittest.TestCase):
             pr_enumerator=lambda adapter: [7],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
         )
-        with mock.patch(
+        from tests._helpers.actions_oidc import merge_lane_job
+
+        # ARIA-HIGH-220 — inside the merge-lane job, so the grant is the
+        # only thing this test varies.
+        with merge_lane_job(), mock.patch(
             "aria_kernel.watchdog_freeze.open_watchdog_incidents",
             return_value={"readable": True, "incidents": [], "reason": "clear"},
         ), mock.patch("aria_kernel.auto_merge.merge_if_green", _record_evaluation), mock.patch(

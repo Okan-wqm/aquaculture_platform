@@ -78,6 +78,7 @@ If you are a specialized review agent and you need to interact with ARIA's outpu
 
 - Current authority: `docs/aria/CURRENT_STATE.md` plus executable kernel owners on `main`.
 - PR target owner: `aria-kernel/aria_kernel/pr_manager.py::ARIA_PR_BASE`; prompt prose must cite that owner instead of duplicating branch policy.
+- Merge lane: ARIA may merge only an L1 PR (docs outside code-owned paths, new unit-test files; `risk_policy.py` is the owner) through `merge_authority.py::merge_pr_if_ready` and the required squash merge queue, and only under an operator's L1 merge-lane grant. A PR outside L1 is labelled `aria:human-merge` and is a person's to merge. ARIA may freeze its own merging (`self_merge_freeze.py`) and revert its own merges (`self_revert.py`); it cannot grant itself authority (M-6.1 in `docs/aria/MISSION_SPEC.md`). When reviewing an ARIA PR, check the lane it was classified in, not only its diff.
 - Implementation: ARIA kernel modules, runtime artifact owners, executor/convergence tooling, and `tools/aria-poc/poc.py` exist under the current owner surfaces listed in `CURRENT_STATE.md`.
 - Legacy branch material is evidence only. Any value from it must land through the current owner module, contract, or invariant, with conflicting live prose removed.
 - Runtime state directories such as `aria-findings/`, `aria-debts/`, and external `~/.aria/workspaces/` remain governed by the artifact contracts cited from `CURRENT_STATE.md`.

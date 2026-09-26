@@ -558,8 +558,9 @@ class MergeRunVerbTest(unittest.TestCase):
                 seen["prs"] = seen["enumerator"](object())
                 return {"status": "ok", "merges_completed": 0}
 
-        def fake_select(*, profile, adapter_factory, pr_enumerator, readiness_claim_resolver):
+        def fake_select(*, profile, executes_merges, adapter_factory, pr_enumerator, readiness_claim_resolver):
             seen["profile"] = profile
+            seen["executes_merges"] = executes_merges
             seen["enumerator"] = pr_enumerator
             return _Runner()
 
@@ -571,3 +572,6 @@ class MergeRunVerbTest(unittest.TestCase):
                 rc = cli.main(["--tools-dir", str(tools), "merge-lane", "run", "--pr", "1672"])
         self.assertEqual(rc, 0)
         self.assertEqual(seen["prs"], [1672])
+        # The operator's verb is the one path that may execute a merge; the
+        # nightly cycle selects the same runner with executes_merges=False.
+        self.assertIs(seen["executes_merges"], True)

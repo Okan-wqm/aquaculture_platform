@@ -59,6 +59,13 @@ class _Adapter:
 def _gate_patches(head_sha: str = _SHA):
     """Every gate before the perimeter passes; the perimeter is the test."""
     return [
+        # The runner decides dry-run from the authority recorded in the tools
+        # dir (profile or merge-lane grant, ARIA-HIGH-205), not from the profile
+        # it was constructed with; like the gates below it is a fixture control.
+        patch(
+            "aria_kernel.runtime_profile.merge_authority_available",
+            return_value=True,
+        ),
         patch(
             "aria_kernel.merge_authority.assert_merge_authority_available",
             return_value="autonomous",

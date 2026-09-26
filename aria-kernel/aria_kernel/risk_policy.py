@@ -291,8 +291,15 @@ def _is_owned(path: str, owner_globs: tuple[str, ...]) -> bool:
     return _matches_any(path, list(owner_globs))
 
 
+# ARIA-CRITICAL-215 — L1 is an explicit allowlist carved out of the
+# supervised trees (a unit test under `apps/**/src/**` is L1, its source L2),
+# and L3 is the exclusion list that outranks it: a path any L3 glob names is
+# never L1, whatever L1 glob also matches it.
+_LANE_PRECEDENCE: tuple[str, ...] = ("L3", "L1", "L2")
+
+
 def _first_matching_lane(path: str, lanes: dict[str, Any]) -> str | None:
-    for lane in ("L3", "L2", "L1"):
+    for lane in _LANE_PRECEDENCE:
         lane_policy = lanes.get(lane) if isinstance(lanes, dict) else None
         globs = lane_policy.get("globs") if isinstance(lane_policy, dict) else None
         if isinstance(globs, list) and _matches_any(path, globs):

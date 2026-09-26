@@ -476,13 +476,17 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(
-            classify_changed_files(["docs/runbooks/auto-merge.md", "tests/e2e/auto-merge.spec.ts"])["risk_class"],
+            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/auto-merge.spec.ts"])["risk_class"],
             "low",
         )
         # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
-        # never low risk.
+        # never low risk; ARIA-CRITICAL-215: nor is a CI gate suite.
         self.assertNotEqual(
             classify_changed_files(["docs/aria/SPEC.md", "aria-kernel/tests/test_auto_merge.py"])["risk_class"],
+            "low",
+        )
+        self.assertNotEqual(
+            classify_changed_files(["e2e/tests/integration/nats-invariants.spec.ts"])["risk_class"],
             "low",
         )
         self.assertEqual(classify_changed_files(["aria-kernel/aria_kernel/cli.py"])["risk_class"], "forbidden")

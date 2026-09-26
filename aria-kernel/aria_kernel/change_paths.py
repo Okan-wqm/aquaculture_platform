@@ -38,8 +38,8 @@ CHANGE_PATHS_SOURCE = "git diff --name-status -z --no-renames"
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 # With --no-renames git emits no R/C entry, so every status letter names
-# exactly one path.
-_SINGLE_PATH_STATUSES = frozenset("ADMTUX")
+# exactly one path. These are the statuses a change entry can carry.
+CHANGE_STATUSES = frozenset("ADMTUX")
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ def parse_name_status_z(output: str) -> tuple[tuple[str, str], ...]:
     entries: list[tuple[str, str]] = []
     for index in range(0, len(fields), 2):
         status, path = fields[index], fields[index + 1]
-        if status not in _SINGLE_PATH_STATUSES or not path:
+        if status not in CHANGE_STATUSES or not path:
             raise GovernanceError(f"change_paths_output_malformed: status={status!r}")
         entries.append((status, path))
     return tuple(entries)
@@ -163,6 +163,7 @@ def platform_file_list_disagreement(
 
 __all__ = [
     "CHANGE_PATHS_SOURCE",
+    "CHANGE_STATUSES",
     "ChangePaths",
     "GH_PR_FILES_LIST_CAP",
     "name_status_args",

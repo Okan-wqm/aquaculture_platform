@@ -17,6 +17,7 @@ from __future__ import annotations
 import unittest
 
 from aria_kernel.auto_merge import evaluate_auto_merge
+from aria_kernel.change_paths import ChangePaths
 
 
 _LOW_RISK_PATH = "docs/notes.md"  # in allowed_low_risk_globs (docs/**)
@@ -32,6 +33,12 @@ def _base_pr_payload(**extras) -> dict:
     }
     payload.update(extras)
     return payload
+
+
+def _git_change(*entries: tuple[str, str]) -> ChangePaths:
+    """The merge authority's git read of the fixture PR (ARIA-CRITICAL-215:
+    path risk is classified from git statuses, never the platform list)."""
+    return ChangePaths(base_rev="d" * 40, head_rev="abc1234", entries=entries or (("M", _LOW_RISK_PATH),))
 
 
 def _enabled_policy() -> dict:
@@ -60,6 +67,7 @@ class AutoMergeContentScanTests(unittest.TestCase):
             github=_base_github_payload(),
             policy=_enabled_policy(),
             diff_text="--- a/docs/notes.md\n+++ b/docs/notes.md\n+New paragraph\n",
+            change=_git_change(),
         )
         self.assertTrue(decision["eligible"], decision["reasons"])
 
@@ -109,6 +117,7 @@ class AutoMergeContentScanTests(unittest.TestCase):
             github=_base_github_payload(),
             policy=_enabled_policy(),
             diff_text=None,
+            change=_git_change(),
         )
         # diff is clean -> eligible.
         self.assertTrue(decision["eligible"], decision["reasons"])

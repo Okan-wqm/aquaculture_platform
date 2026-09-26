@@ -35,6 +35,7 @@ def pr(**overrides):
         "repository": "example/aqua",
         "base_branch": "main",
         "head_ref": "feature/docs",
+        "base_sha": "d" * 40,
         "head_sha": "abc1234",
         "changed_files": ["docs/runbooks/auto-merge.md"],
         "changed_files_count": 1,
@@ -53,6 +54,12 @@ def pr(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def git_change(head_sha="abc1234"):
+    """The merge authority's git read of the fixture PR's one docs edit
+    (ARIA-CRITICAL-215: path risk is classified from git statuses)."""
+    return ChangePaths(base_rev="d" * 40, head_rev=head_sha, entries=(("M", "docs/runbooks/auto-merge.md"),))
 
 
 def github(**overrides):
@@ -476,22 +483,30 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(
-            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/auto-merge.spec.ts"])["risk_class"],
+            classify_changed_files(
+                [("M", "docs/runbooks/auto-merge.md"), ("A", "apps/farm-service/src/auto-merge.spec.ts")],
+            )["risk_class"],
             "low",
         )
+        # ARIA-CRITICAL-215: an existing test changed, or a status-blind list,
+        # is never low risk.
+        self.assertNotEqual(
+            classify_changed_files([("M", "apps/farm-service/src/auto-merge.spec.ts")])["risk_class"], "low",
+        )
+        self.assertNotEqual(classify_changed_files(["docs/runbooks/auto-merge.md"])["risk_class"], "low")
         # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
         # never low risk; ARIA-CRITICAL-215: nor is a CI gate suite.
         self.assertNotEqual(
-            classify_changed_files(["docs/aria/SPEC.md", "aria-kernel/tests/test_auto_merge.py"])["risk_class"],
+            classify_changed_files([("M", "docs/aria/SPEC.md"), ("A", "aria-kernel/tests/test_auto_merge.py")])["risk_class"],
             "low",
         )
         self.assertNotEqual(
-            classify_changed_files(["e2e/tests/integration/nats-invariants.spec.ts"])["risk_class"],
+            classify_changed_files([("A", "e2e/tests/integration/nats-invariants.spec.ts")])["risk_class"],
             "low",
         )
         self.assertEqual(classify_changed_files(["aria-kernel/aria_kernel/cli.py"])["risk_class"], "forbidden")
         self.assertEqual(
-            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
+            classify_changed_files([("M", "docs/runbooks/auto-merge.md"), ("M", "apps/farm-service/src/app.module.ts")])["risk_class"],
             "mixed",
         )
 
@@ -502,12 +517,25 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             cycle_id="cycle-auto",
+            change=git_change(),
         )
         self.assertTrue(decision["eligible"])
         self.assertEqual(decision["decision"], "eligible")
         rows = (self.tools_dir / "auto-merge-decisions.jsonl").read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(json.loads(rows[-1])["decision"], "eligible")
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
+
+    def test_without_the_git_change_the_platform_list_is_never_l1(self):
+        # ARIA-CRITICAL-215 — the platform's list carries no status.
+        blind = evaluate_auto_merge(pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir)
+        self.assertFalse(blind["eligible"])
+        self.assertIn("enterprise risk policy rejected diff: risk_change_status_unknown", blind["reasons"])
+        stale = evaluate_auto_merge(
+            pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir,
+            change=git_change(head_sha="f" * 40),
+        )
+        self.assertFalse(stale["eligible"])
+        self.assertTrue(any(reason.startswith("auto_merge_change_not_bound_to_pr") for reason in stale["reasons"]))
 
     def test_required_checks_fail_closed_when_unreadable_empty_missing_or_pending(self):
         cases = [

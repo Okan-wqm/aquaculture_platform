@@ -32,6 +32,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 from aria_kernel.canonical_path import matches_repo_glob
+from aria_kernel.change_paths import CHANGE_STATUSES
 from aria_kernel.risk_policy import classify_path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -70,6 +71,13 @@ _NOT_AN_INVOCATION = frozenset({"--prefix", "--cache", "--artifact-dir", "-p", "
 _TEST_MATCH = re.compile(r"testMatch\s*:\s*\[(.*?)\]", re.S)
 _QUOTED = re.compile(r"""['"]([^'"]+)['"]""")
 _DOCS_LITERAL = re.compile(r"""(?<![\w/.-])['"`](docs/[A-Za-z0-9_./-]+)['"`]""")
+
+
+def _ever_l1(path: str) -> bool:
+    """L1 under ANY git status. L1 membership depends on the change's
+    status (a new test is L1, a modified one is not), so a gate path must be
+    non-L1 whatever the change does to it, added included."""
+    return any(classify_path(path, status=status) == "L1" for status in sorted(CHANGE_STATUSES))
 
 
 @lru_cache(maxsize=1)
@@ -259,12 +267,12 @@ class CiGatePathsAreNeverL1Tests(unittest.TestCase):
             path: workflow
             for workflow, files in ci_invoked_paths().items()
             for path in files
-            if classify_path(path) == "L1"
+            if _ever_l1(path)
         }
         self.assertEqual(offenders, {}, "exclude these from L1 in docs/aria/policy/risk-policy.json")
 
     def test_no_docs_file_a_gate_suite_reads_is_l1(self) -> None:
-        offenders = sorted(path for path in gate_read_docs() if classify_path(path) == "L1")
+        offenders = sorted(path for path in gate_read_docs() if _ever_l1(path))
         self.assertEqual(offenders, [], "exclude these from L1 in docs/aria/policy/risk-policy.json")
 
     def test_the_reviews_gate_samples_are_not_l1(self) -> None:
@@ -272,7 +280,7 @@ class CiGatePathsAreNeverL1Tests(unittest.TestCase):
             resolved = _resolve(sample)
             with self.subTest(sample=sample):
                 self.assertTrue(resolved, f"{sample} resolves to no tracked file")
-                self.assertEqual(sorted(path for path in resolved if classify_path(path) == "L1"), [])
+                self.assertEqual(sorted(path for path in resolved if _ever_l1(path)), [])
 
 
 if __name__ == "__main__":

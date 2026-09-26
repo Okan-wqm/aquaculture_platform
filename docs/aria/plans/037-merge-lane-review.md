@@ -34,6 +34,9 @@ veriyor (rename, L1 kapsamı, onay kanıtı).
 | U     | 223, 225, 229, 230, 231    | unlock penceresi; panel bağımsızlığı ve yeniden deneme tavanı; sürüme bağlı precision; yayın sınırları; validated = tip                                 |
 | D     | 232                        | M-6.1, plan 034, BEHAVIOUR, CURRENT_STATE, layer-1 belgeleri koda göre                                                                                  |
 
+Birim L notu: L1 test yolları yalnız yeni dosya (A) kabul eder; mevcut testin değişmesi/silinmesi L2
+(kullanıcı kararı 2026-09-26).
+
 ## Operatör adımları (plan 036'nın listesini değiştirir)
 
 - O1b'de strict yerine: main için **zorunlu merge queue** (squash), 4 zorunlu check, imzalı commit,

@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
-from .change_paths import CHANGE_PATHS_SOURCE, platform_file_list_disagreement, read_change_paths
+from .change_paths import (
+    CHANGE_PATHS_SOURCE,
+    CHANGE_STATUSES,
+    ChangePaths,
+    platform_file_list_disagreement,
+    read_change_paths,
+)
 from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -20,6 +26,13 @@ RISK_POLICY_SCHEMA = "aria/risk-policy/v1"
 # and the merge lane names it with this decision instead of evaluating it.
 HUMAN_MERGE_LABEL = "aria:human-merge"
 HUMAN_MERGE_DECISION = "human_merge_lane"
+# ARIA-CRITICAL-215 (user decision 2026-09-26) — L1 membership is a property
+# of the CHANGE: an L1 entry admits only the git statuses it declares, and
+# no entry may admit more than an added or a modified file. A path whose
+# status is unknown is never L1; its lane reads as STATUS_UNKNOWN_LANE and
+# the change is refused by name.
+L1_ADMISSIBLE_STATUSES: frozenset[str] = frozenset({"A", "M"})
+STATUS_UNKNOWN_LANE = "status_unknown"
 RISK_POLICY_PATH = Path(__file__).resolve().parents[2] / "docs" / "aria" / "policy" / "risk-policy.json"
 CODEOWNERS_PATH = Path(__file__).resolve().parents[2] / ".github" / "CODEOWNERS"
 
@@ -32,6 +45,32 @@ class RiskPolicyVerdict:
     reason_codes: tuple[str, ...]
     changed_files: tuple[str, ...]
     matched_lanes: tuple[str, ...]
+    # The git status of each changed file, aligned with ``changed_files``;
+    # ``None`` where the input carried none.
+    change_statuses: tuple[str | None, ...] = ()
+
+
+ChangeInput = ChangePaths | list[str | dict[str, Any] | tuple[str, str]]
+
+
+def change_entries(changed_files: ChangeInput) -> list[tuple[str | None, str]]:
+    """``(status, raw_path)`` for each item of a change.
+
+    A ``ChangePaths`` (the git read) and a ``(status, path)`` pair carry the
+    git status; a bare path or a platform file-list dict carry none, and a
+    status outside ``change_paths.CHANGE_STATUSES`` is no status. A missing
+    status is ``None``, which no L1 entry admits.
+    """
+    if isinstance(changed_files, ChangePaths):
+        return [(status, path) for status, path in changed_files.entries]
+    entries: list[tuple[str | None, str]] = []
+    for item in changed_files:
+        if isinstance(item, tuple) and len(item) == 2 and all(isinstance(part, str) for part in item):
+            status, path = item
+            entries.append((status if status in CHANGE_STATUSES else None, path))
+        else:
+            entries.append((None, _changed_file_path(item)))
+    return entries
 
 
 def load_risk_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -47,15 +86,24 @@ def risk_policy_hash(policy: dict[str, Any] | None = None) -> str:
 
 
 def classify_change(
-    changed_files: list[str | dict[str, Any]],
+    changed_files: ChangeInput,
     *,
     policy: dict[str, Any] | None = None,
 ) -> RiskPolicyVerdict:
+    """The lane of a change: every path's lane under its git status.
+
+    ``changed_files`` is a ``ChangePaths`` or a list of ``(status, path)``
+    pairs, bare paths or platform file-list dicts (``change_entries``). Only
+    a status lets a path be L1, so a change with an L1-eligible path of
+    unknown status is refused (``risk_change_status_unknown``).
+    """
     active = load_risk_policy(policy)
     policy_hash = risk_policy_hash(active)
     # A whitespace-only name is a legal POSIX name and is classified, not
     # dropped (ARIA-MEDIUM-224); only an entry that names nothing is skipped.
-    raw_paths = [raw for raw in (_changed_file_path(item) for item in changed_files) if raw]
+    entries = [(status, raw) for status, raw in change_entries(changed_files) if raw]
+    raw_paths = [raw for _status, raw in entries]
+    statuses = tuple(status for status, _raw in entries)
     try:
         paths = tuple(normalize_repo_relpath(raw) for raw in raw_paths)
     except GovernanceError:
@@ -88,30 +136,36 @@ def classify_change(
             reason_codes=("risk_blocked_path",),
             changed_files=paths,
             matched_lanes=("blocked",),
+            change_statuses=statuses,
         )
 
     matched: dict[str, list[str]] = {"L1": [], "L2": [], "L3": []}
     unknown: list[str] = []
+    status_unknown: list[str] = []
     owned: list[str] = []
     lanes = active.get("lanes") or {}
     rules = codeowners_rules()
-    for path in paths:
-        lane = _lane_for_path(path, active, rules)
+    for status, path in zip(statuses, paths):
+        lane = _lane_for_path(path, status, active, rules)
         if lane is None:
             unknown.append(path)
+        elif lane == STATUS_UNKNOWN_LANE:
+            status_unknown.append(path)
         else:
             matched[lane].append(path)
             if _is_owned(path, rules):
                 owned.append(path)
-    if unknown:
-        return RiskPolicyVerdict(
-            valid=False,
-            lane="blocked",
-            policy_hash=policy_hash,
-            reason_codes=("risk_unknown_path",),
-            changed_files=paths,
-            matched_lanes=tuple(lane for lane, values in matched.items() if values),
-        )
+    for missing, reason in ((unknown, "risk_unknown_path"), (status_unknown, "risk_change_status_unknown")):
+        if missing:
+            return RiskPolicyVerdict(
+                valid=False,
+                lane="blocked",
+                policy_hash=policy_hash,
+                reason_codes=(reason,),
+                changed_files=paths,
+                matched_lanes=tuple(lane for lane, values in matched.items() if values),
+                change_statuses=statuses,
+            )
     matched_lanes = tuple(lane for lane in ("L1", "L2", "L3") if matched[lane])
     if len(matched_lanes) != 1:
         return RiskPolicyVerdict(
@@ -121,6 +175,7 @@ def classify_change(
             reason_codes=("risk_mixed_lanes",),
             changed_files=paths,
             matched_lanes=matched_lanes,
+            change_statuses=statuses,
         )
     lane = matched_lanes[0]
     lane_policy = lanes.get(lane) if isinstance(lanes, dict) else {}
@@ -133,6 +188,33 @@ def classify_change(
         reason_codes=reasons,
         changed_files=paths,
         matched_lanes=matched_lanes,
+        change_statuses=statuses,
+    )
+
+
+def read_pr_change(pr: dict[str, Any], workspace_root: str | Path | None) -> ChangePaths:
+    """The PR's change as the checkout's git holds it (``change_paths``)."""
+    return read_change_paths(
+        workspace_root,
+        _first_string(pr, "base_sha", "baseRefOid"),
+        _first_string(pr, "head_sha", "headRefOid", "head"),
+    )
+
+
+def decided_change(risk_row: dict[str, Any]) -> ChangePaths | None:
+    """The change a recorded risk decision classified, or None when it read none.
+
+    The merge authority hands this to its eligibility evaluations, so they
+    classify exactly the (status, path) entries the decision read from git,
+    never the platform's status-blind list.
+    """
+    entries = risk_row.get("changed_entries")
+    base_sha, head_sha = risk_row.get("base_sha"), risk_row.get("head_sha")
+    if not isinstance(entries, list) or not entries or not isinstance(base_sha, str) or not isinstance(head_sha, str):
+        return None
+    return ChangePaths(
+        base_rev=base_sha, head_rev=head_sha,
+        entries=tuple((str(status), str(path)) for status, path in entries),
     )
 
 
@@ -157,12 +239,9 @@ def record_risk_decision_for_pr(
     listed_paths = [_changed_file_path(item) for item in listed] if isinstance(listed, list) else []
     listed_count = pr.get("changed_files_count")
     disagreement: str | None = None
+    change: ChangePaths | None = None
     try:
-        change = read_change_paths(
-            workspace_root,
-            _first_string(pr, "base_sha", "baseRefOid"),
-            _first_string(pr, "head_sha", "headRefOid", "head"),
-        )
+        change = read_pr_change(pr, workspace_root)
     except GovernanceError:
         verdict = _refused(policy, "risk_change_paths_unavailable", ())
     else:
@@ -172,7 +251,8 @@ def record_risk_decision_for_pr(
         if disagreement is not None:
             verdict = _refused(policy, "risk_pr_files_disagree_with_git", change.paths)
         else:
-            verdict = classify_change(list(change.paths), policy=policy)
+            # ARIA-CRITICAL-215 — classified with each file's git status.
+            verdict = classify_change(change, policy=policy)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -192,6 +272,7 @@ def record_risk_decision_for_pr(
         "matched_lanes": list(verdict.matched_lanes),
         "base_sha": _first_string(pr, "base_sha", "baseRefOid"),
         "changed_files_source": CHANGE_PATHS_SOURCE,
+        "changed_entries": [[status, path] for status, path in change.entries] if change is not None else [],
         "platform_listed_files": len(listed_paths),
         "platform_file_count": listed_count if type(listed_count) is int else None,
         "platform_disagreement": disagreement,
@@ -224,7 +305,7 @@ def merge_route_for_change(
     except GovernanceError:
         verdict = _refused(policy, "risk_change_paths_unavailable", ())
     else:
-        verdict = classify_change(list(change.paths), policy=policy)
+        verdict = classify_change(change, policy=policy)
     candidate_lanes = load_risk_policy(policy)["auto_merge_candidate_lanes"]
     return {
         "human_merge": not (verdict.valid and verdict.lane in candidate_lanes),
@@ -271,14 +352,46 @@ def _validate_policy(policy: dict[str, Any]) -> None:
         lane_policy = lanes.get(lane)
         if not isinstance(lane_policy, dict):
             raise GovernanceError(f"risk_policy_lane_required:{lane}")
+        if lane == "L1":
+            _validate_l1_lane(lane_policy)
+            continue
         globs = lane_policy.get("globs")
         if not isinstance(globs, list) or not globs or not all(isinstance(item, str) and item.strip() for item in globs):
             raise GovernanceError(f"risk_policy_lane_globs_required:{lane}")
 
 
-def classify_path(path: str, *, policy: dict[str, Any] | None = None) -> str | None:
-    """Lane of ONE normalized repo path: ``blocked``, ``L3``, ``L2``, ``L1``
-    or ``None`` (no lane claims it).
+def _validate_l1_lane(lane_policy: dict[str, Any]) -> None:
+    """ARIA-CRITICAL-215 — every L1 entry declares the statuses it admits.
+
+    A status-blind glob list is refused (``globs`` is not an L1 key): it
+    would admit a change that weakens an existing test. Each entry admits a
+    non-empty subset of ``L1_ADMISSIBLE_STATUSES`` (added, modified), never a
+    deletion or a type change, and a status an entry does not admit falls to
+    ``disallowed_status_lane``, which is never L1.
+    """
+    entries = lane_policy.get("entries")
+    if "globs" in lane_policy or not isinstance(entries, list) or not entries:
+        raise GovernanceError("risk_policy_l1_entries_required")
+    for entry in entries:
+        glob = entry.get("glob") if isinstance(entry, dict) else None
+        if not isinstance(glob, str) or not glob.strip():
+            raise GovernanceError("risk_policy_l1_entry_glob_required")
+        statuses = entry.get("allowed_statuses")
+        if (
+            not isinstance(statuses, list)
+            or not statuses
+            or not all(isinstance(status, str) and status in L1_ADMISSIBLE_STATUSES for status in statuses)
+        ):
+            raise GovernanceError(f"risk_policy_l1_entry_statuses_required:{glob}")
+    if lane_policy.get("disallowed_status_lane") not in ("L2", "L3"):
+        raise GovernanceError("risk_policy_l1_disallowed_status_lane_must_be_L2_or_L3")
+
+
+def classify_path(path: str, *, status: str | None, policy: dict[str, Any] | None = None) -> str | None:
+    """Lane of ONE normalized repo path changed with git ``status``:
+    ``blocked``, ``L3``, ``L2``, ``L1``, ``STATUS_UNKNOWN_LANE`` (only a
+    status could make it L1 and there is none) or ``None`` (no lane claims
+    it).
 
     The single low-risk answer (ARIA-HIGH-187): ``auto_merge`` asks this
     instead of keeping its own copy of the L1 list.
@@ -286,7 +399,7 @@ def classify_path(path: str, *, policy: dict[str, Any] | None = None) -> str | N
     active = load_risk_policy(policy)
     if _matches_any(path, active["blocked_globs"]):
         return "blocked"
-    return _lane_for_path(path, active, codeowners_rules())
+    return _lane_for_path(path, status, active, codeowners_rules())
 
 
 @dataclass(frozen=True)
@@ -361,14 +474,14 @@ def codeowners_globs(path: Path | None = None) -> tuple[str, ...]:
     return tuple(glob for rule in codeowners_rules(path) for glob in rule.globs)
 
 
-def _lane_for_path(path: str, active: dict[str, Any], rules: tuple[CodeownersRule, ...]) -> str | None:
+def _lane_for_path(
+    path: str, status: str | None, active: dict[str, Any], rules: tuple[CodeownersRule, ...],
+) -> str | None:
     if _matches_any(path, active["blocked_globs"]):
         return "blocked"
-    lanes = active.get("lanes") or {}
-    lane = _first_matching_lane(path, lanes)
     if _is_owned(path, rules):
         return str(active["codeowners_lane"])
-    return lane
+    return _first_matching_lane(path, status, active["lanes"])
 
 
 def _is_owned(path: str, rules: tuple[CodeownersRule, ...]) -> bool:
@@ -383,19 +496,29 @@ def _is_owned(path: str, rules: tuple[CodeownersRule, ...]) -> bool:
     return codeowners_last_match(path, rules=rules) is not None
 
 
-# ARIA-CRITICAL-215 — L1 is an explicit allowlist carved out of the
-# supervised trees (a unit test under `apps/**/src/**` is L1, its source L2),
-# and L3 is the exclusion list that outranks it: a path any L3 glob names is
-# never L1, whatever L1 glob also matches it.
-_LANE_PRECEDENCE: tuple[str, ...] = ("L3", "L1", "L2")
+def _first_matching_lane(path: str, status: str | None, lanes: dict[str, Any]) -> str | None:
+    """ARIA-CRITICAL-215 — L3 outranks L1, which outranks L2.
 
-
-def _first_matching_lane(path: str, lanes: dict[str, Any]) -> str | None:
-    for lane in _LANE_PRECEDENCE:
-        lane_policy = lanes.get(lane) if isinstance(lanes, dict) else None
-        globs = lane_policy.get("globs") if isinstance(lane_policy, dict) else None
-        if isinstance(globs, list) and _matches_any(path, globs):
-            return lane
+    L1 is an explicit allowlist carved out of the supervised trees (a new
+    unit test under ``apps/**/src/**`` is L1, its source L2), and L3 is the
+    exclusion list that outranks it. An L1 entry admits only its declared
+    statuses, and a path must be admitted by every L1 entry it matches; any
+    other known status takes ``disallowed_status_lane`` (so modifying,
+    deleting or moving an existing test is L2), and an unknown status is
+    ``STATUS_UNKNOWN_LANE``.
+    """
+    if _matches_any(path, lanes["L3"]["globs"]):
+        return "L3"
+    l1 = lanes["L1"]
+    admitting = [entry for entry in l1["entries"] if matches_repo_glob(path, entry["glob"])]
+    if admitting:
+        if status is None:
+            return STATUS_UNKNOWN_LANE
+        if all(status in entry["allowed_statuses"] for entry in admitting):
+            return "L1"
+        return str(l1["disallowed_status_lane"])
+    if _matches_any(path, lanes["L2"]["globs"]):
+        return "L2"
     return None
 
 
@@ -429,14 +552,19 @@ __all__ = [
     "RISK_POLICY_PATH",
     "CODEOWNERS_PATH",
     "CodeownersRule",
+    "L1_ADMISSIBLE_STATUSES",
     "RiskPolicyVerdict",
+    "STATUS_UNKNOWN_LANE",
+    "change_entries",
     "classify_change",
     "classify_path",
     "codeowners_globs",
     "codeowners_last_match",
     "codeowners_rules",
+    "decided_change",
     "load_risk_policy",
     "merge_route_for_change",
+    "read_pr_change",
     "record_risk_decision_for_pr",
     "risk_policy_hash",
 ]

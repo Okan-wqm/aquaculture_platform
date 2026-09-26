@@ -27,7 +27,7 @@ def _repo_risk_policy() -> dict:
 class RiskLaneRoutingTests(unittest.TestCase):
     def test_docs_and_tests_classify_l1(self) -> None:
         verdict = classify_change(
-            ["docs/runbooks/example.md", "apps/farm-service/src/example.spec.ts"],
+            [("M", "docs/runbooks/example.md"), ("A", "apps/farm-service/src/example.spec.ts")],
             policy=_repo_risk_policy(),
         )
         self.assertTrue(verdict.valid)
@@ -45,7 +45,7 @@ class RiskLaneRoutingTests(unittest.TestCase):
 
     def test_mixed_docs_plus_runtime_blocks(self) -> None:
         verdict = classify_change(
-            ["docs/runbooks/example.md", "apps/farm-service/src/main.ts"],
+            [("M", "docs/runbooks/example.md"), ("M", "apps/farm-service/src/main.ts")],
             policy=_repo_risk_policy(),
         )
         self.assertFalse(verdict.valid)
@@ -83,7 +83,7 @@ class MasterSwitchTests(unittest.TestCase):
         # lane of the enterprise policy is the one answer.
         self.assertNotIn("allowed_low_risk_globs", DEFAULT_POLICY)
         runtime_markers = ("apps/**/src/**", "libs/**/src/**", "web/**/src/**")
-        l1_globs = _repo_risk_policy()["lanes"]["L1"]["globs"]
+        l1_globs = [entry["glob"] for entry in _repo_risk_policy()["lanes"]["L1"]["entries"]]
         for marker in runtime_markers:
             self.assertNotIn(marker, l1_globs)
 

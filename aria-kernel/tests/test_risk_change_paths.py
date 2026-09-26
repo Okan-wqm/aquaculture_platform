@@ -108,7 +108,7 @@ class RenameSourceIsClassifiedTests(_RepoCase):
         # The control: judged by its target only (the pre-fix input), the
         # same move lands in the unreviewed lane.
         base, head = self._rename("docs/runbooks/moved.md")
-        self.assertEqual(classify_change(["docs/runbooks/moved.md"]).lane, "L1")
+        self.assertEqual(classify_change([("A", "docs/runbooks/moved.md")]).lane, "L1")
         row = self._decide(_pr(base, head, ["docs/runbooks/moved.md"], 1))
         self.assertNotEqual(row["lane"], "L1")
         self.assertEqual(row["changed_files"], [".github/workflows/x.yml", "docs/runbooks/moved.md"])

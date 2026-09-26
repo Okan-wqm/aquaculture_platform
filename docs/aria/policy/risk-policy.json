@@ -22,16 +22,17 @@
   ],
   "lanes": {
     "L1": {
-      "reason_code": "docs_and_unit_tests_low_risk",
-      "globs": [
-        "docs/**/*.md",
-        "apps/**/__tests__/**",
-        "libs/**/__tests__/**",
-        "web/**/__tests__/**",
-        "apps/**/src/**/*.spec.ts",
-        "libs/**/src/**/*.spec.ts",
-        "web/**/src/**/*.spec.ts"
-      ]
+      "reason_code": "docs_and_new_unit_tests_low_risk",
+      "entries": [
+        { "glob": "docs/**/*.md", "allowed_statuses": ["A", "M"] },
+        { "glob": "apps/**/__tests__/**", "allowed_statuses": ["A"] },
+        { "glob": "libs/**/__tests__/**", "allowed_statuses": ["A"] },
+        { "glob": "web/**/__tests__/**", "allowed_statuses": ["A"] },
+        { "glob": "apps/**/src/**/*.spec.ts", "allowed_statuses": ["A"] },
+        { "glob": "libs/**/src/**/*.spec.ts", "allowed_statuses": ["A"] },
+        { "glob": "web/**/src/**/*.spec.ts", "allowed_statuses": ["A"] }
+      ],
+      "disallowed_status_lane": "L2"
     },
     "L2": {
       "reason_code": "runtime_behavior_supervised",

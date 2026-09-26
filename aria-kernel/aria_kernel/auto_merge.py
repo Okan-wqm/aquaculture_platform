@@ -13,7 +13,15 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .risk_policy import HUMAN_MERGE_DECISION, HUMAN_MERGE_LABEL, classify_path
+from .change_paths import ChangePaths
+from .risk_policy import (
+    HUMAN_MERGE_DECISION,
+    HUMAN_MERGE_LABEL,
+    STATUS_UNKNOWN_LANE,
+    ChangeInput,
+    change_entries,
+    classify_path,
+)
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -124,23 +132,38 @@ def normalize_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def classify_changed_files(
-    changed_files: list[str | dict[str, Any]],
+    changed_files: ChangeInput,
     *,
     policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Path-class risk of a change, from each file's git status.
+
+    ARIA-CRITICAL-215 — ``changed_files`` carries statuses when it is the git
+    read (``ChangePaths``, ``(status, path)`` pairs); a platform file list
+    carries none, and a path only a status could make low-risk is then
+    ``status_unknown``, never low.
+    """
     active_policy = normalize_policy(policy)
-    paths = [_changed_file_path(item) for item in changed_files]
-    paths = [path for path in paths if path]
+    entries = [
+        (status, _changed_file_path(raw)) for status, raw in change_entries(changed_files) if raw
+    ]
+    entries = [(status, path) for status, path in entries if path]
+    paths = [path for _status, path in entries]
     low_risk: list[str] = []
     forbidden: list[str] = []
     unknown: list[str] = []
-    for path in paths:
+    status_unknown: list[str] = []
+    for status, path in entries:
+        lane = classify_path(path, status=status)
         if _matches_any(path, active_policy["hard_forbidden_globs"]):
             forbidden.append(path)
-        elif classify_path(path) == "L1":
+        elif lane == "L1":
             # ARIA-HIGH-187: the ONE low-risk answer is the enterprise
             # policy's L1 lane (CODEOWNERS-aware); no private copy here.
             low_risk.append(path)
+        elif lane == STATUS_UNKNOWN_LANE:
+            status_unknown.append(path)
+            unknown.append(path)
         elif _matches_any(path, active_policy["runtime_forbidden_globs"]):
             forbidden.append(path)
         elif _matches_any(path, active_policy["config_forbidden_globs"]):
@@ -165,7 +188,7 @@ def classify_changed_files(
     try:
         from .risk_policy import classify_change
 
-        verdict = classify_change(paths)
+        verdict = classify_change([(status, path) if status else path for status, path in entries])
         enterprise_risk = {
             "valid": verdict.valid,
             "lane": verdict.lane,
@@ -190,6 +213,7 @@ def classify_changed_files(
         "low_risk_files": low_risk,
         "forbidden_files": forbidden,
         "unknown_files": unknown,
+        "status_unknown_files": status_unknown,
     }
 
 
@@ -202,7 +226,17 @@ def evaluate_auto_merge(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    change: ChangePaths | None = None,
 ) -> dict[str, Any]:
+    """Whether ``pr`` may auto-merge; records the decision.
+
+    ``change`` is the git read of the PR's change (the merge authority's
+    risk decision, ``risk_policy.decided_change``). Path risk is classified
+    from its (status, path) entries when it is bound to the PR's head (and
+    base, when the PR names one). Without it the platform's file list is
+    all there is, which carries no status: nothing in it can be L1
+    (ARIA-CRITICAL-215).
+    """
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
     pr_number = pr.get("number")
@@ -220,7 +254,13 @@ def evaluate_auto_merge(
     changed_files = pr.get("changed_files", pr.get("files", []))
     if not isinstance(changed_files, list):
         changed_files = []
-    risk = classify_changed_files(changed_files, policy=active_policy)
+    pr_base_sha = _first_string(pr, "base_sha", "baseRefOid")
+    if change is not None and change.head_rev == head_sha and (pr_base_sha is None or change.base_rev == pr_base_sha):
+        risk = classify_changed_files(change, policy=active_policy)
+    else:
+        if change is not None:
+            reasons.append("auto_merge_change_not_bound_to_pr: the git change read is not this PR head")
+        risk = classify_changed_files(changed_files, policy=active_policy)
 
     # Plan 022 §H-2 — diff content scan. classify_changed_files only
     # looks at path globs; pre-fix a low-risk path (apps/**/*.ts) could
@@ -293,7 +333,8 @@ def evaluate_auto_merge(
         reasons.append(f"diff risk is {risk['risk_class']}")
     enterprise_risk = risk.get("enterprise_risk")
     if not isinstance(enterprise_risk, dict) or enterprise_risk.get("valid") is not True:
-        reasons.append("enterprise risk policy rejected diff")
+        codes = enterprise_risk.get("reason_codes") if isinstance(enterprise_risk, dict) else None
+        reasons.append("enterprise risk policy rejected diff: " + ", ".join(str(code) for code in codes or []))
     elif enterprise_risk.get("lane") != "L1":
         reasons.append(f"enterprise risk lane {enterprise_risk.get('lane')} is not auto-merge eligible")
 
@@ -673,6 +714,7 @@ def _merge_if_green_with_executor(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    change: ChangePaths | None = None,
 ) -> dict[str, Any]:
     if not dry_run:
         raise GovernanceError(
@@ -702,6 +744,7 @@ def _merge_if_green_with_executor(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        change=change,
     )
     return decision
 
@@ -715,6 +758,7 @@ def merge_if_green(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    change: ChangePaths | None = None,
 ) -> dict[str, Any]:
     return _merge_if_green_with_executor(
         adapter=adapter,
@@ -724,6 +768,7 @@ def merge_if_green(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        change=change,
     )
 
 

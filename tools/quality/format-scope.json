@@ -38968,6 +38968,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/registry-single-writer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/schema-drift-response.md",
       "prettier_managed": true
     },
@@ -48412,6 +48418,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/finance-derived-source-category-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/finding-closure-reconcile-selfheal.spec.ts",
       "prettier_managed": true
     },
     {

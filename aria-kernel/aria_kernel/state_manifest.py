@@ -731,6 +731,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # branch-protection proof's source_ledger_ref resolves into. Observation
     # class: recording what GitHub REPORTS is a read, not a merge action.
     StateSurface("enterprise_branch_protection_snapshots", "enterprise/branch-protection-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-210 — the on-demand protection verdict (`readiness
+    # probe-branch-protection`). Observation class: it binds to no PR head,
+    # so it is a measurement, never a proof a claim can consume.
+    StateSurface("enterprise_branch_protection_probes", "enterprise/branch-protection-probes.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # F5-d (ORPHAN-694) — the acquired remote-CAS lease, snapshotted so the
     # remote-cas proof's source ref resolves into a ledger row.
     StateSurface("enterprise_remote_cas_lease_snapshots", "enterprise/remote-cas-lease-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),

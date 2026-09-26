@@ -266,6 +266,190 @@ class BranchRulesProbeTests(unittest.TestCase):
         self.assertNotIn("branch_protection_bypass_actors_forbidden", reasons)
 
 
+class OnDemandProtectionProbeTests(unittest.TestCase):
+    """ARIA-HIGH-210 — branch protection is measurable on demand, without a
+    PR: the same measurement the claim producer runs, judged by the same
+    policy the claim gate enforces, recorded in a declared ledger row."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _probe(self, payload=None, rules=None, ok=True, reasons=()):
+        from aria_kernel.readiness_proofs import probe_branch_protection_on_demand
+
+        return probe_branch_protection_on_demand(
+            repo="okan/aqua", branch="main", base_dir=self.tools,
+            probe=_probe_for(payload if payload is not None else _strong_payload(), ok=ok, reasons=reasons),
+            rules_probe=rules or _rules(),
+        )
+
+    def test_strong_protection_is_a_valid_verdict_recorded_in_a_declared_row(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.readiness_proofs import BP_PROBES_LEDGER_PATH, BP_PROBES_SURFACE
+
+        row = self._probe()
+        self.assertIs(row["valid"], True)
+        self.assertEqual(row["reasons"], [])
+        self.assertEqual(row["repo"], "okan/aqua")
+        self.assertEqual(row["branch"], "main")
+        self.assertEqual(row["proof"]["bypass_actors"], [])
+        rows = load_declared_jsonl(self.tools / BP_PROBES_LEDGER_PATH, expected_surface=BP_PROBES_SURFACE)
+        self.assertEqual([r["row_id"] for r in rows], [row["row_id"]])
+        resolved = find_row_by_source_ledger_ref(self.tools, row["proof"]["source_ledger_ref"])
+        self.assertEqual(resolved["payload_hash"], row["proof"]["snapshot_hash"])
+
+    def test_verdict_carries_every_claim_gate_reason(self) -> None:
+        weak = dict(_strong_payload(), required_pull_request_reviews={"required_approving_review_count": 0})
+
+        def unmeasured(*, repo, branch):
+            return [101], None
+
+        row = self._probe(payload=weak, rules=unmeasured)
+        self.assertIs(row["valid"], False)
+        for reason in (
+            "bypass_actors_unmeasured",
+            "branch_protection_bypass_actors_unmeasured",
+            "branch_protection_proof_invalid",
+            "branch_protection_code_owner_reviews_required",
+        ):
+            self.assertIn(reason, row["reasons"])
+
+    def test_missing_ruleset_is_named(self) -> None:
+        row = self._probe(rules=_rules(ruleset_ids=()))
+        self.assertIs(row["valid"], False)
+        self.assertIn("branch_protection_ruleset_ids_required", row["reasons"])
+
+    def test_claim_gate_and_probe_share_one_policy(self) -> None:
+        import inspect
+
+        from aria_kernel import enterprise_readiness, readiness_proofs
+
+        self.assertIn(
+            "branch_protection_policy_reasons",
+            inspect.getsource(enterprise_readiness._evaluate_branch_protection),
+        )
+        self.assertIn(
+            "branch_protection_policy_reasons",
+            inspect.getsource(readiness_proofs.probe_branch_protection_on_demand),
+        )
+
+
+class ProbeBranchProtectionCliTests(unittest.TestCase):
+    """ARIA-HIGH-210 — `readiness probe-branch-protection` runs the producer
+    through the existing gh CLI + GH_TOKEN path (faked here)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _fake_gh(protection: dict, ruleset_detail: dict, calls: list):
+        import json
+        import subprocess
+
+        def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
+            calls.append(list(argv))
+            path = argv[-1]
+            if path == "repos/okan/aqua/branches/main/protection":
+                body = protection
+            elif path == "repos/okan/aqua/rules/branches/main":
+                body = [{"type": "pull_request", "ruleset_id": 101}]
+            elif path == "repos/okan/aqua/rulesets/101":
+                body = ruleset_detail
+            else:
+                return subprocess.CompletedProcess(argv, 1, "", f"unexpected {path}")
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+        return run
+
+    def _cli(self, protection: dict, ruleset_detail: dict, *, token: str | None = "t0k"):
+        import contextlib
+        import io
+        import json
+        import subprocess
+        from unittest.mock import patch
+
+        from aria_kernel.cli import main as cli_main
+
+        calls: list = []
+        out = io.StringIO()
+        with patch.object(subprocess, "run", self._fake_gh(protection, ruleset_detail, calls)), \
+                patch("aria_kernel.preflight._gh_available", return_value=True), \
+                patch("aria_kernel.preflight._read_gh_token", return_value=token), \
+                contextlib.redirect_stdout(out):
+            code = cli_main([
+                "readiness", "probe-branch-protection",
+                "--tools-dir", str(self.tools), "--repo", "okan/aqua",
+            ])
+        return code, json.loads(out.getvalue()), calls
+
+    @staticmethod
+    def _live_payload() -> dict:
+        # The real preflight probe also requires strict up-to-date checks.
+        payload = _strong_payload()
+        payload["required_status_checks"] = dict(payload["required_status_checks"], strict=True)
+        return payload
+
+    def test_valid_protection_exits_zero_and_records_the_row(self) -> None:
+        from aria_kernel.readiness_proofs import BP_PROBES_LEDGER_PATH
+
+        code, verdict, calls = self._cli(self._live_payload(), {"id": 101, "bypass_actors": []})
+        self.assertEqual(code, 0)
+        self.assertIs(verdict["valid"], True)
+        self.assertEqual(verdict["reasons"], [])
+        self.assertEqual(verdict["branch"], "main")
+        self.assertTrue((self.tools / BP_PROBES_LEDGER_PATH).exists())
+        self.assertEqual(
+            [c[-1] for c in calls],
+            [
+                "repos/okan/aqua/branches/main/protection",
+                "repos/okan/aqua/rules/branches/main",
+                "repos/okan/aqua/rulesets/101",
+            ],
+        )
+
+    def test_unmeasured_bypass_actors_exit_nonzero_by_name(self) -> None:
+        code, verdict, _calls = self._cli(self._live_payload(), {"id": 101})
+        self.assertEqual(code, 1)
+        self.assertIs(verdict["valid"], False)
+        self.assertIn("bypass_actors_unmeasured", verdict["reasons"])
+
+    def test_unreachable_github_is_a_named_failure_not_a_verdict(self) -> None:
+        code, verdict, calls = self._cli(_strong_payload(), {"id": 101, "bypass_actors": []}, token=None)
+        self.assertEqual(code, 2)
+        self.assertIs(verdict["valid"], False)
+        self.assertTrue(any("gh_token_absent" in r for r in verdict["reasons"]))
+        self.assertEqual(calls, [])
+
+
+class ReadinessClaimDispatchTests(unittest.TestCase):
+    """ARIA-HIGH-210 — a manual dispatch of the claim lane has no
+    workflow_run; it must fail by name instead of skipping green."""
+
+    def test_dispatch_without_a_workflow_run_fails_by_name(self) -> None:
+        import yaml  # type: ignore[import-untyped]
+
+        repo = Path(__file__).resolve().parents[2]
+        workflow = yaml.safe_load(
+            (repo / ".github" / "workflows" / "aria-readiness-claim.yml").read_text(encoding="utf-8")
+        )
+        steps = {step.get("name"): step for step in workflow["jobs"]["claim"]["steps"]}
+        run = steps["Resolve the PR for the completed run"]["run"]
+        guard = run.index("readiness_claim_requires_workflow_run")
+        self.assertLess(guard, run.index("gh api"))
+        self.assertIn("exit 1", run[guard:run.index("gh api")])
+        self.assertIn("probe-branch-protection", run[guard:run.index("gh api")])
+
+
 class RemoteCasProofTests(unittest.TestCase):
     """F5-d — the lease mechanism's first production caller."""
 

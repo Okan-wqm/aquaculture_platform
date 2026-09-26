@@ -54,6 +54,10 @@ BP_SNAPSHOTS_SURFACE = "enterprise_branch_protection_snapshots"
 BP_SNAPSHOTS_LEDGER_PATH = "enterprise/branch-protection-snapshots.jsonl"
 BP_SNAPSHOT_ROW_TYPE = "branch_protection_snapshot"
 BRANCH_PROTECTION_PROOF_SCHEMA = "aria/branch-protection-proof/v3"
+# ARIA-HIGH-210 — on-demand (PR-less) protection verdicts.
+BP_PROBES_SURFACE = "enterprise_branch_protection_probes"
+BP_PROBES_LEDGER_PATH = "enterprise/branch-protection-probes.jsonl"
+BP_PROBE_ROW_TYPE = "branch_protection_probe"
 
 # F5-d (ORPHAN-694) — remote-cas lease snapshot surface (family convention:
 # one snapshot ledger per proof family, matching the per-family proof
@@ -318,6 +322,69 @@ def _measured_protection_fields(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _measure_branch_protection(
+    *,
+    repo: str,
+    branch: str,
+    base_dir: str | Path | None,
+    probe: Any,
+    rules_probe: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Probe → snapshot row → the measured, binding-free proof body.
+
+    The one measurement both the PR-bound producer and the on-demand
+    probe run (ARIA-HIGH-210): returns ``(snapshot_row, proof_body)``.
+    Fails closed: no payload → no snapshot → GovernanceError.
+    """
+    if probe is None:
+        from .preflight import probe_branch_protection as probe
+    if rules_probe is None:
+        rules_probe = _probe_branch_rules
+
+    ok, reasons, payload = probe(branch=branch, repo=repo)
+    if payload is None:
+        raise GovernanceError(
+            f"branch_protection_probe_no_payload: {';'.join(reasons) or 'unknown'}"
+        )
+    root = ensure_tools_dir(base_dir)
+    snapshot = record_branch_protection_snapshot(
+        payload, repo=repo, branch=branch,
+        probe_ok=ok, probe_reasons=reasons, base_dir=root,
+    )
+    source_ledger_ref = ledger_ref_for_row(
+        surface=BP_SNAPSHOTS_SURFACE,
+        ledger_path=BP_SNAPSHOTS_LEDGER_PATH,
+        row_id=str(snapshot["row_id"]),
+        row_type=str(snapshot["row_type"]),
+        row=snapshot,
+    )
+    ruleset_ids, bypass_actors = rules_probe(repo=repo, branch=branch)
+    # ARIA-HIGH-207 — the bypass-actor verdict is part of the proof's own
+    # validity, named like every other probe reason: an unmeasured field
+    # (None) and a measured non-empty list are both red; only a measured
+    # empty list is green.
+    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors))
+    measured = _measured_protection_fields(payload)
+    body: dict[str, Any] = {
+        "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
+        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS
+        # AND the exact-checks comparison the claim gate will re-run —
+        # recorded here so a red proof names itself before any claim reads it.
+        "valid": bool(
+            ok
+            and bypass_actors == []
+            and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
+        ),
+        "snapshot_hash": snapshot["payload_hash"],
+        "ruleset_ids": list(ruleset_ids),
+        "bypass_actors": None if bypass_actors is None else list(bypass_actors),
+        "probe_reasons": list(reasons),
+        "source_ledger_ref": source_ledger_ref,
+        **measured,
+    }
+    return snapshot, body
+
+
 def produce_branch_protection_proof(
     *,
     pr_number: int,
@@ -343,56 +410,17 @@ def produce_branch_protection_proof(
     the honest split between measurement and policy.
     """
     _require_binding(pr_number=pr_number, repo=repo, target_ref=target_ref, head_ref=head_ref, head_sha=head_sha)
-    if probe is None:
-        from .preflight import probe_branch_protection as probe
-    if rules_probe is None:
-        rules_probe = _probe_branch_rules
-
-    ok, reasons, payload = probe(branch=target_ref, repo=repo)
-    if payload is None:
-        raise GovernanceError(
-            f"branch_protection_probe_no_payload: {';'.join(reasons) or 'unknown'}"
-        )
     root = ensure_tools_dir(base_dir)
-    snapshot = record_branch_protection_snapshot(
-        payload, repo=repo, branch=target_ref,
-        probe_ok=ok, probe_reasons=reasons, base_dir=root,
+    snapshot, body = _measure_branch_protection(
+        repo=repo, branch=target_ref, base_dir=root, probe=probe, rules_probe=rules_probe,
     )
-    source_ledger_ref = ledger_ref_for_row(
-        surface=BP_SNAPSHOTS_SURFACE,
-        ledger_path=BP_SNAPSHOTS_LEDGER_PATH,
-        row_id=str(snapshot["row_id"]),
-        row_type=str(snapshot["row_type"]),
-        row=snapshot,
-    )
-    ruleset_ids, bypass_actors = rules_probe(repo=repo, branch=target_ref)
-    # ARIA-HIGH-207 — the bypass-actor verdict is part of the proof's own
-    # validity, named like every other probe reason: an unmeasured field
-    # (None) and a measured non-empty list are both red; only a measured
-    # empty list is green.
-    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors))
-    measured = _measured_protection_fields(payload)
     proof: dict[str, Any] = {
-        "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
         "repo": repo,
         "pr_number": pr_number,
         "target_ref": target_ref,
         "head_ref": head_ref,
         "head_sha": head_sha,
-        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS
-        # AND the exact-checks comparison the claim gate will re-run —
-        # recorded here so a red proof names itself before any claim reads it.
-        "valid": bool(
-            ok
-            and bypass_actors == []
-            and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
-        ),
-        "snapshot_hash": snapshot["payload_hash"],
-        "ruleset_ids": list(ruleset_ids),
-        "bypass_actors": None if bypass_actors is None else list(bypass_actors),
-        "probe_reasons": list(reasons),
-        "source_ledger_ref": source_ledger_ref,
-        **measured,
+        **body,
     }
     if readiness_claim_id is not None:
         proof["readiness_claim_id"] = readiness_claim_id
@@ -403,8 +431,55 @@ def produce_branch_protection_proof(
         "snapshot": snapshot,
         "proof": recorded,
         "valid": recorded.get("valid"),
-        "probe_reasons": list(reasons),
+        "probe_reasons": list(body["probe_reasons"]),
     }
+
+
+def probe_branch_protection_on_demand(
+    *,
+    repo: str,
+    branch: str = "main",
+    base_dir: str | Path | None = None,
+    probe: Any = None,
+    rules_probe: Any = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-210 — measure a branch's protection with no PR in hand.
+
+    Runs the claim producer's own measurement (``_measure_branch_protection``)
+    and judges it with the claim gate's own policy
+    (``branch_protection_policy_reasons``), so the operator sees, before any
+    PR exists, the exact verdict a readiness claim would receive. The result
+    is a declared observation row: a probe proves nothing about a PR head,
+    so it never enters the PR-bound proof ledger the claim gate binds to.
+    """
+    from .enterprise_readiness import branch_protection_policy_reasons
+
+    if not isinstance(repo, str) or not repo.strip():
+        raise GovernanceError("branch_protection_probe_binding_required:repo")
+    if not isinstance(branch, str) or not branch.strip():
+        raise GovernanceError("branch_protection_probe_binding_required:branch")
+    root = ensure_tools_dir(base_dir)
+    _snapshot, body = _measure_branch_protection(
+        repo=repo, branch=branch, base_dir=root, probe=probe, rules_probe=rules_probe,
+    )
+    policy_reasons = branch_protection_policy_reasons(body)
+    reasons = list(dict.fromkeys([*body["probe_reasons"], *policy_reasons]))
+    recorded_at = utc_now()
+    row = {
+        "schema_version": 1,
+        "recorded_at": recorded_at,
+        "row_id": f"bp-probe:{repo}:{branch}:{body['snapshot_hash'][len('sha256:'):][:12]}:{recorded_at}",
+        "row_type": BP_PROBE_ROW_TYPE,
+        "repo": repo,
+        "branch": branch,
+        "valid": not policy_reasons,
+        "reasons": reasons,
+        "proof": body,
+    }
+    return append_declared_jsonl(
+        root / BP_PROBES_LEDGER_PATH, row,
+        expected_surface=BP_PROBES_SURFACE,
+    )
 
 
 BYPASS_ACTORS_UNMEASURED = "bypass_actors_unmeasured"

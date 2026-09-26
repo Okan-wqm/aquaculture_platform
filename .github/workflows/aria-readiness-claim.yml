@@ -91,13 +91,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_CONTEXT: ${{ github.event.workflow_run.id }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # ARIA-HIGH-210 — a claim is bound to a completed aria-merge-authority
+          # run. A manual dispatch carries none, so it fails here by name
+          # instead of skipping green without measuring anything.
+          if [ -z "${RUN_CONTEXT}" ] || [ -z "${RUN_HEAD_SHA}" ]; then
+            echo "::error::readiness_claim_requires_workflow_run: event=${GITHUB_EVENT_NAME} has no completed aria-merge-authority run to claim. To measure branch protection on demand run: aria-kernel readiness probe-branch-protection --repo ${GITHUB_REPOSITORY} --branch main"
+            exit 1
+          fi
           repo="${GITHUB_REPOSITORY}"
           run_id="${RUN_CONTEXT}"
           # workflow_run.pull_requests is empty for fork PRs and sometimes
           # for same-repo pushes; resolve by head SHA as the honest fallback.
-          head_sha="${{ github.event.workflow_run.head_sha }}"
+          head_sha="${RUN_HEAD_SHA}"
           pr_number="$(gh api "repos/${repo}/commits/${head_sha}/pulls" --jq '.[0].number' || true)"
           if [ -z "${pr_number}" ] || [ "${pr_number}" = "null" ]; then
             echo "No pull request for head ${head_sha}; nothing to claim."

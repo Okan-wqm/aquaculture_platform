@@ -568,29 +568,37 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
         failures.append("branch_protection_required")
         return
     _require_common_binding(claim, proof, "branch_protection", reasons, failures)
+    for reason in branch_protection_policy_reasons(proof):
+        reasons.append(reason)
+        failures.append("branch_protection_required")
+
+
+def branch_protection_policy_reasons(proof: dict[str, Any]) -> list[str]:
+    """Every binding-free reason the claim gate refuses a protection proof for.
+
+    ARIA-HIGH-210 — the ONE protection policy: the claim gate applies it to a
+    PR-bound proof, and ``readiness probe-branch-protection`` applies it to
+    an on-demand measurement, so the operator's verdict cannot drift from the
+    verdict a claim will receive.
+    """
+    reasons: list[str] = []
     if proof.get("$schema") != BRANCH_PROTECTION_SCHEMA:
         reasons.append("branch_protection_proof_schema_must_be_v3")
-        failures.append("branch_protection_required")
     if proof.get("valid") is not True:
         reasons.append("branch_protection_proof_invalid")
-        failures.append("branch_protection_required")
     if not _is_sha256_digest(str(proof.get("snapshot_hash") or "")):
         reasons.append("branch_protection_snapshot_hash_required")
-        failures.append("branch_protection_required")
     checks = proof.get("required_checks")
     exact_checks = proof.get("exact_required_checks")
     if not isinstance(checks, list) or not checks or not all(isinstance(item, str) and item.strip() for item in checks):
         reasons.append("branch_protection_required_checks_required")
-        failures.append("branch_protection_required")
     if (
         not isinstance(exact_checks, list)
         or sorted(str(item) for item in exact_checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS)
     ):
         reasons.append("branch_protection_exact_required_checks_mismatch")
-        failures.append("branch_protection_required")
     if isinstance(checks, list) and sorted(str(item) for item in checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS):
         reasons.append("branch_protection_required_checks_mismatch")
-        failures.append("branch_protection_required")
     for field_name in (
         "signed_commits_required",
         "reviews_required",
@@ -600,7 +608,6 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
     ):
         if proof.get(field_name) is not True:
             reasons.append(f"branch_protection_{field_name}_required")
-            failures.append("branch_protection_required")
     # ARIA-HIGH-201 — the review requirements are measured facts. Owned
     # paths must need their owner (L1 excludes every CODEOWNERS path, so an
     # owner review never blocks an ARIA L1 merge); the approving count must
@@ -608,25 +615,22 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
     # a person, and the proof records which it is rather than implying it.
     if proof.get("code_owner_reviews_required") is not True:
         reasons.append("branch_protection_code_owner_reviews_required")
-        failures.append("branch_protection_required")
     approving = proof.get("required_approving_review_count")
     if not isinstance(approving, int) or isinstance(approving, bool) or approving < 0:
         reasons.append("branch_protection_required_approving_review_count_unmeasured")
-        failures.append("branch_protection_required")
     ruleset_ids = proof.get("ruleset_ids")
     if not isinstance(ruleset_ids, list) or not ruleset_ids:
         reasons.append("branch_protection_ruleset_ids_required")
-        failures.append("branch_protection_required")
     # ARIA-HIGH-207 — an absent or non-list field is unmeasured, which is
     # its own named failure; only a measured empty list passes.
     bypass_actors = proof.get("bypass_actors")
     if not isinstance(bypass_actors, (list, tuple)):
         reasons.append("branch_protection_bypass_actors_unmeasured")
-        failures.append("branch_protection_required")
     elif bypass_actors:
         reasons.append("branch_protection_bypass_actors_forbidden")
-        failures.append("branch_protection_required")
-    _require_source_ledger_ref(proof.get("source_ledger_ref"), "branch_protection", reasons, failures, "branch_protection_required")
+    if not _source_ref_valid(proof.get("source_ledger_ref")):
+        reasons.append("branch_protection_source_ledger_ref_required")
+    return reasons
 
 
 def _evaluate_retention_or_rollback(

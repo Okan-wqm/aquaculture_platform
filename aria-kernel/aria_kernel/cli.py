@@ -1751,6 +1751,15 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_bp.add_argument("--head-ref", required=True)
     readiness_bp.add_argument("--head-sha", required=True)
     readiness_bp.add_argument("--readiness-claim-id", default=None)
+    # ARIA-HIGH-210 — the same measurement on demand, with no PR: the
+    # operator's M1 check, judged by the claim gate's own policy.
+    readiness_probe_bp = add_subparser(
+        readiness_sub,
+        "probe-branch-protection",
+        help="Measure a branch's protection now (no PR), record the verdict row, print every reason.",
+    )
+    readiness_probe_bp.add_argument("--repo", required=True)
+    readiness_probe_bp.add_argument("--branch", default="main")
     # ORPHAN-HIGH-763 — the two lane-side verbs the claim chain was missing.
     # `produce-claim` had NO command entry at all (half of why the F5-g
     # assembler had zero production callers), and `record-ci-report` exposes
@@ -3498,6 +3507,24 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "readiness" and args.readiness_command == "probe-branch-protection":
+        from .readiness_proofs import probe_branch_protection_on_demand
+
+        try:
+            row = probe_branch_protection_on_demand(
+                repo=args.repo, branch=args.branch, base_dir=args.tools_dir,
+            )
+        except GovernanceError as exc:
+            # Unreachable GitHub is not a verdict about the protection: no
+            # row is written and the exit code says so (2, not 1).
+            print(json.dumps({
+                "valid": False, "repo": args.repo, "branch": args.branch,
+                "reasons": [str(exc)],
+            }, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(row, indent=2, sort_keys=True))
+        return 0 if row["valid"] is True else 1
 
     if args.command == "readiness" and args.readiness_command == "record-ci-report":
         from .ci import record_ci_report

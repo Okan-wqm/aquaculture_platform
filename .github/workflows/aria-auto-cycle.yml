@@ -727,6 +727,13 @@ jobs:
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
           MAX_TURNS_PER_RUN: '12'
+          # ARIA-HIGH-208 — the App a delivery mints its PR credential from.
+          # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
+          # never copies the ambient GH_TOKEN (Mode B) into a PR's author.
+          ARIA_REQUIRE_MODE_A: 'true'
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           # Plan 032 Faz 032a — the dispatcher factories poll for an envelope
@@ -753,21 +760,33 @@ jobs:
           ARIA_PROFILE_APPROVAL_REF: >-
             aria-auto-cycle:ceiling=${{ steps.profile_gate.outputs.ceiling }}:l1-unlock=${{ steps.profile_gate.outputs.l1_valid }}:run=${{ github.run_id }}
         run: |
-          # ORPHAN-722 — PR identity. PRs opened with the job token are
-          # authored by github-actions[bot], and GitHub parks bot-PR
-          # workflows in action_required (anti-recursion, not a repo
-          # setting), so ARIA's own PRs could never go green unattended
-          # (#1266/#1195 sat with ZERO check runs). The machine-local
-          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
-          # precedence; the job token stays the fallback so a token-less
-          # runner degrades to today's behavior instead of failing.
+          # ARIA-HIGH-208 (was ORPHAN-722) — PR identity. A PR opened with
+          # the job token is authored by github-actions[bot] and GitHub parks
+          # its workflows in action_required (anti-recursion, not a repo
+          # setting): aria-merge-authority, the readiness claim and the merge
+          # runner never start. Every PR this lane opens goes through a
+          # delivery hold (`delivery_credentials`) that mints its own App
+          # installation token where it is consumed and revokes it after;
+          # ARIA_REQUIRE_MODE_A (env above) makes that mint refuse by name
+          # when the App is not configured, instead of falling back.
+          # The ambient GH_TOKEN below authors no PR: it serves the lane's
+          # own gh reads, from the machine PAT (runner .env) when present.
           if [ -n "${ARIA_GH_TOKEN:-}" ]; then
             export GH_TOKEN="$ARIA_GH_TOKEN"
-            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+            echo "ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)"
           else
-            echo "gh identity: job token fallback"
+            echo "ambient gh identity (reads): job token"
           fi
           set -euo pipefail
+          # The App key, from the secret into a private file in RUNNER_TEMP:
+          # outside the workspace every sandbox binds, removed on any exit.
+          # The PEM leaves the environment before any child process starts;
+          # the mint reads the file through ARIA_GH_APP_PRIVATE_KEY_PATH.
+          KEY_FILE="$RUNNER_TEMP/aria-gh-app-private-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          (umask 077 && printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE")
+          unset ARIA_GH_APP_PRIVATE_KEY
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
           if ! [[ "$MAX_CYCLES" =~ ^[0-9]{1,2}$ ]]; then
             echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2

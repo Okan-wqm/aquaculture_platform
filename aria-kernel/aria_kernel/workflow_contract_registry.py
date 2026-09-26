@@ -313,6 +313,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     ("actions", "read"),
                     ("id-token", "write"),
                 ),
+                # ARIA-HIGH-208 — token_source is the JOB's token. It opens no
+                # PR: the delivery step mints an App installation token per PR
+                # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
+                # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
@@ -445,6 +449,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     # probe's identity claims carry no platform proof.
                     ("id-token", "write"),
                 ),
+                # ARIA-HIGH-208 — token_source is the JOB's token. It opens no
+                # PR: the delivery step mints an App installation token per PR
+                # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
+                # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
@@ -705,6 +713,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 ),
                 retention_days=7,
                 required_permissions=(("contents", "write"), ("actions", "read")),
+                # ARIA-HIGH-208 — minted with
+                # gh_token_factory.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS
+                # (checks, statuses and issues read on top of the default),
+                # pinned by test_readiness_claim_lane.MergeRunnerLaneTests.
                 token_source="github_app:installation",
                 network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-merge-runner-preflight.json",

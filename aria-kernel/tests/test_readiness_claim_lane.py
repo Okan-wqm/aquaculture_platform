@@ -161,6 +161,14 @@ class MergeRunnerLaneTests(unittest.TestCase):
         self.assertIn("mint_installation_token", step["run"])
         self.assertIn('GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run', step["run"])
 
+    def test_the_merge_token_is_minted_with_the_merge_lane_scope(self) -> None:
+        # ARIA-HIGH-208 — the default mint scope has no checks, statuses or
+        # issues read, which the merge gates need; the lane names the set
+        # the factory defines for it rather than spelling one here.
+        run = self.steps["Run the merge lane"]["run"]
+        self.assertIn("MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS", run)
+        self.assertIn("permissions=MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS", run)
+
 
 
 class ProduceClaimCliTests(unittest.TestCase):

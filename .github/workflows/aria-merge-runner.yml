@@ -172,11 +172,17 @@ jobs:
           MERGE_TOKEN="$(TOKEN_DIR="$TOKEN_DIR" python3 -c "
           import os
           from pathlib import Path
-          from aria_kernel.gh_token_factory import mint_installation_token
+          from aria_kernel.gh_token_factory import (
+              MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS,
+              mint_installation_token,
+          )
+          # ARIA-HIGH-208 — the merge gates also read issues, check runs
+          # and commit statuses; the factory names that set.
           lease = mint_installation_token(
               cycle_id='merge-runner-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'],
               workspace_root=os.environ['GITHUB_WORKSPACE'],
               token_dir=os.environ['TOKEN_DIR'],
+              permissions=MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS,
           )
           print(Path(lease.token_file).read_text(encoding='utf-8').strip())
           ")"

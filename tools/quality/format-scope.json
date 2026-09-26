@@ -49779,6 +49779,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/cases/semantic-reference-roles.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/reference-roles/docs/guides/roles.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/plans/_archive/old-plan.md",
       "prettier_managed": true
     },

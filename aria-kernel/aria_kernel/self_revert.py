@@ -161,6 +161,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .change_paths import name_status_args, parse_name_status_z
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
@@ -585,17 +586,22 @@ def _make_revert_commit(candidate: _Candidate, *, worktree: Path, workspace: Pat
 
 def _patch_id(workspace: Path, old: str, new: str) -> tuple[str, list[str]]:
     diff = _git(["diff", old, new], cwd=workspace)
-    # Every path the diff touches: with rename detection a rename names only
-    # its destination, and the source is a path the change removes — the
-    # revert's merge authority is judged on both (ARIA-MEDIUM-227).
-    names = _git(["diff", "--no-renames", "--name-only", old, new], cwd=workspace)
+    # Every path the diff touches, through the one change-path reader
+    # (ARIA-CRITICAL-214): with rename detection a rename names only its
+    # destination, and the source is a path the change removes — the revert's
+    # merge authority is judged on both (ARIA-MEDIUM-227).
+    names = _git(name_status_args(old, new), cwd=workspace)
     if diff.returncode != 0 or names.returncode != 0:
         raise _Terminal(DECISION_FAILED, {"reason": f"diff_unresolvable:{_first_line(diff.stderr or names.stderr)}"})
+    try:
+        files = sorted({path for _status, path in parse_name_status_z(names.stdout)})
+    except GovernanceError as exc:
+        raise _Terminal(DECISION_FAILED, {"reason": f"diff_unresolvable:{str(exc)[:160]}"}) from exc
     patch_id = ""
     if diff.stdout.strip():
         computed = _git(["patch-id", "--stable"], cwd=workspace, input_text=diff.stdout)
         patch_id = (computed.stdout.split() or [""])[0]
-    return patch_id, sorted(line for line in names.stdout.splitlines() if line.strip())
+    return patch_id, files
 
 
 def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> dict[str, Any]:

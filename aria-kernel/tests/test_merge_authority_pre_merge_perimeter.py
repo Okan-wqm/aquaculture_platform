@@ -1023,6 +1023,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
             "body": "Review this exact implementation revision.",
             "url": "https://github.com/fixture-owner/fixture-repo/pull/732",
             "files": [{"path": "apps/farm-service/src/sample-interval.ts"}],
+            "changedFiles": 1,
             "reviews": [], "reviewDecision": "APPROVED",
         }
 
@@ -1041,6 +1042,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         self.assertEqual(projected["head_sha"], native_pr["headRefOid"])
         self.assertEqual(projected["base_branch"], native_pr["baseRefName"])
         self.assertEqual(projected["changed_files"], native_pr["files"])
+        self.assertEqual(projected["changed_files_count"], native_pr["changedFiles"])
         self.assertEqual(projected["repository"], "fixture-owner/fixture-repo")
         self.assertEqual(transport.call_count, 2)
 

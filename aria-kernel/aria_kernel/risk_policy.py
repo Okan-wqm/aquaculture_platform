@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
+from .change_paths import CHANGE_PATHS_SOURCE, platform_file_list_disagreement, read_change_paths
 from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -131,14 +132,40 @@ def classify_change(
 def record_risk_decision_for_pr(
     pr: dict[str, Any],
     *,
+    workspace_root: str | Path | None,
     base_dir: str | Path | None = None,
     policy: dict[str, Any] | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
-    changed_files = pr.get("changed_files", pr.get("files", []))
-    if not isinstance(changed_files, list):
-        changed_files = []
-    verdict = classify_change(changed_files, policy=policy)
+    """Classify the PR's change as git holds it, and record the decision.
+
+    ARIA-CRITICAL-214 — the path set is read from the checkout at
+    ``workspace_root`` (``change_paths.read_change_paths``: rename sources
+    kept, never capped), not taken from the platform's file list, which
+    names only the new side of a rename and stops at 100 entries. That list
+    is a cross-check: when it cannot describe the git change, the decision
+    is refused by name. There is no way to hand this function a path list.
+    """
+    listed = pr.get("changed_files", pr.get("files", []))
+    listed_paths = [_changed_file_path(item) for item in listed] if isinstance(listed, list) else []
+    listed_count = pr.get("changed_files_count")
+    disagreement: str | None = None
+    try:
+        change = read_change_paths(
+            workspace_root,
+            _first_string(pr, "base_sha", "baseRefOid"),
+            _first_string(pr, "head_sha", "headRefOid", "head"),
+        )
+    except GovernanceError:
+        verdict = _refused(policy, "risk_change_paths_unavailable", ())
+    else:
+        disagreement = platform_file_list_disagreement(
+            change, listed_paths=listed_paths, listed_count=listed_count,
+        )
+        if disagreement is not None:
+            verdict = _refused(policy, "risk_pr_files_disagree_with_git", change.paths)
+        else:
+            verdict = classify_change(list(change.paths), policy=policy)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -156,11 +183,27 @@ def record_risk_decision_for_pr(
         "reason_codes": list(verdict.reason_codes),
         "changed_files": list(verdict.changed_files),
         "matched_lanes": list(verdict.matched_lanes),
+        "base_sha": _first_string(pr, "base_sha", "baseRefOid"),
+        "changed_files_source": CHANGE_PATHS_SOURCE,
+        "platform_listed_files": len(listed_paths),
+        "platform_file_count": listed_count if type(listed_count) is int else None,
+        "platform_disagreement": disagreement,
     }
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "risk-decisions.jsonl",
         row,
         expected_surface="enterprise_risk_decisions",
+    )
+
+
+def _refused(policy: dict[str, Any] | None, reason: str, paths: tuple[str, ...]) -> RiskPolicyVerdict:
+    return RiskPolicyVerdict(
+        valid=False,
+        lane="blocked",
+        policy_hash=risk_policy_hash(policy),
+        reason_codes=(reason,),
+        changed_files=paths,
+        matched_lanes=(),
     )
 
 

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from aria_kernel.auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_green
 from aria_kernel.auto_merge_runners import resolve_readiness_claim_id_from_claims
+from aria_kernel.change_paths import ChangePaths
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
@@ -36,6 +37,7 @@ def pr(**overrides):
         "head_ref": "feature/docs",
         "head_sha": "abc1234",
         "changed_files": ["docs/runbooks/auto-merge.md"],
+        "changed_files_count": 1,
         "reviews": [],
         # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
         # default fixture supplies a clean docs-only patch so existing
@@ -125,6 +127,19 @@ class AutoMergeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools_dir)
+        # ARIA-CRITICAL-214 — the merge authority's risk decision reads the
+        # change from a git checkout. These snapshot fixtures carry no
+        # repository (the reason the perimeter is stubbed below as well), so
+        # the git read answers with the fixture PR's one docs path; the
+        # reader itself is pinned in test_risk_change_paths.py.
+        change_paths = patch(
+            "aria_kernel.risk_policy.read_change_paths",
+            return_value=ChangePaths(
+                base_rev="d" * 40, head_rev=HEAD_SHA, entries=(("M", "docs/runbooks/auto-merge.md"),),
+            ),
+        )
+        change_paths.start()
+        self.addCleanup(change_paths.stop)
 
     def tearDown(self):
         self.tmp.cleanup()

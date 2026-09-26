@@ -171,6 +171,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .change_paths import name_status_args, parse_name_status_z
 from .delivery_credentials import (
     DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
     DELIVERY_CREDENTIAL_WORST_CASE_SECONDS,
@@ -246,8 +247,8 @@ KERNEL_STAMPED_DELIVERY_FIELDS: tuple[str, ...] = (
 )
 _PUSH_REMOTE = "origin"
 # The git subprocesses `deliver_implementation` runs, each at the store's git
-# cap: the tip's `rev-parse`, `diff --name-only` (the scope verdict), the
-# push, and `diff` (the stamp's hash).
+# cap: the tip's `rev-parse`, `diff --name-status --no-renames` (the scope
+# verdict), the push, and `diff` (the stamp's hash).
 DELIVERY_GIT_CALLS = 4
 # The `commit_identity` stage's own bounded subprocess: one `git
 # verify-commit` (round 4). Its registry read and anchor write are work,
@@ -727,10 +728,16 @@ def deliver_implementation(
     # 1. The scope verdict: the diff's own file list (never the agent's word
     #    for it) against the plan's intended surfaces, the agent's
     #    dispositions. Refused by name BEFORE the tip's suite executes.
-    touched = _git(["diff", "--name-only", base_sha, branch_tip_sha], cwd=workspace, env=git_env)
+    #    ARIA-CRITICAL-214 — read through the one change-path reader: a
+    #    rename is its source AND its target, so moving an unplanned file
+    #    into a planned path is refused by the scope verdict for its source.
+    touched = _git(name_status_args(base_sha, branch_tip_sha), cwd=workspace, env=git_env)
     if touched.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(touched.stderr)}")
-    actual_affected_files = sorted(line.strip() for line in touched.stdout.splitlines() if line.strip())
+    try:
+        actual_affected_files = sorted({path for _status, path in parse_name_status_z(touched.stdout)})
+    except GovernanceErrorType as exc:
+        raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{str(exc)[:160]}") from exc
     try:
         verify_change_scope(
             change_id=change_id, actual_affected_files=actual_affected_files,

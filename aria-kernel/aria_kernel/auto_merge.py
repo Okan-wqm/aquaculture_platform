@@ -806,7 +806,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,reviews,reviewDecision",
+                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,reviews,reviewDecision",
             ],
         )
         return {
@@ -825,6 +825,10 @@ class GhCliGitHubAdapter:
             "body": payload.get("body"),
             "url": payload.get("url"),
             "changed_files": payload.get("files", []),
+            # ARIA-CRITICAL-214 — `files` is capped at 100 entries and names
+            # a rename by its target only; `changedFiles` is the uncapped
+            # count the risk decision cross-checks the git change against.
+            "changed_files_count": payload.get("changedFiles"),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
         }

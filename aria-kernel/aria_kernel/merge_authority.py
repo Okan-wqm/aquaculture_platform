@@ -88,8 +88,12 @@ def merge_pr_if_ready(
     # adapter too, so a freeze the cycle has not yet published stops merges.
     assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, adapter=adapter, base_dir=base_dir)
 
+    # ARIA-CRITICAL-214 — the change is classified as the checkout's git
+    # holds it (rename sources included), never from the platform's
+    # rename-blind, 100-entry file list alone.
     risk = record_risk_decision_for_pr(
         live_pr,
+        workspace_root=workspace_root,
         base_dir=base_dir,
         cycle_id=cycle_id,
     )
@@ -373,6 +377,7 @@ def _capture_pre_merge_context(
 
     from . import agent_invocations as _invocations
     from . import plan_convergence as _plans
+    from .change_paths import read_change_paths as _read_change_paths
     from .implementation_safety import _PreMergeEvidence
     from .ledger import LedgerIntegrityError as _LedgerIntegrityError
     from .ledger import _verify_jsonl_from_text
@@ -529,9 +534,10 @@ def _capture_pre_merge_context(
         if snapshot.get("base_commit_sha") != head_sha or snapshot.get("unknown_count") != 0:
             raise GovernanceError(reason)
         reason = "committed_paths_unavailable"
-        changed_paths = sorted(filter(None, _git(
-            workspace, "diff", "--name-only", "-z", base_sha, head_sha,
-        ).split("\0")))
+        # ARIA-CRITICAL-214 — the one reader of a change's paths (rename
+        # sources kept), the same one the delivery recorded
+        # actual_affected_files with.
+        changed_paths = list(_read_change_paths(workspace, base_sha, head_sha).paths)
         if changed_paths != sorted(committed.get("actual_affected_files") or []):
             raise GovernanceError(reason)
 

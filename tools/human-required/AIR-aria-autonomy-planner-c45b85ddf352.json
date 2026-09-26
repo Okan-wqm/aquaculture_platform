@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_f6c66d4672729ae4",
+    "code": "agent_refused:evidence",
+    "kind": "executor_escalation",
+    "reason_class": "evidence",
+    "reason_summary": "Refused on evidence: this request carries no admissible evidence ref, so neither branch of queue_item_projected can be taken honestly.\n\nWhat an admissible ref is: `<repo-relative path>[:<line>]` resolving to a file at the snapshot SHA \u2014 the rule evidence_validator._check_agent_ref enforces, and the same rule under which a bare finding id such as F-019 is rejected. The sole evidence payload delivered here is `qi-d7e8865d8b84`, a queue-item id. It resolves to no file, so it is not a ref I may cite...",
+    "request_id": "AIR-aria-autonomy-planner-c45b85ddf352",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:evidence: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-09-26T01:23:49Z",
+  "request_id": "AIR-aria-autonomy-planner-c45b85ddf352",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-03T01:23:49Z",
+  "status": "open"
+}

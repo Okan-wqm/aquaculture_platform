@@ -1,7 +1,7 @@
 # Runbook: Rebuilding the ARIA self-hosted runner
 
 **Owner:** ARIA operator
-**Related:** ORPHAN-HIGH-722 (PAT identity), ORPHAN-CRITICAL-591
+**Related:** ARIA-HIGH-208 (App PR identity; was ORPHAN-HIGH-722), ORPHAN-CRITICAL-591
 (managed-login outage), RC-9 (`ensure-sandbox-backend`), Plan PROGRAM D
 task HB-1
 **Target:** fresh Ubuntu droplet → both ARIA lanes green in **≤ 1 hour**
@@ -68,8 +68,11 @@ prevent.
 
 ```bash
 apt-get update
-apt-get install -y --no-install-recommends bubblewrap jq git curl python3
+apt-get install -y --no-install-recommends bubblewrap jq git curl python3 openssh-client
 ```
+
+`openssh-client` provides `ssh-keygen`, which `gh_token_factory.mint_signing_key` runs to mint
+the per-cycle commit-signing key; without it no ARIA commit can be signed.
 
 `bubblewrap` is the sandbox backend every write-capable agent spawn
 requires; without a verified backend the kernel refuses the spawn
@@ -211,13 +214,13 @@ sudo systemctl restart actions.runner.Okan-wqm-aquaculture_platform.suderra-drop
 
 Keep it `chown gharunner: && chmod 600`. Two keys (NAMES only here):
 
-### `ARIA_GH_TOKEN` — ARIA's PR identity (ORPHAN-HIGH-722)
+### `ARIA_GH_TOKEN` — the lanes' ambient `gh` identity
 
-PRs opened with the job token are authored by `github-actions[bot]` and
-GitHub parks bot-PR workflows in `action_required`, so ARIA's own PRs
-never get CI. The kernel-run steps in both lanes export this PAT as
-`GH_TOKEN` when present; a token-less runner degrades to the job-token
-fallback rather than failing.
+The kernel-run steps in both lanes export this PAT as `GH_TOKEN` for their
+own `gh` calls when present, and fall back to the job token otherwise. It
+never authors a PR: every ARIA PR is opened with a GitHub App installation
+token under `ARIA_REQUIRE_MODE_A` (ARIA-HIGH-208), set up per
+`docs/runbooks/aria-github-app-setup.md`.
 
 Mint (GitHub → Settings → Developer settings → Personal access tokens →
 **Fine-grained tokens** → Generate new token):
@@ -325,8 +328,8 @@ claude` (or `gh api repos/Okan-wqm/aquaculture_platform/actions/runners`).
 
    A healthy run shows, in order: the CLI preflight passing the
    `2.1.197` floor, `aria/state checked out (restored)` (NOT
-   `bootstrap`), `gh identity: machine PAT (ARIA_GH_TOKEN)` in the cycle
-   step, and a green `Publish ARIA state to the aria/state branch` step.
+   `bootstrap`), `ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)`
+   in the cycle step, and a green `Publish ARIA state to the aria/state branch` step.
    The executor drain follows automatically via `workflow_run`.
 
 4. **Drift gate:** `scripts/aria/provision_runner.sh --dry-run` exits 0.
@@ -338,4 +341,5 @@ claude` (or `gh api repos/Okan-wqm/aquaculture_platform/actions/runners`).
 - Diagnostic: `.github/workflows/aria-runner-capability-probe.yml`
 - State store: `docs/runbooks/aria-state-branch-bootstrap.md`
 - Runtime authority: `docs/aria/CURRENT_STATE.md` §Runtime
-- PAT provenance: `docs/reviews/orphan-findings.md` ORPHAN-HIGH-722
+- PR identity: `docs/runbooks/aria-github-app-setup.md` (ARIA-HIGH-208; PAT history:
+  `docs/reviews/orphan-findings.md` ORPHAN-HIGH-722)

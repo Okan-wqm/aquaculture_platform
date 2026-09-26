@@ -938,8 +938,19 @@ def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list
             if isinstance(line, int) and line > 0 and not re.search(r":\d+$", canonical):
                 canonical = f"{canonical}:{line}"
             references.append(canonical)
-    if not references:
-        return [], []
+    return _finding_refs_and_surfaces(references)
+
+
+def _finding_refs_and_surfaces(references: list[Any]) -> tuple[list[str], list[str]]:
+    """(evidence_refs, affected_surfaces) from a finding's code references.
+
+    An evidence ref may pin a line (``path:line``); a surface is the path the
+    fix touches, so the line is split off. Both finding sources (ORPHAN from
+    the registry, F from ``aria-findings/``) read their references through
+    this one function. ARIA-HIGH-211 — ORPHAN candidates once copied
+    ``docs/x.md:12`` into ``affected_surfaces``, a string no path and no risk
+    lane is written for.
+    """
     evidence_refs: list[str] = []
     affected: list[str] = []
     for ref in references:
@@ -948,7 +959,6 @@ def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list
         ref = ref.strip()
         if _looks_unsafe_repo_path(ref):
             continue
-        # Split a trailing :<line> off to get the bare path for affected_surfaces.
         path_part = ref.rsplit(":", 1)[0] if re.search(r":\d+$", ref) else ref
         if ref not in evidence_refs:
             evidence_refs.append(ref)
@@ -1068,18 +1078,10 @@ def convert_candidate_to_plan_content(
         # finding is about, not the orphan-findings.md doc. Doc anchor is the
         # last-resort fallback when the registry carries no evidence.
         registry_evidence = candidate.get("evidence")
-        affected_surfaces = []
-        if isinstance(registry_evidence, list):
-            for item in registry_evidence:
-                if isinstance(item, str) and item.strip() and not _looks_unsafe_repo_path(item.strip()):
-                    p = item.strip()
-                    if p not in affected_surfaces:
-                        affected_surfaces.append(p)
-                if len(affected_surfaces) >= _FINDING_EVIDENCE_CAP:
-                    break
-        if affected_surfaces:
-            evidence_refs = list(affected_surfaces)
-        else:
+        evidence_refs, affected_surfaces = _finding_refs_and_surfaces(
+            registry_evidence if isinstance(registry_evidence, list) else [],
+        )
+        if not evidence_refs:
             evidence_refs = [
                 f"docs/reviews/orphan-findings.md#ORPHAN-{severity}-{raw_id}",
             ]

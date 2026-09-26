@@ -10,6 +10,7 @@ from .auto_merge import (
     _merge_if_green_with_executor,
     collect_github_snapshot,
     evaluate_auto_merge,
+    human_merge_decision,
     record_pr_lifecycle,
 )
 from .autonomy_unlock import assert_autonomy_unlocked
@@ -77,6 +78,11 @@ def merge_pr_if_ready(
     live_pr = adapter.get_pr(pr_number)
     if not isinstance(live_pr, dict) or not live_pr:
         raise GovernanceError("merge_authority_live_pr_required")
+    # ARIA-HIGH-211 — a PR marked for a person's merge is not this lane's
+    # candidate: named, not evaluated, before any gate writes a row for it.
+    human_merge = human_merge_decision(pr_number, base_dir=base_dir, live_pr=live_pr)
+    if human_merge is not None:
+        return human_merge
     head_sha = _head_sha(live_pr)
     if not head_sha:
         raise GovernanceError("merge_authority_head_sha_required")

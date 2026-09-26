@@ -83,6 +83,14 @@ def _gate_patches(head_sha: str = _SHA):
             "aria_kernel.merge_authority.assert_merge_not_watchdog_frozen",
             return_value=None,
         ),
+        # ARIA-HIGH-211 — the fixture's change is runtime source (L2), so the
+        # PR it opens is routed to a person and the lane would name it
+        # `human_merge_lane` before this perimeter; that route is a control
+        # here like the risk decision below.
+        patch(
+            "aria_kernel.merge_authority.human_merge_decision",
+            return_value=None,
+        ),
         patch(
             "aria_kernel.merge_authority.record_risk_decision_for_pr",
             return_value={"valid": True, "lane": "L1", "policy_hash": "ph"},
@@ -673,6 +681,8 @@ class NativeImplementationContextTests(unittest.TestCase):
         with ExitStack() as stack:
             for gate_patch in _gate_patches(head_sha):
                 stack.enter_context(gate_patch)
+            # The runner asks the same route before it resolves a claim.
+            stack.enter_context(patch("aria_kernel.auto_merge.human_merge_decision", return_value=None))
             capture_call = stack.enter_context(patch(
                 "aria_kernel.merge_authority._capture_pre_merge_context",
                 wraps=merge_owner._capture_pre_merge_context,
@@ -1024,6 +1034,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
             "url": "https://github.com/fixture-owner/fixture-repo/pull/732",
             "files": [{"path": "apps/farm-service/src/sample-interval.ts"}],
             "changedFiles": 1,
+            "labels": [{"name": "aria"}],
             "reviews": [], "reviewDecision": "APPROVED",
         }
 
@@ -1043,6 +1054,7 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         self.assertEqual(projected["base_branch"], native_pr["baseRefName"])
         self.assertEqual(projected["changed_files"], native_pr["files"])
         self.assertEqual(projected["changed_files_count"], native_pr["changedFiles"])
+        self.assertEqual(projected["labels"], native_pr["labels"])
         self.assertEqual(projected["repository"], "fixture-owner/fixture-repo")
         self.assertEqual(transport.call_count, 2)
 

@@ -23,6 +23,7 @@ from .proposal import (
     get_proposal,
     require_operator_approval,
 )
+from .risk_policy import HUMAN_MERGE_LABEL, merge_route_for_change
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
@@ -567,6 +568,22 @@ def _create_pull_request(
     # recovery classifier asks GitHub about instead of opening a second PR.
     from .recovery import record_intent, record_receipt
 
+    # ARIA-HIGH-211 (operator decision 2026-09-26) — a change outside the
+    # merge lane is still opened, marked for a person's merge. The route is
+    # the merge gate's own classification of the change git holds, and the
+    # label rides the create itself, so no such PR ever exists unmarked. A
+    # change whose paths cannot be read is routed to a person too.
+    route = merge_route_for_change(workspace_path, payload.get("base_sha"), payload.get("head_sha"))
+    payload["merge_route"] = route
+    argv = [
+        "gh", "pr", "create",
+        "--base", ARIA_PR_BASE,
+        "--head", branch,
+        "--title", title,
+        "--body", body,
+    ]
+    if route["human_merge"]:
+        argv += ["--label", HUMAN_MERGE_LABEL]
     intent = record_intent(
         request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
         intended_postcondition=intended_postcondition,
@@ -574,13 +591,7 @@ def _create_pull_request(
     )
     try:
         completed = subprocess.run(
-            [
-                "gh", "pr", "create",
-                "--base", ARIA_PR_BASE,
-                "--head", branch,
-                "--title", title,
-                "--body", body,
-            ],
+            argv,
             cwd=workspace_path,
             capture_output=True,
             text=True,

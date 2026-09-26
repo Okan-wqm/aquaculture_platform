@@ -15,6 +15,11 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 RiskLane = Literal["L1", "L2", "L3", "blocked"]
 
 RISK_POLICY_SCHEMA = "aria/risk-policy/v1"
+# ARIA-HIGH-211 (operator decision 2026-09-26) — a change outside the merge
+# lane's candidate lanes still becomes a pull request; it carries this label
+# and the merge lane names it with this decision instead of evaluating it.
+HUMAN_MERGE_LABEL = "aria:human-merge"
+HUMAN_MERGE_DECISION = "human_merge_lane"
 RISK_POLICY_PATH = Path(__file__).resolve().parents[2] / "docs" / "aria" / "policy" / "risk-policy.json"
 CODEOWNERS_PATH = Path(__file__).resolve().parents[2] / ".github" / "CODEOWNERS"
 
@@ -196,6 +201,38 @@ def record_risk_decision_for_pr(
         row,
         expected_surface="enterprise_risk_decisions",
     )
+
+
+def merge_route_for_change(
+    workspace_root: str | Path | None,
+    base_sha: object,
+    head_sha: object,
+    *,
+    policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Who merges the change ``base_sha``..``head_sha``: the merge lane, or a person.
+
+    ARIA-HIGH-211 — decided when the pull request opens, from the change as
+    git holds it (``change_paths``) and the merge gate's own classifier: a
+    change is the merge lane's only when it is valid and in the policy's
+    ``auto_merge_candidate_lanes``. Anything else — another lane, mixed
+    lanes, a path the policy refuses, a change that cannot be read — is
+    ``human_merge``: the PR still opens, marked for a person.
+    """
+    try:
+        change = read_change_paths(workspace_root, base_sha, head_sha)
+    except GovernanceError:
+        verdict = _refused(policy, "risk_change_paths_unavailable", ())
+    else:
+        verdict = classify_change(list(change.paths), policy=policy)
+    candidate_lanes = load_risk_policy(policy)["auto_merge_candidate_lanes"]
+    return {
+        "human_merge": not (verdict.valid and verdict.lane in candidate_lanes),
+        "lane": verdict.lane,
+        "valid": verdict.valid,
+        "reason_codes": list(verdict.reason_codes),
+        "policy_hash": verdict.policy_hash,
+    }
 
 
 def _refused(policy: dict[str, Any] | None, reason: str, paths: tuple[str, ...]) -> RiskPolicyVerdict:
@@ -386,6 +423,8 @@ def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
 
 
 __all__ = [
+    "HUMAN_MERGE_DECISION",
+    "HUMAN_MERGE_LABEL",
     "RISK_POLICY_SCHEMA",
     "RISK_POLICY_PATH",
     "CODEOWNERS_PATH",
@@ -397,6 +436,7 @@ __all__ = [
     "codeowners_last_match",
     "codeowners_rules",
     "load_risk_policy",
+    "merge_route_for_change",
     "record_risk_decision_for_pr",
     "risk_policy_hash",
 ]

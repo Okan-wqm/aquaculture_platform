@@ -227,7 +227,16 @@ class RealAutoMergeRunner:
                     ],
                 }
 
+        from .auto_merge import human_merge_decision
+
         for pr_number in candidate_prs:
+            # ARIA-HIGH-211 — a PR ARIA opened for a person's merge is named
+            # (`human_merge_lane`) from ARIA's own opened row and never
+            # evaluated: no readiness resolution, no risk row, every run.
+            skipped = human_merge_decision(int(pr_number), base_dir=base_dir)
+            if skipped is not None:
+                decisions.append(skipped)
+                continue
             try:
                 readiness_claim_id = self.readiness_claim_resolver(
                     adapter,

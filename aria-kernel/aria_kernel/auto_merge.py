@@ -13,7 +13,7 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .risk_policy import classify_path
+from .risk_policy import HUMAN_MERGE_DECISION, HUMAN_MERGE_LABEL, classify_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -412,6 +412,60 @@ def change_for_pr(
     return latest_change_id
 
 
+def human_merge_decision(
+    pr_number: int,
+    *,
+    base_dir: str | Path | None = None,
+    live_pr: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """The merge lane's named decision for a PR marked for a person's merge, or None.
+
+    ARIA-HIGH-211 (operator decision 2026-09-26) — a PR whose change is not
+    the merge lane's is opened with ``HUMAN_MERGE_LABEL`` and its
+    ``opened`` row records ``merge_route.human_merge``. Either marks it: the
+    row is ARIA's own record (readable without GitHub), the label is what a
+    person sees and may add to take a PR over. Such a PR is not a merge-lane
+    candidate; the lane names it and moves on instead of evaluating it every
+    run. Removing the label does not make it mergeable: the merge
+    authority's risk decision still classifies the change from git.
+    """
+    marked = False
+    if live_pr is not None:
+        marked = HUMAN_MERGE_LABEL in _label_names(live_pr)
+    if not marked:
+        opened = [
+            row
+            for row in load_declared_jsonl(
+                ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle",
+            )
+            if row.get("pr_number") == pr_number and row.get("event") == "opened"
+        ]
+        route = opened[-1].get("merge_route") if opened else None
+        marked = isinstance(route, dict) and route.get("human_merge") is True
+    if not marked:
+        return None
+    return {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "pr_number": pr_number,
+        "decision": "skipped",
+        "eligible": False,
+        "stage": HUMAN_MERGE_DECISION,
+        "reasons": [HUMAN_MERGE_DECISION],
+    }
+
+
+def _label_names(pr: dict[str, Any]) -> set[str]:
+    labels = pr.get("labels")
+    if not isinstance(labels, list):
+        return set()
+    return {
+        str(label.get("name")) if isinstance(label, dict) else str(label)
+        for label in labels
+        if isinstance(label, (dict, str))
+    }
+
+
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
@@ -451,6 +505,10 @@ def record_pr_lifecycle(
         "change_id": pr.get("change_id"),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
+    # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
+    # merge) is recorded on the row that names the PR; other events carry none.
+    if isinstance(pr.get("merge_route"), dict):
+        row["merge_route"] = dict(pr["merge_route"])
     if base_dir is None:
         return row
     return append_declared_jsonl(
@@ -806,7 +864,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,reviews,reviewDecision",
+                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision",
             ],
         )
         return {
@@ -829,6 +887,7 @@ class GhCliGitHubAdapter:
             # a rename by its target only; `changedFiles` is the uncapped
             # count the risk decision cross-checks the git change against.
             "changed_files_count": payload.get("changedFiles"),
+            "labels": payload.get("labels", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
         }

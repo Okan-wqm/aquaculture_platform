@@ -91,8 +91,60 @@ class MergeRunnerLaneTests(unittest.TestCase):
     def test_the_lane_consumes_a_claim_another_lane_produced(self) -> None:
         # PyYAML reads the bare `on` key as boolean True.
         trigger = self.workflow[True]
-        self.assertEqual(trigger["workflow_run"]["workflows"], ["aria-readiness-claim"])
+        self.assertIn("aria-readiness-claim", trigger["workflow_run"]["workflows"])
+        self.assertEqual(trigger["workflow_run"]["types"], ["completed"])
         self.assertIn("workflow_dispatch", trigger)
+
+    # ARIA-HIGH-206 — three of the four required checks come from
+    # ci-affected.yml, which routinely finishes AFTER the readiness claim.
+    # A merge attempt that saw them missing was never retried: nothing
+    # re-ran the lane until an unrelated event did.
+    def test_the_lane_reevaluates_when_ci_affected_completes(self) -> None:
+        # Tied to the NAME ci-affected.yml declares, read from that file:
+        # workflow_run matches on `name:`, so a rename there would silently
+        # disconnect this trigger if the literal were copied here.
+        import yaml  # type: ignore[import-untyped]
+
+        ci = yaml.safe_load((_REPO / ".github" / "workflows" / "ci-affected.yml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            sorted(self.workflow[True]["workflow_run"]["workflows"]),
+            sorted(["aria-readiness-claim", ci["name"]]),
+        )
+        condition = " ".join(str(self.job["if"]).split())
+        # Only a green CI run of a pull request is a reason to look again;
+        # a push to main or a merge-group build carries no PR to merge.
+        self.assertIn(f"github.event.workflow_run.name == '{ci['name']}'", condition)
+        self.assertIn("github.event.workflow_run.event == 'pull_request'", condition)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", condition)
+
+    def test_the_lane_reevaluates_hourly(self) -> None:
+        # The backstop for a check that goes green with no workflow_run to
+        # say so (a re-run, an external status): the lane is idempotent —
+        # the merge carries --match-head-commit and needs a readiness claim
+        # for that head — so a periodic re-evaluation is safe.
+        crons = [entry["cron"] for entry in self.workflow[True]["schedule"]]
+        self.assertEqual(len(crons), 1)
+        minute, hour, *rest = crons[0].split()
+        self.assertTrue(minute.isdigit() and 0 <= int(minute) < 60, crons[0])
+        self.assertEqual((hour, rest), ("*", ["*", "*", "*"]), crons[0])
+
+    def test_every_trigger_is_admitted_by_the_job_condition(self) -> None:
+        condition = " ".join(str(self.job["if"]).split())
+        self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+        self.assertIn("github.event_name == 'schedule'", condition)
+        self.assertIn("github.event.workflow_run.name == 'aria-readiness-claim'", condition)
+
+    def test_the_hourly_lane_is_watched_for_freshness(self) -> None:
+        manifest = json.loads(
+            (_REPO / ".github" / "manifests" / "scheduled-workflows.json").read_text(encoding="utf-8")
+        )
+        entry = next(
+            (item for item in manifest["workflows"] if item["workflow"] == "aria-merge-runner.yml"), None,
+        )
+        self.assertIsNotNone(entry)
+        # Hourly cron plus GitHub's measured schedule lateness (up to 75
+        # minutes here, test_cycle_chain_rhythm) must not read as stale.
+        self.assertGreaterEqual(entry["maxAgeHours"], 3)
 
     def test_the_host_attests_as_the_merge_lane(self) -> None:
         probe = self.steps["Probe runner attestation"]

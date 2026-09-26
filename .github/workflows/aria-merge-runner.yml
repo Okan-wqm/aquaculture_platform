@@ -13,6 +13,14 @@ name: aria-merge-runner
 # It fires after aria-readiness-claim completes, so the claim it consumes was
 # independently produced by another lane at another time.
 #
+# ARIA-HIGH-206 — it also re-evaluates when `CI - Affected` (ci-affected.yml)
+# completes green for a pull request, and hourly. Three of the four required
+# checks come from that heavier workflow and routinely finish AFTER the claim;
+# the required-checks gate then saw them missing and nothing ran the lane
+# again. Re-running is safe by construction: only a PR holding a readiness
+# claim is considered, and the merge carries `--match-head-commit`, so a
+# repeat evaluation merges at most the head that was claimed.
+#
 # THE MERGE CREDENTIAL IS THE GITHUB APP INSTALLATION TOKEN, never
 # GITHUB_TOKEN: a merge made with GITHUB_TOKEN triggers no push workflows on
 # main, which would blind the post-merge monitoring that attributes a red main
@@ -21,8 +29,14 @@ name: aria-merge-runner
 
 on:
   workflow_run:
-    workflows: ['aria-readiness-claim']
+    # 'CI - Affected' is ci-affected.yml's `name:` — workflow_run matches on
+    # it (pinned against that file by test_readiness_claim_lane.py).
+    workflows: ['aria-readiness-claim', 'CI - Affected']
     types: [completed]
+  schedule:
+    # Hourly backstop for a check that turns green with no workflow_run to
+    # announce it (a re-run, an external status). Off the top of the hour.
+    - cron: '47 * * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -46,9 +60,16 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # A red or cancelled upstream run, and a CI run of a push to main or of
+    # a merge-group build (no PR to merge), start no job.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.name == 'aria-readiness-claim' ||
+        (github.event.workflow_run.name == 'CI - Affected' &&
+         github.event.workflow_run.event == 'pull_request')))
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

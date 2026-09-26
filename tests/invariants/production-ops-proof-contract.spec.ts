@@ -56,6 +56,15 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain("candidate.conclusion !== 'cancelled'");
     expect(workflow).toContain('jobs.data.total_count > 0');
 
+    // ARIA-HIGH-206 — a run whose every job was skipped by its `if:` (the
+    // merge runner woken by a red CI - Affected run, or by a push-to-main
+    // one) executed nothing, so it is no verdict on the lane either. Judged
+    // as one, every red PR build would file a merge-runner incident. The
+    // window must be wide enough that such runs cannot crowd the lane's own
+    // executed runs out of it.
+    expect(workflow).toContain("candidate.conclusion !== 'skipped'");
+    expect(workflow).not.toContain('per_page: 10,');
+
     // Green is not proof of work. The backup lane completes success while its
     // DR capability is not activated — honestly, and doing nothing. Where the
     // manifest names an evidence-artifact prefix, the watchdog must require

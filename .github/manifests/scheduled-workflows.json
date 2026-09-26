@@ -24,6 +24,10 @@
       "maxAgeHours": 50
     },
     {
+      "workflow": "aria-merge-runner.yml",
+      "maxAgeHours": 3
+    },
+    {
       "workflow": "backup-production.yml",
       "maxAgeHours": 30,
       "requiredArtifactPrefix": "walg-evidence-v2-"

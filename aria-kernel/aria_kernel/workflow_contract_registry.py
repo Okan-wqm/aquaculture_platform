@@ -681,6 +681,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
     # triggers no push workflows on main and would blind post-merge
     # monitoring) — hence token_source github_app:installation. Its store
     # writes (decisions, attestations) publish to aria/state.
+    # ARIA-HIGH-206 — it runs on three triggers besides dispatch: a green
+    # aria-readiness-claim, a green `CI - Affected` run of a pull request
+    # (the heavier workflow three required checks come from, which finishes
+    # after the claim), and an hourly schedule. The trigger set is pinned
+    # by test_readiness_claim_lane.MergeRunnerLaneTests; every one reaches
+    # the same step sequence below, so the job contract is trigger-agnostic.
     "aria-merge-runner": WorkflowContract(
         workflow_id="aria-merge-runner",
         workflow_file=".github/workflows/aria-merge-runner.yml",

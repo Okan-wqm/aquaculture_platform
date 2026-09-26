@@ -8,7 +8,10 @@ module is that freeze, one declared ledger
 * ``self_merge_frozen`` — written by ARIA (the self-revert producer) BEFORE it
   opens the revert, naming the merge it reverts. Idempotent per merge sha.
 * ``revert_registered`` — the revert PR (number + head sha) that the freeze
-  admits. A frozen merge authority refuses every PR except this one.
+  admits. A frozen merge authority refuses every PR except this one. The
+  same (freeze, PR, head) registers once: a producer resumed after a crash
+  between registering and recording its own decision registers again, and
+  that is a no-op.
 * ``self_merge_unfrozen`` — written only through :func:`unfreeze_self_merge`,
   which demands an operator's GitHub act approving exactly
   ``surface=self_merge_unfreeze freeze_id=<id>`` (ARIA-CRITICAL-216). A
@@ -23,7 +26,11 @@ The freeze and the unfreeze rows bypass the runtime-profile write gate, as
 ``runtime_profile.set_profile`` does for a thaw: a restriction must land
 whatever profile is active, and the operator's recorded act is the authority
 for lifting it. ``revert_registered`` keeps the gate — it is what lets a merge
-through, so only a profile that grants ``pr_merge`` may write it.
+through — and that gate is the ledger's surface write gate
+(``enforce_profile_for_write`` on the ``pr_merge`` surface kind): it refuses
+the write under ``frozen`` and ``observe`` and admits it under ``standard``,
+``strict`` and ``autonomous``. It is not the ``pr_merge`` action cell, which
+only ``autonomous`` holds.
 """
 from __future__ import annotations
 
@@ -57,25 +64,39 @@ def freeze_id_for(merge_sha: str) -> str:
     return "freeze-" + hashlib.sha256(merge_sha.encode("utf-8")).hexdigest()[:16]
 
 
-def active_freeze(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
-    """The freeze in force, with the revert it admits, or None."""
-    frozen: dict[str, dict[str, Any]] = {}
+def list_freezes(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """Every freeze ever written, oldest first, folded to its current state:
+    the freeze row plus ``revert`` (the registered revert, or None) and
+    ``lifted`` (an operator unfroze it)."""
+    freezes: dict[str, dict[str, Any]] = {}
     for row in _rows(base_dir):
         freeze_id = str(row.get("freeze_id") or "")
         event = row.get("event")
         if event == FROZEN_EVENT:
-            frozen[freeze_id] = {**row, "revert": None}
-        elif event == REVERT_REGISTERED_EVENT and freeze_id in frozen:
-            frozen[freeze_id]["revert"] = {
+            freezes[freeze_id] = {**row, "revert": None, "lifted": False}
+        elif event == REVERT_REGISTERED_EVENT and freeze_id in freezes:
+            freezes[freeze_id]["revert"] = {
                 "pr_number": row.get("pr_number"),
                 "head_sha": row.get("head_sha"),
             }
-        elif event == UNFROZEN_EVENT:
-            frozen.pop(freeze_id, None)
-    if not frozen:
-        return None
+        elif event == UNFROZEN_EVENT and freeze_id in freezes:
+            freezes[freeze_id]["lifted"] = True
+    return sorted(freezes.values(), key=lambda row: str(row.get("recorded_at") or ""))
+
+
+def freeze_in_force(freeze_id: str, *, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """The freeze ``freeze_id`` while it is in force, or None."""
+    for freeze in list_freezes(base_dir=base_dir):
+        if freeze.get("freeze_id") == freeze_id and not freeze["lifted"]:
+            return freeze
+    return None
+
+
+def active_freeze(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """The freeze in force, with the revert it admits, or None."""
+    in_force = [freeze for freeze in list_freezes(base_dir=base_dir) if not freeze["lifted"]]
     # The oldest freeze in force is the one an operator must clear first.
-    return min(frozen.values(), key=lambda row: str(row.get("recorded_at") or ""))
+    return in_force[0] if in_force else None
 
 
 def freeze_self_merge(
@@ -125,14 +146,30 @@ def register_revert(
     purity: dict[str, Any],
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Name the one PR a freeze admits: the revert whose purity was proven."""
+    """Name the one PR a freeze admits: ``pr_number`` at exactly ``head_sha``.
+
+    What it checks is narrow, and the caller carries the rest. It refuses a
+    ``purity`` whose ``pure`` flag is not True and a ``freeze_id`` that was
+    never frozen, and the row goes through the ledger's surface write gate
+    (refused under ``frozen`` and ``observe``). It does not prove the revert
+    pure — it trusts the caller's purity mapping
+    (``self_revert.prove_revert_purity``) — and it does not check that the
+    head is committed and validated: the merge authority's triple gate
+    checks that at merge time. Idempotent on (freeze, PR, head): the same
+    registration returns the row already written.
+    """
     if purity.get("pure") is not True:
         raise GovernanceError("self_merge_revert_not_pure")
+    rows = _rows(base_dir)
     if not any(
         row.get("event") == FROZEN_EVENT and row.get("freeze_id") == freeze_id
-        for row in _rows(base_dir)
+        for row in rows
     ):
         raise GovernanceError(f"self_merge_revert_unknown_freeze:{freeze_id}")
+    for row in rows:
+        if (row.get("event") == REVERT_REGISTERED_EVENT and row.get("freeze_id") == freeze_id
+                and row.get("pr_number") == pr_number and row.get("head_sha") == head_sha):
+            return row
     return append_declared_jsonl(
         freeze_ledger_path(base_dir),
         {
@@ -222,8 +259,10 @@ __all__ = [
     "active_freeze",
     "assert_self_merge_not_frozen",
     "freeze_id_for",
+    "freeze_in_force",
     "freeze_ledger_path",
     "freeze_self_merge",
+    "list_freezes",
     "register_revert",
     "unfreeze_self_merge",
 ]

@@ -2,12 +2,15 @@
 
 A real origin/workspace git pair carries the merge being reverted, so the
 revert, its purity proof and its conflict handling run against git itself;
-GitHub is the two seams the kernel already has — the checks reader (fake)
-and the one ``gh pr create`` in ``pr_manager`` (stubbed at its subprocess).
+GitHub is the seams the kernel already has — the checks reader (fake), the
+one ``gh pr create`` in ``pr_manager`` and the ``gh pr list`` the producer
+asks before it (both stubbed at their subprocess, over one fake PR table).
 """
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -25,19 +28,26 @@ from aria_kernel.change_ledger import (
     emit_change_planned,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.recovery import unresolved_intents
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.self_merge_freeze import active_freeze, freeze_ledger_path
+from aria_kernel.self_merge_freeze import REVERT_REGISTERED_EVENT, active_freeze, freeze_ledger_path
 from aria_kernel.self_revert import (
+    DECISION_BRANCH_DIVERGED,
     DECISION_CONFLICT,
     DECISION_CREDENTIAL_UNAVAILABLE,
+    DECISION_DELIVERY_FAILED,
     DECISION_IMPURE,
     DECISION_LANDED,
     DECISION_NOT_ATTRIBUTABLE,
     DECISION_NOT_PERMITTED,
     DECISION_OPENED,
+    DECISION_PR_PENDING,
+    DECISION_REMOTE_UNRESOLVED,
     DECISION_REVERT_OF_REVERT,
     DECISION_VALIDATION_FAILED,
     DECISION_VALIDATION_UNAVAILABLE,
+    REVERT_COMMITTER_EMAIL,
+    REVERT_COMMITTER_NAME,
     TRIGGER_CHANGE_OUTCOME,
     TRIGGER_POST_MERGE_CI,
     load_self_reverts,
@@ -52,6 +62,7 @@ from tests._helpers.operator_acts import operator_set_profile
 MERGED_PR = 41
 REVERT_PR = 77
 LINES = [f"line {n}\n" for n in range(1, 11)]
+MERGE_SUBJECT = "docs: the merge that goes bad"
 
 
 class FakeReader:
@@ -89,11 +100,16 @@ class SelfRevertTests(unittest.TestCase):
         self._write("docs/runbooks/other.md", "other\n")
         self._git("add", ".")
         self._git("commit", "-q", "-m", "docs: seed")
+        self.grandparent_sha = self._out("rev-parse", "HEAD")
+        # A commit a path-filtered workflow does not run on: the merge's
+        # first parent, touching only a neighbouring file.
+        self._write("docs/runbooks/other.md", "other, edited\n")
+        self._git("commit", "-q", "-am", "docs: neighbour edit")
         self.parent_sha = self._out("rev-parse", "HEAD")
         changed = list(LINES)
         changed[4] = "line 5 CHANGED BY ARIA\n"
         self._write("docs/runbooks/guide.md", "".join(changed))
-        self._git("commit", "-q", "-am", "docs: the merge that goes bad")
+        self._git("commit", "-q", "-am", MERGE_SUBJECT)
         self.merge_sha = self._out("rev-parse", "HEAD")
         self._git("push", "-q", "origin", "main")
 
@@ -126,13 +142,36 @@ class SelfRevertTests(unittest.TestCase):
         self.suite_exit = "true"
         self.suite_argvs: list[list[str]] = []
 
+        # GitHub's pull requests, as far as `gh` can see them: `gh pr create`
+        # adds one for the branch's pushed tip, `gh pr list --head` reads them.
         self.gh_calls: list[list[str]] = []
+        self.gh_list_calls: list[list[str]] = []
+        self.remote_prs: list[dict[str, Any]] = []
+        self.gh_create_mode = "ok"  # ok | refused | timeout_after_create
+        self.gh_list_mode = "ok"  # ok | unreadable
         real_run = subprocess.run
 
         def fake_run(argv: Any, *args: Any, **kwargs: Any) -> Any:
             if isinstance(argv, list) and argv[:3] == ["gh", "pr", "create"]:
                 self.gh_calls.append(list(argv))
+                if self.gh_create_mode == "refused":
+                    return subprocess.CompletedProcess(argv, 1, "", "GraphQL: something went wrong")
+                head = argv[argv.index("--head") + 1]
+                self.remote_prs.append({
+                    "number": REVERT_PR, "url": f"https://github.com/o/r/pull/{REVERT_PR}",
+                    "headRefName": head, "headRefOid": self._out("rev-parse", f"refs/heads/{head}", cwd=self.origin),
+                    "state": "OPEN",
+                })
+                if self.gh_create_mode == "timeout_after_create":
+                    raise subprocess.TimeoutExpired(argv, 60)
                 return subprocess.CompletedProcess(argv, 0, f"https://github.com/o/r/pull/{REVERT_PR}\n", "")
+            if isinstance(argv, list) and argv[:3] == ["gh", "pr", "list"]:
+                self.gh_list_calls.append(list(argv))
+                if self.gh_list_mode == "unreadable":
+                    return subprocess.CompletedProcess(argv, 1, "", "HTTP 502")
+                head = argv[argv.index("--head") + 1]
+                rows = [pr for pr in self.remote_prs if pr["headRefName"] == head and pr["state"] == "OPEN"]
+                return subprocess.CompletedProcess(argv, 0, json.dumps(rows), "")
             return real_run(argv, *args, **kwargs)
 
         patcher = mock.patch.object(pr_manager.subprocess, "run", side_effect=fake_run)
@@ -204,6 +243,30 @@ class SelfRevertTests(unittest.TestCase):
     def _decisions(self) -> list[str]:
         return [str(row["decision"]) for row in load_self_reverts(base_dir=self.tools)]
 
+    def _human_required(self, decision: str) -> Path:
+        """The HUMAN_REQUIRED record one decision on this merge opens: one per
+        decision, so a later question is never swallowed by an earlier one."""
+        return self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}-{decision}.json"
+
+    def _registered_rows(self) -> list[dict[str, Any]]:
+        return [
+            row for row in load_declared_jsonl(freeze_ledger_path(self.tools),
+                                               expected_surface="enterprise_self_merge_freeze")
+            if row.get("event") == REVERT_REGISTERED_EVENT
+        ]
+
+    def _origin_tip(self, branch: str) -> str:
+        return self._out("rev-parse", f"refs/heads/{branch}", cwd=self.origin)
+
+    def _advance_main(self, text: str = "moved on\n") -> str:
+        """Main moves on under a file the merge did not touch."""
+        self._git("pull", "-q", "origin", "main")
+        self._write("docs/runbooks/later.md", text)
+        self._git("add", ".")
+        self._git("commit", "-q", "-m", "docs: main moves on")
+        self._git("push", "-q", "origin", "main")
+        return self._out("rev-parse", "HEAD")
+
     # -- attribution ------------------------------------------------------
 
     def test_a_red_that_was_already_red_on_the_parent_reverts_nothing(self) -> None:
@@ -224,14 +287,62 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual(first["decisions"][0]["decision"], DECISION_NOT_ATTRIBUTABLE)
         self.assertEqual(second["decisions"], [])
 
-    def test_a_red_job_with_no_run_on_the_parent_is_not_attributable(self) -> None:
+    def test_a_red_job_no_main_ancestor_ran_is_not_attributable(self) -> None:
         self._aria_merged()
         self._merge_outcome()
-        self._produce(FakeReader({self.parent_sha: [_run("lint", "success")]}))
+        reader = FakeReader({self.parent_sha: [_run("lint", "success")]})
+        self._produce(reader)
         self.assertIsNone(active_freeze(base_dir=self.tools))
         self.assertEqual(self._decisions(), [DECISION_NOT_ATTRIBUTABLE])
         row = load_self_reverts(base_dir=self.tools)[0]
         self.assertEqual(row["evidence"]["unattributable_jobs"], {"build-status": []})
+        # Every first-parent ancestor of the merge on main was asked.
+        self.assertEqual(reader.asked, [self.parent_sha, self.grandparent_sha])
+
+    def test_a_path_filtered_red_is_compared_with_the_nearest_ancestor_that_ran_it(self) -> None:
+        # The workflow did not run on the merge's parent (its paths were not
+        # touched there); the nearest main ancestor that ran it was green.
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(FakeReader({
+            self.parent_sha: [_run("lint", "success")],
+            self.grandparent_sha: [_run("build-status", "success")],
+        }))
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        opened = load_self_reverts(base_dir=self.tools)[0]
+        self.assertEqual(opened["evidence"]["attribution_baselines"], {"build-status": self.grandparent_sha})
+        self.assertIsNotNone(active_freeze(base_dir=self.tools))
+
+    def test_the_nearest_ancestor_that_ran_the_job_decides_not_an_older_one(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(FakeReader({
+            self.parent_sha: [_run("build-status", "failure")],
+            self.grandparent_sha: [_run("build-status", "success")],
+        }))
+        self.assertIsNone(active_freeze(base_dir=self.tools))
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertEqual(row["evidence"]["unattributable_jobs"], {"build-status": ["failure"]})
+
+    def test_an_ancestor_past_the_bound_does_not_attribute(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        with mock.patch.object(self_revert, "ATTRIBUTION_ANCESTOR_LIMIT", 1):
+            self._produce(FakeReader({self.grandparent_sha: [_run("build-status", "success")]}))
+        self.assertIsNone(active_freeze(base_dir=self.tools))
+        self.assertEqual(self._decisions(), [DECISION_NOT_ATTRIBUTABLE])
+        self.assertEqual(load_self_reverts(base_dir=self.tools)[0]["evidence"]["unattributable_jobs"],
+                         {"build-status": []})
+
+    def test_a_red_that_names_no_job_is_not_attributable(self) -> None:
+        self._aria_merged()
+        self._merge_outcome(red_jobs=())
+        self._produce(self._green_parent())
+        self.assertIsNone(active_freeze(base_dir=self.tools))
+        self.assertEqual(self._decisions(), [DECISION_NOT_ATTRIBUTABLE])
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertEqual(row["evidence"]["attribution_reason"], "red_names_no_job")
+        self.assertEqual(self.gh_calls, [])
 
     def test_a_human_merge_is_not_arias_to_revert(self) -> None:
         self._merge_outcome()
@@ -310,9 +421,14 @@ class SelfRevertTests(unittest.TestCase):
         gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=tip, base_dir=self.tools)
         self.assertTrue(gate["passed"], gate)
 
-        # The workspace checkout the cycle runs in was never moved.
+        # The workspace checkout the cycle runs in was never moved, and the
+        # revert was built detached: no local branch exists to block a later
+        # attempt.
         self.assertEqual(self._out("rev-parse", "--abbrev-ref", "HEAD"), "main")
         self.assertEqual(self._out("worktree", "list", "--porcelain").count("worktree "), 1)
+        self.assertEqual(self._out("branch", "--list", branch), "")
+        self.assertFalse(opened["adopted"])
+        self.assertEqual(opened["evidence"]["attribution_baselines"], {"build-status": self.parent_sha})
 
         # A second trigger for the same merge is a no-op.
         again = self._produce(self._green_parent())
@@ -342,7 +458,7 @@ class SelfRevertTests(unittest.TestCase):
         freeze = active_freeze(base_dir=self.tools)
         assert freeze is not None
         self.assertIsNone(freeze["revert"])
-        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        self.assertTrue(self._human_required(DECISION_IMPURE).exists())
 
     def test_a_conflicting_revert_is_aborted_and_the_freeze_stays(self) -> None:
         self._git("pull", "-q", "origin", "main")
@@ -358,7 +474,7 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual(self.gh_calls, [])
         self.assertEqual(self._origin_branches(), ["main"])
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
-        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        self.assertTrue(self._human_required(DECISION_CONFLICT).exists())
         self.assertEqual(self._out("worktree", "list", "--porcelain").count("worktree "), 1)
         self.assertEqual(self._out("status", "--porcelain"), "")
         # Terminal: a later trigger does not retry the conflict.
@@ -442,7 +558,7 @@ class SelfRevertTests(unittest.TestCase):
         freeze = active_freeze(base_dir=self.tools)
         assert freeze is not None
         self.assertIsNone(freeze["revert"])
-        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        self.assertTrue(self._human_required(DECISION_VALIDATION_FAILED).exists())
         # Terminal: a later trigger does not re-run it.
         self.suite_exit = "true"
         self._produce(self._green_parent())
@@ -466,7 +582,7 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual(self.gh_calls, [])
         self.assertEqual(self._origin_branches(), ["main"])
         self.assertIsNotNone(active_freeze(base_dir=self.tools))
-        self.assertTrue((self.tools / "human-required" / f"self-revert-{self.merge_sha[:12]}.json").exists())
+        self.assertTrue(self._human_required(DECISION_VALIDATION_UNAVAILABLE).exists())
         # The host's refusal is not the revert's: a host that can build it proceeds.
         self._produce(self._green_parent())
         self.assertEqual(self._decisions(), [DECISION_VALIDATION_UNAVAILABLE, DECISION_OPENED])
@@ -497,6 +613,277 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual(len(list_validation_runs_for_change(change_id, base_dir=self.tools)), suite_runs)
         gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=opened["head_sha"], base_dir=self.tools)
         self.assertTrue(gate["passed"], gate)
+
+    # -- partial effects are resumed (ARIA-MEDIUM-228) ---------------------
+
+    def _assert_opened_once_and_registered(self) -> dict[str, Any]:
+        branch = revert_branch_for(self.merge_sha)
+        tip = self._origin_tip(branch)
+        self.assertEqual(len(self.gh_calls), 1, "one PR is ever created for the key")
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["revert"], {"pr_number": REVERT_PR, "head_sha": tip})
+        self.assertEqual(len(self._registered_rows()), 1)
+        opened = [row for row in load_self_reverts(base_dir=self.tools) if row["decision"] == DECISION_OPENED]
+        self.assertEqual(len(opened), 1)
+        self.assertEqual((opened[0]["pr_number_opened"], opened[0]["head_sha"]), (REVERT_PR, tip))
+        gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=tip, base_dir=self.tools)
+        self.assertTrue(gate["passed"], gate)
+        return opened[0]
+
+    def test_a_pr_open_that_timed_out_after_github_made_it_is_adopted_not_duplicated(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self.gh_create_mode = "timeout_after_create"
+        self._produce(self._green_parent())
+        # The branch is on the remote and no PR is adopted: never terminal.
+        self.assertEqual(self._decisions(), [DECISION_PR_PENDING])
+        pending = load_self_reverts(base_dir=self.tools)[0]
+        self.assertFalse(pending["terminal"])
+        self.assertIn("gh_pr_create_timed_out", pending["reason"])
+        self.assertTrue(self._human_required(DECISION_PR_PENDING).exists())
+        self.assertIsNone((active_freeze(base_dir=self.tools) or {}).get("revert"))
+        self.gh_create_mode = "ok"
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_PR_PENDING, DECISION_OPENED])
+        opened = self._assert_opened_once_and_registered()
+        self.assertTrue(opened["adopted"])
+        # The create intent the timeout left unresolved is answered by the adoption.
+        self.assertEqual(unresolved_intents(f"self-revert:{self.merge_sha[:12]}", base_dir=self.tools), [])
+
+    def test_a_pr_open_refused_after_the_push_is_retried_against_the_pushed_branch(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self.gh_create_mode = "refused"
+        self._produce(self._green_parent())
+        self._produce(self._green_parent())
+        branch = revert_branch_for(self.merge_sha)
+        pushed = self._origin_tip(branch)
+        # Recorded once per distinct reason; the key stays open.
+        self.assertEqual(self._decisions(), [DECISION_PR_PENDING])
+        self.gh_create_mode = "ok"
+        self.gh_calls.clear()
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_PR_PENDING, DECISION_OPENED])
+        self.assertEqual(self._origin_tip(branch), pushed, "the pushed revert is what the PR opens for")
+        opened = self._assert_opened_once_and_registered()
+        self.assertFalse(opened["adopted"])
+
+    def test_an_unreadable_pr_list_opens_nothing_it_might_duplicate(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        self.gh_list_mode = "unreadable"
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_PR_PENDING])
+        self.assertIn("pr_lookup_failed", load_self_reverts(base_dir=self.tools)[0]["reason"])
+        self.assertEqual(self.gh_calls, [])
+        self.assertIn(revert_branch_for(self.merge_sha), self._origin_branches())
+
+    def test_a_registration_that_failed_after_the_pr_opened_is_resumed_by_adoption(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        with mock.patch.object(self_revert, "register_revert", side_effect=RuntimeError("killed")):
+            with self.assertRaisesRegex(RuntimeError, "killed"):
+                self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [])
+        self.assertEqual(len(self.gh_calls), 1)
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        self.assertTrue(self._assert_opened_once_and_registered()["adopted"])
+
+    def test_a_record_that_failed_after_registration_does_not_register_twice(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        real_record = self_revert._record
+
+        def failing_opened(candidate: Any, decision: str, **kwargs: Any) -> Any:
+            if decision == DECISION_OPENED:
+                raise RuntimeError("killed")
+            return real_record(candidate, decision, **kwargs)
+
+        with mock.patch.object(self_revert, "_record", side_effect=failing_opened):
+            with self.assertRaisesRegex(RuntimeError, "killed"):
+                self._produce(self._green_parent())
+        self.assertEqual(len(self._registered_rows()), 1)
+        self._produce(self._green_parent())
+        self._assert_opened_once_and_registered()
+
+    def test_a_job_killed_after_the_push_whose_store_was_lost_resumes_on_the_pushed_base(self) -> None:
+        self._aria_merged()
+        self._merge_outcome()
+        before = Path(self.tmp.name) / "store-before"
+        shutil.copytree(self.tools, before)
+        with mock.patch.object(pr_manager, "open_revert_pr", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self._produce(self._green_parent())
+        branch = revert_branch_for(self.merge_sha)
+        pushed = self._origin_tip(branch)
+        # The killed job never published: its rows are gone, the branch is not.
+        shutil.rmtree(self.tools)
+        shutil.copytree(before, self.tools)
+        self._advance_main()
+        self._produce(self._green_parent())
+        opened = self._assert_opened_once_and_registered()
+        self.assertEqual(opened["head_sha"], pushed)
+        self.assertEqual(opened["base_sha"], self.merge_sha, "rebuilt on the base the pushed revert sits on")
+
+    def test_a_revert_branch_holding_a_commit_the_producer_did_not_make_is_never_overwritten(self) -> None:
+        branch = revert_branch_for(self.merge_sha)
+        self._git("checkout", "-q", "-b", "stray", "origin/main")
+        self._write("docs/runbooks/other.md", "someone else's commit\n")
+        self._git("commit", "-q", "-am", "docs: not a revert")
+        stray = self._out("rev-parse", "HEAD")
+        self._git("push", "-q", "origin", f"HEAD:refs/heads/{branch}")
+        self._git("checkout", "-q", "main")
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_BRANCH_DIVERGED])
+        self.assertFalse(load_self_reverts(base_dir=self.tools)[0]["terminal"])
+        self.assertEqual(self._origin_tip(branch), stray)
+        self.assertEqual(self.gh_calls, [])
+        self.assertTrue(self._human_required(DECISION_BRANCH_DIVERGED).exists())
+
+    def test_a_push_the_remote_refuses_with_no_branch_left_is_terminal(self) -> None:
+        hook = self.origin / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\necho 'refused by policy' >&2\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_DELIVERY_FAILED])
+        self.assertEqual(self._origin_branches(), ["main"])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_a_killed_job_leaves_no_worktree_or_branch_that_blocks_the_next_attempt(self) -> None:
+        branch = revert_branch_for(self.merge_sha)
+        root = Path(self.tmp.name)
+        # The pre-fix shape: a local branch checked out in a worktree ...
+        self._git("worktree", "add", "-q", "-b", branch, str(root / "aria-self-revert-old" / "worktree"), "origin/main")
+        # ... and this producer's own detached one, both orphaned by a kill.
+        stale = root / f"aria-self-revert-{self.merge_sha[:12]}-stale" / "worktree"
+        self._git("worktree", "add", "-q", "--detach", str(stale), "origin/main")
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self._assert_opened_once_and_registered()
+        self.assertEqual(self._out("worktree", "list", "--porcelain").count("worktree "), 1)
+        self.assertEqual(self._out("branch", "--list", branch), "")
+        self.assertFalse(stale.parent.exists())
+
+    def test_a_suite_command_the_allowlist_refuses_is_terminal_not_a_sandbox_retry(self) -> None:
+        log = Path(self.tmp.name) / "make.log"
+        log.write_text("ok\n", encoding="utf-8")
+        record_validation_run(
+            change_id=self.reverted_change_id, cmd="make test", exit_code=0, duration_ms=1_000,
+            log_path=str(log), commit_sha="e" * 40, runner_identity="aria-executor:REQ-merged",
+            change_author_identity="agent:aria-implementer",
+            started_at="2026-09-24T10:02:00+00:00", completed_at="2026-09-24T10:03:00+00:00",
+            base_dir=self.tools,
+        )
+        self._aria_merged()
+        self._merge_outcome()
+        self._produce(self._green_parent())
+        self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_VALIDATION_FAILED])
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertTrue(row["terminal"])
+        self.assertTrue(row["reason"].startswith("suite_command_refused:make test:"), row["reason"])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_the_revert_commit_is_made_under_no_ambient_git_identity_or_config(self) -> None:
+        self._git("config", "revert.reference", "true")
+        self._git("config", "commit.gpgsign", "true")
+        self._git("config", "gpg.program", "false")
+        ambient = {
+            "GIT_AUTHOR_NAME": "Someone Else", "GIT_AUTHOR_EMAIL": "someone@example.invalid",
+            "GIT_COMMITTER_NAME": "Someone Else", "GIT_COMMITTER_EMAIL": "someone@example.invalid",
+            "GIT_AUTHOR_DATE": "2001-01-01T00:00:00+00:00", "GIT_COMMITTER_DATE": "2001-01-01T00:00:00+00:00",
+        }
+        self._aria_merged()
+        self._merge_outcome()
+        with mock.patch.dict(os.environ, ambient):
+            self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        tip = self._origin_tip(revert_branch_for(self.merge_sha))
+        merge_date = self._out("show", "-s", "--format=%cI", self.merge_sha)
+        shown = self._out("show", "-s", "--format=%an|%ae|%aI|%cn|%ce|%cI", tip, cwd=self.origin)
+        self.assertEqual(shown, "|".join([
+            REVERT_COMMITTER_NAME, REVERT_COMMITTER_EMAIL, merge_date,
+            REVERT_COMMITTER_NAME, REVERT_COMMITTER_EMAIL, merge_date,
+        ]))
+        self.assertEqual(self._out("show", "-s", "--format=%B", tip, cwd=self.origin),
+                         f'Revert "{MERGE_SUBJECT}"\n\nThis reverts commit {self.merge_sha}.')
+
+    def test_a_retry_whose_revert_commit_differs_revalidates_instead_of_reusing(self) -> None:
+        from aria_kernel import delivery_credentials
+
+        self._aria_merged()
+        self._merge_outcome()
+        with mock.patch.object(delivery_credentials, "mint_installation_token", side_effect=RuntimeError("no app")):
+            self._produce(self._green_parent())
+        first_change = load_self_reverts(base_dir=self.tools)[0]["change_id"]
+        first = _find_committed(self.tools, first_change)
+        assert first is not None
+        # The same base, a different commit: the chain validated at the
+        # first tip says nothing about this one.
+        with mock.patch.object(self_revert, "REVERT_COMMITTER_EMAIL", "aria-self-revert-2@users.noreply.github.com"):
+            self._produce(self._green_parent())
+        opened = load_self_reverts(base_dir=self.tools)[-1]
+        self.assertEqual(opened["decision"], DECISION_OPENED)
+        self.assertNotEqual(opened["head_sha"], first["commit_sha"])
+        self.assertNotEqual(opened["change_id"], first_change)
+        runs = list_validation_runs_for_change(opened["change_id"], base_dir=self.tools)
+        self.assertEqual({run["commit_sha"] for run in runs}, {opened["head_sha"]})
+        gate = _evaluate_triple_gate(pr_number=REVERT_PR, head_sha=opened["head_sha"], base_dir=self.tools)
+        self.assertTrue(gate["passed"], gate)
+
+    # -- the regression trigger's merge resolution --------------------------
+
+    def _regression(self, *, merge_sha: str | None = None) -> None:
+        self._aria_merged()
+        self._merge_outcome(status="green", merge_sha=merge_sha)
+        append_declared_jsonl(
+            self.tools / "change-ledger" / "outcome.jsonl",
+            {"$schema": CHANGE_RECORD_SCHEMA, "schema_version": 1, "event": "change_outcome",
+             "change_id": self.reverted_change_id, "verdict": "regression", "merged_pr_number": MERGED_PR,
+             "recorded_at": "2026-09-25T02:00:00Z", "readings": []},
+            expected_surface="change_outcome",
+        )
+
+    def test_a_regression_freezes_before_the_fetch_and_a_failed_fetch_is_recorded(self) -> None:
+        self._regression()
+        moved = self.origin.with_name("origin-moved.git")
+        self.origin.rename(moved)
+        self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["merge_sha"], self.merge_sha)
+        self.assertEqual(self._decisions(), [DECISION_REMOTE_UNRESOLVED])
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertTrue(row["reason"].startswith("fetch_failed:"), row["reason"])
+        self.assertFalse(row["terminal"])
+        self.assertTrue(self._human_required(DECISION_REMOTE_UNRESOLVED).exists())
+        # Once the remote answers, the same key proceeds.
+        moved.rename(self.origin)
+        self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        self.assertEqual(self._decisions(), [DECISION_REMOTE_UNRESOLVED, DECISION_OPENED])
+
+    def test_a_regression_on_a_merge_that_is_not_on_main_is_recorded_not_skipped(self) -> None:
+        self._git("checkout", "-q", "-b", "side")
+        self._write("docs/runbooks/other.md", "side\n")
+        self._git("commit", "-q", "-am", "docs: side")
+        side = self._out("rev-parse", "HEAD")
+        self._git("checkout", "-q", "main")
+        self._regression(merge_sha=side)
+        self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["merge_sha"], side)
+        row = load_self_reverts(base_dir=self.tools)[0]
+        self.assertEqual((row["decision"], row["reason"]), (DECISION_REMOTE_UNRESOLVED, "merge_sha_not_on_main"))
 
 
 class SelfRevertCycleWiringTests(unittest.TestCase):

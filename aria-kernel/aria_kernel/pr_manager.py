@@ -645,6 +645,7 @@ def open_revert_pr(
     *,
     workspace_root: str | Path,
     branch: str,
+    head_sha: str,
     base_sha: str,
     title: str,
     body: str,
@@ -667,6 +668,13 @@ def open_revert_pr(
     bracketed ``gh pr create``. Only ``aria/revert/*`` branches are
     admitted here, so this opener cannot carry an ordinary change past the
     proposal-approval checks ``open_pr_for_action`` makes.
+
+    ``head_sha`` is the revert commit the producer pushed to ``branch`` and
+    validated. It is named by sha, not read off a local branch: the producer
+    builds the revert in a detached worktree and pushes ``HEAD`` to the
+    remote branch (ARIA-MEDIUM-228), so a job killed mid-delivery leaves no
+    local branch behind to block the next attempt. The commit is in the
+    workspace's object store (a worktree shares it).
     """
     if not change_id or not change_id.strip():
         raise GovernanceError("open_revert_pr_change_id_required")
@@ -675,13 +683,12 @@ def open_revert_pr(
     enforce_profile_for_action("pr_create", base_dir=base_dir)
     workspace_path = Path(workspace_root).resolve()
     rev_completed = subprocess.run(
-        ["git", "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}"],
+        ["git", "rev-parse", "--verify", f"{head_sha}^{{commit}}"],
         cwd=workspace_path, capture_output=True, text=True, check=False,
     )
-    head_sha = (rev_completed.stdout or "").strip()
-    if rev_completed.returncode != 0 or not head_sha:
+    if rev_completed.returncode != 0 or (rev_completed.stdout or "").strip() != head_sha:
         raise GovernanceError(
-            f"open_pr_head_sha_unresolvable: {branch!r}: {(rev_completed.stderr or '').strip()!r}"
+            f"open_pr_head_sha_unresolvable: {branch!r}@{head_sha!r}: {(rev_completed.stderr or '').strip()!r}"
         )
     _validate_pr_body(body)
     perimeter_context = HardFailContext(

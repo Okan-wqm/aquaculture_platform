@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from aria_kernel import cli, merge_authority
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.self_merge_freeze import (
     FROZEN_EVENT,
+    REVERT_REGISTERED_EVENT,
     active_freeze,
     assert_self_merge_not_frozen,
     freeze_id_for,
@@ -89,6 +91,31 @@ class SelfMergeFreezeTests(unittest.TestCase):
             assert_self_merge_not_frozen(pr_number=42, head_sha="d" * 40, base_dir=self.tools)
         with self.assertRaisesRegex(GovernanceError, "self_merge_frozen"):
             assert_self_merge_not_frozen(pr_number=43, head_sha="b" * 40, base_dir=self.tools)
+
+    def test_registering_the_same_revert_twice_writes_one_row(self) -> None:
+        # ARIA-MEDIUM-228 — a producer resumed after a crash between the
+        # registration and its own record registers again; that is a no-op.
+        freeze_id = self._freeze()["freeze_id"]
+        first = register_revert(freeze_id=freeze_id, pr_number=42, head_sha="b" * 40, purity=PURE,
+                                base_dir=self.tools)
+        second = register_revert(freeze_id=freeze_id, pr_number=42, head_sha="b" * 40, purity=PURE,
+                                 base_dir=self.tools)
+        self.assertEqual(first, second)
+        text = freeze_ledger_path(self.tools).read_text(encoding="utf-8")
+        self.assertEqual(text.count(REVERT_REGISTERED_EVENT), 1)
+        # A different head is a different revert: it is registered and admitted.
+        self._register(freeze_id, head_sha="c" * 40)
+        self.assertEqual(active_freeze(base_dir=self.tools)["revert"], {"pr_number": 42, "head_sha": "c" * 40})
+
+    def test_register_revert_documents_the_gate_it_actually_has(self) -> None:
+        # ARIA-MEDIUM-228 (9) — it checks the caller's purity flag and a known
+        # freeze, and the surface write gate; it proves neither purity nor
+        # validation, and `pr_merge` in the profile is not what it requires.
+        doc = inspect.getdoc(register_revert) or ""
+        self.assertIn("does not prove", doc)
+        self.assertNotIn("whose purity was proven", doc)
+        module_doc = " ".join((inspect.getdoc(sys.modules[register_revert.__module__]) or "").split())
+        self.assertNotIn("only a profile that grants ``pr_merge`` may write it", module_doc)
 
     def test_an_impure_revert_is_never_registered(self) -> None:
         freeze_id = self._freeze()["freeze_id"]

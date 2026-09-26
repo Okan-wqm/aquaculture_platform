@@ -101,9 +101,9 @@ Use one line-icon set (Lucide style, 2 px stroke, Ink):
 **On-slide text**
 
 - Headline: **ARIA**
-- Sub-headline: **An audit trail for AI work. Software first; other fields via plug-ins.**
+- Sub-headline: **The evidence and control layer for AI work. Software first.**
 - Line 3: A spin-off of SUDERRA AS, Norway (company in formation). Grown out of building our own fish-farm software with AI agents.
-- Line 4 (Slate, 22 pt): For teams that must show auditors how AI-written software was checked.
+- Line 4 (Slate, 22 pt): AI agents are becoming workers. ARIA makes their work verifiable.
 
 **Visual**
 
@@ -189,15 +189,18 @@ We started in November 2025 by building operations software for fish farms. From
 
 **On-slide text**
 
-- Headline: **ARIA checks AI work against the real code. It does not do the work.**
-- Four capability blocks, each with an icon, a name, one line and a label:
+- Headline: **ARIA: the evidence and control layer for AI work. It checks the work; it does not do it.**
+- Sub-headline (Slate, 22 pt): AI work → evidence → verification → decision record → outcome. Software is the first application.
+- Six capability blocks, each with an icon, a name, one line and a label (the loop: evidence → verification → decision → memory → learning → better controls):
 
-| Block                      | One line on the slide                                                                                            | Label    |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
-| Proof check                | Throws out AI answers whose quoted file is not in the exact code version (checked by fingerprint).               | **LIVE** |
-| Several AI judges          | A judged problem becomes official only after at least two AI judges rule and a clear majority agrees (5 so far). | **LIVE** |
-| Sealed record              | Each record is sealed to the one before, so a later edit would show.                                             | **LIVE** |
-| Memory with an expiry date | Each fact is tied to a code version and re-checked when its files change.                                        | **LIVE** |
+| Block                      | One line on the slide                                                                                            | Label                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Proof check                | Throws out AI answers whose quoted file is not in the exact code version (checked by fingerprint).               | **LIVE**                                    |
+| Several AI judges          | A judged problem becomes official only after at least two AI judges rule and a clear majority agrees (5 so far). | **LIVE**                                    |
+| Sealed record              | Each record is sealed to the one before, so a later edit would show.                                             | **LIVE**                                    |
+| Memory with an expiry date | Each fact is tied to a code version and re-checked when its files change.                                        | **LIVE**                                    |
+| Learning from outcomes     | What happened after a decision feeds the next check.                                                             | **BUILT · NOT ON** (no outcome records yet) |
+| Controls that grow         | New checkers are requested where ARIA sees a gap (20 so far) and must pass a trial before they count.            | **BUILT · NOT ON** (none has passed yet)    |
 
 - Bottom line (Ink, 22 pt): **ARIA has not yet changed or approved any code by itself. That is the next step (slide 6).**
 - Footnote (12 pt): "Today it checks its own AI judges and planners, on our code only. Memory is small: 8 proven facts."
@@ -206,7 +209,7 @@ We started in November 2025 by building operations software for fish farms. From
 
 - A three-layer diagram:
   - **Top band:** "AI models ARIA works with today". Two chips: "Anthropic" and "Z.ai". A third, dashed chip reads "coding agents (ours today: Claude Code, via MCP)".
-  - **Middle band:** "ARIA", holding the four blocks side by side, with a Fjord-teal outline.
+  - **Middle band:** "ARIA", holding the six blocks as a loop (a ring of arrows from "Proof check" round to "Controls that grow" and back), with a Fjord-teal outline. The two BUILT · NOT ON blocks are drawn with dashed borders.
   - **Bottom band:** two boxes, "The team's code store (git; today, ours)" and "The team's people".
 - Four arrows, each labelled:
   1. AI models → ARIA: "answers that cite a file (and line)"
@@ -260,17 +263,17 @@ ARIA has run on our own code since August. It started forty-three nightly runs, 
 
 **On-slide text**
 
-- Headline: **ARIA must earn each permission.**
+- Headline: **ARIA must earn each permission: observe, verify, recommend, then act.**
 - Four rungs, drawn from the bottom up:
 
-| Rung | Text on the slide                                                                                                                                                                                                                           | Label                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 1    | Look and report                                                                                                                                                                                                                             | **LIVE**                                                                              |
-| 2    | Judge with several AI models (flagged problems)                                                                                                                                                                                             | **LIVE**                                                                              |
-| 3    | Write a fix inside a sealed test box                                                                                                                                                                                                        | **BUILT · NOT ON** (never used for a real change)                                     |
-| 4    | Approve only documentation changes and new tests (never edits to existing tests), with a person's time-limited permission. If the tests then fail because of that change, it locks itself and starts an undo, so a bad change is contained. | **BUILT · NOT ON** (lock and undo; permission step and new-tests rule in development) |
+| Rung | Text on the slide                                                                                                                                                         | Label                                                                                 |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1    | **Observe and record**: every AI claim and check kept, sealed                                                                                                             | **LIVE**                                                                              |
+| 2    | **Verify**: claims checked against the exact evidence; several AI judges                                                                                                  | **LIVE**                                                                              |
+| 3    | **Recommend**: plans reviewed by a second AI before any work starts                                                                                                       | **BUILT · NOT ON** (no plan has passed yet)                                           |
+| 4    | **Controlled execution**: only documentation changes and new tests, with a person's time-limited permission; if the tests then fail, ARIA locks itself and starts an undo | **BUILT · NOT ON** (lock and undo; permission step and new-tests rule in development) |
 
-- Side note beside rung 4 (14 pt): "Before rung 4: fix the problems our own safety reviews found, and complete 30 successful trial runs. The lock and undo are built; the permission step and the new-tests rule are in development."
+- Side note beside rung 4 (14 pt): "Before rung 4: fix the problems our own safety reviews found, and complete 30 successful trial runs."
 - Footer line (Ink, 22 pt): **Everything else always needs a person to approve it.**
 
 **Visual**
@@ -287,7 +290,7 @@ ARIA has run on our own code since August. It started forty-three nightly runs, 
 - Put the legend strip at the bottom.
 
 **Speaker notes**
-ARIA has to earn each permission, one rung at a time. Today it looks, reports and judges, on our own code. The next rungs are built but not switched on. First comes writing a fix inside a sealed test box. Then comes approving only documentation changes and new tests, with a person's time-limited permission. It may add tests, never weaken existing ones. If the tests then fail, ARIA locks itself and starts an undo. Before that rung, we must fix the problems our own safety reviews found and complete thirty successful trial runs. Product code and ARIA's own rules always need a person.
+ARIA has to earn each permission, one rung at a time: observe, verify, recommend, then act. Today it observes, records and verifies, on our own code. Recommending is built: plans are reviewed by a second AI before work starts, and no plan has passed that review yet. Acting comes last: approving only documentation changes and new tests, with a person's time-limited permission. It may add tests, never weaken existing ones. If the tests then fail, ARIA locks itself and starts an undo. Before that rung, we must fix the problems our own safety reviews found and complete thirty successful trial runs. Product code and ARIA's own rules always need a person.
 
 **Footer source line:** SUDERRA's own repository records and ARIA design documents, 26 Sep 2026
 
@@ -304,7 +307,7 @@ ARIA has to earn each permission, one rung at a time. Today it looks, reports an
 
 **On-slide text**
 
-- Headline: **One core. Plug-ins for each field. Software is the first.**
+- Headline: **One evidence layer. Software first, then other fields.**
 - Left panel, "The core (designed to be general)", as five short lines:
   - Proof check against an exact version **LIVE**
   - Sealed record **LIVE**
@@ -314,12 +317,12 @@ ARIA has to earn each permission, one rung at a time. Today it looks, reports an
 - Middle strip: "A plug-in = a description file + a small checking program. Fields whose records are not kept in git also need a new evidence store in the core."
 - Right side: four idea cards, ordered from nearest (top) to farthest (bottom):
 
-| #   | Card title                              | What exists / what is missing                                                                                                 | Label                  |
-| --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| 1   | **Software teams using AI**             | 11 checkers, all for software; 9 have run on our own code. Needs packaging for other teams.                                   | **LIVE** (on our code) |
-| 2   | **Banks' own rules (audit checks)**     | The software checkers that fit a bank's code, plus new checks for the bank's own rules. Those checks are not built.           | **NOT BUILT**          |
-| 3   | **Law firms (documents and contracts)** | Documents would need to be stored with version history, plus new checkers.                                                    | **NOT BUILT**          |
-| 4   | **Greenhouses (food production)**       | Growing records would need a new evidence store and new checkers. Our platform has a hydroponics calculator (front end only). | **NOT BUILT**          |
+| #   | Card title                                    | What exists / what is missing                                                                                                 | Label                  |
+| --- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| 1   | **Software teams using AI**                   | 11 checkers, all for software; 9 have run on our own code. Needs packaging for other teams.                                   | **LIVE** (on our code) |
+| 2   | **Banks' own rules (audit checks)**           | The software checkers that fit a bank's code, plus new checks for the bank's own rules. Those checks are not built.           | **NOT BUILT**          |
+| 3   | **Law firms (documents and contracts)**       | Documents would need to be stored with version history, plus new checkers.                                                    | **NOT BUILT**          |
+| 4   | **Food production (greenhouses, fish farms)** | Growing records would need a new evidence store and new checkers. Our platform has a hydroponics calculator (front end only). | **NOT BUILT**          |
 
 - Footer caveat (14 pt, Slate): "Of ARIA's 310 main modules, 19 mention fish farming (mostly in comments) and 70 mention GitHub or pull requests. Its ties are to software, not to fish."
 
@@ -369,32 +372,29 @@ We will start where audits are routine: the software teams of banks, payment and
 
 **On-slide text**
 
-- Headline: **One market, sized bottom-up. The price is our assumption.**
-- Equation stack:
-  - 36.5M professional developers worldwide `[verify]`
-  - × 68% use AI coding agents every day (2026) `[verify]`
-  - = 24.8M developers
+- Headline: **Start with Norway's regulated software teams. The price is our assumption.**
+- Left, beachhead stack:
+  - ~126 banks in Norway (2025) `[verify]`, plus insurance and payment companies [TO FILL]
+  - → their software organisations (fewer than banks: many share IT through alliances)
+  - → teams of 10–100 developers
   - × USD 20 per developer per month (assumption) × 12
-  - = **≈ USD 5.96 bn a year**
-- Three small lines under the stack:
-  - "Cross-check: analysts put AI code tools at USD 7.37–7.65 bn in 2025, growing about 24–26% a year `[verify]`. Different category, so a loose check."
-  - "Two sources, two dates: an estimate, not a measurement."
-  - "Norway: [TO FILL]"
-- Illustration box: "Illustration, not a forecast: 40 organisations × 50 developers × USD 20 × 12 = USD 480,000 a year (about 0.008%)."
+  - = **USD 2,400–24,000 a year per team**; enterprise contracts cover several teams
+- Right, ceiling box (Slate, smaller): "For scale only: 36.5M professional developers × 68% daily agent use × USD 20 × 12 ≈ USD 5.96 bn a year `[verify]`. A population times an untested price: a ceiling, not a target."
+- Small line: "AI code tools: USD 7.37–7.65 bn in 2025, growing about 24–26% a year `[verify]`."
 
 **Visual**
 
-- A vertical equation stack in the left 60%, with the operators in a narrow gutter. The total is Inter Bold 56 pt in Fjord teal.
+- The beachhead stack takes the left 60%, drawn as a narrowing funnel of five rows. The per-team total is Inter Bold 44 pt in Fjord teal.
 - Put the word "assumption" as small grey text beside the price, not as a pill.
-- The illustration box sits in the right 40%, on a Mist fill.
+- The ceiling box sits in the right 40%, on a Mist fill and in smaller type, so it reads as context, not as the claim.
 - No pie charts and no TAM/SAM/SOM circles.
 
 **Speaker notes**
-We size one market bottom-up. There are thirty-six and a half million professional developers, and in 2026 about two thirds of them use AI coding agents every day. At an assumed twenty dollars per developer per month, that is about six billion dollars a year. The price is our assumption; a known code-review tool lists twenty-four dollars. Analysts put the AI code tools market above seven billion dollars and growing about a quarter a year. We will measure Norway first.
+We start from the first buyer, not from a global number. Norway has about a hundred and twenty-six banks, plus insurers and payment companies; many share IT, so the real number of software organisations is smaller, and mapping it is our first job in the programme. A team of ten to a hundred developers, at our assumed price, is two to twenty-four thousand dollars a year. For scale only: if every professional developer who uses AI agents daily paid that price, it would be about six billion dollars a year. That is a ceiling, not a target.
 
-**Footer source line:** SlashData · JetBrains Developer Ecosystem Survey 2026 · Research and Markets / Mordor Intelligence 2025 · CodeRabbit pricing page
+**Footer source line:** thebanks.eu / Finanstilsynet · SlashData · JetBrains Developer Ecosystem Survey 2026 · Research and Markets / Mordor Intelligence 2025 · CodeRabbit pricing page
 
-**Evidence (do not render):** N-06, N-01, N-07 (market_2026.md), M-050. The arithmetic: 36,500,000 × 0.68 = 24,820,000; × 20 × 12 = 5,956,800,000; 480,000 / 5,956,800,000 ≈ 0.008%.
+**Evidence (do not render):** N-10, N-06, N-01, N-07 (market_2026.md), M-050. Arithmetic: 10 × 20 × 12 = 2,400; 100 × 20 × 12 = 24,000; 36,500,000 × 0.68 × 240 = 5,956,800,000.
 
 ---
 
@@ -408,7 +408,7 @@ We size one market bottom-up. There are thirty-six and a half million profession
   - Watch-only plan: proof checks, AI judges, sealed record **LIVE** (on our own code)
   - Approval plan: documentation and new tests only, with a person's permission **BUILT · NOT ON** (lock and undo only; permission step and new-tests rule in development)
   - Revenue to date: none
-- Right column, "Closest tools":
+- Right column, "Closest tools" (and, under it, one line: "What could become hard to copy: the evidence history, memory and evaluation data each team builds over time (early, not yet proven).")
   - **Qodo, CodeRabbit:** AI review of proposed code changes `[verify]`
   - **ARIA:** proof against the exact code version, several AI judges, and a sealed record
 - Footnote: "Based on public descriptions; not tested hands-on."

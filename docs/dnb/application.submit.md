@@ -49,6 +49,7 @@ You are helping Okan Öztürk fill in the Startuplab Accelerator application for
 | EU AI Act dates; Nkom as Norway's supervisor (Q5)                                       | https://artificialintelligenceact.eu/article/4/ and https://cms.law/en/int/expert-guides/ai-regulation-scanner/norway                                                                  |
 | 36.5 million professional developers (Q7)                                               | https://www.slashdata.co/post/global-developer-population-trends-2025-how-many-developers-are-there                                                                                    |
 | CodeRabbit USD 24 per developer per month, billed annually (Q7)                         | https://www.coderabbit.ai/pricing                                                                                                                                                      |
+| Norway: about 126 banks in 2025 (Q7)                                                    | https://thebanks.eu/articles/banks-in-Norway (cross-check with Finanstilsynet's annual report)                                                                                         |
 | AI code tools market USD 7.37–7.65 bn in 2025, about 24–26% a year (Q7)                 | Search the analyst names "Research and Markets" and "Mordor Intelligence" plus "AI code tools market 2025". If you cannot confirm it, drop the Trend bullet.                           |
 | Cursor bought Graphite, December 2025 (Q7)                                              | Search "Cursor acquires Graphite". If you cannot confirm it, drop the Fragmentation bullet.                                                                                            |
 | Norway: 99,300 people in IT occupations, Q4 2024 (Q7)                                   | https://www.ssb.no/arbeid-og-lonn/sysselsetting/artikler/mange-flere-har-it-yrker                                                                                                      |
@@ -57,53 +58,57 @@ You are helping Okan Öztürk fill in the Startuplab Accelerator application for
 
 ## 1. Summarize [company] in 20 words or less \*
 
-ARIA (a SUDERRA AS spin-off in formation) checks AI claims against real evidence. Software first; other fields via plug-ins.
+ARIA (a SUDERRA AS spin-off in formation): an evidence, memory and control layer for AI work. Software first.
 
 ---
 
 ## 2. Why did you decide to start [company]? \*
 
-In November 2025 we started building operations software for fish farms: feeding, water quality and fish-welfare records. We built a growing part of it with AI coding agents: in September 2026, at least 73% of our regular code changes carried an agent's mark. We learned that an agent saying "done" is not proof, so we wrote rules and automatic checks around the agents. In May 2026 we started ARIA from what those rules taught us. [TO FILL: your own reason, in your own words.] We believe every field where AI does real work will need the same proof, and software needs it first. That is why ARIA is becoming its own company.
+We started building SUDERRA AS's fish-farm software with AI coding agents. In September 2026, at least 73% of our regular code changes carried an agent's mark. We soon hit a simple problem: an agent saying "done" is not proof that the work is right. So we built rules and automatic checks around our agents, and in May 2026 those ideas became ARIA. [TO FILL: your own reason, in your own words.]
+
+We then saw that checking alone is not enough. If a system keeps what an agent claimed, the evidence, the version, the decision and what happened afterwards, that history becomes memory for AI work, and memory can improve the next check. We believe AI systems should be able to show what they did, why, on what evidence, under which rules, and what happened next. Software is where that is needed first.
 
 ---
 
 ## 3. Briefly describe the problem [company] are solving and who you are solving it for. \*
 
-Software teams now let AI agents (programs that write and change code) do real work. But when an agent says "done", the team often cannot show later what it checked, in which version of the code, and who approved it. We solve this first for teams that must answer to auditors: the software teams of banks, payment and insurance companies. That is a hypothesis we will test; so far our only user is ourselves.
+AI agents are moving from suggesting work to doing it. Organisations often cannot answer basic questions about that work later: what the AI changed, what it claimed, what evidence supports the claim, which version was checked, who decided, and what happened afterwards.
 
-The gap is growing. In mid-2026, 90% of professional developers used AI coding agents at work every week and 68% every day [verify]. Yet 96% do not fully trust AI-generated code, and only 48% always check it before committing it [verify].
+The gap is growing. In mid-2026, 68% of professional developers used AI coding agents every day [verify]. Yet 96% do not fully trust AI-generated code, and only 48% always check it before committing it [verify].
 
-ARIA is designed as a general core, with one plug-in per field. Software is the first, because that is where AI already works at scale. Other fields, such as law firms' documents or greenhouse records, need their own plug-ins and are not built.
+ARIA is an evidence, memory and control layer for AI work. We start with software engineering: agents already work there every day, and code, tests and version history give machine-checkable evidence. Our initial hypothesis is that regulated software teams need this most, starting with banks, payment companies and insurers. We have not yet validated this with external customers; so far our only user is ourselves.
 
-We met the problem while building SUDERRA AS's fish-farm software with AI agents. That software records feeding, water quality and fish deaths by cause. ARIA was born there and will be spun out as its own company.
+We met the problem while building SUDERRA AS's software with AI agents. ARIA will be spun out of SUDERRA AS as its own company.
 
 ---
 
 ## 4. Describe your value proposition of your solution and why it is better than what exists in the market today? \*
 
-For a team whose code is increasingly written by AI, ARIA keeps a record an auditor can follow. An AI claim about the code counts only if it points to an exact file, checked by its digital fingerprint, in an exact version of the code. Anything else is thrown out.
+ARIA makes AI work verifiable, remembered and, over time, improvable, rather than simply trusted. It is built as a loop:
 
-On our own code, August–September 2026:
+AI work → evidence → verification → decision → outcome → memory → learning → better controls → next AI work
 
-- A real gap found. Our own compliance document promised an automatic check that scans every new problem-log entry for personal data, such as e-mail addresses, phone numbers, bank-account (IBAN) and card numbers. ARIA found that the check does not exist in the code, and two AI judges from two companies agreed. The finding is still open.
-- Unproven answers rejected. It threw out 24 answers from its own AI agents (judges and planners), because the file or line they quoted did not match the saved code.
-- False alarms filtered. Its AI judges gave 157 verdicts on problems its automatic checkers had flagged, and 87 said "false alarm".
-- A record that shows edits. It keeps 88,890 records, each sealed to the one before so that a later edit would show, and all of them pass the check.
+Where each part stands, on our own code:
 
-We have not yet measured time or cost saved. Measuring errors and rework, with and without ARIA, is the first goal of every pilot.
+- Evidence and verification: running. A claim counts only if it points to an exact file, checked by its digital fingerprint, in an exact version of the code. ARIA threw out 24 answers from its own AI agents whose cited file or line did not match. It also found that our own compliance document promised an automatic check for personal data (e-mail, phone, bank-account and card numbers) that does not exist in the code; two AI judges from two companies agreed.
+- Judgment: running. ARIA's judges classified 157 automatically flagged cases, 87 as false alarms. We have not yet independently measured the judges' accuracy.
+- Memory: running, small. Each fact is tied to a code version and re-checked when its files change; ARIA has corrected its own facts 9 times. All of this is kept in 88,890 sealed records.
+- Learning from outcomes: built, no outcome records yet.
+- Better controls: built, not yet proven. ARIA records where a new automatic checker is needed (20 requests so far). Every new checker must then pass a trial period with measured precision and a person's approval; 10 are in trial and none has passed.
 
-ARIA has not yet changed or approved any code by itself. That next step is limited to documentation changes and new tests, and needs a person's time-limited permission. It is in development.
+ARIA has not yet changed or approved any code by itself; its first controlled step will cover only documentation changes and new tests, with a person's time-limited permission. We have not yet measured time or cost saved; that is the first goal of every pilot.
 
-Code-review tools such as Qodo and CodeRabbit comment on proposed changes. ARIA keeps the proof and the record behind each claim. We have not tested those tools hands-on.
+Code-review tools such as Qodo and CodeRabbit judge one change. ARIA keeps the evidence, decisions and outcomes across changes, so later checks can learn from earlier ones.
 
 ---
 
 ## 5. Why is this the right timing for starting [company]?
 
-1. AI is becoming the normal way to write code. In April 2026 Google said 75% of its new code is AI-generated and approved by engineers [verify]. Gartner expects that by 2028 more than 70% of enterprise software engineers will rely on AI coding agents [verify]. On our own code, 73% of regular changes in September 2026 carried an AI agent's mark.
-2. Trust and control have not kept up. 60% of developers block agents from making system changes nobody approved [verify]. In April 2026 an AI coding agent deleted a company's production database and its backups in about nine seconds, using an access token it found in an unrelated file [verify].
-3. Budgets are forming. Forrester expects spending on AI governance software to reach USD 15.8 billion by 2030 [verify].
-4. Rules are arriving. In the EU, AI Act duties have applied in stages since February 2025, and its transparency duties since August 2026. Norway has named Nkom as its supervisor; the Norwegian start date is not yet settled [verify]. We expect more pressure on companies to show how they use AI.
+1. AI is becoming a worker. In April 2026 Google said 75% of its new code is AI-generated and approved by engineers [verify]. Gartner expects more than 70% of enterprise software engineers to rely on AI coding agents by 2028 [verify]. On our own code, 73% of regular changes in September 2026 carried an AI agent's mark.
+2. The bottleneck is shifting from "can AI produce it?" to "can we trust, verify and remember what AI did?" 60% of developers block agents from making system changes nobody approved [verify]. In April 2026 an AI coding agent deleted a company's production database and its backups in about nine seconds [verify].
+3. Rules and budgets are arriving. In the EU, AI Act duties have applied in stages since February 2025 [verify], and Forrester expects AI governance software spending to reach USD 15.8 billion by 2030 [verify].
+
+Between AI agents and traditional governance tools, a new layer is forming: the one that makes AI work accountable and steadily better. ARIA is built for that layer.
 
 ---
 
@@ -115,16 +120,17 @@ Select: H: Enterprise IT/Security/DevTools; I: FinTech
 
 ## 7. How do you analyze the size of your target market?
 
-We size one market: software teams that use AI coding agents. The counts come from public sources; the price is our assumption and has not been tested.
+We size the market from the first buyer up. The price is our assumption and has not been tested.
 
-- Count. There are 36.5 million professional developers worldwide (SlashData, latest count) [verify], and 68% use AI coding agents every day (JetBrains, 2026) [verify]. That is about 24.8 million developers. The two figures come from different sources, so this is an estimate.
-- Price and total. We assume USD 20 per developer per month, just under CodeRabbit's USD 24 (billed annually) [verify]. That gives about USD 5.96 billion a year.
-- Trend. Analysts put the AI code tools market at USD 7.37–7.65 billion in 2025, growing about 24–26% a year [verify]. That is a different category, so the check is loose.
-- Fragmentation. In our view the market is fragmented: many tools, and the first acquisitions, such as Cursor buying the AI code-review tool Graphite in December 2025 [verify].
-- Share we aim for. [TO FILL: reachable share, where, by when, and why.] As an illustration, not a forecast: 40 organisations × 50 developers × USD 20 × 12 = USD 480,000 a year, about 0.008% of the total.
-- Norway first. Norway had 99,300 people in IT occupations at the end of 2024 (SSB) [verify]. At the same 68% share and price, that is at most about 67,500 developers and USD 16.2 million a year. We will measure the share in banks, payment and insurance companies during the programme.
+- Beachhead: Norway's financial institutions. Norway has about 126 banks: in 2025, 19 domestic commercial banks, 72 savings banks and 35 foreign-controlled banks [verify]. Insurance and payment companies come on top [TO FILL: count]. Many savings banks share IT through alliances, so there are fewer software organisations than banks; we will map them during the programme.
+- Contract size. A software team of 10–100 developers at our assumed USD 20 per developer per month comes to USD 2,400–24,000 a year. An enterprise contract would cover several teams. [TO FILL: your expected first contract size.]
+- Share we aim for. [TO FILL: how many of these organisations, and by when.]
+- Norway's wider base. Norway had 99,300 people in IT occupations at the end of 2024 (SSB) [verify].
+- Global ceiling, for scale only. There are 36.5 million professional developers worldwide [verify], and 68% use AI coding agents every day [verify]. At the same price that is about USD 5.96 billion a year. This multiplies a population by an untested price, so we treat it as a ceiling, not a target.
+- Trend. Analysts put the AI code tools market at USD 7.37–7.65 billion in 2025, growing about 24–26% a year [verify].
+- Fragmentation. In our view the market is fragmented: many tools, and first acquisitions such as Cursor buying the AI code-review tool Graphite in December 2025 [verify].
 
-Other fields will come later, through plug-ins. We do not size them, because nothing is built for them.
+Other fields come later, through plug-ins. We do not size them, because nothing is built for them.
 
 ---
 
@@ -136,32 +142,32 @@ Select: A: B2B
 
 ## 9. What is the go-to-market plan for [company]?
 
-We sell founder-led, B2B, in Norway first. First targets: software teams at banks, payment and insurance companies that use AI coding agents and must show auditors who changed what and who checked it. This is a hypothesis we want to test in the programme.
+Founder-led B2B, in Norway first. The first goal is not volume but real pilots that show whether ARIA creates measurable value.
 
-How we reach them: our own network and Startuplab's and, if DNB agrees, one DNB software team as a first test. [TO FILL: named contacts, only if real.]
+1. Find organisations already using AI coding agents, starting with banks, payment companies and insurers (a hypothesis). We will reach them through our own network and Startuplab's, and, if DNB agrees, one DNB software team. [TO FILL: named contacts, only if real.]
+2. Map their current checking and governance process.
+3. Run ARIA read-only for [TO FILL: weeks] ([TO FILL: free or paid]). It never changes their code.
+4. Measure: AI changes reviewed, claims that could and could not be verified, false alarms, errors and rework, and time spent checking.
+5. Turn successful pilots into paid deployments.
 
-Offer: a read-only pilot of [TO FILL: weeks], [TO FILL: free or paid, and price]. ARIA looks and reports, and never changes the customer's code. This is the part that has run on our own code. The pilot measures whether errors and rework go down with ARIA.
-
-Time to onboard: [TO FILL: set-up X days, then a trial period of Y weeks]. Set-up is manual today, because parts of ARIA are still tied to our own setup and several of its automatic checkers are specific to our software. Each new checker runs on trial until we have measured how often it is right and a person has approved it.
-
-Later (not built): plug-ins for a bank's own rules, then law firms' documents and greenhouse records.
+Time to onboard: [TO FILL: set-up X days, then a trial period of Y weeks]. Set-up is partly manual today, because parts of ARIA are still tied to our own setup. The product goal is a version another team can install without us.
 
 ---
 
 ## 10. What is the business model of [company]?
 
-We will sell subscriptions, priced per developer whose AI work ARIA checks. The price is an assumption: USD 20 per developer per month, just under the list price of a known code-review tool.
+B2B SaaS. Our working price hypothesis is USD 20 per developer per month, not yet validated with customers.
 
-- Watch-only plan: proof checks, AI judges and a sealed record. ARIA looks and reports, and never changes code. This part runs on our own code today.
-- Approval plan (later): ARIA may approve the lowest-risk changes by itself, meaning documentation changes and new tests, never edits to existing tests, and only with a person's time-limited permission. If the tests then fail because of that change, ARIA locks itself and starts an undo, so a bad AI change is contained. The lock and the undo are built; the permission step and the new-tests rule are in development.
+- First product: a read-only evidence and verification layer. This part runs on our own code today.
+- Later value, as it is built and proven: team memory, reusable checks, agent evaluation, domain-specific controls and, only with a person's time-limited permission, controlled low-risk actions.
 
-Revenue to date: none.
+Pricing will be set through the first pilots. Revenue to date: none.
 
 ---
 
 ## 11. If your product is live or if you have a demo of your product, please provide the URL below
 
-https://app.suderra.com is the demo of SUDERRA AS's fish-farm platform. Demo account: [TO FILL: user / password]. ARIA was born while we built this platform; ARIA checks the platform's code, not the website. ARIA itself has no public web address yet. We can walk you through its live records on our own code in a meeting. [TO FILL: optional link to a short screen recording of ARIA's records.]
+https://app.suderra.com is the demo of SUDERRA AS's fish-farm platform, where ARIA was developed. Demo account: [TO FILL: user / password]. ARIA has no public website yet. It has run on our own development environment since August 2026, and we can show it live in an interview: an AI agent's claim, the evidence ARIA checked, the judgment, the decision and the sealed record. [TO FILL: optional link to a short screen recording.]
 
 ---
 
@@ -173,13 +179,16 @@ Select: A: DNB
 
 ## 13. Please elaborate on opportunities for collaboration between [company] and DNB
 
-What we ask of DNB: one software team that uses AI coding agents, for a read-only test of [TO FILL: weeks]. The test would show whether ARIA's record answers the questions an audit asks about AI-written code: who changed what, why, and who checked. We have no collaboration with DNB or Vipps today.
+We would like to test ARIA with one DNB software team that uses AI coding agents, read-only, for [TO FILL: weeks]. ARIA would not change any code. The test would ask:
 
-Why it could matter: banks are used to showing auditors how their software is changed and who approved it, and we think AI-written code will face the same questions. On our own code, every fix sent as a proposed change must name the problem it fixes; the check that enforces this has run 4,389 times. ARIA keeps a sealed record of what its AI agents claimed and whether each claim held up against the code.
+- Can ARIA reconstruct what the AI changed and claimed?
+- Can it tie each claim to evidence and the exact version checked?
+- Can it keep an auditable decision history?
+- Can it spot recurring failure patterns that make later checks better?
 
-What a bank will ask first: which AI companies see the code. Today ARIA's judges run on cloud models from Anthropic and Z.ai. ARIA's rule needs at least two judges, not two companies, so a bank could limit judging to the providers it approves. Running that way has not been tested yet, and a self-hosted model is not built.
+Banks are used to showing auditors how their software changes and who approved it; AI-written code adds a new actor to that process. Today ARIA's judges run on cloud AI models from Anthropic and Z.ai. ARIA needs at least two judges, not two companies, so a bank could limit judging to the providers it approves; this has not been tested, and a self-hosted option is not built.
 
-Later (not built): plug-ins for a bank's own rules.
+We have no collaboration with DNB or Vipps today.
 
 ---
 
@@ -195,14 +204,14 @@ https://www.linkedin.com/in/duygukayaozturk
 
 ## 15. Why will this team succeed with building this business in this market?
 
-We have already done on ourselves what ARIA offers others: building real software with AI agents under rules that demand proof.
+We did not start from a theory. We met the problem while building real software with AI agents, and we built the answer on ourselves first.
 
-- Okan Öztürk, [TO FILL: role]: [TO FILL: background; what he built].
-- Duygu Öztürk, [TO FILL: role]: [TO FILL: background]. [TO FILL: who owns sales, and any prior selling.]
-- Since November 2025 we have built a codebase of about 2.2 million lines (the fish-farm platform, its sensor gateway and ARIA), about 30% of it tests. At least 1,703 of our 6,888 saved changes carry an AI agent's mark, and that is a lower bound.
-- Our rules came first: 2,178 problems logged by our AI reviewers, 80% of them fixed. ARIA grew out of those rules, and about 7,000 automatic tests check its core.
+- Okan Öztürk: [TO FILL: role]. [TO FILL: background — e.g. years in aquaculture engineering, RAS design and operations, founder of SUDERRA AS; only what is true.]
+- Duygu Öztürk: [TO FILL: role and background]. [TO FILL: who owns sales, and any prior selling.]
+- Since November 2025 our codebase has grown to about 2.2 million lines (the fish-farm platform, its sensor gateway and ARIA), about 30% of them tests. At least 1,703 of our 6,888 saved changes carry an AI agent's mark, a lower bound.
+- Our rules came first: 2,178 problems logged by our AI reviewers, 80% of them fixed. ARIA grew out of them, and about 7,000 automatic tests check its core.
 
-We have no customers yet. Selling is what we are here to build with Startuplab.
+Our gap is commercial: we have no external customers yet. Turning this internal system into an externally validated product is why we are applying.
 
 ---
 
@@ -245,7 +254,11 @@ No.
 
 ## 21. What kind of validation have you received from your target market?
 
-We have spoken with [TO FILL: N] software teams in Norway, [TO FILL: how many in banking, payment or insurance]. [TO FILL: what they said; quote only with permission.] We have no letters of intent, pilots or paying customers yet. Our other evidence is our own use: ARIA found that one of our own compliance documents promised a personal-data check that does not exist in the code.
+We have no signed customers, pilots, beta users or letters of intent yet. Our strongest validation so far is technical: ARIA found a personal-data check that our own compliance document promised but the code never had, and it threw out AI answers whose cited evidence did not match the code.
+
+External conversations so far: [TO FILL: number; how many in banking, payment or insurance; the main findings; quotes only with permission].
+
+In the programme we want to test: whether teams feel this problem strongly enough to pay, who owns it (engineering, security, risk or compliance), which metrics prove value, whether a memory of past AI work is valuable to them, and what data and model controls they need.
 
 ---
 
@@ -264,16 +277,19 @@ We have spoken with [TO FILL: N] software teams in Norway, [TO FILL: how many in
 
 ## 24. How are you different to these competitors?
 
-Code-review tools comment on each proposed change. ARIA is built around proof and a record.
+Code-review tools help judge one proposed change. ARIA is built to connect the whole chain, and to keep it:
 
-1. Proof, not claims (running on our code). When one of ARIA's AI agents cites a file, and where it matters a line, ARIA checks it against the exact saved version of the code using the file's digital fingerprint. If they do not match, the answer is thrown out. This has happened 24 times.
-2. A record that shows edits (running on our code). ARIA's records sit in the team's own code store (today, ours), each sealed to the one before, and all 88,890 pass the check.
-3. More than one AI judge (running on our code). A flagged problem becomes an official finding only after at least two AI judges have ruled and a clear majority agrees, with an average confidence of at least 0.80. In all five cases so far, both judges agreed: one from Anthropic, one from Z.ai.
-4. A core with plug-ins (a design; only software plug-ins exist). The core is designed to be general, and each field gets its own automatic checkers.
+AI action → evidence → judgment → outcome → memory → learning → better control
 
-Hard to copy: [TO FILL: depends on the repository licence and whether the code stays public (checklist item 15).]
+1. Proof, not claims (running on our code). Citations are checked against the exact saved version by the file's fingerprint; 24 answers were thrown out.
+2. More than one AI judge (running on our code). A flagged problem becomes official only after at least two judges rule and a clear majority agrees; in all five cases so far, both agreed.
+3. A decision history that shows edits (running on our code). 88,890 records, each sealed to the one before.
+4. Memory and learning (memory running, small; learning from outcomes built, no records yet).
+5. Controls that grow (built, not yet proven). New checkers are requested where ARIA sees a gap, and each must pass a trial with measured precision and a person's approval before it counts.
 
-Where others are stronger: ARIA searches by exact words; its search by meaning is built but not switched on. It works only on files kept in a code store with version history (git). We have not tested competitors hands-on.
+What could become hard to copy (early, not yet proven): the evidence history, decision history, outcome data and validated checks each organisation builds over time. All of these grow with use, so a later entrant starts without them.
+
+Where others are stronger: ARIA searches by exact words (search by meaning is built but not switched on), and it works only on files kept with version history (git). We have not tested competitors hands-on.
 
 ---
 

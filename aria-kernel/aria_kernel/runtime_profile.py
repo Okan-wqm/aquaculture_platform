@@ -749,8 +749,17 @@ def get_merge_lane_grant(
     if grant is None or grant.get("lane") not in MERGE_LANE_GRANTABLE_LANES:
         return None
     expires_at = _parse_utc(grant.get("expires_at"))
+    granted_at = _parse_utc(grant.get("granted_at"))
     moment = now or datetime.now(timezone.utc)
-    if expires_at is None or expires_at <= moment:
+    if expires_at is None or granted_at is None or expires_at <= moment:
+        return None
+    # The write-time rules hold on read too: the state file is a file, and a
+    # grant edited by hand must not be honoured just because it parses.
+    if expires_at - granted_at > timedelta(days=MERGE_LANE_GRANT_MAX_DAYS):
+        return None
+    if not str(grant.get("operator_approval_ref") or "").strip():
+        return None
+    if not isinstance(grant.get("approval"), dict) or not grant["approval"]:
         return None
     return grant
 
@@ -800,8 +809,11 @@ def set_merge_lane_grant(
         raise GovernanceError(f"merge_lane_grant_approval_unrecorded: {exc}") from exc
     grant = {
         "lane": lane,
-        "expires_at": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "granted_at": utc_now(),
+        # Normalised to UTC before formatting: `Z` on a non-UTC wall clock
+        # would store a different instant (a +03:00 expiry three hours late,
+        # a negative offset one that is born expired).
+        "expires_at": expiry.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "granted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "operator_approval_ref": operator_approval_ref,
         "approval": approval,
     }

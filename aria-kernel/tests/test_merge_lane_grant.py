@@ -65,6 +65,32 @@ class MergeLaneGrantTests(unittest.TestCase):
             with self.assertRaisesRegex(GovernanceError, "merge_lane_not_granted"):
                 assert_merge_authorized(lane=lane, base_dir=self.tools)
 
+    def test_a_non_utc_expiry_is_stored_as_the_same_instant(self) -> None:
+        local = (datetime.now(timezone(timedelta(hours=3))) + timedelta(days=2)).replace(microsecond=0)
+        grant = set_merge_lane_grant(
+            lane="L1", expires_at=local.isoformat(), operator_approval_ref=self._gov(),
+            base_dir=self.tools,
+        )[MERGE_LANE_GRANT_STATE_KEY]
+        stored = datetime.fromisoformat(grant["expires_at"].replace("Z", "+00:00"))
+        self.assertEqual(stored, local)
+
+    def test_a_hand_edited_grant_is_not_honoured(self) -> None:
+        import json
+
+        self._grant()
+        state_file = self.tools / "runtime-profile.json"
+        for tamper in (
+            {"expires_at": _in(400)},          # beyond the bound
+            {"lane": "L2"},                     # not grantable
+            {"approval": None},                 # no recorded approval
+            {"operator_approval_ref": ""},
+        ):
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            state[MERGE_LANE_GRANT_STATE_KEY] = {**state[MERGE_LANE_GRANT_STATE_KEY], **tamper}
+            state_file.write_text(json.dumps(state), encoding="utf-8")
+            self.assertIsNone(get_merge_lane_grant(base_dir=self.tools), tamper)
+            self._grant()
+
     def test_only_l1_can_be_granted(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "merge_lane_grant_lane_not_grantable"):
             set_merge_lane_grant(
@@ -231,7 +257,7 @@ class MergeSeamsReadTheGrantTests(unittest.TestCase):
         package = Path(aria_kernel.__file__).parent
         writers = sorted(
             path.name
-            for path in package.glob("*.py")
+            for path in package.rglob("*.py")
             if "set_merge_lane_grant(" in path.read_text(encoding="utf-8")
             and path.name not in {"runtime_profile.py", "cli.py"}
         )

@@ -169,7 +169,7 @@ import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .delivery_credentials import (
     DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
@@ -594,6 +594,37 @@ def delivery_admission_refusal(
     )
 
 
+def _record_change_validated(
+    *,
+    change_id: str,
+    base_dir: str | Path | None,
+    workspace: Path,
+    emit: Callable[..., dict[str, Any]],
+    request_id: str,
+    cycle_id: str | None,
+) -> dict[str, Any] | None:
+    """Write ``change_validated`` from the ledger's own refs, or record why not."""
+    from .tool_registry import append_tools_governance
+    from .validation_runs_ledger import refs_for_change
+
+    refs = refs_for_change(change_id, base_dir=base_dir)
+    try:
+        return emit(change_id=change_id, validation_run_refs=refs, base_dir=base_dir, workspace_root=workspace)
+    except GovernanceErrorType as exc:
+        append_tools_governance(
+            base_dir,
+            "change_validated_refused",
+            {
+                "change_id": change_id,
+                "request_id": request_id,
+                "cycle_id": cycle_id,
+                "validation_ref_count": len(refs),
+                "reason": str(exc)[:500],
+            },
+        )
+        return None
+
+
 def deliver_implementation(
     *,
     request_id: str,
@@ -636,7 +667,7 @@ def deliver_implementation(
     """
     from .agent_invocations import EVIDENCE_TARGET_AUTO, find_request, judge_claim_submission
     from .apply_engine import run_apply_gate
-    from .change_ledger import emit_change_committed, verify_change_scope
+    from .change_ledger import emit_change_committed, emit_change_validated, verify_change_scope
     from .plan_convergence_bridge import verify_implementation_commit
     from .pr_manager import open_pr_for_action
     from .recovery import record_intent, record_receipt
@@ -795,6 +826,18 @@ def deliver_implementation(
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal("change_ledger", f"change_committed_refused:{str(exc)[:300]}") from exc
+
+    # 3b. ARIA-HIGH-196 — the validation row that closes the chain, from the
+    #     runs the apply gate just recorded under this change id. Nothing
+    #     else wrote it autonomously, so every ARIA change stopped at
+    #     change_committed and the merge triple gate could never pass. A
+    #     refusal (the matrix gate blocked, the profile froze) is recorded
+    #     by name and the PR is still delivered for human review: the
+    #     triple gate refuses to auto-merge a change without this row.
+    _record_change_validated(
+        change_id=change_id, base_dir=base_dir, workspace=workspace,
+        emit=emit_change_validated, request_id=request_id, cycle_id=cycle_id,
+    )
 
     # 4. The credential, minted HERE (round 6): the hold brackets exactly
     #    the push and the PR opener — the window the lease is asked to

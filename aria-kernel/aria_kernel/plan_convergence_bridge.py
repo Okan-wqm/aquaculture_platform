@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .agent_surface import PLANNER_BRIDGE_ROLES
+from .independence_check import response_principal
 from .tool_registry import GovernanceError
 
 # Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
@@ -631,7 +632,11 @@ def _canonicalize_challenger_payload(
     supplied = challenger_block if isinstance(challenger_block, dict) else {}
     request_id = response.get("request_id") or "unknown"
     return {
-        "challenger_agent": supplied.get("challenger_agent") or response.get("agent_id"),
+        # ARIA-HIGH-193 — the combatant is the agent the executor invoked
+        # (response_principal), never the envelope's executor-shaped
+        # agent_id: that named the GitHub run, so every duel row recorded
+        # `ci-executor:gha-<run>` and no genesis candidate ever matched.
+        "challenger_agent": supplied.get("challenger_agent") or response_principal(response),
         "challenger_revision_id": supplied.get("challenger_revision_id")
         or f"chal-{plan_id}-{request_id[-12:]}",
         "source_revision_id": supplied.get("source_revision_id") or source_revision_id,
@@ -732,7 +737,7 @@ def _canonicalize_revision_payload(
     return {
         # C8/E11 — carry the authoring agent's identity into the revision
         # event (same source as the challenger path: response.agent_id).
-        "revised_by_agent": supplied.get("revised_by_agent") or response.get("agent_id"),
+        "revised_by_agent": supplied.get("revised_by_agent") or response_principal(response),
         "revision_id": supplied.get("revision_id")
             or f"rev-{plan_id}-r{current_round or 1}-{request_id[-12:]}",
         "round": current_round,

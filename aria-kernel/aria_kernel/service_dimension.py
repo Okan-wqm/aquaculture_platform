@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .canonical_path import lexical_repo_path
+
 
 def service_for_path(path: object) -> str | None:
     """Derive the service dimension of one repo-relative path.
@@ -105,7 +107,7 @@ def owning_agent_domains_for_paths(paths: Iterable[object]) -> list[str]:
     for path in paths:
         if not isinstance(path, str):
             continue
-        clean = path.replace("\\", "/").lstrip("./")
+        clean = lexical_repo_path(path)
         for prefix, agents in touch_map.items():
             if clean.startswith(prefix):
                 owners.update(agents)

@@ -45,8 +45,8 @@ from aria_kernel.human_required import (  # noqa: E402
     record_human_required,
     resolve_human_required,
 )
-from aria_kernel.ledger import append_declared_jsonl  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir  # noqa: E402
+from tests._helpers.adjudication import seed_adjudicator_opinion  # noqa: E402
 
 
 class AdjudicabilityGate(unittest.TestCase):
@@ -201,40 +201,10 @@ class PanelFold(unittest.TestCase):
         self, request_id: str, *, agent_id: str, verdict: str,
         disposition: str | None = None,
     ) -> None:
-        """Write a claim row + an accepted result + its output payload.
-
-        Goes through ``append_declared_jsonl`` rather than writing lines
-        directly: both ledgers are hash-chained declared surfaces, and a
-        hand-written row fails strict verification — which is itself the
-        integrity discipline these gates depend on.
-        """
-        invocations = self.tools / "agent-invocations"
-        invocations.mkdir(parents=True, exist_ok=True)
-        output = invocations / f"{request_id}.opinion.json"
-        payload = {"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}
-        if disposition is not None:
-            payload["disposition"] = disposition
-        output.write_text(json.dumps(payload), encoding="utf-8")
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {
-                "request_id": request_id,
-                "claim_id": f"claim-{request_id}",
-                "agent_id": agent_id,
-            },
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {
-                "request_id": request_id,
-                "role": hra.ADJUDICATION_ROLE,
-                "status": "accepted",
-                "agent_id": agent_id,
-                "output_path": output.as_posix(),
-                "output_hash": "sha256:" + "0" * 64,
-            },
-            expected_surface="agent_invocation_results",
+        """Seal an opinion through the executor bridge (ARIA-HIGH-097)."""
+        seed_adjudicator_opinion(
+            self.tools, request_id, agent_id=agent_id, verdict=verdict,
+            disposition=disposition,
         )
 
     # I-PANEL-07
@@ -274,23 +244,31 @@ class PanelFold(unittest.TestCase):
         self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
         self.assertIn("insufficient_evidence_votes", verdict.reason)
 
-    # I-PANEL-10
-    def test_i_panel_10_shared_principal_stays_escalated(self) -> None:
+    # I-PANEL-10 — ARIA-HIGH-193: a seat's principal is the agent the kernel
+    # minted it for. One executor run carrying every seat (the live shape:
+    # every claim reads `ci-executor:gha-<run>`) is NOT a shared principal.
+    def test_i_panel_10_one_carrier_for_every_seat_is_still_independent(self) -> None:
         request_ids = self._open()
         for request_id in request_ids:
             self._seed_opinion(
-                request_id, agent_id="one-agent", verdict=hra.RESOLVE_VERDICT,
+                request_id, agent_id="ci-executor:gha-1", verdict=hra.RESOLVE_VERDICT,
+                disposition=hra.DISPOSITION_RE_MINT,
             )
         verdict = hra.fold_adjudication(
             escalation_request_id=self.escalation_id, base_dir=self.tools,
         )
-        self.assertEqual(verdict.outcome, hra.OUTCOME_STILL_ESCALATED)
-        self.assertIn("panel_not_independent", verdict.reason)
-        self.assertFalse(verdict.independence_ok)
-        self.assertTrue(
-            any("same_agent_id" in r for r in verdict.independence_reasons),
-            verdict.independence_reasons,
-        )
+        self.assertTrue(verdict.independence_ok, verdict.independence_reasons)
+        self.assertEqual(verdict.outcome, hra.OUTCOME_RESOLVED, verdict.reason)
+
+    # I-PANEL-10b — a shared principal cannot be minted: a role whose target
+    # list names one agent twice is short of distinct seats and refused.
+    def test_i_panel_10b_shared_principal_panel_cannot_be_minted(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(hra, "allowed_targets_for_role", return_value=("judge-x", "judge-x", "judge-x")):
+            with self.assertRaises(GovernanceError) as ctx:
+                self._open()
+        self.assertIn("adjudication_panel_targets_insufficient", str(ctx.exception))
 
     # I-PANEL-11
     def test_i_panel_11_independent_quorum_clears_escalation(self) -> None:
@@ -419,6 +397,15 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         # panel having no caller is what made ORPHAN-HIGH-426's fix inert,
         # so dropping this export is a regression, not a cleanup.
         "sweep_human_required_adjudications",
+        # ARIA-HIGH-097 — the adjudicator answer contract: the executor's
+        # pre-submit gate and the fold read an answer through these, so the
+        # two cannot disagree about what a readable opinion is.
+        "ADJUDICATION_CONTRACT_RELEASE_REASON",
+        "ADJUDICATION_DETAILS_KEY",
+        "AdjudicationAnswer",
+        "adjudication_contract_errors",
+        "read_adjudication",
+        "validate_adjudication_response",
     })
 
     def test_all_matches_the_canonical_set_exactly(self) -> None:

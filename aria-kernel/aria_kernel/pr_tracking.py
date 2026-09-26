@@ -5,13 +5,17 @@ import json
 from pathlib import Path
 from typing import Any
 
+# ARIA-HIGH-189 — findings.jsonl is feedback_store's declared ledger; it is
+# read and rewritten through the owner's primitives, never the raw ledger
+# writer (which refuses a declared surface the first time it holds a row).
 from .feedback_store import findings_path
+from .feedback_store import load_jsonl as load_findings_rows
+from .feedback_store import rewrite_jsonl as rewrite_findings_rows
 from .ledger import (
     append_declared_jsonl,
     append_jsonl as _append_jsonl,
     load_declared_jsonl,
     load_jsonl as _load_jsonl,
-    rewrite_jsonl,
 )
 from .memory import latest_beliefs
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -385,18 +389,18 @@ def _mark_findings_for_revalidation(root: Path, impacted: list[dict[str, Any]]) 
         return
     keys = {(item.get("run_id"), item.get("finding_id")) for item in impacted}
     rows = []
-    for row in load_jsonl(findings_path(root)):
+    for row in load_findings_rows(findings_path(root)):
         if (row.get("run_id"), row.get("finding_id")) in keys and row.get("status") in ("open", "suppressed_false_positive"):
             row = dict(row)
             row["status"] = "needs_revalidation"
             row["updated_at"] = utc_now()
         rows.append(row)
-    rewrite_jsonl(findings_path(root), rows)
+    rewrite_findings_rows(findings_path(root), rows)
 
 
 def _impacted_findings(root: Path, changed_files: list[str]) -> list[dict[str, Any]]:
     impacted = []
-    for row in load_jsonl(findings_path(root)):
+    for row in load_findings_rows(findings_path(root)):
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
         refs = _finding_refs(finding)
         matched = _matched_refs(refs, changed_files)

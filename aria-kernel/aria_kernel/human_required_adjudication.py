@@ -46,7 +46,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .agent_invocations import (
     accepted_result_for_request,
@@ -197,6 +197,73 @@ class AdjudicabilityVerdict:
 
     def __bool__(self) -> bool:
         return self.adjudicable
+
+
+# ARIA-HIGH-097 — the adjudicator's answer contract. The executor bridge
+# carries only ``details`` (and evidence_refs / notes / plan_content) from the
+# agent's JSON into the sealed envelope, so a top-level ``verdict`` never
+# reached this reader: 0 of 102 live envelopes carried a loadable verdict and
+# 215/215 folds stayed escalated. The answer lives in ONE named block,
+# ``details.adjudication``; the executor's pre-submit gate and the fold read
+# it through the same function below, so the two cannot disagree. A distinct
+# key rather than ``details.verdict``: the panel members are the judges, whose
+# own contract puts an OBJECT at ``details.verdict``.
+ADJUDICATION_DETAILS_KEY: str = "adjudication"
+ADJUDICATION_CONTRACT_RELEASE_REASON: str = "adjudication_contract_violation"
+
+
+@dataclass(frozen=True)
+class AdjudicationAnswer:
+    """The contract fields of one adjudicator response."""
+
+    verdict: str
+    rationale: str
+    disposition: str | None = None
+
+
+def adjudication_contract_errors(response: Mapping[str, Any]) -> list[str]:
+    """Shape errors of an adjudicator response envelope, one code per field."""
+    details = response.get("details")
+    if not isinstance(details, dict):
+        return ["adjudication:details_absent"]
+    block = details.get(ADJUDICATION_DETAILS_KEY)
+    if not isinstance(block, dict):
+        return ["adjudication:absent_or_not_object"]
+    errors: list[str] = []
+    verdict = block.get("verdict")
+    if not isinstance(verdict, str) or verdict.strip() not in ADJUDICATOR_VERDICTS:
+        errors.append("adjudication.verdict:not_in_closed_set")
+    rationale = block.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        errors.append("adjudication.rationale:absent_or_empty")
+    disposition = block.get("disposition")
+    if disposition is not None and (
+        not isinstance(disposition, str) or disposition.strip() not in PANEL_DISPOSITIONS
+    ):
+        errors.append("adjudication.disposition:not_in_closed_set")
+    return errors
+
+
+def read_adjudication(response: Mapping[str, Any]) -> AdjudicationAnswer | None:
+    """THE reader of an adjudicator's answer; ``None`` for a malformed one."""
+    if adjudication_contract_errors(response):
+        return None
+    block = response["details"][ADJUDICATION_DETAILS_KEY]
+    disposition = block.get("disposition")
+    return AdjudicationAnswer(
+        verdict=block["verdict"].strip(),
+        rationale=block["rationale"].strip(),
+        disposition=disposition.strip() if isinstance(disposition, str) else None,
+    )
+
+
+def validate_adjudication_response(
+    *, request: Mapping[str, Any], response: Mapping[str, Any],
+) -> list[str]:
+    """Pre-submit gate for the adjudication role; ``[]`` for every other role."""
+    if str(request.get("role") or response.get("role") or "") != ADJUDICATION_ROLE:
+        return []
+    return adjudication_contract_errors(response)
 
 
 @dataclass(frozen=True)
@@ -354,7 +421,14 @@ def open_adjudication(
                 f"repository. Return verdict=resolve only if you can point to the "
                 f"evidence that clears it; return insufficient_evidence if you "
                 f"cannot establish either way — that blocks resolution, and is the "
-                f"correct answer when you are unsure."
+                f"correct answer when you are unsure. "
+                f"Answer in the response envelope's details.{ADJUDICATION_DETAILS_KEY} "
+                f"object and nowhere else: verdict (one of "
+                f"{', '.join(sorted(ADJUDICATOR_VERDICTS))}), rationale (the evidence "
+                f"you relied on, non-empty) and, only with verdict=resolve on a "
+                f"{' or '.join(sorted(OPERATIONAL_DISPOSITION_KINDS))} escalation, "
+                f"disposition (one of {', '.join(sorted(PANEL_DISPOSITIONS))}). "
+                f"A top-level verdict, or one under details.verdict, is not read."
             ),
             must_satisfy=[{
                 "id": f"adjudicate-{escalation_request_id}",
@@ -432,25 +506,20 @@ def _load_opinion(
         return None
     if not isinstance(payload, dict):
         return None
-    verdict = str(payload.get("verdict") or "").strip()
-    if verdict not in ADJUDICATOR_VERDICTS:
+    # ARIA-HIGH-097 — the sealed envelope's ``details.adjudication`` block,
+    # read by the same function the executor's pre-submit gate uses. Y7: a
+    # disposition OUTSIDE the closed set is a malformed opinion, not a
+    # silently-dropped field (fail-closed: it counts toward panel_incomplete).
+    answer = read_adjudication(payload)
+    if answer is None:
         return None
-    # Y7 — optional disposition; a value OUTSIDE the closed set is a
-    # malformed opinion, not a silently-dropped field (fail-closed: the
-    # missing opinion counts toward panel_incomplete).
-    disposition_raw = payload.get("disposition")
-    disposition: str | None = None
-    if disposition_raw is not None:
-        disposition = str(disposition_raw).strip()
-        if disposition not in PANEL_DISPOSITIONS:
-            return None
     return AdjudicatorOpinion(
         request_id=request_id,
         agent_id=str(accepted.get("agent_id") or ""),
-        verdict=verdict,
-        rationale=str(payload.get("rationale") or ""),
+        verdict=answer.verdict,
+        rationale=answer.rationale,
         output_hash=str(accepted.get("output_hash") or ""),
-        disposition=disposition,
+        disposition=answer.disposition,
     )
 
 
@@ -1180,7 +1249,10 @@ def sweep_human_required_adjudications(
 __all__ = [
     "ADJUDICABLE_CONTEXT_KINDS",
     "ADJUDICATION_ROLE",
+    "ADJUDICATION_CONTRACT_RELEASE_REASON",
+    "ADJUDICATION_DETAILS_KEY",
     "ADJUDICATOR_VERDICTS",
+    "AdjudicationAnswer",
     "DEFAULT_PANEL_SIZE",
     "DEFAULT_QUORUM",
     "DISPOSITION_DROP",
@@ -1202,8 +1274,11 @@ __all__ = [
     "AdjudicatorOpinion",
     "PanelVerdict",
     "adjudicate_human_required",
+    "adjudication_contract_errors",
     "escalation_adjudicability",
     "fold_adjudication",
     "open_adjudication",
+    "read_adjudication",
     "sweep_human_required_adjudications",
+    "validate_adjudication_response",
 ]

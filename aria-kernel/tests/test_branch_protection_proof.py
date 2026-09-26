@@ -25,7 +25,7 @@ def _strong_payload() -> dict:
     return {
         "required_status_checks": {"contexts": list(REQUIRED_MERGE_STATUS_CHECKS)},
         "required_signatures": {"enabled": True},
-        "required_pull_request_reviews": {"required_approving_review_count": 1},
+        "required_pull_request_reviews": {"required_approving_review_count": 0, "require_code_owner_reviews": True},
         "required_conversation_resolution": {"enabled": True},
         "allow_force_pushes": {"enabled": False},
         "allow_deletions": {"enabled": False},
@@ -135,6 +135,46 @@ class BranchProtectionProofTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewRequirementsAreMeasuredTests(unittest.TestCase):
+    """ARIA-HIGH-201 — the proof records the review block's own fields and
+    the claim verifier requires code-owner review plus a measured count."""
+
+    def test_measured_fields_read_the_review_block(self) -> None:
+        from aria_kernel.readiness_proofs import _measured_protection_fields
+
+        fields = _measured_protection_fields(_strong_payload())
+        self.assertEqual(fields["required_approving_review_count"], 0)
+        self.assertIs(fields["code_owner_reviews_required"], True)
+        weak = dict(_strong_payload(), required_pull_request_reviews={"required_approving_review_count": 1})
+        fields = _measured_protection_fields(weak)
+        self.assertEqual(fields["required_approving_review_count"], 1)
+        self.assertIs(fields["code_owner_reviews_required"], False)
+        fields = _measured_protection_fields({})
+        self.assertIsNone(fields["required_approving_review_count"])
+        self.assertIs(fields["code_owner_reviews_required"], False)
+
+    def test_verifier_requires_code_owner_review_and_a_measured_count(self) -> None:
+        from aria_kernel.enterprise_readiness import _evaluate_branch_protection
+
+        def reasons_for(**overrides) -> list[str]:
+            proof = {"code_owner_reviews_required": True, "required_approving_review_count": 0, **overrides}
+            reasons: list[str] = []
+            _evaluate_branch_protection({"branch_protection_proof": proof}, reasons, [])
+            return reasons
+
+        self.assertNotIn("branch_protection_code_owner_reviews_required", reasons_for())
+        self.assertNotIn("branch_protection_required_approving_review_count_unmeasured", reasons_for())
+        self.assertIn(
+            "branch_protection_code_owner_reviews_required",
+            reasons_for(code_owner_reviews_required=False),
+        )
+        for count in (None, True, -1, "0"):
+            self.assertIn(
+                "branch_protection_required_approving_review_count_unmeasured",
+                reasons_for(required_approving_review_count=count),
+            )
 
 
 class RemoteCasProofTests(unittest.TestCase):

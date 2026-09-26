@@ -31324,6 +31324,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/plans/034-e2e-chain-closure.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/plans/2026-05-25-aria-codex-cli-xhigh-architecture-plan.md",
       "prettier_managed": true
     },
@@ -31403,6 +31409,156 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/aria/reviews/2026-06-19-snowball-curation-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B01.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B02.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B03.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B04.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B05.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B06.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B09.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B10.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B11.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B12.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V01.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V02.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V03.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V04.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V05.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V06.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V09.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V10.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V11.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V12.md",
       "prettier_managed": true
     },
     {
@@ -36827,6 +36983,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md",
       "prettier_managed": true
     },
     {
@@ -49594,6 +49756,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/cases/semantic-point-in-time-records.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/plans/_archive/old-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/plans/2026-04-21-seed-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/reviews/farm-expert/record.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/runbooks/live.md",
       "prettier_managed": true
     },
     {

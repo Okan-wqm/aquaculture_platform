@@ -181,7 +181,6 @@ class ConvergenceRunner(Protocol):
         evidence_refs: list[str],
         allowed_scope: list[str],
         max_rounds: int = 4,
-        challenger_timeout_seconds: float = 1800.0,
     ) -> ConvergenceResult: ...
 
 
@@ -550,23 +549,21 @@ def run_convergence_drainer(
     evidence_refs: list[str],
     allowed_scope: list[str],
     max_rounds: int = 4,
-    challenger_timeout_seconds: float = 1800.0,
     coverage_computer: Any | None = None,
     critic_adjudicator: Any | None = None,
-    critic_timeout_seconds: float = 900.0,
 ) -> ConvergenceResult:
     """CL-1 — advance the plan's convergence by ONE derived step, no waiting.
 
-    ``challenger_timeout_seconds`` / ``critic_timeout_seconds`` are
-    accepted for the ConvergenceRunner Protocol's stability but no
-    longer time anything: there is nothing to wait for, because the
-    executor lane delivers envelopes between cycles. The
+    Nothing here waits, so nothing takes a timeout (ARIA-HIGH-194): the
+    executor lane delivers envelopes between cycles. The former
+    ``challenger_timeout_seconds`` / ``critic_timeout_seconds`` knobs were
+    accepted and discarded, so an operator's value changed nothing; they
+    are gone end to end (CLI, orchestrator, Protocol). The
     ``critic_adjudicator`` seam keeps its test-injection contract —
     when injected, the critic is resolved synchronously exactly as the
     tests expect; production leaves it None and gets the async
     mint-then-fold path.
     """
-    _ = challenger_timeout_seconds, critic_timeout_seconds
     root = ensure_tools_dir(base_dir)
     transcript_dir = root / "convergence"
     transcript_dir.mkdir(parents=True, exist_ok=True)

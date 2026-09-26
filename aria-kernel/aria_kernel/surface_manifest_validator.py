@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
+from .debt import debts_dir
 from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -267,11 +268,11 @@ def validate_plan_doc_freshness(*, repo_root: Path) -> list[dict[str, Any]]:
     plans_dir = repo_root / "docs" / "aria" / "plans"
     if not plans_dir.exists():
         return []
-    debts_dir = repo_root / "aria-debts"
-    if not debts_dir.exists():
+    debts_root = debts_dir(repo_root)
+    if not debts_root.exists():
         return []
     resolved_ids: set[str] = set()
-    for debt_path in debts_dir.glob("DEBT-*.json"):
+    for debt_path in debts_root.glob("DEBT-*.json"):
         try:
             d = json.loads(debt_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

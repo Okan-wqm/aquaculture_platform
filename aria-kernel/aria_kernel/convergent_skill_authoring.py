@@ -79,7 +79,8 @@ from .evidence_collector import (
     InsufficientEvidenceError,
     collect_evidence_pack,
 )
-from .tool_registry import ensure_tools_dir, utc_now
+from .canonical_path import normalize_repo_relpath
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 __all__ = [
@@ -920,11 +921,13 @@ def _git_show_line(
     """
     if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
         return (False, "")
-    # SECURITY: file_path comes from drafter output. Reject any
-    # ``..`` traversal and shell-meta to keep git show below a sane
-    # surface — Path normalization + relative check.
-    norm = file_path.lstrip("./").replace("\\", "/")
-    if ".." in norm.split("/") or norm.startswith("/"):
+    # SECURITY: file_path comes from drafter output. Traversal and absolute
+    # paths are refused BEFORE any prefix is stripped (ARIA-HIGH-186: the
+    # former ``lstrip("./")`` turned ``../x`` into ``x`` and ``/etc/p`` into
+    # ``etc/p`` ahead of this check, so neither was ever rejected).
+    try:
+        norm = normalize_repo_relpath(file_path)
+    except GovernanceError:
         return (False, "")
     result = subprocess.run(
         ["git", "show", f"{sha}:{norm}"],

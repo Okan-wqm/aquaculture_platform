@@ -29,9 +29,9 @@ from aria_kernel.human_required import (
     record_human_required,
     sweep_lease_lifecycle_for_human_required,
 )
-from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.adjudication import seed_adjudicator_opinion
 
 
 class VocabularyPins(unittest.TestCase):
@@ -114,33 +114,10 @@ class _PanelCase(unittest.TestCase):
         self, request_id: str, *, agent_id: str, verdict: str,
         disposition: str | None = None,
     ) -> None:
-        invocations = self.tools / "agent-invocations"
-        invocations.mkdir(parents=True, exist_ok=True)
-        payload: dict = {"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}
-        if disposition is not None:
-            payload["disposition"] = disposition
-        output = invocations / f"{request_id}.opinion.json"
-        output.write_text(json.dumps(payload), encoding="utf-8")
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {
-                "request_id": request_id,
-                "claim_id": f"claim-{request_id}",
-                "agent_id": agent_id,
-            },
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {
-                "request_id": request_id,
-                "role": hra.ADJUDICATION_ROLE,
-                "status": "accepted",
-                "agent_id": agent_id,
-                "output_path": output.as_posix(),
-                "output_hash": "sha256:" + "0" * 64,
-            },
-            expected_surface="agent_invocation_results",
+        """Seal an opinion through the executor bridge (ARIA-HIGH-097)."""
+        seed_adjudicator_opinion(
+            self.tools, request_id, agent_id=agent_id, verdict=verdict,
+            disposition=disposition,
         )
 
     def _record(self) -> dict:
@@ -209,21 +186,8 @@ class ReMintDisposition(_PanelCase):
         rids = self._open()
         self._seed_opinion(rids[0], agent_id="judge-a", verdict=hra.RESOLVE_VERDICT,
                            disposition=hra.DISPOSITION_RE_MINT)
-        invocations = self.tools / "agent-invocations"
-        bad = invocations / f"{rids[1]}.opinion.json"
-        bad.write_text(json.dumps({"verdict": "resolve", "disposition": "reboot"}), encoding="utf-8")
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {"request_id": rids[1], "claim_id": f"claim-{rids[1]}", "agent_id": "judge-b"},
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {"request_id": rids[1], "role": hra.ADJUDICATION_ROLE, "status": "accepted",
-             "agent_id": "judge-b", "output_path": bad.as_posix(),
-             "output_hash": "sha256:" + "0" * 64},
-            expected_surface="agent_invocation_results",
-        )
+        self._seed_opinion(rids[1], agent_id="judge-b", verdict=hra.RESOLVE_VERDICT,
+                           disposition="reboot")
         verdict = hra.fold_adjudication(
             escalation_request_id=self.escalation_id, base_dir=self.tools,
         )

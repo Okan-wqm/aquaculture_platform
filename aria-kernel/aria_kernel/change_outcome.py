@@ -749,7 +749,7 @@ def _capture_assessment_inputs(
     from os import fstat as _fstat
     from .knowledge_graph import _observation_rows as _kg_observation_rows
     from .ledger import load_jsonl_verified_text as _verified_text, state_transaction as _transaction
-    from .snapshot import normalize_path as _normalize_path
+    from .canonical_path import lexical_repo_path as _normalize_path
     from .state_manifest import resolve_surface_path as _surface_path, surface_by_name as _surface
     from .state_store import (
         StateStoreError as _StateStoreError,

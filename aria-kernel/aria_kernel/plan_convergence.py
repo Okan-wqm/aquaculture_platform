@@ -1001,6 +1001,10 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     return None
 
 
+FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
+FORCED_ESCALATION_GATE = "forced_escalation"
+
+
 def force_plan_human_required(
     *,
     plan_id: str,
@@ -1015,11 +1019,20 @@ def force_plan_human_required(
     if not reason_codes:
         raise GovernanceError("reason_codes must be non-empty")
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-194 — the event says WHY it was forced, from the caller's own
+    # codes. It used to stamp `gate: max_rounds, max_rounds_reached: true`
+    # unconditionally, so a round-1 dead envelope read as a plan that had
+    # exhausted its rounds.
+    max_rounds_reached = FORCED_MAX_ROUNDS_REASON in reason_codes
     payload = {
         "round_number": round_number,
         "terminal_state": "HUMAN_REQUIRED",
-        "risks_rollup_summary": {"max_rounds_reached": True, "active_gaps_unresolved": active_gap_count},
-        "gate_decisions": [{"gate": "max_rounds", "decision": "human_escalation", "reason_codes": reason_codes}],
+        "risks_rollup_summary": {"max_rounds_reached": max_rounds_reached, "active_gaps_unresolved": active_gap_count},
+        "gate_decisions": [{
+            "gate": "max_rounds" if max_rounds_reached else FORCED_ESCALATION_GATE,
+            "decision": "human_escalation",
+            "reason_codes": reason_codes,
+        }],
         "reason_codes": reason_codes,
     }
     key = _idempotency_key(plan_id, "force-human-required", payload)

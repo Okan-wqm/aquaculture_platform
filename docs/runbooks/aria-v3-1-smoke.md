@@ -1,27 +1,35 @@
-<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. For live ARIA runtime authority, see docs/aria/CURRENT_STATE.md and executable contracts. Snowball/Claude-era instructions below are not current runtime authority unless reaffirmed there. -->
+<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. For live ARIA runtime authority,
+see docs/aria/CURRENT_STATE.md and executable contracts. Snowball/Claude-era instructions below
+are not current runtime authority unless reaffirmed there. -->
 
 # Runbook — ARIA V3.1 Smoke + V10.3-B Endurance Gate
 
-**Owner:** Operator (Okan)
-**Phase:** Plan ARIA-V3.1 — operator-side smoke + V10.3-B 20-cycle autonomous endurance
-**Status:** OPEN — V3.1 code arc + follow-ups (B2/B3/C2/D2) landed on `snowball`; this runbook is the operator-executed gate before V10.3-B is allowed to fire.
+**Owner:** Operator (Okan) **Phase:** Plan ARIA-V3.1 — operator-side smoke + V10.3-B 20-cycle
+autonomous endurance **Status:** OPEN — V3.1 code arc + follow-ups (B2/B3/C2/D2) landed on
+`snowball`; this runbook is the operator-executed gate before V10.3-B is allowed to fire.
 
 ## Why this runbook exists
 
 The V3.1 wire-up arc (commits dc3c7fec → b338ff97 on `snowball`) made 5 vision pillars LIVE:
 
-* V9.4 5-source pressure mining (operator_feedback > failing_ci > orphan_finding > f_finding > git_diff) replaces V7 git-diff-only.
-* V9 implementation phase fires CONVERGED → signed-commit PR via `AutonomousV9ImplementationRunner`.
-* V10 memory pillar records `convention` rows per CONVERGED cycle via `MemoryHookImpl` (bounded reader → stability gate → record → verify chain → HUMAN_REQUIRED skill genesis).
-* V10.4 per-cycle cost attribution via `CostTelemetryHookImpl` (signed rows + drift detection).
-* V9.0-C cert-bound signing infrastructure auto-configures `git commit -S` via `mint_signing_key`.
+- V9.4 5-source pressure mining (operator_feedback > failing_ci > orphan_finding > f_finding >
+  git_diff) replaces V7 git-diff-only.
+- V9 implementation phase fires CONVERGED → signed-commit PR via `AutonomousV9ImplementationRunner`.
+- V10 memory pillar records `convention` rows per CONVERGED cycle via `MemoryHookImpl` (bounded
+  reader → stability gate → record → verify chain → HUMAN_REQUIRED skill genesis).
+- V10.4 per-cycle cost attribution via `CostTelemetryHookImpl` (signed rows + drift detection).
+- V9.0-C cert-bound signing infrastructure auto-configures `git commit -S` via `mint_signing_key`.
 
 Code is fully landed + invariant-tested (2184/2184 GREEN). Two operator gates remain:
 
-1. **V3.1-F smoke** — 5-cycle strict-profile run on a fresh-clone sandbox with `ARIA_DRY_RUN=true` proving the wire-up produces the expected governance event volume + no V8 invariant regressions.
-2. **V10.3-B endurance** — 20-cycle autonomous-profile run with GitHub App Mode A scoped installation tokens proving the full autonomous loop holds cost + safety budgets across a sustained burn.
+1. **V3.1-F smoke** — 5-cycle strict-profile run on a fresh-clone sandbox with `ARIA_DRY_RUN=true`
+   proving the wire-up produces the expected governance event volume + no V8 invariant regressions.
+2. **V10.3-B endurance** — 20-cycle autonomous-profile run with GitHub App Mode A scoped
+   installation tokens proving the full autonomous loop holds cost + safety budgets across a
+   sustained burn.
 
-This runbook chains both: F-1 → F-4 → F-5 acceptance → V10.3-B prerequisites → 20-cycle endurance → V10.3-B acceptance.
+This runbook chains both: F-1 → F-4 → F-5 acceptance → V10.3-B prerequisites → 20-cycle endurance →
+V10.3-B acceptance.
 
 ## Prerequisites checklist
 
@@ -87,7 +95,6 @@ ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true \
     --profile strict \
     --operator-approval-ref "v31-f-smoke" \
     --cycle-deadline-seconds 1800 \
-    --challenger-timeout-seconds 300 \
     --max-rounds 2 \
     --max-budget-usd-per-run 10.00 \
     --max-budget-usd-per-cycle 1.50 \
@@ -184,17 +191,20 @@ GH_TOKEN="" PYTHONPATH=aria-kernel:. python3 -m aria_kernel autonomy run \
 # stack trace AND rc != 0. NO cycle should start.
 ```
 
-If ALL 10 checks pass → V3.1-F smoke ACCEPTED. Append a row to `aria-findings/F-015.json#F-015-V31-F` `executed_at` field + commit the metadata update.
+If ALL 10 checks pass → V3.1-F smoke ACCEPTED. Append a row to
+`aria-findings/F-015.json#F-015-V31-F` `executed_at` field + commit the metadata update.
 
 If any check fails → STOP. Root-cause before proceeding to endurance.
 
 ## Stage 2: V10.3-B Endurance Gate Prerequisites
 
-The endurance gate runs the autonomous profile against the real GitHub API + live `claude` CLI for 20 cycles. Tier-1 requirements:
+The endurance gate runs the autonomous profile against the real GitHub API + live `claude` CLI for
+20 cycles. Tier-1 requirements:
 
 ### Prerequisite A: GitHub App Mode A (REQUIRED)
 
-V10.3-B MUST run with scoped installation tokens — operator-PAT fallback (Mode B) is V10.3-A-acceptable but V10.3-B-FORBIDDEN. Run the setup once:
+V10.3-B MUST run with scoped installation tokens — operator-PAT fallback (Mode B) is
+V10.3-A-acceptable but V10.3-B-FORBIDDEN. Run the setup once:
 
 ```bash
 # Follow docs/runbooks/aria-github-app-setup.md sections 1-4
@@ -220,7 +230,9 @@ print('Mode A token mint OK; installation_id=', lease.gh_app_installation_id)
 
 ### Prerequisite B: Branch protection capture
 
-V9.0-C preflight reads `gh api repos/owner/repo/branches/snowball/protection` + persists the response to `aria-tools/preflight/snowball-branch-protection-v3.json`. Already in repo as of beeea74a^; verify it's still current:
+V9.0-C preflight reads `gh api repos/owner/repo/branches/snowball/protection` + persists the
+response to `aria-tools/preflight/snowball-branch-protection-v3.json`. Already in repo as of
+beeea74a^; verify it's still current:
 
 ```bash
 ls -la /var/aqua-saas/aria-tools/preflight/snowball-branch-protection-v3.json
@@ -232,7 +244,8 @@ PYTHONPATH=aria-kernel:. python3 -m unittest \
 
 ### Prerequisite C: Budget envelope
 
-Endurance budget cap is operator-set. Plan v3 target: $45 per run, $1.50 per cycle (20 cycles × $1.50 = $30 + 50% headroom).
+Endurance budget cap is operator-set. Plan v3 target: $45 per run, $1.50 per cycle (20 cycles ×
+$1.50 = $30 + 50% headroom).
 
 ```bash
 echo $MAX_BUDGET_USD_PER_RUN
@@ -253,7 +266,8 @@ echo "APPROVAL_REF=$APPROVAL_REF"
 
 ### Prerequisite E: V3.1-F smoke passed
 
-Stage 1 above MUST be ACCEPTED before endurance fires. The smoke proves the wire-up does not regress V8; endurance proves the wire-up holds under sustained load.
+Stage 1 above MUST be ACCEPTED before endurance fires. The smoke proves the wire-up does not regress
+V8; endurance proves the wire-up holds under sustained load.
 
 ## Stage 3: V10.3-B 20-cycle autonomous endurance
 
@@ -301,7 +315,6 @@ PYTHONPATH=aria-kernel:. python3 -m aria_kernel autonomy run \
     --profile autonomous \
     --operator-approval-ref "$APPROVAL_REF" \
     --cycle-deadline-seconds 1800 \
-    --challenger-timeout-seconds 600 \
     --max-rounds 3 \
     --max-budget-usd-per-run 45.00 \
     --max-budget-usd-per-cycle 1.50 \
@@ -326,7 +339,8 @@ print(f'spent={total:.2f} USD across {len(rows)} rows')
 "
 ```
 
-If at any point the spent estimate exceeds $40 OR you observe `autonomy_orchestrator_refused` events in rapid succession:
+If at any point the spent estimate exceeds $40 OR you observe `autonomy_orchestrator_refused` events
+in rapid succession:
 
 ```bash
 # Emergency halt — operator-side ARIA_STOP.
@@ -341,24 +355,27 @@ echo "operator_halt_$(date +%s)" > /var/aqua-saas/aria-tools/ARIA_STOP
 
 After the run completes (or is operator-halted), verify ALL of:
 
-| Signal | Source | Expected |
-|---|---|---|
-| Exit reason | last `autonomy_orchestrator_exit` event | `max_cycles` or `aria_stop` |
-| Cycles completed | exit event details | ≥ 15 (75% completion floor) |
-| Total spend | sum of cost-attribution `estimated_usd` | ≤ $45 |
-| Cost-row coverage | rows per cycle | ≥ 2 (every cycle has at least primary + challenger LLM rows) |
-| All cost rows signed | every row | `signer_key_fp` starts `SHA256:` |
-| Memory pillar live | governance | ≥ 1 `convention_recorded` event |
-| Knowledge graph chain | `verify_chain_or_quarantine` | returns (True, count) |
-| Skill genesis HUMAN_REQUIRED | governance | 0 OR ≥ 1 (stable=True is rare in 20 cycles; both are acceptable but 0 occurrences of `aria-tools/registry.json` direct write) |
-| Aria-debts/keys/ post-run | filesystem | 0 (try/finally + startup prune) |
-| 0 V8 invariant regressions | invariant suite | full V8 suite GREEN post-run |
-| 0 ungated profile transitions | governance | every `runtime_profile_changed` has `operator_approval_ref` non-empty |
-| 0 unsigned commits in merged PRs | git log on `snowball` | every `aria-impl-*` commit `git verify-commit` passes |
+| Signal                           | Source                                  | Expected                                                                                                                      |
+| -------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Exit reason                      | last `autonomy_orchestrator_exit` event | `max_cycles` or `aria_stop`                                                                                                   |
+| Cycles completed                 | exit event details                      | ≥ 15 (75% completion floor)                                                                                                   |
+| Total spend                      | sum of cost-attribution `estimated_usd` | ≤ $45                                                                                                                         |
+| Cost-row coverage                | rows per cycle                          | ≥ 2 (every cycle has at least primary + challenger LLM rows)                                                                  |
+| All cost rows signed             | every row                               | `signer_key_fp` starts `SHA256:`                                                                                              |
+| Memory pillar live               | governance                              | ≥ 1 `convention_recorded` event                                                                                               |
+| Knowledge graph chain            | `verify_chain_or_quarantine`            | returns (True, count)                                                                                                         |
+| Skill genesis HUMAN_REQUIRED     | governance                              | 0 OR ≥ 1 (stable=True is rare in 20 cycles; both are acceptable but 0 occurrences of `aria-tools/registry.json` direct write) |
+| Aria-debts/keys/ post-run        | filesystem                              | 0 (try/finally + startup prune)                                                                                               |
+| 0 V8 invariant regressions       | invariant suite                         | full V8 suite GREEN post-run                                                                                                  |
+| 0 ungated profile transitions    | governance                              | every `runtime_profile_changed` has `operator_approval_ref` non-empty                                                         |
+| 0 unsigned commits in merged PRs | git log on `snowball`                   | every `aria-impl-*` commit `git verify-commit` passes                                                                         |
 
-If ALL acceptance signals hold → V10.3-B PASSED. Update `aria-findings/F-015.json#F-015-V10-3-B` status to RESOLVED + commit the metadata + the operator runbook log path.
+If ALL acceptance signals hold → V10.3-B PASSED. Update `aria-findings/F-015.json#F-015-V10-3-B`
+status to RESOLVED + commit the metadata + the operator runbook log path.
 
-If ANY signal fails → V10.3-B FAILED. Open a CRITICAL/HIGH finding under F-015 with the failing signal + root cause analysis. Do not retry the endurance until the root cause is architecturally fixed (CLAUDE.md "no patches, no deferrals" rule).
+If ANY signal fails → V10.3-B FAILED. Open a CRITICAL/HIGH finding under F-015 with the failing
+signal + root cause analysis. Do not retry the endurance until the root cause is architecturally
+fixed (CLAUDE.md "no patches, no deferrals" rule).
 
 ## Failure recovery procedures
 
@@ -387,24 +404,28 @@ grep '"kind":"autonomy_orchestrator_refused"' \
 
 Symptom: `cycle_budget_exhausted` rejection_class on multiple plans.
 
-The plan v3.1-E budget caps (`--max-budget-usd-per-run`, `--max-budget-usd-per-cycle`) are hard kill-switches. If the cycle exhausts the per-cycle cap, the implementer phase rejects with `cycle_budget_exhausted`. This is NOT a failure — it's the safety contract firing.
+The plan v3.1-E budget caps (`--max-budget-usd-per-run`, `--max-budget-usd-per-cycle`) are hard
+kill-switches. If the cycle exhausts the per-cycle cap, the implementer phase rejects with
+`cycle_budget_exhausted`. This is NOT a failure — it's the safety contract firing.
 
-If the rate of cycle_budget_exhausted exceeds 30% of cycles, the per-cycle budget is too low for the workload. Operator action: increase `--max-budget-usd-per-cycle` to 2.50 (and `--max-budget-usd-per-run` to 60 for budget room) AND re-launch.
+If the rate of cycle_budget_exhausted exceeds 30% of cycles, the per-cycle budget is too low for the
+workload. Operator action: increase `--max-budget-usd-per-cycle` to 2.50 (and
+`--max-budget-usd-per-run` to 60 for budget room) AND re-launch.
 
 ### Recovery R-3: Signed commit verification failure
 
-Symptom: governance shows `commit_signature_unverified` rejections — since ARIA-HIGH-124
-round 4 as `implementation_delivery_refused` with `stage=commit_identity` and
+Symptom: governance shows `commit_signature_unverified` rejections — since ARIA-HIGH-124 round 4 as
+`implementation_delivery_refused` with `stage=commit_identity` and
 `reason=commit_unverified:commit_signature_unverified…` (the executor's delivery verifies the
 published tip against the key it holds BEFORE it pushes; nothing was pushed, no PR exists, the
 request is HUMAN_REQUIRED), or on the bridge's replay path as an `agent_bridge_warning`.
 
-The verifier (`plan_convergence_bridge.verify_implementation_commit`, the one both sites run)
-checks `branch_tip_sha` against the public key registered in `kg_signers` for the fingerprint
-the executor holds for the request (ARIA-HIGH-115); the message names which step refused — no
-fingerprint, a fingerprint the registry does not hold, one registered under another cycle, or a
-commit that does not verify against the registered key in the named checkout. The command
-policy refuses every `git commit` option that could select another key or author by name
+The verifier (`plan_convergence_bridge.verify_implementation_commit`, the one both sites run) checks
+`branch_tip_sha` against the public key registered in `kg_signers` for the fingerprint the executor
+holds for the request (ARIA-HIGH-115); the message names which step refused — no fingerprint, a
+fingerprint the registry does not hold, one registered under another cycle, or a commit that does
+not verify against the registered key in the named checkout. The command policy refuses every
+`git commit` option that could select another key or author by name
 (`commit_identity:git_commit_foreign_option`), so a refusal here means the agent made the commit
 outside the Bash tool (a unittest module, a script) — read the transcript. STOP the run. Verify:
 
@@ -424,25 +445,26 @@ git -C <worktree> config --worktree --get gpg.ssh.allowedSignersFile
 ```
 
 An `implementation_signing_unavailable` release (harness-class; the request stays queued) names why
-the identity could not be held in that tree: `shared_checkout_scope:--local` means the child ran
-in the shared checkout — turn `executor.worktree_per_request` on; `identity_already_held` means
-another holder owns this cycle's key in that tree; `signing_agent_unavailable:<reason>` means the
-kernel could not hold the ssh-agent that signs for the sandbox (`ssh_agent_missing`,
-`socket_path_too_long` — the host's temp root is too long for a unix socket);
-`git_containment_refused:<reason>` means the worktree cannot host a commit-capable sandbox
-(`hooks_dir_unresolvable:<why>` — git did not name the effective hooks directory).
+the identity could not be held in that tree: `shared_checkout_scope:--local` means the child ran in
+the shared checkout — turn `executor.worktree_per_request` on; `identity_already_held` means another
+holder owns this cycle's key in that tree; `signing_agent_unavailable:<reason>` means the kernel
+could not hold the ssh-agent that signs for the sandbox (`ssh_agent_missing`, `socket_path_too_long`
+— the host's temp root is too long for a unix socket); `git_containment_refused:<reason>` means the
+worktree cannot host a commit-capable sandbox (`hooks_dir_unresolvable:<why>` — git did not name the
+effective hooks directory).
 
 ### Recovery R-3b: The sandbox cannot host a commit (ARIA-HIGH-123)
 
-Symptom: the pre-claim gate refuses `sandbox_unavailable` with `git containment probe refused:
-<reason>` in the governance row's `detail`, and the request stays PENDING with no claim.
+Symptom: the pre-claim gate refuses `sandbox_unavailable` with
+`git containment probe refused: <reason>` in the governance row's `detail`, and the request stays
+PENDING with no claim.
 
 The containment probe (`aria_kernel.containment_probe`) mints a throwaway key into a throwaway
-linked worktree, holds the kernel-side ssh-agent, derives a commit-capable sandbox, stands it on
-the probe's `aria-impl-*` branch the way the executor stands the implementer's (ARIA-HIGH-124), and
-runs `git status`, the branch check and a SIGNED `git commit` inside the real bwrap argv (the
-managed route's network setting), then publishes the worktree's quarantine the way the executor
-does and verifies the commit from outside. The reason names what failed:
+linked worktree, holds the kernel-side ssh-agent, derives a commit-capable sandbox, stands it on the
+probe's `aria-impl-*` branch the way the executor stands the implementer's (ARIA-HIGH-124), and runs
+`git status`, the branch check and a SIGNED `git commit` inside the real bwrap argv (the managed
+route's network setting), then publishes the worktree's quarantine the way the executor does and
+verifies the commit from outside. The reason names what failed:
 
 ```bash
 # Reproduce the probe by hand (no request, no claim, no key of yours):
@@ -469,42 +491,42 @@ print(_git_containment_probe_reason())"   # Expected: None
 #   loose branches than the sandbox overlays one by one; run `git pack-refs --all` in it.
 ```
 
-Inside a request worktree's sandbox the implementer starts ON its `aria-impl-*` branch at the
-staged base (the executor stood it there before the spawn — ARIA-HIGH-124) and can `git add` and
+Inside a request worktree's sandbox the implementer starts ON its `aria-impl-*` branch at the staged
+base (the executor stood it there before the spawn — ARIA-HIGH-124) and can `git add` and
 `git commit` (signed through the kernel-held ssh-agent — the private key is not mounted). Its git
-writes go to the worktree's QUARANTINE (`<private git dir>/aria-sandbox/`: objects, refs,
-reflogs), never to the shared repository; the executor publishes the quarantine after the spawn
+writes go to the worktree's QUARANTINE (`<private git dir>/aria-sandbox/`: objects, refs, reflogs),
+never to the shared repository; the executor publishes the quarantine after the spawn
 (`implementation_quarantine_published` on governance: objects migrated, packs unpacked, the
 `aria-impl-*` ref published, everything else discarded by name), then DELIVERS it itself (R-3c).
 `git push` and every `python3 -m aria_kernel …` are refused inside by name (`kernel_authority` in
-the hook's verdict) and `gh pr create` is admitted nowhere: that is the policy working, not a
-fault. The executor's OWN kernel commands after the spawn run with `-P` (`kernel_cli.py`): a
-kernel package or a `json.py` the agent wrote at its worktree root never resolves as the
-executor's kernel. `.git/hooks` (the
-EFFECTIVE hooks dir — `.husky` when `core.hooksPath` says so), `config`, `config.worktree`,
-`aria-allowed-signers`, existing loose refs, the shared packs, `objects/info/alternates`, sibling
-worktrees and the main checkout's working tree are read-only or absent. A write there fails with
-`Read-only file system`; that is the sandbox working, not a fault. The state store is not mounted
-at all: the hooks reach the kernel through the broker's socket (`/tmp/aria-hook-broker.sock`); a
-hook that prints `hook_broker_unreachable:<why>` means the executor's broker is not being served
-around the spawn — read the executor's stderr for the spawn that ran. The `aria` MCP view is
-served the same way (`/tmp/aria-mcp-broker.sock`, relayed in by `mcp_relay.py`); a tool that
-answers `mcp_broker_unreachable:<why>` means the same thing for the MCP broker.
+the hook's verdict) and `gh pr create` is admitted nowhere: that is the policy working, not a fault.
+The executor's OWN kernel commands after the spawn run with `-P` (`kernel_cli.py`): a kernel package
+or a `json.py` the agent wrote at its worktree root never resolves as the executor's kernel.
+`.git/hooks` (the EFFECTIVE hooks dir — `.husky` when `core.hooksPath` says so), `config`,
+`config.worktree`, `aria-allowed-signers`, existing loose refs, the shared packs,
+`objects/info/alternates`, sibling worktrees and the main checkout's working tree are read-only or
+absent. A write there fails with `Read-only file system`; that is the sandbox working, not a fault.
+The state store is not mounted at all: the hooks reach the kernel through the broker's socket
+(`/tmp/aria-hook-broker.sock`); a hook that prints `hook_broker_unreachable:<why>` means the
+executor's broker is not being served around the spawn — read the executor's stderr for the spawn
+that ran. The `aria` MCP view is served the same way (`/tmp/aria-mcp-broker.sock`, relayed in by
+`mcp_relay.py`); a tool that answers `mcp_broker_unreachable:<why>` means the same thing for the MCP
+broker.
 
 ### Recovery R-3c: The executor's delivery refused (ARIA-HIGH-124)
 
 Symptom: governance shows `implementation_delivery_refused` (`stage`, `reason`), the request is in
-HUMAN_REQUIRED (`aria-tools/human-required/<request_id>.json` names the stage; the claim event
-of the same release is `human_required`, so `agent next-pending` never hands it out again) and
-the claim was released under `implementation_delivery_refused:<stage>`; or, before any turn,
-`implementation_branch_collision` with `git_containment_refused:implementation_branch_exists`,
-or `implementation_request_invalid` with
-`git_containment_refused:implementation_branch_name_invalid` / `base_sha_not_an_object_id` (the
-request row's `implementation_ids` cannot stand a sandbox — re-stage the plan).
+HUMAN_REQUIRED (`aria-tools/human-required/<request_id>.json` names the stage; the claim event of
+the same release is `human_required`, so `agent next-pending` never hands it out again) and the
+claim was released under `implementation_delivery_refused:<stage>`; or, before any turn,
+`implementation_branch_collision` with `git_containment_refused:implementation_branch_exists`, or
+`implementation_request_invalid` with `git_containment_refused:implementation_branch_name_invalid` /
+`base_sha_not_an_object_id` (the request row's `implementation_ids` cannot stand a sandbox —
+re-stage the plan).
 
-The executor delivers the published branch after the spawn — apply gate at the branch tip in
-the request worktree, push with the credential it holds, PR through `open_pr_for_action` — and
-stamps the result (`implementation_delivered`). Each stage refuses by name:
+The executor delivers the published branch after the spawn — apply gate at the branch tip in the
+request worktree, push with the credential it holds, PR through `open_pr_for_action` — and stamps
+the result (`implementation_delivered`). Each stage refuses by name:
 
 ```bash
 grep 'implementation_delivered\|implementation_delivery_refused\|implementation_branch_collision' \
@@ -557,38 +579,44 @@ grep 'implementation_delivered\|implementation_delivery_refused\|implementation_
 #   outage, a cancel) leaves NO branch: its harness-class retry stands on the branch again.
 ```
 
-`implementation_delivery_unavailable` (harness-class, the request stays queued) means the
-executor could not mint the delivery credential before the spawn — no GH App installation and no
-operator PAT (`docs/runbooks/aria-github-app-setup.md`) — or, since round 3, that the delivery's
-admission refused (the governance row of that name carries `reason`: `deadline_insufficient` /
+`implementation_delivery_unavailable` (harness-class, the request stays queued) means the executor
+could not mint the delivery credential before the spawn — no GH App installation and no operator PAT
+(`docs/runbooks/aria-github-app-setup.md`) — or, since round 3, that the delivery's admission
+refused (the governance row of that name carries `reason`: `deadline_insufficient` /
 `sandbox_unavailable`, and `decided`: `before_spawn` / `before_publication`).
 
 `human_required_record_unavailable:<escalation reason>` (harness-class, a job error
-`::error::aria executor could not record HUMAN_REQUIRED …`, governance row of the same name)
-means the executor escalated the request but the kernel's recorder did not land the record (a
-refused store write, a dying disk): the request stays queued with its budget intact and the retry
-escalates again once the recorder answers; fix the store, then requeue.
+`::error::aria executor could not record HUMAN_REQUIRED …`, governance row of the same name) means
+the executor escalated the request but the kernel's recorder did not land the record (a refused
+store write, a dying disk): the request stays queued with its budget intact and the retry escalates
+again once the recorder answers; fix the store, then requeue.
 
-`executor_drain_window_skip` (governance, `worst_case_seconds`, `remaining_seconds`) means the
-drain selected a request whose own worst case — an implementation's staged suite at its ceiling,
-recipes included — no longer fit tonight's remaining window: skipped without a claim, PENDING for
-a drain with the room. A request skipped every night has a staged suite the window can never
-hold; `ARIA_DRAIN_BUDGET_SECONDS` and the job's `timeout-minutes` move together
+`executor_drain_window_skip` (governance, `worst_case_seconds`, `remaining_seconds`) means the drain
+selected a request whose own worst case — an implementation's staged suite at its ceiling, recipes
+included — no longer fit tonight's remaining window: skipped without a claim, PENDING for a drain
+with the room. A request skipped every night has a staged suite the window can never hold;
+`ARIA_DRAIN_BUDGET_SECONDS` and the job's `timeout-minutes` move together
 (`tests/test_state_lock_liveness_bound.py`).
 
 A `sockets_pruned` governance row at orchestrator startup names `aria-sa-*` / `aria-hb-*` socket
-directories a killed executor left behind (their listener is gone; the agent itself died with
-its holder). Nothing to do.
+directories a killed executor left behind (their listener is gone; the agent itself died with its
+holder). Nothing to do.
 
-If the git config is missing, read the mint's receipt: `PYTHONPATH=aria-kernel:. python3 -c "from
-aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic',
-workspace_root='.').git_signing)"` — `configured=False` names the reason (`not_a_checkout`,
-`git_unavailable`, `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`); revoke the
-diagnostic key afterwards (`revoke_signing_key`).
+If the git config is missing, read the mint's receipt:
+
+```bash
+PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; \
+print(mint_signing_key(cycle_id='diagnostic', workspace_root='.').git_signing)"
+```
+
+`configured=False` names the reason (`not_a_checkout`, `git_unavailable`,
+`worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`); revoke the diagnostic key
+afterwards (`revoke_signing_key`).
 
 ## Rollback procedure
 
-If V10.3-B reveals a structural issue with V3.1 that requires rolling the snowball branch back to the V3.1-A baseline:
+If V10.3-B reveals a structural issue with V3.1 that requires rolling the snowball branch back to
+the V3.1-A baseline:
 
 ```bash
 # 1. Identify the rollback target.
@@ -606,13 +634,15 @@ git -C /var/aqua-saas push origin snowball
 # 3. Mark F-015-V31-B/B2/B3/C2/D2 status REOPENED in aria-findings.
 ```
 
-CLAUDE.md mandates `--force` push is FORBIDDEN — use explicit revert commits so the audit trail captures both the original landing and the rollback.
+CLAUDE.md mandates `--force` push is FORBIDDEN — use explicit revert commits so the audit trail
+captures both the original landing and the rollback.
 
 ## Commit policy for this runbook
 
 Every operator execution of this runbook MUST:
 
-1. Append a row to `aria-findings/F-015.json#F-015-V31-F` (smoke) OR `#F-015-V10-3-B` (endurance) with `executed_at` timestamp + metrics summary.
+1. Append a row to `aria-findings/F-015.json#F-015-V31-F` (smoke) OR `#F-015-V10-3-B` (endurance)
+   with `executed_at` timestamp + metrics summary.
 2. Commit + push the metadata-only update via:
 
 ```bash
@@ -631,6 +661,7 @@ git -C /var/aqua-saas push origin snowball
 
 ## Audit trail
 
-- 2026-05-19: Runbook authored as part of V3.1-F2 follow-up. Commits dc3c7fec → b338ff97 (V3.1 arc) closed inline.
+- 2026-05-19: Runbook authored as part of V3.1-F2 follow-up. Commits dc3c7fec → b338ff97 (V3.1 arc)
+  closed inline.
 - Pending: V3.1-F smoke executed by operator (target ≤ 2026-05-26).
 - Pending: V10.3-B endurance executed by operator (target ≤ 2026-06-05).

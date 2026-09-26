@@ -26,6 +26,7 @@ from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import enforce_profile_for_action
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .self_merge_freeze import assert_self_merge_not_frozen
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
@@ -50,6 +51,16 @@ def merge_pr_if_ready(
     immediately before invoking ``adapter.merge_pr``.
     """
     profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ARIA-HIGH-203 — the auto-merge master switch IS this gate. The policy's
+    # `enabled` flag defaults to False (auto_merge.DEFAULT_POLICY) so an
+    # evaluation outside merge authority is never eligible, and the runner
+    # passed no policy: every real merge read the code constant and could
+    # never be eligible, whatever the operator had authorized. The operator's
+    # audited switch is the runtime profile (`set_profile` with an approval
+    # ref, history in the profile ledger); reaching this line means it
+    # grants `pr_merge`, so the evaluation below runs switched on. A caller
+    # cannot switch a merge on or off with its own policy literal.
+    policy = {**(policy or {}), "enabled": True}
     # ORPHAN-MEDIUM-562 — the external watchdog reports a stalled ARIA memory
     # and cannot freeze anything itself, because freezing needs the kernel it
     # is watching. The alarm is read HERE, at the single real-merge authority:
@@ -65,6 +76,11 @@ def merge_pr_if_ready(
     head_sha = _head_sha(live_pr)
     if not head_sha:
         raise GovernanceError("merge_authority_head_sha_required")
+    # ARIA-HIGH-200 — after a bad ARIA merge the self-revert producer freezes
+    # self-merge before opening the revert. While frozen, the only PR this
+    # authority merges is that registered, purity-proven revert at its exact
+    # head; everything else waits for an operator's recorded unfreeze.
+    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, base_dir=base_dir)
 
     risk = record_risk_decision_for_pr(
         live_pr,

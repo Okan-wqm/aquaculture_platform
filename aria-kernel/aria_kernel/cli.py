@@ -1067,6 +1067,31 @@ def build_parser() -> argparse.ArgumentParser:
     attestation_probe = add_subparser(attestation_sub, "probe")
     attestation_probe.add_argument("--repo", required=True)
     attestation_probe.add_argument("--target-ref", required=True)
+    # ARIA-HIGH-198 — what the attested host will do. `merge` runs no model
+    # and no agent code; `agent` is every lane that spawns one. Named
+    # --attestation-lane, not --lane: the change lane (L1..L3) is
+    # kernel-derived and never a CLI flag (Plan ARIA-V3 §2c); this is the
+    # host's role, a different axis, and one spelling for both would let the
+    # two be confused at the command line.
+    attestation_probe.add_argument(
+        "--attestation-lane", choices=("agent", "merge"), default="agent",
+    )
+
+    # ARIA-HIGH-198 — the merge lane's own entry point. The merge ran inside
+    # the autonomy cycle on the persistent self-hosted host, which can never
+    # attest ephemeral; this verb runs the SAME runner and authority for one
+    # PR on whatever host invokes it (aria-merge-runner.yml: GitHub-hosted).
+    merge_parser = add_subparser(sub, "merge-lane")
+    merge_sub = merge_parser.add_subparsers(dest="merge_command", required=True)
+    merge_run = add_subparser(merge_sub, "run")
+    # Without --pr: every PR holding a readiness claim, the cycle's own set.
+    merge_run.add_argument("--pr", type=int, default=None)
+    merge_run.add_argument("--workspace-root", type=Path, default=Path("."))
+    # ARIA-HIGH-200 — only an operator's recorded act lifts ARIA's own
+    # self-merge freeze; no ARIA workflow holds that authority.
+    merge_unfreeze = add_subparser(merge_sub, "unfreeze")
+    merge_unfreeze.add_argument("--freeze-id", required=True)
+    merge_unfreeze.add_argument("--operator-approval-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -2370,17 +2395,11 @@ def build_parser() -> argparse.ArgumentParser:
              "Set lower (e.g. 60) to verify the V7 phase progression "
              "quickly without polling for Gate A/B/C consumer envelopes.",
     )
-    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — challenger-timeout + max-rounds
-    # + max-budget-usd-per-run exposed for operator tuning. Default
+    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — max-rounds + max-budget-usd-per-run
+    # exposed for operator tuning (ARIA-HIGH-194 retired the challenger
+    # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
-    auto_run.add_argument(
-        "--challenger-timeout-seconds", type=float, default=300.0,
-        help="Per-poll budget for state-machine waits inside "
-             "convergence_drainer (default 300s). Used by round-1 "
-             "challenger + cross_review polls and round-2+ revision "
-             "polls. Lower for fast smoke; raise for slow LLMs.",
-    )
     auto_run.add_argument(
         "--max-rounds", type=int, default=2,
         help="Max convergence rounds per plan (default 2 for "
@@ -3671,6 +3690,42 @@ def _main(argv: list[str] | None = None) -> int:
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
+    if args.command == "merge-lane" and args.merge_command == "run":
+        from .auto_merge_runners import (
+            enumerate_prs_with_readiness_claims,
+            resolve_readiness_claim_id_from_claims,
+            select_auto_merge_runner,
+        )
+        from .github_adapters import select_github_adapter
+
+        merge_profile = get_profile(base_dir=args.tools_dir)
+        merge_adapter = select_github_adapter(
+            profile=merge_profile, base_dir=args.tools_dir, cwd=str(args.workspace_root),
+        )
+        merge_runner = select_auto_merge_runner(
+            profile=merge_profile,
+            adapter_factory=lambda: merge_adapter,
+            pr_enumerator=(
+                (lambda _adapter: [args.pr]) if args.pr is not None
+                else (lambda adapter: enumerate_prs_with_readiness_claims(adapter, base_dir=args.tools_dir))
+            ),
+            readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
+        )
+        merge_result = merge_runner(base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(merge_result, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "merge-lane" and args.merge_command == "unfreeze":
+        from .self_merge_freeze import unfreeze_self_merge
+
+        unfreeze_row = unfreeze_self_merge(
+            freeze_id=args.freeze_id,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(unfreeze_row, indent=2, sort_keys=True, default=str))
+        return 0
+
     if args.command == "runner-attestation" and args.attestation_command == "probe":
         # FAZ 5a — lane-start producer: one probed attestation row per
         # recorded readiness claim, keyed exactly as the merge gate reads.
@@ -3681,6 +3736,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             repo=args.repo,
             target_ref=args.target_ref,
+            lane=args.attestation_lane,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
@@ -3709,18 +3765,9 @@ def _main(argv: list[str] | None = None) -> int:
         # operator typed. Only rows the single writer stamped `ok` qualify
         # as pass evidence; the gate still decides whether the required
         # commands are among them.
-        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+        from aria_kernel.validation_runs_ledger import refs_for_change
 
-        candidate_refs = [
-            {
-                "cmd": row.get("cmd"),
-                "exit_code": row.get("exit_code"),
-                "log_path": row.get("log_path"),
-                "ran_at": row.get("recorded_at"),
-            }
-            for row in list_validation_runs_for_change(args.change_id, base_dir=args.tools_dir)
-            if row.get("status") == "ok"
-        ]
+        candidate_refs = refs_for_change(args.change_id, base_dir=args.tools_dir)
         try:
             result = enforce_validation_matrix(
                 change_id=args.change_id,
@@ -5929,7 +5976,7 @@ def _main(argv: list[str] | None = None) -> int:
         )
         # CL-1 (ORPHAN-725) — the B-V2-13 deadline floor is retired with
         # the waits it was sized for: the resumable step function never
-        # blocks on challenger_timeout, so a cycle deadline no longer
+        # blocks on an envelope, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
         # ARIA-HIGH-064 — the two budget caps used to be exported here as
         # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
@@ -5957,9 +6004,8 @@ def _main(argv: list[str] | None = None) -> int:
         from .cycle_phases.plan_source import V9PressureSourceProvider
         plan_content_provider = V9PressureSourceProvider()
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
-        # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
-        # --max-rounds are now plumbed all the way to the orchestrator
-        # (and from there to convergence_runner). Previously the
+        # ORPHAN-HIGH-082 fix: CLI flag --max-rounds is plumbed all the
+        # way to the orchestrator (and from there to convergence_runner). Previously the
         # arguments were parsed + validated above (line 3422-3434) but
         # never passed downstream, so the drainer silently fell back to
         # its 1800s + 4-rounds defaults regardless of operator input.
@@ -5993,7 +6039,6 @@ def _main(argv: list[str] | None = None) -> int:
             max_rounds=args.max_rounds,
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
-            challenger_timeout_seconds=args.challenger_timeout_seconds,
             # Plan ARIA-V3.1-E — explicit profile threaded to the
             # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,

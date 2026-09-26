@@ -34,15 +34,15 @@ def pr(**overrides):
         "base_branch": "main",
         "head_ref": "feature/docs",
         "head_sha": "abc1234",
-        "changed_files": ["docs/aria/plans/008-auto-merge.md"],
+        "changed_files": ["docs/runbooks/auto-merge.md"],
         "reviews": [],
         # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
         # default fixture supplies a clean docs-only patch so existing
         # tests stay green without invasive surgery; tests that target
         # a specific suppression or empty-diff scenario override.
         "diff_text": (
-            "--- a/docs/aria/plans/008-auto-merge.md\n"
-            "+++ b/docs/aria/plans/008-auto-merge.md\n"
+            "--- a/docs/runbooks/auto-merge.md\n"
+            "+++ b/docs/runbooks/auto-merge.md\n"
             "@@ -1 +1,2 @@\n"
             " existing line\n"
             "+New paragraph added by Plan 022 H-2 fixture.\n"
@@ -290,6 +290,8 @@ class AutoMergeTests(unittest.TestCase):
             "exact_required_checks": required_checks,
             "signed_commits_required": True,
             "reviews_required": True,
+            "code_owner_reviews_required": True,
+            "required_approving_review_count": 0,
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],
@@ -459,12 +461,18 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(
+            classify_changed_files(["docs/runbooks/auto-merge.md", "tests/e2e/auto-merge.spec.ts"])["risk_class"],
+            "low",
+        )
+        # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
+        # never low risk.
+        self.assertNotEqual(
             classify_changed_files(["docs/aria/SPEC.md", "aria-kernel/tests/test_auto_merge.py"])["risk_class"],
             "low",
         )
         self.assertEqual(classify_changed_files(["aria-kernel/aria_kernel/cli.py"])["risk_class"], "forbidden")
         self.assertEqual(
-            classify_changed_files(["docs/aria/SPEC.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
+            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
             "mixed",
         )
 
@@ -532,6 +540,43 @@ class AutoMergeTests(unittest.TestCase):
     # snapshot fixtures do not carry, so these merge-path tests stub the
     # perimeter as passing: the gate's wiring and its refusal semantics are
     # pinned separately in test_merge_authority_pre_merge_perimeter.py.
+    @patch(
+        "aria_kernel.merge_authority.run_hard_fail_checks",
+        return_value=SimpleNamespace(passed=True, failures=()),
+    )
+    def test_the_runner_call_shape_merges_when_the_profile_grants_pr_merge(self, _perimeter):
+        """ARIA-HIGH-203 — RealAutoMergeRunner passes NO policy. Before the
+        fix every such call read DEFAULT_POLICY["enabled"] = False and was
+        blocked "policy disabled" whatever the operator had authorized; the
+        switch is now the operator-controlled profile the authority enforces."""
+        self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-switch", base_dir=self.tools_dir)
+        adapter = FakeGitHubAdapter(
+            pr(head_sha=HEAD_SHA),
+            github(
+                latest_head_sha=HEAD_SHA,
+                checks={
+                    "readable": True,
+                    "runs": [
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                    ],
+                },
+            ),
+            latest_heads=[HEAD_SHA, HEAD_SHA],
+        )
+        result = merge_pr_if_ready(
+            adapter=adapter,
+            pr_number=42,
+            base_dir=self.tools_dir,
+            cycle_id="cycle-merge",
+            readiness_claim_id=readiness_claim_id,
+        )
+        self.assertEqual(result["decision"], "merged", result.get("reasons"))
+        self.assertNotIn("policy disabled", result.get("reasons") or [])
+
     @patch(
         "aria_kernel.merge_authority.run_hard_fail_checks",
         return_value=SimpleNamespace(passed=True, failures=()),

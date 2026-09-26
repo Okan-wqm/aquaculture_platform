@@ -41,6 +41,8 @@ import ci_executor  # noqa: E402
 
 _HEALTHY_ENV = {
     "RUNNER_NAME": "probe-test-runner",
+    # ARIA-HIGH-198: identity is measured from the platform's own report.
+    "RUNNER_ENVIRONMENT": "github-hosted",
     "CLAUDE_CODE_OAUTH_TOKEN": "token-present",
     # ARIA-AUDIT-016: identity claims require the Actions OIDC channel as
     # platform evidence; tests simulate the runner-side token channel.
@@ -59,9 +61,6 @@ def _probe(tools: Path, **overrides):
         "repo": "okan/aqua",
         "target_ref": "main",
         "head_ref": "feat/x",
-        "runner_group": "aria-approved",
-        "ephemeral_runner": True,
-        "approved_runner_group": True,
         "base_dir": tools,
     }
     kwargs.update(overrides)
@@ -157,11 +156,7 @@ class AttestationProducerTest(unittest.TestCase):
                     },
                     expected_surface="enterprise_readiness_claims",
                 )
-            with patch.dict(os.environ, {
-                **_HEALTHY_ENV,
-                "ARIA_RUNNER_EPHEMERAL": "true",
-                "ARIA_RUNNER_GROUP_APPROVED": "true",
-            }, clear=False), \
+            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value="bwrap"):
                 result = probe_runner_attestations_for_claims(
@@ -171,6 +166,68 @@ class AttestationProducerTest(unittest.TestCase):
         self.assertEqual(result["claims_seen"], 2)
         self.assertEqual(len(result["attested"]), 2)
         self.assertEqual(result["refused"], [])
+
+
+class MeasuredRunnerIdentityTest(unittest.TestCase):
+    """ARIA-HIGH-198 — the runner's identity is measured, and the merge lane
+    attests what it is: a GitHub-hosted host that runs no model."""
+
+    def _probe_in(self, env: dict, **overrides):
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                return _probe(tools, **overrides)
+
+    def test_a_self_hosted_runner_is_never_attested_ephemeral(self) -> None:
+        env = {**_HEALTHY_ENV, "RUNNER_ENVIRONMENT": "self-hosted"}
+        with self.assertRaises(GovernanceError) as caught:
+            self._probe_in(env, lane="merge")
+        self.assertIn("ephemeral_runner_required", str(caught.exception))
+
+    def test_the_merge_lane_on_a_github_hosted_runner_attests_without_model_or_sandbox(self) -> None:
+        from aria_kernel.runner_attestation import verify_runner_attestation
+
+        env = {key: value for key, value in _HEALTHY_ENV.items() if key != "CLAUDE_CODE_OAUTH_TOKEN"}
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
+                os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                row = _probe(tools, lane="merge")
+            verdict = verify_runner_attestation(
+                pr_number=77, head_sha="a" * 40, readiness_claim_id="rc-77", base_dir=tools,
+            )
+        self.assertEqual(row["runner_group"], "github-hosted")
+        self.assertIs(row["ephemeral_runner"], True)
+        self.assertEqual(row["claude_auth"], "not_required")
+        self.assertEqual(row["probe"]["measured_fields"], ["runner_group", "ephemeral_runner", "approved_runner_group"])
+        self.assertTrue(verdict["valid"])
+
+    def test_not_required_auth_outside_the_merge_lane_is_refused(self) -> None:
+        from aria_kernel.runner_attestation import record_runner_attestation
+
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with self.assertRaises(GovernanceError) as caught:
+                record_runner_attestation({
+                    "repo": "okan/aqua", "pr_number": 1, "target_ref": "main", "head_ref": "x",
+                    "head_sha": "b" * 40, "readiness_claim_id": "rc-1", "runner_id": "r",
+                    "runner_group": "github-hosted", "ephemeral_runner": True,
+                    "approved_runner_group": True, "platform_verified": True,
+                    "api_key_auth": False, "claude_auth": "not_required",
+                    "attestation_lane": "agent",
+                }, base_dir=tools)
+        self.assertIn("merge_lane_only", str(caught.exception))
+
+    def test_an_unknown_lane_is_refused(self) -> None:
+        with self.assertRaises(GovernanceError):
+            self._probe_in(_HEALTHY_ENV, lane="deploy")
 
 
 def _checkout_with_one_commit(workspace: Path) -> None:
@@ -485,3 +542,32 @@ class AnchorBlockedReasonTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MergeRunVerbTest(unittest.TestCase):
+    """ARIA-HIGH-198 — `aria-kernel merge-lane run --pr N` runs the SAME runner and
+    authority the cycle uses, for exactly that PR, on the invoking host."""
+
+    def test_the_verb_enumerates_only_the_named_pr(self) -> None:
+        from aria_kernel import cli
+
+        seen: dict = {}
+
+        class _Runner:
+            def __call__(self, *, base_dir, workspace_root):
+                seen["prs"] = seen["enumerator"](object())
+                return {"status": "ok", "merges_completed": 0}
+
+        def fake_select(*, profile, adapter_factory, pr_enumerator, readiness_claim_resolver):
+            seen["profile"] = profile
+            seen["enumerator"] = pr_enumerator
+            return _Runner()
+
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch("aria_kernel.auto_merge_runners.select_auto_merge_runner", side_effect=fake_select), \
+                 patch("aria_kernel.github_adapters.select_github_adapter", return_value=object()):
+                rc = cli.main(["--tools-dir", str(tools), "merge-lane", "run", "--pr", "1672"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["prs"], [1672])

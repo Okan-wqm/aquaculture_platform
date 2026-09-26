@@ -8,10 +8,15 @@
   "blocked_globs": [
     "**/.env*",
     "**/*secret*",
+    "**/*secret*/**",
     "**/*credential*",
+    "**/*credential*/**",
     "**/*private-key*",
+    "**/*private-key*/**",
     "**/*pricing*",
+    "**/*pricing*/**",
     "**/*billing*",
+    "**/*billing*/**",
     "apps/billing-service/**",
     "infrastructure/terraform/**"
   ],
@@ -20,14 +25,11 @@
       "reason_code": "docs_tests_low_risk",
       "globs": [
         "docs/**",
-        "*.md",
         "tests/**",
-        "aria-kernel/tests/**",
         "tools/aria-adapters/**/__tests__/**",
         "tools/aria-adapters/**/*.test.ts",
         "tools/aria-adapters/**/*.spec.ts",
         "tools/aria-adapters/fixtures/**",
-        "tools/aria-adapters/*.tool.json",
         "**/__tests__/**",
         "**/*.test.ts",
         "**/*.spec.ts",
@@ -59,15 +61,16 @@
     "L3": {
       "reason_code": "control_plane_or_policy_approval",
       "globs": [
-        ".github/workflows/**",
-        ".github/actions/**",
-        ".github/manifests/**",
-        ".github/CODEOWNERS",
-        "docs/aria/policy/**",
-        "docs/aria/schemas/**",
-        "aria-kernel/aria_kernel/**",
-        ".claude/agents/**"
+        ".github/**",
+        "docs/aria/**",
+        "docs/reviews/**",
+        "aria-kernel/**",
+        "tools/aria-poc/**",
+        "tools/aria-adapters/*.tool.json",
+        ".claude/**",
+        "*.md"
       ]
     }
-  }
+  },
+  "codeowners_lane": "L3"
 }

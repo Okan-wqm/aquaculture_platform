@@ -563,19 +563,50 @@ def list_validation_runs_for_change(
     ]
 
 
+def list_validation_runs_at_committed_tip(
+    change_id: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """The change's recorded runs AT ITS COMMITTED TIP, and no others.
+
+    ARIA-MEDIUM-231 — a change id carries runs about more than one commit:
+    ``apply_engine`` records the staging baseline under the same change id
+    at ``base_sha`` before any implementation exists, and the delivery's
+    contained gate records the tip's runs at the branch tip. Only the
+    latter are evidence about the change. The tip is the ``commit_sha`` of
+    the change ledger's ``change_committed`` row; a change with no committed
+    row has no tip, and so no runs here.
+    """
+    from .change_ledger import get_change_chain
+
+    committed = get_change_chain(change_id=change_id, base_dir=base_dir)["committed"]
+    tip = str((committed or {}).get("commit_sha") or "")
+    if not tip:
+        return []
+    return [
+        row for row in list_validation_runs_for_change(change_id, base_dir=base_dir)
+        if row.get("commit_sha") == tip
+    ]
+
+
 def refs_for_change(
     change_id: str,
     *,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    """The structured validation refs a change's recorded runs attest.
+    """The structured validation refs a change's committed tip's runs attest.
 
     ARIA-HIGH-196 — THE mapping from this ledger to the
     ``{cmd, exit_code, log_path, ran_at}`` refs ``emit_change_validated`` and
     the validation matrix take. Only rows the single writer stamped ``ok``
     are pass evidence (ORPHAN-696); candidate refs come from the ledger,
-    never from a caller's list. The matrix CLI and implementation delivery
-    both read it, so the two cannot attest different runs.
+    never from a caller's list. The matrix CLI, implementation delivery and
+    self-revert all read it, so they cannot attest different runs.
+
+    ARIA-MEDIUM-231 — only runs at the committed tip
+    (:func:`list_validation_runs_at_committed_tip`): a green staging
+    baseline at ``base_sha`` must not validate a tip nothing ran against.
     """
     return [
         {
@@ -584,7 +615,7 @@ def refs_for_change(
             "log_path": row.get("log_path"),
             "ran_at": row.get("recorded_at"),
         }
-        for row in list_validation_runs_for_change(change_id, base_dir=base_dir)
+        for row in list_validation_runs_at_committed_tip(change_id, base_dir=base_dir)
         if row.get("status") == "ok"
     ]
 
@@ -598,6 +629,7 @@ __all__ = [
     "derive_validation_run_status",
     "find_validation_run_by_id",
     "list_validation_runs",
+    "list_validation_runs_at_committed_tip",
     "list_validation_runs_for_change",
     "refs_for_change",
     "record_validation_run",

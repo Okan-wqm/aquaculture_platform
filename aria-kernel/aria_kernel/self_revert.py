@@ -1217,7 +1217,7 @@ def _validate_revert(
         emit_change_planned,
         emit_change_validated,
     )
-    from .implementation_delivery import _record_change_validated, probe_validation_room
+    from .implementation_delivery import ChangeValidatedRefused, _record_change_validated, probe_validation_room
     from .implementation_safety import CANONICAL_VALIDATION_COMMANDS, SandboxUnavailable
     from .validation import parse_allowed_command, run_validation_commands
     from .validation_env import build_validation_env
@@ -1298,15 +1298,16 @@ def _validate_revert(
     except GovernanceError as exc:
         raise _Terminal(DECISION_DELIVERY_FAILED, {"reason": f"change_ledger_refused:{str(exc)[:300]}",
                                                    "change_id": change_id, "purity": purity}) from exc
-    validated = _record_change_validated(
-        change_id=change_id, base_dir=base_dir, workspace=worktree, emit=emit_change_validated,
-        request_id=_request_id(candidate.merge_sha), cycle_id=cycle_id,
-    )
-    if validated is None:
-        raise _Terminal(DECISION_VALIDATION_FAILED, {"change_id": change_id, "reason": "change_validated_refused",
+    try:
+        return _record_change_validated(
+            change_id=change_id, base_dir=base_dir, workspace=worktree, emit=emit_change_validated,
+            request_id=_request_id(candidate.merge_sha), cycle_id=cycle_id,
+        )
+    except ChangeValidatedRefused as exc:
+        raise _Terminal(DECISION_VALIDATION_FAILED, {"change_id": change_id,
+                                                     "reason": f"change_validated_refused:{exc.reason[:300]}",
                                                      "validation_plan": plan.get("ledger_hash"),
-                                                     "purity": purity})
-    return validated
+                                                     "purity": purity}) from exc
 
 
 def _confirm_intents(

@@ -25,6 +25,7 @@ from aria_kernel.change_ledger import (
     CHANGE_RECORD_SCHEMA,
     _find_committed,
     _find_planned,
+    emit_change_committed,
     emit_change_planned,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
@@ -177,6 +178,13 @@ class SelfRevertTests(unittest.TestCase):
             intended_validation_refs=["npm run lint"], architectural_tier=2, base_dir=self.tools,
         )
         self.reverted_change_id = planned["change_id"]
+        # The merged change's commit row at the head the merge gate checked:
+        # a change the lane merged always has one (triple gate), and its
+        # validation runs are evidence only AT that tip (ARIA-MEDIUM-231).
+        emit_change_committed(
+            change_id=self.reverted_change_id, commit_sha="e" * 40,
+            actual_affected_files=["docs/runbooks/guide.md"], base_dir=self.tools,
+        )
         record_pr_lifecycle(
             {"number": MERGED_PR, "base_branch": "main", "head_sha": "e" * 40,
              "change_id": self.reverted_change_id, "changed_files": ["docs/runbooks/guide.md"]},

@@ -634,11 +634,14 @@ def enforce_validation_matrix(
         # detector flagged no risk types. The ``historical_attestation``
         # mode preserves the vacuous-pass for legacy chain replay
         # (handled at line 432).
+        # ARIA-MEDIUM-231 — the runs at the committed tip, the set the
+        # candidate refs come from: a verified staging baseline at the
+        # base is not evidence that the change was validated.
         from .validation_runs_ledger import (
-            list_validation_runs_for_change,
+            list_validation_runs_at_committed_tip,
             verify_validation_run,
         )
-        runs = list_validation_runs_for_change(
+        runs = list_validation_runs_at_committed_tip(
             change_id, base_dir=base_dir,
         )
         verified_runs: list[str] = []

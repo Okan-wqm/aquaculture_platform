@@ -28,13 +28,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 class TestV9HardFailRegistry(unittest.TestCase):
 
     def test_i_v9_safety_15_hard_fail_checks(self):
-        """HARD_FAIL_CHECKS MUST contain exactly 17 entries. v1 plan had
+        """HARD_FAIL_CHECKS MUST contain exactly 18 entries. v1 plan had
         6; v3 audit grew to 15; Plan 031 §031e added the 16th
         (expert_consensus_evidence_verified); the plan-coverage gate
-        (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified)."""
+        (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified);
+        ARIA-HIGH-104 added the 18th (commit_contract_honoured)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 17,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 17)",
+            len(_is.HARD_FAIL_CHECKS), 18,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 18)",
         )
 
     # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
@@ -58,12 +59,14 @@ class TestV9HardFailRegistry(unittest.TestCase):
             {r.name for r in report.results},
             {c.name for c in _is.HARD_FAIL_CHECKS},
         )
-        # Unimplemented checks FAIL, so the perimeter reports itself as not
-        # holding rather than as absent.
+        # Every pre-merge predicate answers from native evidence and an empty
+        # context binds none, so the perimeter reports itself as not holding
+        # rather than as absent — and never as a placeholder.
         self.assertFalse(report.passed)
         self.assertIn(
-            "check_not_implemented", {r.reason for r in report.failures},
+            "native_implementation_binding_unavailable", {r.reason for r in report.failures},
         )
+        self.assertNotIn("check_not_implemented", {r.reason for r in report.failures})
 
     def test_i_v9_safety_a_failing_check_blocks_the_report(self):
         """An injected failure must make the whole report block."""
@@ -141,16 +144,36 @@ class TestV9HardFailRegistry(unittest.TestCase):
         )
         self.assertFalse(
             pre_merge.passed,
-            msg="pre-merge gate must not pass while its checks are unbuilt",
+            msg="pre-merge gate must not pass on an empty context",
         )
-        # Every live implementation belongs to the pre-PR-open stage: those
-        # are the checks answerable from the action itself.
+        # Two kinds of live implementation. A pre-PR-open check answers from
+        # the action itself. A pre-merge check answers from NATIVE evidence
+        # captured against the implementation's own request/claim/result/
+        # commit binding (merge_authority._capture_pre_merge_context) — so on
+        # an empty context it fails by name, "native_implementation_binding_
+        # unavailable", never by passing and never by pretending to be unbuilt.
+        # The rewrite this test's earlier draft demanded when "phase B lands":
+        # all seven pre-merge predicates are live (branch tip, per-file
+        # exclusion, content hash, plan coverage, expert consensus, operator
+        # feedback signature, cycle and turn budget), so nothing answers
+        # "check_not_implemented" any more and merge stays closed on an
+        # empty context only because every predicate refuses by name.
         whole = _is.run_hard_fail_checks(_is.HardFailContext())
         by_name = {c.name: c for c in _is.HARD_FAIL_CHECKS}
         for result in whole.results:
-            if result.reason != "check_not_implemented":
-                with self.subTest(check=result.name):
+            with self.subTest(check=result.name):
+                self.assertNotEqual(result.reason, "check_not_implemented")
+                if by_name[result.name].gate == _is.GATE_PRE_MERGE:
+                    self.assertFalse(result.passed)
+                    self.assertEqual(result.reason, "native_implementation_binding_unavailable")
+                else:
                     self.assertEqual(by_name[result.name].gate, _is.GATE_PRE_PR_OPEN)
+        self.assertEqual(
+            {r.name for r in pre_merge.results if r.reason == "check_not_implemented"},
+            set(),
+            "no pre-merge predicate is a placeholder; a new one must land with "
+            "its native capture, never as check_not_implemented",
+        )
         # Filtering is a partition, not a sample.
         self.assertEqual(
             len(pre_merge.results)
@@ -189,6 +212,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "cycle_and_turn_budget_cap", "content_hash_recheck",
             "expert_consensus_evidence_verified",
             "plan_coverage_witness_verified",
+            "commit_contract_honoured",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(
@@ -208,6 +232,9 @@ class TestV9Immutable(unittest.TestCase):
             ".claude/agents/", "aria-kernel/aria_kernel/",
             ".github/", "infrastructure/", "docs/adr/",
             ".env", "scripts/", "CODEOWNERS",
+            # ARIA-MEDIUM-087 — the policy the kernel obeys is not the
+            # governed agent's to write.
+            "aria-config/",
         }
         actual = set(_is.READONLY_PATHS)
         missing = required - actual
@@ -215,6 +242,20 @@ class TestV9Immutable(unittest.TestCase):
             missing, set(),
             f"READONLY_PATHS missing canonical entries: {missing}",
         )
+
+    def test_i_v9_immutable_01_every_policy_the_kernel_reads_is_read_only(self):
+        """ARIA-MEDIUM-087 — every file genesis_policy loads from the
+        workspace sits under a READONLY_PATHS prefix, so a write-capable
+        spawn (scope **) can neither lift its cost caps, its breaker
+        threshold, its anchor age nor its monetary admission and have the
+        next dispatch obey."""
+        from aria_kernel import genesis_policy
+
+        for relative in (genesis_policy.OVERRIDE_RELPATH,):
+            self.assertTrue(
+                any(relative.startswith(prefix) for prefix in _is.READONLY_PATHS),
+                f"{relative} is read as policy and is not read-only for the agent",
+            )
 
 
 class TestV9BashAllowlist(unittest.TestCase):
@@ -275,8 +316,6 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "status"],
             ["git", "diff", "HEAD~1..HEAD"],
             ["git", "rev-parse", "HEAD"],
-            ["git", "push", "origin", "aria-impl-abc123def456"],
-            ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
             ["nx", "affected", "--target=test"],
             ["pytest", "tests/"],
@@ -286,6 +325,17 @@ class TestV9BashAllowlist(unittest.TestCase):
                 _is.verify_bash_command_allowed(argv)
             except (_is.BashAllowlistMiss, _is.BashDenylistHit) as exc:
                 self.fail(f"canonical argv {argv!r} unexpectedly rejected: {exc}")
+
+    def test_i_v9_bash_01_the_delivery_is_the_executors(self):
+        """ARIA-HIGH-124 — the push and the PR are not the agent's commands:
+        the executor pushes the published branch and opens the PR after the
+        run; inside the sandbox the push is refused by name and the raw `gh
+        pr create` is an allowlist miss."""
+        with self.assertRaises(_is.BashDenylistHit) as refused:
+            _is.verify_bash_command_allowed(["git", "push", "origin", "aria-impl-abc123def456"])
+        self.assertIn("kernel_authority:git_push_any", str(refused.exception))
+        with self.assertRaises(_is.BashAllowlistMiss):
+            _is.verify_bash_command_allowed(["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"])
 
     def test_i_v9_bash_01_direct_gh_merge_denied(self):
         with self.assertRaises(_is.BashDenylistHit):
@@ -502,23 +552,31 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("ref_deletion", result.reason)
 
-    def test_no_force_push_branch_grammar_shared_with_argv_allowlist(self):
-        """The refspec check and the argv allowlist must agree.
+    def test_no_force_push_branch_grammar_shared_with_the_publication(self):
+        """The refspec check and the publication must agree on what an ARIA
+        branch is.
 
-        Two encodings of "valid ARIA branch" would eventually disagree,
-        and the looser one would be the real perimeter.
+        Two encodings of "valid ARIA branch" would eventually disagree, and
+        the looser one would be the real perimeter. ARIA-HIGH-124 moved the
+        push from the agent's argv to the executor: the grammar's other
+        reader is now the quarantine publication (`git_containment`), which
+        publishes only refs of this shape, and the argv push is refused for
+        EVERY branch — by the kernel-authority rule, never by the grammar.
         """
+        from aria_kernel.git_containment import _ARIA_IMPL_BRANCH_RE
+
         branch = "aria-impl-abc123def456"
         refspec_ok = _is._check_no_force_push(
             self._ctx(push_refspecs=(branch,))
         ).passed
-        argv_ok = True
-        try:
-            _is.verify_bash_command_allowed(["git", "push", "origin", branch])
-        except Exception:
-            argv_ok = False
-        self.assertEqual(refspec_ok, argv_ok)
         self.assertTrue(refspec_ok)
+        self.assertIsNotNone(_ARIA_IMPL_BRANCH_RE.match(branch))
+        self.assertIsNone(_ARIA_IMPL_BRANCH_RE.match("feature/mine"))
+        self.assertFalse(_is._check_no_force_push(self._ctx(push_refspecs=("feature/mine",))).passed)
+        for name in (branch, "feature/mine"):
+            with self.assertRaises(_is.BashDenylistHit) as refused:
+                _is.verify_bash_command_allowed(["git", "push", "origin", name])
+            self.assertIn("kernel_authority:git_push_any", str(refused.exception))
 
     # --- no_no_verify ------------------------------------------------
     def test_no_no_verify_clean_commit_passes(self):
@@ -624,7 +682,14 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         description before the check had an implementation; neither
         exists here, and encoding them would have made S0 unexitable.
         """
+        repo = Path(__file__).resolve().parents[4]
         for command in _is.CANONICAL_VALIDATION_COMMANDS:
+            # ARIA-HIGH-149 — the format entry is the repository's own quality
+            # runner (`node tools/quality/quality.mjs format check-changed`);
+            # runnable means the runner script is in the tree.
+            if command.startswith("node tools/quality/quality.mjs "):
+                self.assertTrue((repo / "tools" / "quality" / "quality.mjs").is_file(), command)
+                continue
             self.assertTrue(
                 command.startswith("nx affected --target=")
                 or command.startswith("npm run "),
@@ -777,6 +842,11 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             validation_commands=_is.CANONICAL_VALIDATION_COMMANDS,
             base_branch="main",
             pr_body="\n\n".join(f"## {s}\ncontent" for s in REQUIRED_PR_SECTIONS),
+            # ARIA-HIGH-104 (4) — a plan-less (operator-lane) action with one
+            # trailer-free commit; the plan-originated shapes are pinned in
+            # tests/test_plan_origin_commit_contract.py.
+            commit_contract=None,
+            branch_commits=({"sha": "a" * 40, "subject": "docs: note", "body": ""},),
         )
 
     def test_pre_pr_open_gate_passes_for_a_clean_action(self):
@@ -816,6 +886,17 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             "pr_body_templating": {
                 "pr_body": "## Problem\nno other sections"
             },
+            "commit_contract_honoured": {
+                "commit_contract": {
+                    "schema_version": 1, "plan_id": "plan-x", "origin_kind": "plan",
+                    "origin_finding_id": None, "trailer": None,
+                    "commit_types": ["chore"],
+                },
+                "branch_commits": ({
+                    "sha": "b" * 40, "subject": "fix(x): invented",
+                    "body": "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-001\n",
+                },),
+            },
         }
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -836,18 +917,25 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
     def test_pre_merge_gate_still_cannot_pass(self):
         """Merge stays closed by construction, not by a flag.
 
-        Seven pre-merge checks are unimplemented, so the gate refuses
-        even the cleanest action. When phase B lands this test must be
-        rewritten deliberately — that is the point of asserting it.
+        The cleanest ACTION is still not a merge: all seven pre-merge
+        predicates answer only from native implementation evidence that a
+        clean action context does not carry. Each failure says so by name; a
+        pre-merge failure for any other reason here would mean a predicate
+        started reading something it should not.
         """
         with tempfile.TemporaryDirectory() as tmp:
             report = _is.run_hard_fail_checks(
                 self._clean_context(Path(tmp)), gate=_is.GATE_PRE_MERGE
             )
             self.assertFalse(report.passed)
-            self.assertTrue(
-                all(r.reason == "check_not_implemented" for r in report.failures),
-                "a pre-merge check failed for a reason other than being unbuilt: "
+            self.assertEqual(
+                {r.name for r in report.failures}, {c.name for c in _is.HARD_FAIL_CHECKS if c.gate == _is.GATE_PRE_MERGE},
+                "every pre-merge predicate must refuse a bare action context",
+            )
+            self.assertEqual(
+                {r.reason for r in report.failures},
+                {"native_implementation_binding_unavailable"},
+                "a pre-merge check failed for a reason other than being unbound: "
                 + "; ".join(f"{r.name}: {r.reason}" for r in report.failures),
             )
 
@@ -940,6 +1028,11 @@ class TestV9PublicApi(unittest.TestCase):
             # returning bare argv, and sandbox_backend lets a caller fail
             # closed before it builds a command.
             "SandboxUnavailable", "sandbox_backend",
+            # ARIA-HIGH-123 — why sandbox_backend() answered None (the git
+            # containment probe's reason), for the pre-claim gate's row; and
+            # the managed route's network setting, which the containment
+            # probe builds with so it proves the implementer's own argv.
+            "sandbox_unavailable_detail", "MANAGED_SPAWN_ALLOW_NETWORK",
             # ORPHAN-HIGH-470 — the limiter contract is typed for the same
             # reason: apply_resource_limits RAISES rather than handing back
             # bare argv when no limiter is usable.
@@ -960,6 +1053,10 @@ class TestV9PublicApi(unittest.TestCase):
             # to execute. Registered here rather than relaxing the pin, per
             # the note above: an API addition is a review event.
             "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
+            # The ONE rule that derives the executable spelling — read by
+            # staging and by the plan contract so a declared command is
+            # judged identically where the planner is told and where it runs.
+            "executable_spelling",
             # RC-2 — the observe/authorise split is public contract, because
             # the whole guarantee is that an observation is a DIFFERENT TYPE
             # from an authorisation. A caller has to be able to name the
@@ -991,6 +1088,38 @@ class TestV9PublicApi(unittest.TestCase):
             # repository's `nx affected --target=test`.
             "classify_declared_surface", "implementation_allowed_scope",
             "CANONICAL_VALIDATION_TIMEOUT_MS",
+            # ARIA-HIGH-076 / 077 (2026-09-11) — four additions, each a review
+            # event. The limiter's bus plumbing is named and read by one owner
+            # so every lane probes its limiter in the environment that launches
+            # it; the managed Claude sandbox wrapper binds the resolved
+            # executable, the spawn's documents and one credential file into
+            # the private home (the mirror of the Codex runtime-state wrapper).
+            "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
+            "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+            # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
+            # pre-PR-open suite check and the merge gate's hygiene battery share.
+            "canonical_command_satisfied_by",
+            # ARIA-HIGH-124 (round 4) — three additions, each a review event
+            # (this pin exists to make one).
+            #
+            # `COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS` is the wall clock of
+            # one `git verify-commit`: the executor's delivery verifies the
+            # published tip before it pushes and PRICES that stage with this
+            # number, so the bound and the subprocess that spends it are one
+            # fact rather than a literal on each side.
+            #
+            # `VALIDATION_SANDBOX_CONTAINMENT_FLAGS` are the bwrap flags that
+            # make a contained validation command stoppable (`--unshare-pid
+            # --die-with-parent`); the bwrap PROBE builds with them too, so a
+            # host that cannot is refused before a claim — one tuple, both
+            # sides. `VALIDATION_OBSERVATION_CHILD` is the ONE kernel file
+            # such a command may be spawned with (the private unittest
+            # observation child the runner composes into the argv), ro-bound
+            # by the wrapper and named by the pin that proves it readable
+            # inside.
+            "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
+            "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
+            "VALIDATION_OBSERVATION_CHILD",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

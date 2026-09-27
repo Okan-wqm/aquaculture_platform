@@ -54,7 +54,7 @@ class DerivedIndex(unittest.TestCase):
         req = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan",
             suggested_prompt="challenge the tenant isolation plan for farm-service",
-            must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="conv-9",
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-9",
             base_dir=self.tools,
         )
         hooks.record_journal({"tool_name": "Bash", "tool_input": {"command": "pytest apps/farm-service"}},

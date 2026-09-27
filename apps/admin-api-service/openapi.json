@@ -22702,10 +22702,10 @@
           },
           "status": {
             "enum": [
+              "resolved",
               "open",
               "closed",
               "in_progress",
-              "resolved",
               "waiting_customer"
             ],
             "type": "string"
@@ -22929,10 +22929,10 @@
           "status": {
             "type": "string",
             "enum": [
+              "resolved",
               "open",
               "closed",
               "in_progress",
-              "resolved",
               "waiting_customer"
             ]
           },
@@ -22968,10 +22968,10 @@
           "status": {
             "type": "string",
             "enum": [
+              "resolved",
               "open",
               "closed",
               "in_progress",
-              "resolved",
               "waiting_customer"
             ]
           }

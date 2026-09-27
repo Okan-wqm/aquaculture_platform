@@ -19,11 +19,12 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? themeColors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const rx = (config.cornerRadius ?? 0) as number;
   const opacity = (config.opacity ?? 1) as number;
@@ -45,7 +46,7 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
    */
   const cssVarFill = animationState?.cssVariables?.['--scada-fill'];
   const cssVarStroke = animationState?.cssVariables?.['--scada-stroke'];
-  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? themeColors.info[500]) as string;
   const effectiveStroke = cssVarStroke ?? stroke;
 
   /**

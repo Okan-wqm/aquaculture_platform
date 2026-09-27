@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Card, Badge, formatRelativeTime } from '@aquaculture/shared-ui';
+import { Card, Badge, formatRelativeTime, Button } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { SensorIcon, BellIcon, TaskIcon, SettingsIcon, UserIcon } from './icons';
 import { useRecentActivity } from '../hooks/useDashboardData';
@@ -26,10 +26,10 @@ const activityIcons: Record<RecentActivity['type'], React.ReactNode> = {
 };
 
 const severityColors: Record<NonNullable<RecentActivity['severity']>, string> = {
-  info: 'bg-blue-100 text-blue-600',
-  warning: 'bg-yellow-100 text-yellow-600',
-  error: 'bg-red-100 text-red-600',
-  success: 'bg-green-100 text-green-600',
+  info: 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400',
+  warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-600 dark:text-warning-400',
+  error: 'bg-error-100 dark:bg-error-900/40 text-error-600 dark:text-error-400',
+  success: 'bg-success-100 dark:bg-success-900/40 text-success-600 dark:text-success-400',
 };
 
 // ============================================================================
@@ -39,10 +39,10 @@ const severityColors: Record<NonNullable<RecentActivity['severity']>, string> = 
 const ActivitySkeleton: React.FC = () => (
   <div className="px-4 py-3">
     <div className="flex items-start space-x-3 animate-pulse">
-      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200" />
+      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700" />
       <div className="flex-1 space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-3/4" />
-        <div className="h-3 bg-gray-200 rounded w-1/2" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
       </div>
     </div>
   </div>
@@ -57,21 +57,23 @@ const RecentActivityList: React.FC = () => {
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Son Aktiviteler</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Son Aktiviteler</h3>
         {/* BUG-M3: accessible button instead of non-interactive <span> */}
-        <button
+        <Button
+          variant="ghost"
           type="button"
-          className="text-sm text-primary-600 font-medium hover:underline"
-          onClick={() => { /* TODO: navigate to /activities */ }}
+          onClick={() => {
+            /* TODO: navigate to /activities */
+          }}
         >
           Tumunu Gor
-        </button>
+        </Button>
       </div>
 
       {/* Loading State */}
       {isLoading && (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {[1, 2, 3, 4].map((i) => (
             <ActivitySkeleton key={i} />
           ))}
@@ -81,22 +83,18 @@ const RecentActivityList: React.FC = () => {
       {/* Error State */}
       {isError && (
         <div className="p-8 text-center">
-          <p className="text-sm text-red-500 mb-2">Aktiviteler yuklenemedi</p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="text-xs text-primary-600 font-medium hover:underline"
-          >
+          <p className="text-sm text-error-500 mb-2">Aktiviteler yuklenemedi</p>
+          <Button variant="ghost" size="xs" type="button" onClick={() => refetch()}>
             Tekrar Dene
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Empty State */}
       {!isLoading && !isError && (!activities || activities.length === 0) && (
         <div className="p-8 text-center">
-          <p className="text-sm text-gray-500">Henuz aktivite yok</p>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Henuz aktivite yok</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Sistem aktiviteleri burada gorunecektir.
           </p>
         </div>
@@ -104,11 +102,11 @@ const RecentActivityList: React.FC = () => {
 
       {/* Activity List */}
       {!isLoading && !isError && activities && activities.length > 0 && (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {activities.map((activity) => (
             <div
               key={activity.id}
-              className="px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
+              className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
             >
               <div className="flex items-start space-x-3">
                 {/* Ikon */}
@@ -124,14 +122,18 @@ const RecentActivityList: React.FC = () => {
                 {/* Icerik */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                    <span className="text-xs text-gray-500">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {activity.title}
+                    </p>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       {formatRelativeTime(activity.timestamp)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 truncate">{activity.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                    {activity.description}
+                  </p>
                   {activity.user && (
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       <span className="inline-flex items-center">
                         <UserIcon className="w-3 h-3 mr-1" />
                         {activity.user}

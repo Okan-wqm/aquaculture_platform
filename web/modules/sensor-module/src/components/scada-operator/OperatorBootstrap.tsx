@@ -39,6 +39,7 @@ import {
 import { getScadaSocketService } from '../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import { useOperatorStore } from '../../store/scada/operatorStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Error Boundary                                                      */
@@ -78,15 +79,15 @@ class OperatorErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
             alignItems: 'center',
             justifyContent: 'center',
             height: '100vh',
-            background: '#0f172a',
-            color: '#f87171',
+            background: colors.neutral[900],
+            color: colors.error[500],
             fontFamily: 'monospace',
             gap: '12px',
             padding: '32px',
           }}
         >
-          <strong style={{ fontSize: '1.25rem' }}>Operator HMI error</strong>
-          <pre style={{ fontSize: '0.8rem', color: '#fca5a5', maxWidth: '600px', whiteSpace: 'pre-wrap' }}>
+          <strong className="text-xl">Operator HMI error</strong>
+          <pre style={{ fontSize: '0.8rem', color: colors.error[100], maxWidth: '600px', whiteSpace: 'pre-wrap' }}>
             {this.state.error?.message ?? 'Unknown error'}
           </pre>
         </div>
@@ -112,8 +113,8 @@ function BootstrapLoader(): React.ReactElement {
         alignItems: 'center',
         justifyContent: 'center',
         height: '100vh',
-        background: '#0f172a',
-        color: '#94a3b8',
+        background: colors.neutral[900],
+        color: colors.neutral[400],
         fontFamily: 'sans-serif',
         fontSize: '0.875rem',
         gap: '10px',
@@ -124,8 +125,8 @@ function BootstrapLoader(): React.ReactElement {
         style={{
           width: '18px',
           height: '18px',
-          border: '2px solid #334155',
-          borderTopColor: '#38bdf8',
+          border: `2px solid ${themeColors.neutral[700]}`,
+          borderTopColor: colors.primary[300],
           borderRadius: '50%',
           display: 'inline-block',
           animation: 'spin 0.75s linear infinite',

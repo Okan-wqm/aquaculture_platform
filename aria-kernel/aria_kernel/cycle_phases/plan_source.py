@@ -174,6 +174,7 @@ class V9PressureSourceProvider:
         base_dir: Path,
         profile: str,
     ) -> CyclePlanEnvelope | None:
+        from ..operator_feedback_ingestion import bind_plan_synthesis
         from ..plan_synthesizer import (
             convert_candidate_to_plan_content,
             rank_candidate_sources,
@@ -181,12 +182,25 @@ class V9PressureSourceProvider:
         from ..tool_registry import (
             GovernanceError, append_tools_governance,
         )
-        candidates = rank_candidate_sources(workspace_root=workspace_root)
+        # V9.5 check 12 — the tools store and cycle reach the operator-feedback
+        # scanner so its ingestion row lands in the store the merge owner reads
+        # and carries the cycle the binding below joins on.
+        candidates = rank_candidate_sources(
+            workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
+        )
         attempted = 0
         for candidate in candidates:
             envelope = convert_candidate_to_plan_content(candidate)
             attempted += 1
             if envelope is not None:
+                # Bind BEFORE announcing the selection: the synthesized content
+                # hash is what plan_started will record, and the pre-merge
+                # perimeter proves the signature rule was applied by walking
+                # from that hash to this row and on to the ingestion it names.
+                binding = bind_plan_synthesis(
+                    base_dir=base_dir, cycle_id=cycle_id,
+                    plan_content=envelope.content, candidate=candidate,
+                )
                 append_tools_governance(
                     base_dir, "plan_candidate_source_selected",
                     {
@@ -194,6 +208,8 @@ class V9PressureSourceProvider:
                         "candidate_id": envelope.metadata.get("_candidate_id"),
                         "source_type": envelope.metadata.get("_pressure_source_type"),
                         "attempted": attempted,
+                        "operator_feedback_binding_hash": binding.get("ledger_hash"),
+                        "operator_feedback_ingestion_hash": binding.get("ingestion_ledger_hash"),
                     },
                 )
                 return envelope

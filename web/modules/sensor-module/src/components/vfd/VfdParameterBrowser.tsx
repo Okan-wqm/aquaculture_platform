@@ -6,23 +6,10 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import {
-  Search,
-  Lock,
-  AlertTriangle,
-  Shield,
-  ChevronDown,
-  Eye,
-  Plus,
-  Columns,
-  Loader2,
-} from 'lucide-react';
-import {
-  VfdParameterDefinition,
-  VfdProgrammingParameterCategory,
-  VfdRiskLevel,
-} from '../../types/vfd.types';
+import { Search, Lock, AlertTriangle, Shield, ChevronDown, Eye, Plus, Columns } from 'lucide-react';
+import { VfdParameterDefinition, VfdProgrammingParameterCategory } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
+import { Spinner, Button, SeverityBadge, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -41,13 +28,6 @@ const CATEGORY_OPTIONS: { value: VfdProgrammingParameterCategory; label: string 
   { value: VfdProgrammingParameterCategory.DISPLAY, label: 'Display' },
   { value: VfdProgrammingParameterCategory.NETWORK, label: 'Network' },
 ];
-
-const RISK_COLORS: Record<VfdRiskLevel, { bg: string; text: string; dot: string }> = {
-  [VfdRiskLevel.LOW]: { bg: 'bg-green-100', text: 'text-green-800', dot: 'bg-green-500' },
-  [VfdRiskLevel.MEDIUM]: { bg: 'bg-yellow-100', text: 'text-yellow-800', dot: 'bg-yellow-500' },
-  [VfdRiskLevel.HIGH]: { bg: 'bg-orange-100', text: 'text-orange-800', dot: 'bg-orange-500' },
-  [VfdRiskLevel.CRITICAL]: { bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500' },
-};
 
 // ============================================================================
 // Props
@@ -79,12 +59,13 @@ function ParameterCard({
   onAddToDraft,
 }: ParameterCardProps) {
   const [inputValue, setInputValue] = useState<string>(
-    draftValue !== undefined ? String(draftValue) : String(param.currentValue ?? param.defaultValue ?? ''),
+    draftValue !== undefined
+      ? String(draftValue)
+      : String(param.currentValue ?? param.defaultValue ?? ''),
   );
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const isReadOnly = !param.isWritable;
-  const riskStyle = RISK_COLORS[param.riskLevel] ?? RISK_COLORS[VfdRiskLevel.LOW];
   const currentVal = param.currentValue ?? param.defaultValue ?? 0;
 
   const handleInputChange = useCallback(
@@ -126,42 +107,53 @@ function ParameterCard({
   return (
     <div
       className={`rounded-lg border p-4 transition-colors ${
-        isDraft ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 bg-white'
+        isDraft
+          ? 'border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/20'
+          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
       }`}
       data-testid={`param-card-${param.parameterName}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-semibold text-gray-900">
+            <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
               {param.parameterName}
             </span>
-            <span className="text-sm text-gray-600">{param.displayName || param.description}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {param.displayName || param.description}
+            </span>
             {isReadOnly && (
               <span
-                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400"
                 data-testid={`readonly-badge-${param.parameterName}`}
               >
                 <Lock className="h-3 w-3" /> Read Only
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-            <span>Current: {currentVal}{param.unit ? ` ${param.unit}` : ''}</span>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+            <span>
+              Current: {currentVal}
+              {param.unit ? ` ${param.unit}` : ''}
+            </span>
             {param.minValue !== null && param.maxValue !== null && (
-              <span>Range: {param.minValue}-{param.maxValue}{param.unit ? ` ${param.unit}` : ''}</span>
+              <span>
+                Range: {param.minValue}-{param.maxValue}
+                {param.unit ? ` ${param.unit}` : ''}
+              </span>
             )}
             {param.unit && <span>Unit: {param.unit}</span>}
             <span>Group: {param.group}</span>
           </div>
         </div>
-        <div
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${riskStyle.bg} ${riskStyle.text}`}
+        <SeverityBadge
+          severity={param.riskLevel}
+          label={param.riskLevel}
+          icon={
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+          }
           data-testid={`risk-badge-${param.parameterName}`}
-        >
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${riskStyle.dot}`} />
-          {param.riskLevel}
-        </div>
+        />
       </div>
 
       {!isReadOnly && (
@@ -179,23 +171,27 @@ function ParameterCard({
             onChange={handleInputChange}
             className={`w-32 rounded-md border px-3 py-1.5 text-sm ${
               validationError
-                ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500'
+                ? 'border-error-300 dark:border-error-700 focus:border-error-500 focus:ring-error-500'
+                : 'border-gray-300 dark:border-gray-600 focus:border-primary-500 focus:ring-primary-500'
             }`}
             aria-label={`New value for ${param.parameterName}`}
             aria-invalid={!!validationError}
           />
-          <button
+          <Button
+            variant="primary"
+            size="xs"
+            leftIcon={<Plus className="h-3 w-3" />}
             type="button"
             onClick={handleAddToDraft}
-            disabled={!!validationError || inputValue === '' || parseFloat(inputValue) === currentVal}
-            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={
+              !!validationError || inputValue === '' || parseFloat(inputValue) === currentVal
+            }
             aria-label={`Add ${param.parameterName} to draft`}
           >
-            <Plus className="h-3 w-3" /> Add to Draft
-          </button>
+            Add to Draft
+          </Button>
           {validationError && (
-            <span className="text-xs text-red-600" role="alert">
+            <span className="text-xs text-error-600 dark:text-error-400" role="alert">
               {validationError}
             </span>
           )}
@@ -203,9 +199,15 @@ function ParameterCard({
       )}
 
       {compareMode && isDraft && draftValue !== undefined && (
-        <div className="mt-2 flex items-center gap-4 rounded bg-indigo-100 px-3 py-1.5 text-xs">
-          <span className="text-gray-600">Current: {currentVal}{param.unit ? ` ${param.unit}` : ''}</span>
-          <span className="font-bold text-indigo-700">New: {draftValue}{param.unit ? ` ${param.unit}` : ''}</span>
+        <div className="mt-2 flex items-center gap-4 rounded bg-primary-100 dark:bg-primary-900/40 px-3 py-1.5 text-xs">
+          <span className="text-gray-600 dark:text-gray-400">
+            Current: {currentVal}
+            {param.unit ? ` ${param.unit}` : ''}
+          </span>
+          <span className="font-bold text-primary-700 dark:text-primary-300">
+            New: {draftValue}
+            {param.unit ? ` ${param.unit}` : ''}
+          </span>
         </div>
       )}
     </div>
@@ -216,11 +218,7 @@ function ParameterCard({
 // Main Component
 // ============================================================================
 
-export function VfdParameterBrowser({
-  definitions,
-  loading,
-  error,
-}: VfdParameterBrowserProps) {
+export function VfdParameterBrowser({ definitions, loading, error }: VfdParameterBrowserProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<string>('');
@@ -290,8 +288,8 @@ export function VfdParameterBrowser({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center" role="alert">
-        <AlertTriangle className="mb-2 h-8 w-8 text-red-500" />
-        <p className="text-sm text-red-600">{error}</p>
+        <AlertTriangle className="mb-2 h-8 w-8 text-error-500" />
+        <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
       </div>
     );
   }
@@ -300,43 +298,40 @@ export function VfdParameterBrowser({
     <div className="flex gap-4" data-testid="vfd-parameter-browser">
       {/* Sidebar: Group Filters */}
       <aside className="hidden w-48 shrink-0 lg:block">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           Groups
         </h3>
         <div className="space-y-1">
           {groups.map((group) => (
             <label
               key={group}
-              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <input
                 type="checkbox"
                 checked={selectedGroups.has(group)}
                 onChange={() => handleGroupToggle(group)}
-                className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"
+                className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-primary-600"
               />
-              <span className="text-gray-700">{group}</span>
+              <span className="text-gray-700 dark:text-gray-300">{group}</span>
             </label>
           ))}
         </div>
 
         <div className="mt-4 border-t pt-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Category
           </h3>
-          <select
+          <Select
+            aria-label="Filter by category"
+            size="sm"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-            aria-label="Filter by category"
-          >
-            <option value="">All Categories</option>
-            {CATEGORY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Categories' },
+              ...CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+            ]}
+          />
         </div>
 
         <div className="mt-4 border-t pt-4">
@@ -345,10 +340,10 @@ export function VfdParameterBrowser({
               type="checkbox"
               checked={showAdvancedParams}
               onChange={toggleAdvancedParams}
-              className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"
+              className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-primary-600"
             />
-            <Eye className="h-3.5 w-3.5 text-gray-500" />
-            <span className="text-gray-700">Advanced</span>
+            <Eye className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+            <span className="text-gray-700 dark:text-gray-300">Advanced</span>
           </label>
         </div>
       </aside>
@@ -358,32 +353,30 @@ export function VfdParameterBrowser({
         {/* Toolbar */}
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
               placeholder="Search parameters..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 py-2 pl-9 pr-3 text-sm focus:border-primary-500 focus:ring-primary-500"
               aria-label="Search parameters"
             />
           </div>
 
           {/* Mobile category dropdown */}
           <div className="lg:hidden">
-            <select
+            <Select
+              aria-label="Filter by category"
+              fullWidth={false}
+              size="sm"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-gray-300 px-2 py-2 text-sm"
-              aria-label="Filter by category"
-            >
-              <option value="">All</option>
-              {CATEGORY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'All' },
+                ...CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+              ]}
+            />
           </div>
 
           <button
@@ -391,8 +384,8 @@ export function VfdParameterBrowser({
             onClick={toggleCompareMode}
             className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium ${
               compareMode
-                ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                ? 'border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
             aria-pressed={compareMode}
           >
@@ -403,15 +396,17 @@ export function VfdParameterBrowser({
         {/* Parameter list */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
-            <span className="ml-2 text-sm text-gray-500">Loading parameters...</span>
+            <Spinner size="md" />
+            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+              Loading parameters...
+            </span>
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-12 text-center">
             <Shield className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-            <p className="text-sm text-gray-500">No parameters found</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No parameters found</p>
             {searchQuery && (
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                 Try adjusting your search or filters
               </p>
             )}
@@ -434,7 +429,7 @@ export function VfdParameterBrowser({
           </div>
         )}
 
-        <div className="mt-3 text-xs text-gray-400">
+        <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
           Showing {filtered.length} of {definitions.length} parameters
         </div>
       </div>

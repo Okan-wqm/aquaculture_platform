@@ -9,7 +9,8 @@
     "merge_method",
     "auto_merge_candidate_lanes",
     "blocked_globs",
-    "lanes"
+    "lanes",
+    "codeowners_lane"
   ],
   "properties": {
     "$schema": { "const": "aria/risk-policy/v1" },
@@ -29,6 +30,10 @@
     "lanes": {
       "type": "object",
       "required": ["L1", "L2", "L3"]
+    },
+    "codeowners_lane": {
+      "enum": ["L2", "L3"],
+      "description": "Lane every CODEOWNERS-owned path is forced into; never L1, so no owned path is merged without its owner (ARIA-HIGH-187)."
     }
   },
   "additionalProperties": true

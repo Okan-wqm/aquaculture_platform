@@ -15,12 +15,12 @@ V3.1-B installs three concrete variants behind this Protocol:
   specialist_review_signal="review_converged_plan")` so the orchestrator
   proceeds to specialist_review of the CONVERGED PLAN.
 * ``AutonomousV9ImplementationRunner`` — every profile WITH ``pr_create``
-  authority (strict / autonomous); mints the signing key + scoped
-  installation token + issues the implementation envelope + verifies
-  signature + records via
-  `plan_convergence.record_implementation_outcome`. try/finally
-  cleans the keypair + revokes the installation token regardless of
-  outcome (closes C-11, H-4).
+  authority (strict / autonomous); stages the CONVERGED plan and issues
+  the implementation envelope. It mints NO credential (ARIA-HIGH-115):
+  the implementer's signing identity is minted by the executor child in
+  the request worktree where the commit is made
+  (``implementation_identity``), and its delivery token by the spawn that
+  runs it (``delivery_credentials``) — the two places where each is used.
 
 ORPHAN-HIGH-728 — ``StrictV9ImplementationRunner`` WAS the third variant
 and is DELETED, not deprecated. It refused implementation under
@@ -175,30 +175,39 @@ class AutonomousV9ImplementationRunner:
     step is a different authority (``pr_merge``, autonomous-only) and is
     not reached from here at all.
 
-    Pipeline:
     Pipeline (K6 / ORPHAN-CRITICAL-727):
 
-      1. mint_signing_key(cycle_id) — per-cycle ed25519 keypair +
-         git_config commit signing wired (V3.1-B-3 closes C-7). First,
-         so the workspace's commit identity is configured before any
-         later step runs git in it.
-      2. mint_installation_token(cycle_id) — 5-min TTL scoped GH
-         installation token (V9.0-C Mode A / Mode B shim).
-      3. ``apply_engine.stage_converged_plan_for_pr`` — records the
+      1. ``apply_engine.stage_converged_plan_for_pr`` — records the
          proposal (machine-approved against the CONVERGED content hash),
          opens the change chain, mints the branch name and runs the
          BASELINE validation. Without this step the envelope told the
          agent to run `apply gate` / `pr create` with ids nobody had
          minted, and every CONVERGED plan died at the last command.
-      4. issue_implementation_envelope(plan_id, ..., proposal_id=,
+      2. issue_implementation_envelope(plan_id, ..., proposal_id=,
          change_id=, branch=) — the mint IS the CONVERGED ->
          IMPLEMENTATION_REQUESTED transition, and it now carries the
          staged ids as structured envelope fields.
-      5. RETURN ``IMPLEMENTATION_DISPATCHED``. The executor lane claims
+      3. RETURN ``IMPLEMENTATION_DISPATCHED``. The executor lane claims
          the envelope in a later run; see the module docstring for why
          waiting here could never have observed the result.
-      6. try/finally cleanup — revoke_signing_key + revoke_installation_token
-         regardless of outcome (V3.1-B-7 closes C-11 + H-4).
+
+    No credential is minted here (ARIA-HIGH-115). This runner used to open
+    with ``mint_signing_key`` + ``mint_installation_token`` and close with
+    their revocations in ``finally`` (V3.1-B-3 / B-7), and read the mint's
+    wiring receipt to refuse ``git_signing_unconfigured`` (ARIA-HIGH-114).
+    Nothing in this window consumed either: staging and the envelope mint
+    make no commit and no GitHub call, the delivery token is minted by the
+    spawn that runs the implementer (``delivery_credentials``), and the
+    implementer itself is claimed later, by the executor lane, in a
+    per-request worktree where this process's key never existed — so the
+    identity minted here was revoked before anyone could commit with it,
+    and every executor-lane result was refused for lacking it. The
+    identity is minted where the commit is made, by the executor child
+    (``implementation_identity.hold_implementation_identity``), and the
+    HIGH-114 refusal moved with it (``implementation_signing_unavailable``).
+    The post-CONVERGED knowledge seam (``cycle_phases.knowledge_signer``)
+    keeps its own key for the convention row; the two identities are
+    registered separately in ``kg_signers`` under the same cycle id.
 
     Exception order (V3.1-B-5 closes C-10): BridgeContractViolation
     catch arm PRECEDES GovernanceError so state-machine violations
@@ -220,151 +229,122 @@ class AutonomousV9ImplementationRunner:
         from ..apply_engine import stage_converged_plan_for_pr
         from ..bridge_exceptions import BridgeContractViolation
         from ..cross_review_bridge import issue_implementation_envelope
-        from ..gh_token_factory import (
-            mint_installation_token,
-            mint_signing_key,
-            revoke_installation_token,
-            revoke_signing_key,
-        )
         from ..tool_registry import GovernanceError, append_tools_governance
         import json as _json
 
-        signing_key = None
-        installation_lease = None
+        # K6 (ORPHAN-CRITICAL-727) — staging BEFORE the mint, because the
+        # envelope carries the staged ids and the mint is the state
+        # transition out of CONVERGED: staging afterwards would leave a
+        # plan in IMPLEMENTATION_REQUESTED whose agent has no ids to use,
+        # and the transition is not reversible.
         try:
-            signing_key = mint_signing_key(
-                cycle_id=cycle_id, workspace_root=workspace_root,
+            staged = stage_converged_plan_for_pr(
+                plan_id=plan_id,
+                workspace_root=workspace_root,
+                base_dir=base_dir,
             )
-            installation_lease = mint_installation_token(
-                cycle_id=cycle_id, workspace_root=workspace_root,
-            )
-            # K6 (ORPHAN-CRITICAL-727) — staging BEFORE the mint, because the
-            # envelope carries the staged ids and the mint is the state
-            # transition out of CONVERGED: staging afterwards would leave a
-            # plan in IMPLEMENTATION_REQUESTED whose agent has no ids to use,
-            # and the transition is not reversible.
-            try:
-                staged = stage_converged_plan_for_pr(
-                    plan_id=plan_id,
-                    workspace_root=workspace_root,
-                    base_dir=base_dir,
-                )
-            except GovernanceError as exc:
-                append_tools_governance(
-                    base_dir, "implementation_staging_governance_error",
-                    {
-                        "plan_id": plan_id,
-                        "cycle_id": cycle_id,
-                        "error_class": type(exc).__name__,
-                        "error_message": str(exc)[:1000],
-                    },
-                )
-                return V9ImplementationResult(
-                    terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
-                    pr_url=None,
-                    rejection_class="staging_governance_error",
-                    specialist_review_signal="review_converged_plan",
-                )
-
-            # Plan ARIA-V3.1-B — issue the implementation envelope.
-            # The envelope ships with base64-encoded delimiter
-            # payloads (cross_review_bridge._implementation_suggested_prompt
-            # V3.1-B-2 rewrite).
-            try:
-                # ORPHAN-CRITICAL-728 — the plan's own content is no longer
-                # passed here. `must_satisfy` and `allowed_scope` are not
-                # plan-content fields, so `converged_plan.get(...)` handed the
-                # mint two empty lists and it refused its own envelope; and
-                # `converged_plan` itself arrives as `{}` from the drainer,
-                # because `evaluate_plan` has no `plan_content` key to read.
-                # The bridge reads the hash-verified body from the plan ledger
-                # and derives all of it.
-                issue_implementation_envelope(
-                    plan_id=plan_id,
-                    cross_review_revision_id=str(
-                        cross_review_summary.get("revision_id") or "cr-unknown"
-                    ),
-                    cross_review_summary_text=_json.dumps(
-                        cross_review_summary, sort_keys=True, indent=2,
-                    ),
-                    proposal_id=str(staged["proposal_id"]),
-                    change_id=str(staged["change_id"]),
-                    branch=str(staged["branch"]),
-                    base_sha=str(staged["base_sha"]),
-                    base_dir=base_dir,
-                )
-            except BridgeContractViolation as exc:
-                # Plan ARIA-V3.1-B-5 closes C-10: BridgeContractViolation
-                # MUST surface to the orchestrator (state-machine
-                # invariant). The catch arm is FIRST so this exception
-                # never gets swallowed by the wider GovernanceError
-                # handler below.
-                append_tools_governance(
-                    base_dir, "implementation_envelope_bridge_violation",
-                    {
-                        "plan_id": plan_id,
-                        "cycle_id": cycle_id,
-                        "error_class": type(exc).__name__,
-                        "error_message": str(exc)[:1000],
-                    },
-                )
-                raise
-            except GovernanceError as exc:
-                append_tools_governance(
-                    base_dir, "implementation_envelope_governance_error",
-                    {
-                        "plan_id": plan_id,
-                        "cycle_id": cycle_id,
-                        "error_class": type(exc).__name__,
-                        "error_message": str(exc)[:1000],
-                    },
-                )
-                return V9ImplementationResult(
-                    terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
-                    pr_url=None,
-                    rejection_class="envelope_governance_error",
-                    specialist_review_signal="review_converged_plan",
-                )
-
-            # K6 — mint and return. The specialist reviews the CONVERGED plan
-            # in this cycle because the plan is the only artifact that exists
-            # yet; the diff and the PR are reviewed on the PR itself, by the
-            # own-PR CI lane and the merge gates, once the executor delivers.
+        except GovernanceError as exc:
             append_tools_governance(
-                base_dir, "implementation_dispatched",
+                base_dir, "implementation_staging_governance_error",
                 {
                     "plan_id": plan_id,
                     "cycle_id": cycle_id,
-                    "proposal_id": staged["proposal_id"],
-                    "change_id": staged["change_id"],
-                    "branch": staged["branch"],
-                    "baseline_ref": staged["baseline_ref"],
+                    "error_class": type(exc).__name__,
+                    "error_message": str(exc)[:1000],
                 },
             )
             return V9ImplementationResult(
-                terminal_state="IMPLEMENTATION_DISPATCHED",
+                terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
                 pr_url=None,
-                rejection_class=None,
+                rejection_class="staging_governance_error",
                 specialist_review_signal="review_converged_plan",
             )
-        finally:
-            # Plan ARIA-V3.1-B-7 (closes C-11 + H-4) — cleanup happens
-            # regardless of outcome. Per-cycle keypair + installation
-            # token cannot outlive the cycle wall-clock.
-            if signing_key is not None:
-                try:
-                    revoke_signing_key(
-                        cycle_id=cycle_id, workspace_root=workspace_root,
-                    )
-                except Exception:
-                    # Best-effort — startup orphan reaper catches
-                    # what try/finally misses (V3.1-P-6 prune).
-                    pass
-            if installation_lease is not None:
-                try:
-                    revoke_installation_token(lease=installation_lease)
-                except Exception:
-                    pass
+
+        # Plan ARIA-V3.1-B — issue the implementation envelope.
+        # The envelope ships with base64-encoded delimiter
+        # payloads (cross_review_bridge._implementation_suggested_prompt
+        # V3.1-B-2 rewrite).
+        try:
+            # ORPHAN-CRITICAL-728 — the plan's own content is no longer
+            # passed here. `must_satisfy` and `allowed_scope` are not
+            # plan-content fields, so `converged_plan.get(...)` handed the
+            # mint two empty lists and it refused its own envelope; and
+            # `converged_plan` itself arrives as `{}` from the drainer,
+            # because `evaluate_plan` has no `plan_content` key to read.
+            # The bridge reads the hash-verified body from the plan ledger
+            # and derives all of it.
+            issue_implementation_envelope(
+                plan_id=plan_id,
+                cross_review_revision_id=str(
+                    cross_review_summary.get("revision_id") or "cr-unknown"
+                ),
+                cross_review_summary_text=_json.dumps(
+                    cross_review_summary, sort_keys=True, indent=2,
+                ),
+                proposal_id=str(staged["proposal_id"]),
+                change_id=str(staged["change_id"]),
+                branch=str(staged["branch"]),
+                base_sha=str(staged["base_sha"]),
+                base_dir=base_dir,
+                # ARIA-HIGH-104 — the request contract requires the
+                # cycle the envelope belongs to; this runner is the
+                # only producer that knows it.
+                cycle_id=cycle_id,
+            )
+        except BridgeContractViolation as exc:
+            # Plan ARIA-V3.1-B-5 closes C-10: BridgeContractViolation
+            # MUST surface to the orchestrator (state-machine
+            # invariant). The catch arm is FIRST so this exception
+            # never gets swallowed by the wider GovernanceError
+            # handler below.
+            append_tools_governance(
+                base_dir, "implementation_envelope_bridge_violation",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "error_class": type(exc).__name__,
+                    "error_message": str(exc)[:1000],
+                },
+            )
+            raise
+        except GovernanceError as exc:
+            append_tools_governance(
+                base_dir, "implementation_envelope_governance_error",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "error_class": type(exc).__name__,
+                    "error_message": str(exc)[:1000],
+                },
+            )
+            return V9ImplementationResult(
+                terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
+                pr_url=None,
+                rejection_class="envelope_governance_error",
+                specialist_review_signal="review_converged_plan",
+            )
+
+        # K6 — mint and return. The specialist reviews the CONVERGED plan
+        # in this cycle because the plan is the only artifact that exists
+        # yet; the diff and the PR are reviewed on the PR itself, by the
+        # own-PR CI lane and the merge gates, once the executor delivers.
+        append_tools_governance(
+            base_dir, "implementation_dispatched",
+            {
+                "plan_id": plan_id,
+                "cycle_id": cycle_id,
+                "proposal_id": staged["proposal_id"],
+                "change_id": staged["change_id"],
+                "branch": staged["branch"],
+                "baseline_ref": staged["baseline_ref"],
+            },
+        )
+        return V9ImplementationResult(
+            terminal_state="IMPLEMENTATION_DISPATCHED",
+            pr_url=None,
+            rejection_class=None,
+            specialist_review_signal="review_converged_plan",
+        )
 
 
 # ORPHAN-HIGH-728 — the action authority that DECIDES which runner a

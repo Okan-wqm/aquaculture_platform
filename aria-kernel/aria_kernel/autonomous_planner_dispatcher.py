@@ -13,7 +13,21 @@ This module supplies the missing loop wrapper. State per iteration:
   1. ARIA_STOP file check (highest priority — clean exit)
   2. Runtime profile gate (frozen/observe → clean exit)
   3. Find + claim + dispatch via planner_dispatch_hook
-  4. Sleep poll_interval if no pending; otherwise next iteration
+  4. Sleep poll_interval if no pending or the fleet admission halted on
+     its first provider (``provider_undecided`` /
+     ``provider_control_unavailable``); otherwise next iteration
+
+Halted-admission back-off (ARIA-HIGH-107): the hook reports
+``provider_undecided`` when the executor child released its claim
+because the fleet's first provider in contention never answered its
+status probe inside the liveness bound, and
+``provider_control_unavailable`` when the vendor did not refuse but this
+host could not bind the route's controls. Nothing ran and the request is
+back in the queue; re-claiming it on the very next tick would re-probe
+the same stalled or broken host at once. The daemon records the tick and
+sleeps the poll interval, exactly as the worker scheduler does for a
+provider cooldown, and does not count the tick as a dispatch. The set it
+backs off on is the hook's ``ADMISSION_BACKOFF_STATUSES``, never a copy.
 
 Single-instance discipline: a fcntl lock on
 ``aria-tools/daemons/<daemon_id>.pid.lock`` ensures one daemon per
@@ -113,6 +127,7 @@ def run_planner_dispatch_daemon(
         # mock-mode purposes.
         from .planner_dispatch_hook import dispatch_one_pending_planner_request
         invoke_planner = dispatch_one_pending_planner_request
+    from .planner_dispatch_hook import ADMISSION_BACKOFF_STATUSES
 
     root = ensure_tools_dir(base_dir)
     daemons_dir = root / "daemons"
@@ -193,6 +208,29 @@ def run_planner_dispatch_daemon(
 
                 if status == "dispatched":
                     claims_dispatched += 1
+
+                if status in ADMISSION_BACKOFF_STATUSES:
+                    # Back off while the host cannot decide or bind the
+                    # fleet (module docstring). Recorded like any tick; not
+                    # a dispatch, not a failure.
+                    append_tools_governance(
+                        root, "planner_dispatch_iteration_completed",
+                        {
+                            "iteration_n": iterations,
+                            "daemon_id": daemon_id,
+                            "status": status,
+                            "request_id": result.get("request_id"),
+                            "claim_id": result.get("claim_id"),
+                            "exit_code": result.get("exit_code"),
+                        },
+                    )
+                    if (
+                        max_iterations is not None
+                        and iterations >= max_iterations
+                    ):
+                        break
+                    sleep(poll_interval_seconds)
+                    continue
 
                 append_tools_governance(
                     root, "planner_dispatch_iteration_completed",

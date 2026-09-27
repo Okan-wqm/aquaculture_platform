@@ -62,6 +62,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .candidate_blocks import describe_candidate_block
 from .task import generate_task_candidates
 from .ledger import (
     load_declared_jsonl,
@@ -70,7 +71,6 @@ from .ledger import (
 )
 from .tool_registry import (
     GovernanceError,
-    append_tools_governance,
     append_tools_governance_once,
     ensure_tools_dir,
     utc_now,
@@ -269,6 +269,30 @@ UNUSABLE_SOURCE_IDS: frozenset[str] = frozenset({
     "",
 })
 
+# Source kinds whose PRODUCER no longer exists. A mission is re-observed —
+# healed, re-contracted, woken — only through its producer; a mission whose
+# producer is gone can never advance and never close on its own, so it is
+# superseded with a disclosed reason (`mission_retired_sources`). Historical
+# rows keep folding: this set retires the mint, not the vocabulary.
+#
+#   shadow_run_summary — `task._candidate_from_shadow_summary` minted a
+#   CONSTANT panel block, so the C9/E8 guard refused 100% of its output and
+#   the six missions it opened before the guard (2026-08-10/11) stayed
+#   contract-less and unhealable: the only heal path is re-adoption, and
+#   re-adoption is exactly what the guard refuses.
+RETIRED_SOURCE_KINDS: frozenset[str] = frozenset({"shadow_run_summary"})
+
+# The ``mission_candidate_refused`` governance row's own contract. v1 rows
+# (71 on the live store) were per night and carried reason/source/source_id
+# only; a v2 row names the block (``blocked_by``, ``owner``,
+# ``operator_action``, ``unregistered_block_tokens``) and is disclosed ONCE
+# per claim, so counting v2 rows counts distinct refusals, not nights. Bumped
+# because the meaning of a row changed, not merely its key set — the same
+# reason `observability.record_cycle_metrics` bumped to 2 when it grew phase
+# digests. `orchestrator_exit_history` is the only in-kernel reader and keys
+# on nothing but ``cycle_id``/``reason``/``owner`` via ``.get``.
+MISSION_CANDIDATE_REFUSED_SCHEMA_VERSION = 2
+
 
 def events_path(root: Path) -> Path:
     return root / "missions" / "mission-events.jsonl"
@@ -373,6 +397,17 @@ def validate_closure_contract(
     if validated is None:  # pragma: no cover - None already refused above
         raise GovernanceError("the closure contract requires a wake_condition")
     return next_action.strip(), validated
+
+
+def has_closure_contract(state: dict[str, Any]) -> bool:
+    """Whether a folded mission carries both halves of the closure contract.
+
+    ONE predicate for every reader that asks "is this mission healable or
+    schedulable as it stands" — the re-open heal and the retired-producer
+    sweep both branch on it, and two spellings of the same test are how two
+    writers come to disagree about which missions are contract-less.
+    """
+    return bool(state.get("next_action")) and bool(state.get("wake_condition"))
 
 
 def _validate_bindings(bindings: Any) -> dict[str, list[Any]]:
@@ -493,11 +528,18 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
     return state
 
 
+def _find_mission(
+    *, mission_id: str, base_dir: str | Path | None = None
+) -> dict[str, Any] | None:
+    """Read any native mission state, including terminal; absence is distinct from unreadable history."""
+    root = ensure_tools_dir(base_dir)
+    return _fold(_load_events(root), mission_id)
+
+
 def fold_mission(
     *, mission_id: str, base_dir: str | Path | None = None
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
-    state = _fold(_load_events(root), mission_id)
+    state = _find_mission(mission_id=mission_id, base_dir=base_dir)
     if state is None:
         raise GovernanceError(f"unknown mission: {mission_id}")
     return state
@@ -678,7 +720,7 @@ def _heal_on_reopen(
     """
     if state is None:  # pragma: no cover - the genesis row exists by construction
         return {"healed": False, "heal_declined": "unknown_mission"}
-    if state.get("next_action") and state.get("wake_condition"):
+    if has_closure_contract(state):
         return {"healed": False, "heal_declined": None}
     if state["state"] in TERMINAL_STATES:
         return {"healed": False, "heal_declined": "terminal"}
@@ -1000,14 +1042,42 @@ def adopt_task_candidates(
     Re-adoption also HEALS, through `open_mission`: the 5 rows above were
     written before any contract was required, and re-adopting them is a
     no-op that would otherwise leave them stuck forever.
+
+    A REFUSAL IS DISCLOSED ONCE PER CLAIM. The 71 ``mission_candidate_refused``
+    rows on the live store (2026-08-13 → 2026-09-04) were the same handful of
+    blocked candidates re-refused every night — 5 rows a night on 2026-09-04
+    for 5 candidates that had been refused on every earlier night too. A row
+    that repeats is weather, not evidence (the doctrine `assert_cycle_closure`
+    and `service_mission_refused` already follow); so the row is written
+    through `append_tools_governance_once` keyed on WHAT was refused (reason,
+    source, source_id, block tokens, owner) and never on the cycle. A refusal
+    row therefore means the claim CHANGED: a new candidate, a new reason, a
+    block that gained or lost a token. The count report keeps both numbers:
+    ``refused`` is how many candidates were turned away tonight,
+    ``refusals_disclosed`` how many of those were new facts.
+
+    Panel-owned candidates never reach this loop: `generate_task_candidates`
+    routes them to ``routed_to_panel`` (the genesis sweep owns them), and the
+    count is passed through so the phase summary can still answer "why did
+    nothing new get adopted".
     """
     root = ensure_tools_dir(base_dir)
     payload = generate_task_candidates(
         cycle_id=cycle_id, base_dir=root, limit=limit
     )
-    candidates = payload.get("tasks") if isinstance(payload, dict) else None
-    adopted = already = refused = healed = 0
-    for candidate in candidates if isinstance(candidates, list) else []:
+    # ``tasks`` is the admissible budget; ``blocked`` is every candidate the
+    # OPERATOR must clear first (task.py partitions them so a blocked
+    # candidate cannot hold an admissible one's slot, and routes panel-owned
+    # ones out entirely). Both flow through ONE loop so the refusal below
+    # stays reachable by construction — every blocked candidate passes it —
+    # instead of by the accident of scoring into the top-N.
+    candidates = [
+        *(payload.get("tasks") or []),
+        *(payload.get("blocked") or []),
+    ]
+    adopted = already = refused = healed = disclosed = 0
+    blocked_by_owner: dict[str, int] = {}
+    for candidate in candidates:
         if not isinstance(candidate, dict):
             refused += 1
             continue
@@ -1015,22 +1085,36 @@ def adopt_task_candidates(
         source_id = str(candidate.get("source_id") or "")
         forward = _candidate_forward_pointer(candidate)
         reason = None
+        block: dict[str, Any] | None = None
         if not isinstance(source, str) or not source.strip():
             reason = "missing_source"
         elif source_id in UNUSABLE_SOURCE_IDS:
             # Refused rather than adopted: see UNUSABLE_SOURCE_IDS.
             reason = "unusable_source_id"
         elif candidate.get("blocked_by"):
-            # C9/E8 — a candidate ARIA itself declared blocked is
-            # operator-facing work, NOT schedulable work: adopting it opens
-            # a mission that mints an agent request for work that cannot
-            # run. The pressure path already refuses a blocked item
-            # (reflection.py "A blocked pressure is operator-facing work,
-            # not schedulable work"); the mission path re-opened the same
-            # door. Live proof: all three shadow_run_summary missions on
-            # the store originate from task candidates carrying
-            # blocked_by=["operator_feedback_required"].
+            # C9/E8 — a candidate ARIA itself declared blocked is NOT
+            # schedulable work: adopting it opens a mission that mints an
+            # agent request for work that cannot run. The pressure path
+            # already refuses a blocked item (reflection.py "A blocked
+            # pressure is operator-facing work, not schedulable work"); the
+            # mission path re-opened the same door. Live proof: the six
+            # shadow_run_summary missions on the store were opened
+            # 2026-08-10/11 by the producer whose every stored candidate
+            # (11 payloads, 2026-08-16 → 2026-09-04) carries a block —
+            # ``operator_feedback_required`` then, the panel token after Y8.
+            #
+            # The refusal NAMES ITS OWNER. `candidate_blocked` alone was the
+            # whole disclosure for 71 live rows. Joined to the task-candidate
+            # payloads on (cycle_id, source, source_id): 43 carried
+            # ``genesis_adjudication_required`` (panel-owned), 15 the pre-Y8
+            # ``operator_feedback_required`` (operator-owned), 13 predate the
+            # first stored payload and cannot be joined — and the row said
+            # the same thing for all of them, so an operator could not tell
+            # "the panel has it" from "repair the registry". The vocabulary
+            # (`candidate_blocks`) says which, and what to do.
             reason = "candidate_blocked"
+            block = describe_candidate_block(candidate["blocked_by"])
+            blocked_by_owner[block["owner"]] = blocked_by_owner.get(block["owner"], 0) + 1
         elif forward is None:
             # ORPHAN-MEDIUM-730 — the source could not name what to do next,
             # so there is no mission to open. Ordered AFTER `candidate_blocked`
@@ -1043,17 +1127,28 @@ def adopt_task_candidates(
             reason = "no_derivable_next_action"
         if reason is not None:
             refused += 1
-            append_tools_governance(
+            details: dict[str, Any] = {
+                "schema_version": MISSION_CANDIDATE_REFUSED_SCHEMA_VERSION,
+                "cycle_id": cycle_id,
+                "reason": reason,
+                "source": source if isinstance(source, str) else None,
+                "source_id": source_id or None,
+            }
+            if block is not None:
+                details.update(
+                    blocked_by=block["blocked_by"],
+                    owner=block["owner"],
+                    operator_action=block["operator_action"],
+                    unregistered_block_tokens=block["unregistered"],
+                )
+            disclosure = append_tools_governance_once(
                 root,
                 "mission_candidate_refused",
-                {
-                    "schema_version": 1,
-                    "cycle_id": cycle_id,
-                    "reason": reason,
-                    "source": source if isinstance(source, str) else None,
-                    "source_id": source_id or None,
-                },
+                details,
+                # The claim is what was refused and why — not the night.
+                claim_keys=("reason", "source", "source_id", "blocked_by", "owner"),
             )
+            disclosed += int(disclosure["appended"])
             continue
         title = str(candidate.get("title") or source_id)
         # The title says WHAT the work is; `next_action` says what to DO, and
@@ -1087,7 +1182,15 @@ def adopt_task_candidates(
         "adopted": adopted,
         "already_tracked": already,
         "refused": refused,
+        # How many of tonight's refusals were NEW claims (rows written);
+        # ``refused`` minus this is standing weather already on the ledger.
+        "refusals_disclosed": disclosed,
         "healed": healed,
+        # Who is holding the refused-as-blocked work, by owner, plus how many
+        # candidates the generator handed to the panel before this loop — the
+        # phase summary's one-line answer to "why did nothing new get adopted".
+        "blocked_by_owner": blocked_by_owner,
+        "routed_to_panel": int(payload.get("routed_to_panel_count") or 0),
     }
 
 
@@ -1253,6 +1356,8 @@ __all__ = [
     "RETRY_LADDER",
     "TERMINAL_STATES",
     "WAKE_KINDS",
+    "MISSION_CANDIDATE_REFUSED_SCHEMA_VERSION",
+    "RETIRED_SOURCE_KINDS",
     "UNUSABLE_SOURCE_IDS",
     "active_wip_missions",
     "adopt_task_candidates",
@@ -1261,6 +1366,7 @@ __all__ = [
     "bind_mission",
     "events_path",
     "fold_mission",
+    "has_closure_contract",
     "index_path",
     "list_open_missions",
     "mainline_index",

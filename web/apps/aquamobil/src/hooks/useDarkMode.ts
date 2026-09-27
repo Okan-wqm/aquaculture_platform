@@ -28,12 +28,6 @@ interface UseDarkModeReturn {
 
 const STORAGE_KEY = 'aquamobil_dark_mode';
 
-// WHY: Light theme-color matches the ocean-600 brand blue, dark uses gray-950 (#030712)
-// to match the Tailwind dark surface. These colors appear in the mobile browser chrome
-// (address bar on Android, status bar tint on iOS PWA).
-const THEME_COLOR_LIGHT = '#0073e6';
-const THEME_COLOR_DARK = '#030712';
-
 const CYCLE_ORDER: DarkModePreference[] = ['light', 'dark', 'system'];
 
 /**
@@ -79,10 +73,13 @@ function applyTheme(isDark: boolean): void {
 
   // WHY: Updating theme-color meta tag changes the browser chrome color on Android
   // and the status bar color in iOS standalone (PWA) mode, creating a polished
-  // native-like appearance that matches the current theme.
+  // native-like appearance that matches the current theme. index.html records
+  // both colours on the tag (data-theme-color-light/dark) so its pre-paint
+  // script and this hook read one record instead of two copies that drift.
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) {
-    meta.setAttribute('content', isDark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT);
+  const next = meta?.getAttribute(isDark ? 'data-theme-color-dark' : 'data-theme-color-light');
+  if (meta && next) {
+    meta.setAttribute('content', next);
   }
 }
 

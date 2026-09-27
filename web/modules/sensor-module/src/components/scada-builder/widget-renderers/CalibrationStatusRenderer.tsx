@@ -4,13 +4,14 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = {
-  calibrated:   { bg: '#dcfce7', text: '#166534', label: 'Calibrated' },
-  due:          { bg: '#fef9c3', text: '#854d0e', label: 'Calibration Required' },
-  overdue:      { bg: '#fee2e2', text: '#991b1b', label: 'Overdue' },
-  inProgress:   { bg: '#dbeafe', text: '#1e40af', label: 'In Progress' },
-  unknown:      { bg: '#f3f4f6', text: '#6b7280', label: 'Unknown' },
+  calibrated:   { bg: colors.success[100], text: colors.secondary[800], label: 'Calibrated' },
+  due:          { bg: colors.warning[100], text: colors.accent[800], label: 'Calibration Required' },
+  overdue:      { bg: colors.error[100], text: colors.error[700], label: 'Overdue' },
+  inProgress:   { bg: colors.info[100], text: colors.primary[600], label: 'In Progress' },
+  unknown:      { bg: colors.neutral[100], text: colors.gray[400], label: 'Unknown' },
 };
 
 const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
@@ -34,7 +35,7 @@ const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, valu
         boxSizing: 'border-box' as const,
       }}
     >
-      <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: 10, color: colors.gray[400], fontWeight: 500 }}>{label}</span>
       {/* Status badge */}
       <span
         style={{
@@ -50,7 +51,7 @@ const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, valu
         {status.label}
       </span>
       {/* Dates */}
-      <div style={{ display: 'flex', gap: 12, fontSize: 9, color: '#9ca3af' }}>
+      <div style={{ display: 'flex', gap: 12, fontSize: 9, color: colors.neutral[400] }}>
         <span>Last: {lastDate}</span>
         <span>Next: {nextDate}</span>
       </div>

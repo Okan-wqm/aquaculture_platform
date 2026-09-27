@@ -2,6 +2,7 @@
  * P&ID (Process & Instrumentation Diagram) Connection Types
  * Based on ISA-5.1 Standard for professional process diagrams
  */
+import { colors } from '@aquaculture/shared-ui';
 
 export type ConnectionType =
   | 'process-pipe'    // Main process lines
@@ -27,7 +28,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'process-pipe',
     label: 'Process Piping',
-    color: '#1f2937',         // Gray-800 (Black)
+    color: colors.neutral[800],         // Gray-800 (Black)
     strokeWidth: 3,
     strokeDasharray: '',      // Solid
     description: 'Main process flow lines'
@@ -35,7 +36,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'electrical',
     label: 'Electrical Signal',
-    color: '#dc2626',         // Red-600
+    color: colors.error[600],         // Red-600
     strokeWidth: 2,
     strokeDasharray: '8,4',   // Dashed
     description: '4-20mA, voltage signals'
@@ -43,7 +44,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'pneumatic',
     label: 'Pneumatic Signal',
-    color: '#2563eb',         // Blue-600
+    color: colors.info[600],         // Blue-600
     strokeWidth: 2,
     strokeDasharray: '12,3,3,3', // Double marks
     description: 'Air/gas signal connections'
@@ -51,7 +52,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'hydraulic',
     label: 'Hydraulic Line',
-    color: '#16a34a',         // Green-600
+    color: colors.success[600],         // Green-600
     strokeWidth: 2,
     strokeDasharray: '12,4,4,4', // Long-short dash
     description: 'Hydraulic fluid connections'
@@ -59,7 +60,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'instrument',
     label: 'Instrument Signal',
-    color: '#ea580c',         // Orange-600
+    color: colors.warning[600],         // Orange-600
     strokeWidth: 2,
     strokeDasharray: '8,3,2,3', // Dash-dot
     description: 'Sensor and control signals'
@@ -67,7 +68,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'data-link',
     label: 'Data/Communication',
-    color: '#7c3aed',         // Violet-600
+    color: colors.primary[800],         // Violet-600
     strokeWidth: 2,
     strokeDasharray: '2,4',   // Dotted
     description: 'Digital data transmission'
@@ -75,7 +76,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'capillary',
     label: 'Capillary Tube',
-    color: '#6b7280',         // Gray-500
+    color: colors.gray[400],         // Gray-500
     strokeWidth: 1,
     strokeDasharray: '',      // Solid thin
     description: 'Capillary connections'
@@ -83,7 +84,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'steam',
     label: 'Steam Line',
-    color: '#f97316',         // Orange-500
+    color: colors.accent[600],         // Orange-500
     strokeWidth: 3,
     strokeDasharray: '6,2',   // Short dash
     description: 'Steam process lines'
@@ -91,7 +92,7 @@ export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'drain-vent',
     label: 'Drain/Vent',
-    color: '#0891b2',         // Cyan-600
+    color: colors.primary[600],         // Cyan-600
     strokeWidth: 2,
     strokeDasharray: '4,4,1,4', // Dash-dot-dot
     description: 'Drainage and ventilation'

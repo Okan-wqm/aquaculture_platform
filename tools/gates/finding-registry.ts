@@ -2100,6 +2100,9 @@ function runRegistryMutation(
     process.stderr.write(
       `Registry mutation authority failed closed: ${error instanceof Error ? error.message : String(error)}\n`,
     );
+    if (process.env.FINDING_REGISTRY_DEBUG === '1' && error instanceof Error) {
+      process.stderr.write(`${error.stack ?? ''}\n`);
+    }
     return 1;
   }
 }

@@ -211,6 +211,8 @@ mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals
 #[cfg(feature = "scada-display")]
+mod theme_tokens; // Design tokens, generated from the shared palette (FE-MEDIUM-093)
+#[cfg(feature = "scada-display")]
 mod trend_engine;
 
 use anyhow::{Context, Result};

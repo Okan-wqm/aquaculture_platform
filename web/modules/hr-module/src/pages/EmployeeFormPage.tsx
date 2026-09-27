@@ -34,15 +34,16 @@ import type {
   PersonnelCategory,
   Department,
 } from '../types';
+import { Spinner, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const inputClass =
-  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white';
+  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white';
 const inputDisabledClass =
-  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800';
+  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800';
 const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2';
 const sectionClass =
   'bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800';
@@ -160,7 +161,7 @@ const EmployeeFormPage: React.FC = () => {
   // ------------------------------------------------------------------
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
@@ -250,7 +251,7 @@ const EmployeeFormPage: React.FC = () => {
   if (isEditing && loadingEmployee) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -262,28 +263,24 @@ const EmployeeFormPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link
-          to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {isEditing ? 'Edit Employee' : 'New Employee'}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {isEditing ? 'Update employee information' : 'Create a new employee record'}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={isEditing ? 'Edit Employee' : 'New Employee'}
+        description={isEditing ? 'Update employee information' : 'Create a new employee record'}
+        leading={
+          <Link
+            to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </Link>
+        }
+      />
 
       {/* Error Banner */}
       {mutationError && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
-          <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
-          <p className="text-sm text-red-700 dark:text-red-300">
+        <div className="flex items-center gap-3 rounded-lg border border-error-200 bg-error-50 px-4 py-3 dark:border-error-800 dark:bg-error-900/20">
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-error-600 dark:text-error-400" />
+          <p className="text-sm text-error-700 dark:text-error-300">
             {mutationError.message || 'An error occurred while saving the employee.'}
           </p>
         </div>
@@ -302,30 +299,30 @@ const EmployeeFormPage: React.FC = () => {
             <div>
               <label htmlFor="employee-firstName" className={labelClass}>
                 <User className="w-4 h-4 inline mr-2" />
-                First Name <span className="text-red-500">*</span>
+                First Name <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-firstName"
                 type="text"
                 name="firstName"
                 value={formData.firstName}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="First name"
                 required
               />
             </div>
             <div>
               <label htmlFor="employee-lastName" className={labelClass}>
-                Last Name <span className="text-red-500">*</span>
+                Last Name <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-lastName"
                 type="text"
                 name="lastName"
                 value={formData.lastName}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="Last name"
                 required
               />
@@ -333,16 +330,16 @@ const EmployeeFormPage: React.FC = () => {
             <div>
               <label htmlFor="employee-email" className={labelClass}>
                 <Mail className="w-4 h-4 inline mr-2" />
-                Email <span className="text-red-500">*</span>
+                Email <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-email"
                 type="email"
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isEditing}
-                className={inputDisabledClass}
                 placeholder="email@example.com"
                 required={!isEditing}
               />
@@ -362,7 +359,7 @@ const EmployeeFormPage: React.FC = () => {
             <div>
               <label htmlFor="employee-dateOfBirth" className={labelClass}>
                 <Calendar className="w-4 h-4 inline mr-2" />
-                Date of Birth <span className="text-red-500">*</span>
+                Date of Birth <span className="text-error-500">*</span>
               </label>
               <input
                 id="employee-dateOfBirth"
@@ -378,7 +375,7 @@ const EmployeeFormPage: React.FC = () => {
             <div>
               <label htmlFor="employee-nationalId" className={labelClass}>
                 <CreditCard className="w-4 h-4 inline mr-2" />
-                National ID <span className="text-red-500">*</span>
+                National ID <span className="text-error-500">*</span>
               </label>
               {/* HR-HIGH-017: Mask national ID in display mode. Only show full ID
                   during initial creation. In edit mode, show masked value. */}
@@ -409,56 +406,60 @@ const EmployeeFormPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label htmlFor="employee-contactEmail" className={labelClass}>
-                Contact Email <span className="text-red-500">*</span>
+                Contact Email <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-contactEmail"
                 type="email"
                 name="contactEmail"
                 value={formData.contactEmail}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="contact@example.com"
                 required={!isEditing}
               />
             </div>
             <div>
               <label htmlFor="employee-contactPhone" className={labelClass}>
-                Phone <span className="text-red-500">*</span>
+                Phone <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-contactPhone"
                 type="tel"
                 name="contactPhone"
                 value={formData.contactPhone}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="+1 555 000 0000"
                 required={!isEditing}
               />
             </div>
             <div>
-              <label htmlFor="employee-emergencyContact" className={labelClass}>Emergency Contact Name</label>
-              <input
+              <label htmlFor="employee-emergencyContact" className={labelClass}>
+                Emergency Contact Name
+              </label>
+              <Input
+                fullWidth
                 id="employee-emergencyContact"
                 type="text"
                 name="emergencyContact"
                 value={formData.emergencyContact}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="Emergency contact full name"
                 maxLength={100}
               />
             </div>
             <div>
-              <label htmlFor="employee-emergencyPhone" className={labelClass}>Emergency Phone</label>
-              <input
+              <label htmlFor="employee-emergencyPhone" className={labelClass}>
+                Emergency Phone
+              </label>
+              <Input
+                fullWidth
                 id="employee-emergencyPhone"
                 type="tel"
                 name="emergencyPhone"
                 value={formData.emergencyPhone}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="+1 555 000 0000"
               />
             </div>
@@ -476,15 +477,15 @@ const EmployeeFormPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
               <label htmlFor="employee-street" className={labelClass}>
-                Street Address <span className="text-red-500">*</span>
+                Street Address <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-street"
                 type="text"
                 name="street"
                 value={formData.street}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="123 Main St"
                 required={!isEditing}
                 maxLength={255}
@@ -492,15 +493,15 @@ const EmployeeFormPage: React.FC = () => {
             </div>
             <div>
               <label htmlFor="employee-city" className={labelClass}>
-                City <span className="text-red-500">*</span>
+                City <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-city"
                 type="text"
                 name="city"
                 value={formData.city}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="City"
                 required={!isEditing}
                 maxLength={100}
@@ -508,15 +509,15 @@ const EmployeeFormPage: React.FC = () => {
             </div>
             <div>
               <label htmlFor="employee-state" className={labelClass}>
-                State / Province <span className="text-red-500">*</span>
+                State / Province <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-state"
                 type="text"
                 name="state"
                 value={formData.state}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="State"
                 required={!isEditing}
                 maxLength={100}
@@ -524,15 +525,15 @@ const EmployeeFormPage: React.FC = () => {
             </div>
             <div>
               <label htmlFor="employee-postalCode" className={labelClass}>
-                Postal Code <span className="text-red-500">*</span>
+                Postal Code <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-postalCode"
                 type="text"
                 name="postalCode"
                 value={formData.postalCode}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="12345"
                 required={!isEditing}
                 maxLength={20}
@@ -540,15 +541,15 @@ const EmployeeFormPage: React.FC = () => {
             </div>
             <div>
               <label htmlFor="employee-country" className={labelClass}>
-                Country <span className="text-red-500">*</span>
+                Country <span className="text-error-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-country"
                 type="text"
                 name="country"
                 value={formData.country}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="Country"
                 required={!isEditing}
                 maxLength={100}
@@ -573,8 +574,9 @@ const EmployeeFormPage: React.FC = () => {
               {/* WHY: Guard against empty department list — new tenants won't have departments yet.
                   Show a helpful message instead of a broken empty dropdown that confuses users
                   into thinking the form is broken. */}
-              {!loadingDepartments && (!departments || departments.filter(d => d.isActive).length === 0) ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
+              {!loadingDepartments &&
+              (!departments || departments.filter((d) => d.isActive).length === 0) ? (
+                <div className="rounded-lg border border-warning-200 bg-warning-50 px-4 py-2.5 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-900/20 dark:text-warning-400">
                   No departments found. Please create a department first in the{' '}
                   <a href="/hr/departments" className="font-medium underline hover:no-underline">
                     Departments
@@ -604,7 +606,9 @@ const EmployeeFormPage: React.FC = () => {
               )}
             </div>
             <div>
-              <label htmlFor="employee-position" className={labelClass}>Position</label>
+              <label htmlFor="employee-position" className={labelClass}>
+                Position
+              </label>
               <input
                 id="employee-position"
                 type="text"
@@ -632,19 +636,22 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label htmlFor="employee-employmentType" className={labelClass}>Employment Type</label>
-              <select
+              <label htmlFor="employee-employmentType" className={labelClass}>
+                Employment Type
+              </label>
+              <Select
+                fullWidth
+                options={[
+                  { value: 'FULL_TIME', label: 'Full Time' },
+                  { value: 'PART_TIME', label: 'Part Time' },
+                  { value: 'CONTRACT', label: 'Contract' },
+                  { value: 'SEASONAL', label: 'Seasonal' },
+                ]}
                 id="employee-employmentType"
                 name="employmentType"
                 value={formData.employmentType}
                 onChange={handleChange}
-                className={inputClass}
-              >
-                <option value="FULL_TIME">Full Time</option>
-                <option value="PART_TIME">Part Time</option>
-                <option value="CONTRACT">Contract</option>
-                <option value="SEASONAL">Seasonal</option>
-              </select>
+              />
             </div>
           </div>
         </div>
@@ -660,15 +667,15 @@ const EmployeeFormPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label htmlFor="employee-baseSalary" className={labelClass}>
-                Base Salary {!isEditing && <span className="text-red-500">*</span>}
+                Base Salary {!isEditing && <span className="text-error-500">*</span>}
               </label>
-              <input
+              <Input
+                fullWidth
                 id="employee-baseSalary"
                 type="number"
                 name="baseSalary"
                 value={formData.baseSalary}
                 onChange={handleChange}
-                className={inputClass}
                 placeholder="0.00"
                 min="0"
                 max="100000000"
@@ -677,7 +684,9 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label htmlFor="employee-currency" className={labelClass}>Currency</label>
+              <label htmlFor="employee-currency" className={labelClass}>
+                Currency
+              </label>
               <select
                 id="employee-currency"
                 name="currency"
@@ -705,29 +714,35 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="employee-personnelCategory" className={labelClass}>Personnel Category</label>
-              <select
+              <label htmlFor="employee-personnelCategory" className={labelClass}>
+                Personnel Category
+              </label>
+              <Select
+                fullWidth
+                options={[
+                  { value: '', label: 'Select category' },
+                  { value: 'OFFSHORE', label: 'Offshore' },
+                  { value: 'ONSHORE', label: 'Onshore' },
+                  { value: 'HYBRID', label: 'Hybrid' },
+                ]}
                 id="employee-personnelCategory"
                 name="personnelCategory"
                 value={formData.personnelCategory}
                 onChange={handleChange}
-                className={inputClass}
-              >
-                <option value="">Select category</option>
-                <option value="OFFSHORE">Offshore</option>
-                <option value="ONSHORE">Onshore</option>
-                <option value="HYBRID">Hybrid</option>
-              </select>
+              />
             </div>
             <div className="flex items-center">
-              <label htmlFor="employee-seaWorthy" className="flex items-center gap-3 cursor-pointer">
+              <label
+                htmlFor="employee-seaWorthy"
+                className="flex items-center gap-3 cursor-pointer"
+              >
                 <input
                   id="employee-seaWorthy"
                   type="checkbox"
                   name="seaWorthy"
                   checked={formData.seaWorthy}
                   onChange={handleChange}
-                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700"
+                  className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
                 />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Sea Worthy
@@ -750,18 +765,10 @@ const EmployeeFormPage: React.FC = () => {
           >
             Cancel
           </Link>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
+          <Button variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? <Spinner size="sm" color="white" /> : <Save className="w-4 h-4" />}
             {isEditing ? 'Save Changes' : 'Create Employee'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

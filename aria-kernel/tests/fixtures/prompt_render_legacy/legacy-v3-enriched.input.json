@@ -1,0 +1,162 @@
+{
+  "allowed_scope": [
+    "aria-kernel/**"
+  ],
+  "convergence_id": "conv-1",
+  "decision_memory": {
+    "decisions": [
+      {
+        "source": "plan",
+        "what": "Keep prior prompt formats stable",
+        "when": "2026-09-03T00:00:00Z",
+        "why": "Historical request replay depends on the original UTF-8 bytes."
+      }
+    ],
+    "pack_hash": "render-only-pack"
+  },
+  "established_knowledge": {
+    "anti_patterns": [
+      {
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
+        "pattern_id": "ANTI-render-only-ordering",
+        "reason_class": "changed_output_order",
+        "recorded_at": "2026-09-01T00:00:00Z"
+      }
+    ],
+    "beliefs": [
+      {
+        "belief_id": "B-1",
+        "claim": "renderer is hash-bound",
+        "confidence": 0.9,
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
+        "support_count": 3
+      }
+    ],
+    "conventions": [
+      {
+        "confidence": 0.55,
+        "discovered_by_cycle_id": "cycle-render-only-1",
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
+        "outcome_status": "hypothesis",
+        "pattern_id": "CONV-render-only-hypothesis",
+        "pattern_type": "maintenance"
+      },
+      {
+        "confidence": 0.75,
+        "discovered_by_cycle_id": "cycle-render-only-2",
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
+        "outcome_status": "verified",
+        "pattern_id": "CONV-render-only-verified",
+        "pattern_type": "maintenance"
+      }
+    ],
+    "past_failed_attempts": [
+      {
+        "at": "2026-09-02T00:00:00Z",
+        "reasons": [
+          "validation_failed: ordinary maintenance expectation was not satisfied"
+        ],
+        "rejection_classes": [
+          "validation_failed"
+        ]
+      }
+    ]
+  },
+  "evidence_excerpts": [
+    {
+      "content": "from __future__ import annotations\n",
+      "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "end_line": 2,
+      "path": "aria-kernel/aria_kernel/agent_invocations.py",
+      "start_line": 1,
+      "truncated": false
+    }
+  ],
+  "evidence_refs": [
+    "aria-kernel/aria_kernel/agent_invocations.py:1"
+  ],
+  "expected_output_path": "outputs/AIR-z8-test.md",
+  "forbidden_scope": [
+    "web/**"
+  ],
+  "impact_graph_refs": [
+    "aria-kernel/aria_kernel/agent_invocations.py:705"
+  ],
+  "must_satisfy": [
+    {
+      "description": "stay in scope",
+      "id": "MS-1"
+    },
+    {
+      "criterion": "preserve the existing prompt bytes",
+      "id": "MS-2"
+    }
+  ],
+  "prompt_render_version": 3,
+  "recent_intent": {
+    "files": [
+      {
+        "commits": [
+          {
+            "refs": [
+              "aria-kernel/tests/test_prompt_render_versioning.py:70"
+            ],
+            "sha": "2222222222222222222222222222222222222222",
+            "subject": "Preserve maintenance prompt formatting",
+            "why": "Stable bytes preserve the replay contract."
+          }
+        ],
+        "file": "aria-kernel/aria_kernel/agent_invocations.py"
+      }
+    ],
+    "head_sha": "1111111111111111111111111111111111111111"
+  },
+  "repository_map": {
+    "files": [
+      {
+        "churn_commits": 2,
+        "co_changes_with": [
+          {
+            "count": 2,
+            "file": "aria-kernel/aria_kernel/context_compiler.py"
+          }
+        ],
+        "file": "aria-kernel/aria_kernel/agent_invocations.py",
+        "project": "aria-kernel",
+        "tests": [
+          "aria-kernel/tests/test_prompt_render_versioning.py"
+        ]
+      }
+    ],
+    "impacted_projects": [
+      [
+        "aria-kernel",
+        {
+          "dependents": [
+            "aria-executor"
+          ],
+          "layer": "tools"
+        }
+      ]
+    ],
+    "indexed_sha": "1111111111111111111111111111111111111111"
+  },
+  "request_id": "AIR-z8-test",
+  "role": "evidence_judgment",
+  "suggested_prompt": "Judge the finding. Explain why the maintenance change preserves café labels.",
+  "target_agent": "aria-evidence-judge",
+  "validation_commands": [
+    {
+      "cmd": "python3 -m unittest tests.test_prompt_render_versioning.RenderVersionDispatchTests"
+    },
+    "python3 -m unittest tests.test_prompt_render_versioning.RenderVersionDispatchTests.test_fused_projection_carries_the_version"
+  ]
+}

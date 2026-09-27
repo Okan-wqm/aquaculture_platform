@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-contracts';
 /**
  * CreateParameterConfig Input DTO
  */
@@ -117,10 +118,10 @@ export class CreateParameterConfigInput {
   // DISPLAY CONFIGURATION
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true, defaultValue: '#3b82f6', description: 'Chart color (hex)' })
+  @Field({ nullable: true, defaultValue: colors.info[500], description: 'Chart color (hex)' })
   @IsOptional()
   @Matches(/^#[0-9a-fA-F]{6}$/, {
-    message: 'chartColor must be a valid 6-digit hex color, e.g. #3b82f6',
+    message: 'chartColor must be a valid 6-digit hex color in #rrggbb form',
   })
   chartColor?: string;
 

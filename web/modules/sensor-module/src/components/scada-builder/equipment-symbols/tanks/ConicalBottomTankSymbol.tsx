@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const ConicalBottomTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -67,7 +68,7 @@ const ConicalBottomTankSymbol: React.FC<EquipmentSymbolProps> = ({
               y={45}
               width={58}
               height={40}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-body)`}
             />
@@ -80,7 +81,7 @@ const ConicalBottomTankSymbol: React.FC<EquipmentSymbolProps> = ({
               y={85}
               width={60}
               height={40}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-cone)`}
             />
@@ -88,7 +89,7 @@ const ConicalBottomTankSymbol: React.FC<EquipmentSymbolProps> = ({
             <path
               d="M 22 45 Q 35 42 50 45 Q 65 48 78 45"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.7}
             />
@@ -163,7 +164,7 @@ const ConicalBottomTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

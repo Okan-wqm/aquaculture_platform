@@ -4,7 +4,7 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import { Badge, Card, MetricCard } from '@aquaculture/shared-ui';
+import { Badge, Card, MetricCard, PageHeader } from '@aquaculture/shared-ui';
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -20,17 +20,48 @@ import {
   type AuditLog,
   type CircuitBreakerStatus,
 } from '../services/adminApi';
+import { Building2, LogIn, RefreshCw, SquareTerminal, Users as UsersIcon } from 'lucide-react';
 
 // ============================================================================
 // Quick Links
 // ============================================================================
 
 const quickLinks = [
-  { id: 'tenants', label: 'Tenant Management', path: '/admin/tenants', icon: '🏢', description: 'Create tenants, assign modules' },
-  { id: 'users', label: 'User Management', path: '/admin/users', icon: '👥', description: 'Manage all users' },
-  { id: 'modules', label: 'Module Management', path: '/admin/modules', icon: '📦', description: 'Manage system modules' },
-  { id: 'settings', label: 'System Settings', path: '/admin/settings', icon: '⚙️', description: 'Platform settings' },
-  { id: 'audit', label: 'Audit Logs', path: adminRoutes.audit, icon: '📋', description: 'System activities' },
+  {
+    id: 'tenants',
+    label: 'Tenant Management',
+    path: '/admin/tenants',
+    icon: '🏢',
+    description: 'Create tenants, assign modules',
+  },
+  {
+    id: 'users',
+    label: 'User Management',
+    path: '/admin/users',
+    icon: '👥',
+    description: 'Manage all users',
+  },
+  {
+    id: 'modules',
+    label: 'Module Management',
+    path: '/admin/modules',
+    icon: '📦',
+    description: 'Manage system modules',
+  },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    path: '/admin/settings',
+    icon: '⚙️',
+    description: 'Platform settings',
+  },
+  {
+    id: 'audit',
+    label: 'Audit Logs',
+    path: adminRoutes.audit,
+    icon: '📋',
+    description: 'System activities',
+  },
 ];
 
 /** What a card shows for a figure the platform did not measure. */
@@ -71,12 +102,16 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Service Status</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Service Status</h3>
         <div className="flex items-center space-x-2 text-sm">
-          <span className="text-green-600">{healthyCount} Healthy</span>
-          {degradedCount > 0 && <span className="text-yellow-600">{degradedCount} Degraded</span>}
-          {unhealthyCount > 0 && <span className="text-red-600">{unhealthyCount} Unhealthy</span>}
+          <span className="text-success-600 dark:text-success-400">{healthyCount} Healthy</span>
+          {degradedCount > 0 && (
+            <span className="text-warning-600 dark:text-warning-400">{degradedCount} Degraded</span>
+          )}
+          {unhealthyCount > 0 && (
+            <span className="text-error-600 dark:text-error-400">{unhealthyCount} Unhealthy</span>
+          )}
         </div>
       </div>
       <div className="p-4">
@@ -86,26 +121,30 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
               key={service.name}
               className={`p-3 rounded-lg border ${
                 service.status === 'healthy'
-                  ? 'border-green-200 bg-green-50'
+                  ? 'border-success-200 dark:border-success-800 bg-success-50 dark:bg-success-900/20'
                   : service.status === 'degraded'
-                  ? 'border-yellow-200 bg-yellow-50'
-                  : 'border-red-200 bg-red-50'
+                    ? 'border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20'
+                    : 'border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20'
               }`}
             >
               <div className="flex items-center space-x-2">
                 <div
                   className={`w-2 h-2 rounded-full ${
                     service.status === 'healthy'
-                      ? 'bg-green-500'
+                      ? 'bg-success-500'
                       : service.status === 'degraded'
-                      ? 'bg-yellow-500'
-                      : 'bg-red-500'
+                        ? 'bg-warning-500'
+                        : 'bg-error-500'
                   }`}
                 />
-                <span className="text-sm font-medium text-gray-700">{service.name}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {service.name}
+                </span>
               </div>
               {service.responseTime && (
-                <p className="text-xs text-gray-500 mt-1">{service.responseTime}ms</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {service.responseTime}ms
+                </p>
               )}
             </div>
           ))}
@@ -119,31 +158,41 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
 // Database Stats Component
 // ============================================================================
 
-const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({ database }) => {
+const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({
+  database,
+}) => {
   if (!database) return null;
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Database</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Database</h3>
       </div>
       <div className="p-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-gray-500">Size</p>
-            <p className="text-lg font-semibold text-gray-900">{database.databaseSize}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Size</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {database.databaseSize}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Table Count</p>
-            <p className="text-lg font-semibold text-gray-900">{database.tablesCount}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Table Count</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {database.tablesCount}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Active Connections</p>
-            <p className="text-lg font-semibold text-gray-900">{database.activeConnections}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Active Connections</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {database.activeConnections}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Total Connections</p>
-            <p className="text-lg font-semibold text-gray-900">{database.totalConnections}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Total Connections</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {database.totalConnections}
+            </p>
           </div>
         </div>
       </div>
@@ -184,31 +233,36 @@ const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) =
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-        <Link to={adminRoutes.audit} className="text-sm text-primary-600 hover:text-primary-700">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h3>
+        <Link
+          to={adminRoutes.audit}
+          className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-200"
+        >
           View All
         </Link>
       </div>
-      <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
         {logs.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">No activity found</div>
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">No activity found</div>
         ) : (
           logs.map((log) => (
-            <div key={log.id} className="px-4 py-3 hover:bg-gray-50">
+            <div key={log.id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center space-x-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">{log.action}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {log.action}
+                    </p>
                     <Badge variant={getSeverityColor(log.severity)} size="sm">
                       {log.severity}
                     </Badge>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {log.entityType} - {log.performedByEmail || log.performedBy}
                   </p>
                 </div>
-                <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap ml-2">
                   {formatTime(log.createdAt)}
                 </span>
               </div>
@@ -225,9 +279,24 @@ const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) =
 // ============================================================================
 
 const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
-  closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
-  open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
-  half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
+  closed: {
+    bg: 'bg-success-50 dark:bg-success-900/20',
+    border: 'border-success-200 dark:border-success-800',
+    dot: 'bg-success-500',
+    label: 'Closed',
+  },
+  open: {
+    bg: 'bg-error-50 dark:bg-error-900/20',
+    border: 'border-error-200 dark:border-error-800',
+    dot: 'bg-error-500',
+    label: 'Open',
+  },
+  half_open: {
+    bg: 'bg-warning-50 dark:bg-warning-900/20',
+    border: 'border-warning-200 dark:border-warning-800',
+    dot: 'bg-warning-500',
+    label: 'Half-Open',
+  },
 };
 
 const CircuitBreakerCard: React.FC<{
@@ -251,13 +320,18 @@ const CircuitBreakerCard: React.FC<{
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Circuit Breakers</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Circuit Breakers</h3>
       </div>
       <div className="p-4 space-y-3">
         {entries.map(([name, info]) => {
@@ -266,17 +340,22 @@ const CircuitBreakerCard: React.FC<{
           const isResetting = resetting === name;
 
           return (
-            <div
-              key={name}
-              className={`p-4 rounded-lg border ${style.border} ${style.bg}`}
-            >
+            <div key={name} className={`p-4 rounded-lg border ${style.border} ${style.bg}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className={`w-3 h-3 rounded-full ${style.dot}`} />
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 uppercase">{name}</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase">
+                      {name}
+                    </p>
                     <Badge
-                      variant={info.state === 'closed' ? 'success' : info.state === 'open' ? 'error' : 'warning'}
+                      variant={
+                        info.state === 'closed'
+                          ? 'success'
+                          : info.state === 'open'
+                            ? 'error'
+                            : 'warning'
+                      }
                       size="sm"
                     >
                       {style.label}
@@ -287,20 +366,24 @@ const CircuitBreakerCard: React.FC<{
                   <button
                     onClick={() => onReset(name)}
                     disabled={isResetting}
-                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                   >
                     {isResetting ? 'Resetting...' : 'Reset'}
                   </button>
                 )}
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <span className="text-gray-500">Failures</span>
-                  <p className="font-semibold text-gray-900">{info.consecutiveFailures}</p>
+                  <span className="text-gray-500 dark:text-gray-400">Failures</span>
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">
+                    {info.consecutiveFailures}
+                  </p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Last failure</span>
-                  <p className="font-semibold text-gray-900">{formatTime(info.lastFailureTime)}</p>
+                  <span className="text-gray-500 dark:text-gray-400">Last failure</span>
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">
+                    {formatTime(info.lastFailureTime)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -383,7 +466,7 @@ const AdminDashboard: React.FC = () => {
     { invalidateKeys: [[...adminKeys.system.all(), 'circuit-breakers']] },
   );
 
-  const resettingBreaker = resetBreaker.isPending ? resetBreaker.variables ?? null : null;
+  const resettingBreaker = resetBreaker.isPending ? (resetBreaker.variables ?? null) : null;
 
   const queryErrors = [
     ...queries.map((query) => query.error),
@@ -399,34 +482,25 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">System management and monitoring</p>
-        </div>
-        <button
-          onClick={() => {
-            refresh();
-          }}
-          disabled={loading}
-          className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-        >
-          <svg
-            className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      <PageHeader
+        title="Admin Dashboard"
+        description="System management and monitoring"
+        actions={
+          <button
+            onClick={() => {
+              refresh();
+            }}
+            disabled={loading}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            <RefreshCw
+              className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+              aria-hidden="true"
             />
-          </svg>
-          Refresh
-        </button>
-      </div>
+            Refresh
+          </button>
+        }
+      />
 
       {/* Whichever reads failed, named — where a rejected `/system/metrics`
           used to show as zeros and nothing else (ADMIN-HIGH-124). */}
@@ -442,11 +516,7 @@ const AdminDashboard: React.FC = () => {
               ? (userStats.newUsersLast30Days / userStats.totalUsers) * 100
               : undefined
           }
-          icon={
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          }
+          icon={<UsersIcon className="w-6 h-6" aria-hidden="true" />}
         />
         <MetricCard
           title="Active Tenants"
@@ -456,42 +526,32 @@ const AdminDashboard: React.FC = () => {
             // question is whether the read answered, not what it answered.
             platform === null ? UNKNOWN : `${platform.activeTenants}/${platform.totalTenants}`
           }
-          icon={
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          }
+          icon={<Building2 className="w-6 h-6" aria-hidden="true" />}
         />
         <MetricCard
           title="Logins (Last 24h)"
           value={formatMetricNumber(userStats?.loginsLast24Hours)}
-          icon={
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-            </svg>
-          }
+          icon={<LogIn className="w-6 h-6" aria-hidden="true" />}
         />
         <MetricCard
           title="API Calls (24h)"
           value={formatMetricNumber(platform?.apiCallsLast24h)}
-          icon={
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          }
+          icon={<SquareTerminal className="w-6 h-6" aria-hidden="true" />}
         />
       </div>
 
       {/* Hizli Erisim */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Access</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Quick Access
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {quickLinks.map((link) => (
             <Link key={link.id} to={link.path}>
-              <Card className="p-4 hover:shadow-md hover:bg-gray-50 transition-all cursor-pointer h-full">
+              <Card className="p-4 hover:shadow-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-all cursor-pointer h-full">
                 <div className="text-3xl mb-2">{link.icon}</div>
-                <p className="text-sm font-medium text-gray-900">{link.label}</p>
-                <p className="text-xs text-gray-500 mt-1">{link.description}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{link.label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{link.description}</p>
               </Card>
             </Link>
           ))}
@@ -519,15 +579,22 @@ const AdminDashboard: React.FC = () => {
       {/* Kullanici Dagilimi */}
       {userStats && userStats.usersByRole.length > 0 && (
         <Card>
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">User Distribution</h3>
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              User Distribution
+            </h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {userStats.usersByRole.map((item) => (
-                <div key={item.role} className="text-center p-4 bg-gray-50 rounded-lg">
-                  <p className="text-2xl font-bold text-primary-600">{item.count}</p>
-                  <p className="text-sm text-gray-600 mt-1">{item.role}</p>
+                <div
+                  key={item.role}
+                  className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                >
+                  <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                    {item.count}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.role}</p>
                 </div>
               ))}
             </div>
@@ -538,35 +605,39 @@ const AdminDashboard: React.FC = () => {
       {/* Sistem Kaynak Kullanimi */}
       {metrics?.resources && (
         <Card>
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">System Resources</h3>
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              System Resources
+            </h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Heap Usage</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Heap Usage</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.memoryUsage.heapUsed / (1024 * 1024))} MB
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   / {Math.round(metrics.resources.memoryUsage.heapTotal / (1024 * 1024))} MB
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">RSS Memory</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">RSS Memory</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.memoryUsage.rss / (1024 * 1024))} MB
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Uptime</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Uptime</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.uptime / 3600)}h
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Node Version</p>
-                <p className="text-lg font-semibold text-gray-900">{metrics.resources.nodeVersion}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Node Version</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {metrics.resources.nodeVersion}
+                </p>
               </div>
             </div>
           </div>

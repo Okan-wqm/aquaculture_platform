@@ -2,7 +2,7 @@
 
 The baseline drain's 26 jobs produced one success and 25 mostly
 unclassified ``claude_cli_exit_1`` failures: every perimeter condition —
-expired session, missing CLI, unauthorised provider redirect, timeout,
+expired session, missing CLI, policy refusal, timeout,
 quota wall — collapsed into a single exit code, so no ledger, breaker, or
 operator could tell them apart. This module is the one shared classifier
 both executors call; it maps existing Claude exceptions, result markers,
@@ -45,8 +45,8 @@ DispatchFailureClass = Literal[
     "auth_failed",
     "usage_unavailable",
     "credit_exhausted",
-    "provider_redirect_unavailable",
     "policy_violation",
+    "harness_unavailable",
     "timeout",
     "response_schema_rejected",
     "process_exit",
@@ -55,14 +55,23 @@ DispatchFailureClass = Literal[
 
 #: The closed vocabulary. A failure outside this set is a programming
 #: error, not a new category someone may improvise at a callsite.
+#:
+#: ``harness_unavailable`` (ARIA-HIGH-107) is the class of a REFUSED
+#: summary whose cause is the executor's own host — the fleet admission
+#: halted because a status probe never answered inside its bound or the
+#: host could not bind a route's controls. It is not a policy the dispatch
+#: violated and it heals on its own (the daemon retries the request after
+#: a back-off), so it is ``retryable`` where ``policy_violation`` is not;
+#: the summary agrees with the claims-ledger release (harness fault) and
+#: the hook's back-off status instead of contradicting them.
 DISPATCH_FAILURE_CLASSES: tuple[DispatchFailureClass, ...] = (
     "cli_unavailable",
     "auth_unavailable",
     "auth_failed",
     "usage_unavailable",
     "credit_exhausted",
-    "provider_redirect_unavailable",
     "policy_violation",
+    "harness_unavailable",
     "timeout",
     "response_schema_rejected",
     "process_exit",
@@ -79,10 +88,6 @@ DISPATCH_OUTCOMES: tuple[str, ...] = ("succeeded", "failed", "refused")
 
 DISPATCH_RESULT_SCHEMA = "aria/dispatch-result/v1"
 DISPATCH_RESULT_SCHEMA_VERSION = 1
-
-#: The provider every non-redirected model routes through (managed Claude
-#: session). Redirected models resolve theirs from the redirect SSoT.
-DEFAULT_PROVIDER = "anthropic"
 
 # A detail code is a slug from OUR vocabularies (exception prefixes, marker
 # names, exit codes) — never free text. Anything that fails this shape
@@ -126,7 +131,7 @@ class DispatchRoute:
 # Exception types are imported lazily-safe above; the mapping is ordered so
 # a future subclass relationship cannot silently shadow a more specific
 # class. Retryability: the perimeter family is terminal for the request
-# (auth/credit/CLI/policy/redirect conditions do not heal inside a drain);
+# (auth/credit/CLI/policy conditions do not heal inside a drain);
 # timeout and process exits follow the existing bounded per-request retry
 # policy, so they stay retryable and visible.
 _EXCEPTION_CLASSES: tuple[tuple[type[BaseException], DispatchFailureClass], ...] = (
@@ -135,7 +140,6 @@ _EXCEPTION_CLASSES: tuple[tuple[type[BaseException], DispatchFailureClass], ...]
     (claude_runtime.ClaudeCliUnavailable, "cli_unavailable"),
     (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
     (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
-    (claude_runtime.ProviderRedirectUnavailable, "provider_redirect_unavailable"),
     (claude_runtime.ClaudePolicyViolation, "policy_violation"),
     (subprocess.TimeoutExpired, "timeout"),
 )
@@ -239,17 +243,19 @@ def resolve_dispatch_route(
     """The route a dispatch on ``request`` will take, resolved pre-claim.
 
     Model comes from the frontmatter SSoT (``resolve_claude_model``);
-    provider comes from the redirect SSoT (``provider_redirect_disclosure``)
-    — an unredirected model resolves the default Anthropic route byte-for-
-    byte, because this function never touches spawn environment at all.
+    provider comes from the fleet SSoT
+    (``model_fleet.dispatching_provider_for_model`` — an unlisted model is
+    the managed Anthropic session's, stated once there), because this
+    function never touches spawn environment at all.
     """
+    from aria_kernel.model_fleet import dispatching_provider_for_model
+
     target_agent = str(request.get("target_agent") or "").strip()
     if not target_agent:
         raise ValueError("dispatch_route_target_agent_missing")
     role = str(request.get("role") or "").strip()
     model = resolve_claude_model(target_agent, repo_root=repo_root)
-    disclosure = claude_runtime.provider_redirect_disclosure(model)
-    provider = str(disclosure.get("provider") or DEFAULT_PROVIDER)
+    provider = dispatching_provider_for_model(model)
     return DispatchRoute(
         provider=provider, model=model, role=role, target_agent=target_agent,
     )

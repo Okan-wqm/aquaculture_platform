@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ServiceUnavailableException,
+  UnauthorizedException,
   Inject,
   Logger,
   Optional,
@@ -180,6 +181,18 @@ export class TenantGuard implements CanActivate {
     const tenantId = user?.tenantId;
 
     if (!tenantId) {
+      // MSGFIX-FAZ0 (2026-09-16): split the old conflated 400 into its two
+      // real cases. A request with NO user context at all is an
+      // AUTHENTICATION failure (missing/invalid token — the JWT middleware
+      // never populated req.user), which must surface as 401 → GraphQL code
+      // UNAUTHENTICATED, not as a malformed-request 400. An authenticated
+      // user whose JWT simply lacks a tenantId claim remains a BAD_REQUEST —
+      // the token was verified, the claim contract is what is broken.
+      if (!user) {
+        throw new UnauthorizedException(
+          'Authentication context is required. No verified user reached the tenant guard.',
+        );
+      }
       throw new BadRequestException(
         'Tenant ID is required. The JWT must contain a valid tenantId claim.',
       );

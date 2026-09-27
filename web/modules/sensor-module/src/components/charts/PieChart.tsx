@@ -19,6 +19,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -55,19 +56,19 @@ export interface PieChartProps {
 function getThemeColors(theme: 'light' | 'dark') {
   if (theme === 'dark') {
     return {
-      tooltipBg: '#1f2937',
-      tooltipBorder: '#374151',
-      tooltipText: '#f3f4f6',
-      labelColor: '#d1d5db',
-      noDataColor: '#6b7280',
+      tooltipBg: themeColors.neutral[800],
+      tooltipBorder: themeColors.neutral[700],
+      tooltipText: themeColors.neutral[100],
+      labelColor: themeColors.neutral[300],
+      noDataColor: themeColors.gray[400],
     };
   }
   return {
-    tooltipBg: '#ffffff',
-    tooltipBorder: '#e5e7eb',
-    tooltipText: '#374151',
-    labelColor: '#374151',
-    noDataColor: '#9ca3af',
+    tooltipBg: themeColors.white,
+    tooltipBorder: themeColors.neutral[200],
+    tooltipText: themeColors.neutral[700],
+    labelColor: themeColors.neutral[700],
+    noDataColor: themeColors.neutral[400],
   };
 }
 
@@ -103,7 +104,7 @@ function renderCustomLabel({
     <text
       x={x}
       y={y}
-      fill="#ffffff"
+      fill={themeColors.white}
       textAnchor="middle"
       dominantBaseline="central"
       fontSize={11}
@@ -142,9 +143,7 @@ export const PieChart: React.FC<PieChartProps> = ({
       let v = 0;
       if (change) {
         const raw =
-          typeof change.value === 'number'
-            ? change.value
-            : parseFloat(String(change.value));
+          typeof change.value === 'number' ? change.value : parseFloat(String(change.value));
         v = isNaN(raw) || raw < 0 ? 0 : raw;
       }
       return {
@@ -156,10 +155,7 @@ export const PieChart: React.FC<PieChartProps> = ({
     });
   }, [values, segments]);
 
-  const totalValue = useMemo(
-    () => chartData.reduce((sum, d) => sum + d.value, 0),
-    [chartData],
-  );
+  const totalValue = useMemo(() => chartData.reduce((sum, d) => sum + d.value, 0), [chartData]);
 
   const tooltipFormatter = useCallback(
     (value: number, name: string) => {
@@ -174,7 +170,7 @@ export const PieChart: React.FC<PieChartProps> = ({
   return (
     <div className={`relative flex flex-col w-full h-full ${className ?? ''}`}>
       {!isConnected && (
-        <div className="px-2 py-0.5 text-xs text-amber-600 bg-amber-50 border-b border-amber-200">
+        <div className="px-2 py-0.5 text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-b border-warning-200 dark:border-warning-800">
           Disconnected -- showing last known values
         </div>
       )}
@@ -202,7 +198,7 @@ export const PieChart: React.FC<PieChartProps> = ({
               label={showLabels ? renderCustomLabel : false}
               labelLine={false}
               animationDuration={300}
-              stroke={theme === 'dark' ? '#1f2937' : '#ffffff'}
+              stroke={theme === 'dark' ? themeColors.neutral[800] : themeColors.white}
               strokeWidth={2}
             >
               {chartData.map((entry) => (

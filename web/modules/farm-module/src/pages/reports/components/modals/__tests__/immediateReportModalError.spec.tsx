@@ -40,9 +40,13 @@ afterEach(() => {
 async function addAction(user: ReturnType<typeof userEvent.setup>, placeholder: RegExp): Promise<void> {
   const input = screen.getByPlaceholderText(placeholder);
   await user.type(input, 'Immediate action taken');
-  // Each "Add an action / measure" input is paired with an adjacent Add button.
-  const addBtn = within(input.parentElement as HTMLElement).getByRole('button', { name: /^add$/i });
-  await user.click(addBtn);
+  // Each "Add an action / measure" input is paired with an adjacent Add button:
+  // the nearest ancestor that holds one is the row (the shared-ui Input wraps
+  // its <input> in its own element, so the row is not the direct parent).
+  let row: HTMLElement | null = input.parentElement;
+  while (row && within(row).queryByRole('button', { name: /^add$/i }) === null) row = row.parentElement;
+  if (!row) throw new Error('no Add button beside the input');
+  await user.click(within(row).getByRole('button', { name: /^add$/i }));
 }
 
 describe('immediate-report modals — real failure-path surfacing', () => {

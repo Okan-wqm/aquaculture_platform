@@ -30,13 +30,21 @@ export const ADAPTER_EXCLUDED_DIRS = new Set([
 // The repo's observed convention is timestamped `.archive/` snapshot folders
 // kept inside each service's migrations directory (e.g.
 // `apps/farm-service/src/database/migrations/.archive/2026-05-18T09-42-08-277Z/…`);
-// the dotted/undotted `archive(d)` directory names and the `*.archived.*`
-// filename infix are the sibling spellings of the same convention. A retired
+// the dotted/undotted/underscored `archive(d)` directory names (`docs/plans/
+// _archive/`) and the `*.archived.*` filename infix are the sibling spellings
+// of the same convention. A retired
 // migration cannot need a test and an archived class cannot need registry or
 // schema discipline, so flagging the archive corpus is pure false-positive
 // noise. Every adapter that walks source trees imports THIS predicate instead
 // of growing its own copy, so the convention has exactly one definition.
-const ARCHIVED_DIR_SEGMENTS = new Set(['.archive', '.archived', 'archive', 'archived']);
+const ARCHIVED_DIR_SEGMENTS = new Set([
+  '.archive',
+  '.archived',
+  '_archive',
+  '_archived',
+  'archive',
+  'archived',
+]);
 
 export function isArchivedWorkspacePath(path: string): boolean {
   const segments = normalizeWorkspacePath(path).split('/');

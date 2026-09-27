@@ -71,8 +71,10 @@ class ClosedVocabularyTests(unittest.TestCase):
                 "auth_failed",
                 "usage_unavailable",
                 "credit_exhausted",
-                "provider_redirect_unavailable",
                 "policy_violation",
+                # ARIA-HIGH-107 — a refused summary whose cause is the
+                # executor's own host (a halted fleet admission), retryable.
+                "harness_unavailable",
                 "timeout",
                 "response_schema_rejected",
                 "process_exit",
@@ -112,15 +114,17 @@ class ExceptionClassificationTests(unittest.TestCase):
             (claude_runtime.ClaudeAuthFailure, "auth_failed"),
             (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
             (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
-            (claude_runtime.ProviderRedirectUnavailable, "provider_redirect_unavailable"),
             (claude_runtime.ClaudePolicyViolation, "policy_violation"),
         ]
         for exc_type, expected_class in cases:
             with self.subTest(expected_class=expected_class):
-                failure = classify_dispatch_failure(
-                    exception=exc_type("named_cause_token"),
-                    phase="preflight",
-                )
+                # ClaudeCreditExhausted carries the exhausted provider's
+                # identity (the executor keys its release on it); the other
+                # perimeter exceptions are message-only.
+                exc = (exc_type("named_cause_token", provider="anthropic", model="opus", detail={})
+                       if exc_type is claude_runtime.ClaudeCreditExhausted
+                       else exc_type("named_cause_token"))
+                failure = classify_dispatch_failure(exception=exc, phase="preflight")
                 self.assertIsNotNone(failure)
                 assert failure is not None  # for the type checker's sake
                 self.assertEqual(failure.failure_class, expected_class)
@@ -313,7 +317,9 @@ class RouteTests(unittest.TestCase):
             ("anthropic", "opus", "implementation", "aria-implementer"),
         )
 
-    def test_redirected_model_resolves_the_redirect_provider(self) -> None:
+    def test_a_fleet_listed_model_resolves_its_fleet_provider(self) -> None:
+        # The provider comes from the fleet row, not from any spawn redirect:
+        # glm-5.3 is Z.ai's tier and is served by the Z.ai transport.
         request = {"target_agent": "aria-adversarial-judge", "role": "judge"}
         with patch.object(dispatch_failure, "resolve_claude_model", return_value="glm-5.3"):
             route = resolve_dispatch_route(request=request, repo_root=_REPO_ROOT)

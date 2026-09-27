@@ -331,6 +331,163 @@ class NightIntegrationTests(unittest.TestCase):
     def _bind_experiment(self, *args, **kwargs):
         return NightBase._bind_experiment(self, *args, **kwargs)
 
+    def _ordinary_scoped_problem(self):
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        contents = {
+            "paths.py": (
+                "import json\nfrom pathlib import Path\nfrom path_helper import canonical_path\n"
+                "def unique_paths(paths):\n"
+                "    config = json.loads(Path('path-config.json').read_text())\n"
+                "    values = [canonical_path(p) for p in paths]\n"
+                "    if not config['case_sensitive']:\n"
+                "        values = [p.lower() for p in values]\n"
+                "    return sorted(set(values))\n"
+            ),
+            "path_helper.py": "def canonical_path(value):\n    return value.removeprefix('./').lower()\n",
+            "path-config.json": '{"case_sensitive": true}\n',
+            "test_paths.py": (
+                "import os, unittest\nfrom paths import unique_paths\n"
+                "class PathTests(unittest.TestCase):\n"
+                "    def test_normalized_case_sensitive_deduplication(self):\n"
+                "        print('NIGHT_CHILD:' + str(os.getpid()))\n"
+                "        self.assertEqual(unique_paths(['./src/A.py', 'src/a.py', 'src/A.py']),\n"
+                "                         ['src/A.py', 'src/a.py'])\n"
+            ),
+            ".gitignore": "__pycache__/\n",
+        }
+        for name, value in contents.items():
+            (self.repo / name).write_text(value, encoding="utf-8")
+        self._commit_scoped_change("ordinary case-sensitive path fixture")
+        set_profile("standard", operator_approval_ref="test:night-inputs", base_dir=self.tools)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
+        self.scoped_selector = "test_paths.PathTests.test_normalized_case_sensitive_deduplication"
+        self.scoped_descriptor = {
+            "schema_version": 2,
+            "files": {"source": ["paths.py"], "test": ["test_paths.py"],
+                      "config": ["path-config.json"], "dependency": ["path_helper.py"]},
+            "execution_profile": {"kind": "python_unittest_public_v1", "modules": ["path_helper"]},
+        }
+        self.scoped_recipe = register_recipe(
+            recipe_id="recipe-scoped-night", command="python3 -m unittest -v " + self.scoped_selector,
+            timeout_ms=60_000, deterministic=True, input_scope=self.scoped_descriptor, base_dir=self.tools,
+        )
+        finding = emit_finding(
+            repo_root=self.repo, base_dir=self.tools, claim_type="wrong_code",
+            claim_summary="Path normalization loses case-sensitive distinctions", severity="MEDIUM",
+            evidences=[{"ref": "path_helper.py:2", "summary": "The helper lowercases each normalized path"}],
+            facts=["path-config.json requests case-sensitive deduplication"], scope_files=["path_helper.py"],
+        )
+        fid = finding["finding_id"]
+        self._bind_experiment(fid, experiment_id="exp-scoped-problem", recipe_id=self.scoped_recipe["recipe_id"])
+        result = run_night_experiments(self.repo, cycle_id="cycle-scoped-problem", base_dir=self.tools)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(len(result["reproduced"]), 1)
+        self.assertEqual(result["refuted"], [])
+        observation, row, log = self._native_scoped_run(result["reproduced"][0]["validation_run_id"], failed=True)
+        self.assertEqual(show_finding(self.repo, fid)["certainty"], "CONFIRMED")
+        self.assertEqual(show_finding(self.repo, fid)["reproduction"]["validation_run_id"], row["validation_run_id"])
+        return fid, observation, row, log
+
+    def _commit_scoped_change(self, message):
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", message], cwd=self.repo, check=True)
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def _native_scoped_run(self, run_id, *, failed):
+        from aria_kernel.experiment import list_experiment_observations
+        from aria_kernel.validation_runs_ledger import verify_validation_run
+
+        observation = next(row for row in list_experiment_observations(base_dir=self.tools)
+                           if row["validation_run_id"] == run_id)
+        row = verify_validation_run(run_id, base_dir=self.tools)
+        self.assertEqual(row["change_id"], observation["change_id"])
+        self.assertEqual(row["commit_sha"], observation["commit_sha"])
+        self.assertEqual(row["cmd"], self.scoped_recipe["command"])
+        self.assertEqual((row["exit_code"], row["timed_out"]), (1 if failed else 0, False))
+        self.assertEqual((observation["matched"], observation["run_status"]), (True, "failed" if failed else "ok"))
+        log = Path(row["log_path"]).read_bytes()
+        text = log.decode()
+        self.assertIn(self.scoped_selector.rsplit(".", 1)[1], text)
+        self.assertIn("Ran 1 test", text)
+        self.assertIn("AssertionError:" if failed else "\nOK\n", text)
+        self.assertIn("NIGHT_CHILD:", text)
+        return observation, row, log
+
+    def _assert_scoped_night_receipt(self, observation, row, log):
+        import hashlib
+
+        self.assertIn("input_binding", row, "real night dispatch omitted the recipe-selected input descriptor")
+        selection = observation["validation_input_selection"]
+        self.assertEqual(selection, {
+            "schema_version": 1, "status": "selected", "input_scope": self.scoped_descriptor,
+            "recipe_sources": [{"recipe_id": self.scoped_recipe["recipe_id"],
+                                "ledger_hash": self.scoped_recipe["ledger_hash"], "command": row["cmd"]}],
+            "plan_content_hash": None, "reason": None,
+        })
+        text = log.decode()
+        manifest = json.loads(next(line.removeprefix("input_manifest: ") for line in text.splitlines()
+                                   if line.startswith("input_manifest: ")))
+        self.assertEqual(manifest["roles"], self.scoped_descriptor["files"])
+        env = manifest["environment"]
+        pid = int(next(line.split(":", 1)[1] for line in text.splitlines() if line.startswith("NIGHT_CHILD:")))
+        self.assertEqual(env["observation"]["child_pid"], pid)
+        self.assertEqual(set(env["stable"]["modules"]), {"path_helper"})
+        digest = "sha256:" + hashlib.sha256(json.dumps(env["stable"], sort_keys=True,
+                                                     separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+        self.assertEqual(row["input_binding"]["runner_environment_digest"], digest)
+        for dimension in ("dependency", "runner_environment", "selection_closure", "configuration_closure"):
+            self.assertEqual(row["input_binding"]["availability"][dimension]["status"], "unknown")
+        self.assertEqual(env["stable"]["modules"]["path_helper"]["executed_content_binding"]["status"], "unknown")
+
+    def test_problem_branch_selects_recipe_scope_for_real_behavior_failure(self):
+        _fid, observation, row, log = self._ordinary_scoped_problem()
+        self._assert_scoped_night_receipt(observation, row, log)
+
+    def test_regression_branch_reuses_native_fix_lineage_and_selects_recipe_scope(self):
+        from aria_kernel.change_ledger import emit_change_committed
+        from aria_kernel.experiment import run_experiment
+        from aria_kernel.finding import _events_path, list_fix_verified_bindings
+        from aria_kernel.validation_runs_ledger import validation_runs_path, verify_validation_run
+
+        fid, problem, red_row, red_log = self._ordinary_scoped_problem()
+        (self.repo / "path_helper.py").write_text("def canonical_path(value):\n    return value.removeprefix('./')\n")
+        fix_sha = self._commit_scoped_change("preserve case-sensitive paths")
+        emit_change_committed(change_id=problem["change_id"], commit_sha=fix_sha,
+                              actual_affected_files=["path_helper.py"], base_dir=self.tools)
+        self._bind_experiment(fid, experiment_id="exp-scoped-solution", recipe_id=self.scoped_recipe["recipe_id"], expected="ok")
+        fixed = run_experiment(experiment_id="exp-scoped-solution", workspace_root=self.repo,
+                               change_id=problem["change_id"], commit_sha=fix_sha,
+                               runner_identity="ci-executor:night-fix", base_dir=self.tools)
+        _fixed, green_row, green_log = self._native_scoped_run(fixed["validation_run_id"], failed=False)
+        event = record_finding_fix_verification(self.repo, finding_id=fid,
+                                                validation_run_id=fixed["validation_run_id"], base_dir=self.tools)
+        self.assertEqual(event["observation_ledger_hash"], fixed["ledger_hash"])
+        self.assertEqual(show_finding(self.repo, fid)["closes_in_commit"], fix_sha)
+        bindings = list_fix_verified_bindings(self.repo)
+        self.assertEqual(len(bindings), 1)
+        self.assertEqual(bindings[0]["validation_run_id"], fixed["validation_run_id"])
+        saved = {path: path.read_bytes() for path in (observations_path(self.tools),
+                 validation_runs_path(self.tools), _events_path(self.repo))}
+
+        result = run_night_experiments(self.repo, cycle_id="cycle-scoped-regression", base_dir=self.tools)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["reproduced"], [])
+        self.assertEqual(result["regressions"], [])
+        self.assertEqual(len(result["still_fixed"]), 1)
+        observation, row, log = self._native_scoped_run(result["still_fixed"][0]["validation_run_id"], failed=False)
+        self.assertNotIn(row["validation_run_id"], {red_row["validation_run_id"], green_row["validation_run_id"]})
+        self.assertEqual((row["change_id"], row["commit_sha"]), (problem["change_id"], fix_sha))
+        self.assertEqual(show_finding(self.repo, fid)["status"], "RESOLVED")
+        for path, original in saved.items():
+            self.assertTrue(path.read_bytes().startswith(original))
+        for old_row, old_log in ((red_row, red_log), (green_row, green_log)):
+            self.assertEqual(verify_validation_run(old_row["validation_run_id"], base_dir=self.tools), old_row)
+            self.assertEqual(Path(old_row["log_path"]).read_bytes(), old_log)
+        self._assert_scoped_night_receipt(observation, row, log)
+
     def test_real_runner_reproduces_finding_end_to_end(self) -> None:
         # A recipe whose command is REAL and allowlisted, and deterministically
         # red: unittest against a module that does not exist.

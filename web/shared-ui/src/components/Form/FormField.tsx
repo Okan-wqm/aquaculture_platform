@@ -13,6 +13,9 @@
 
 import React, { useId } from 'react';
 
+import { cn } from '../../utils';
+import { CircleAlert } from 'lucide-react';
+
 export interface FormFieldProps {
   label?: string;
   htmlFor?: string;
@@ -47,16 +50,18 @@ export const FormField: React.FC<FormFieldProps> = ({
   const describedBy = showError ? errorId : helperText ? helperId : undefined;
 
   return (
-    <div className={`mb-4 ${className}`}>
+    <div className={cn('mb-4', className)}>
       {label && (
         <label
           htmlFor={htmlFor}
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           {label}
           {/* FE-HIGH-018: aria-required communicated visually AND semantically */}
           {required && (
-            <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+            <span className="text-error-500 ml-1" aria-hidden="true">
+              *
+            </span>
           )}
         </label>
       )}
@@ -92,27 +97,16 @@ export const FormField: React.FC<FormFieldProps> = ({
       {showError && (
         <p
           id={errorId}
-          className="mt-1 text-sm text-red-600 flex items-center gap-1"
+          className="mt-1 text-sm text-error-600 dark:text-error-400 flex items-center gap-1"
           role="alert"
         >
-          <svg
-            className="w-4 h-4 flex-shrink-0"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-            aria-hidden="true"
-          >
-            <path
-              fillRule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <CircleAlert className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           {error}
         </p>
       )}
 
       {!showError && helperText && (
-        <p id={helperId} className="mt-1 text-sm text-gray-500">
+        <p id={helperId} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {helperText}
         </p>
       )}

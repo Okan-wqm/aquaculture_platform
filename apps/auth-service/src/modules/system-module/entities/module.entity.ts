@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * Available module codes in the system.
@@ -142,7 +143,7 @@ export class Module {
         description:
           'Comprehensive fish farm management: pond management, stock tracking, feeding programs, growth analysis, water quality monitoring, harvest planning, inventory and detailed analytics',
         icon: 'fish',
-        color: '#0EA5E9',
+        color: colors.info[400],
         defaultRoute: '/farm/dashboard',
         sortOrder: 1,
         features: [
@@ -172,7 +173,7 @@ export class Module {
         description:
           'Human resources management: personnel tracking, department management, attendance control, leave management, payroll, performance evaluation, training tracking and HR analytics',
         icon: 'users',
-        color: '#8B5CF6',
+        color: colors.accent[400],
         defaultRoute: '/hr/dashboard',
         sortOrder: 2,
         features: [
@@ -195,7 +196,7 @@ export class Module {
         description:
           'IoT sensor management, real-time data monitoring, alerts and analytics',
         icon: 'activity',
-        color: '#06B6D4',
+        color: colors.info[300],
         defaultRoute: '/sensor/dashboard',
         sortOrder: 3,
         features: [
@@ -215,7 +216,7 @@ export class Module {
         description:
           'Hydroponic system management: growing systems, nutrient solutions, growing beds, climate control, harvest tracking and analytics',
         icon: 'sprout',
-        color: '#22C55E',
+        color: colors.success[500],
         defaultRoute: '/hydroponics/setup',
         sortOrder: 4,
         features: [
@@ -233,7 +234,7 @@ export class Module {
         description:
           'Real-time alert rules, incident management, escalation policies, and alert history for proactive monitoring',
         icon: 'bell',
-        color: '#EF4444',
+        color: colors.error[500],
         defaultRoute: '/alerts/dashboard',
         sortOrder: 5,
         features: [
@@ -250,7 +251,7 @@ export class Module {
         description:
           'AI-powered analytics: conversational agents, predictive insights, anomaly detection, and intelligent recommendations',
         icon: 'brain',
-        color: '#A855F7',
+        color: colors.accent[300],
         defaultRoute: '/ai/dashboard',
         sortOrder: 6,
         features: [

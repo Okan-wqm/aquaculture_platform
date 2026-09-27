@@ -108,6 +108,26 @@ class TakeAndRestore(_Repo):
         self.assertEqual((self.ws / "src" / "a.py").read_text(), "print(1)\n")
         self.assertIn("src/a.py", cp.diff_checkpoint(workspace_root=self.ws, request_id="AIR-1", seq=1, base_dir=self.tools) + "src/a.py")
 
+    def test_I_V12_CKPT_03b_a_read_is_not_an_edit_and_an_untracked_read_survives_the_restore(self) -> None:
+        # ARIA-HIGH-145 — the journal records reads too; a rollback that
+        # took every `files_touched` as an edit unlinked an untracked file
+        # the agent had merely READ (trial eleven: the store's plan ledger,
+        # nested in the workspace). Reads leave nothing to put back.
+        (self.ws / "notes.jsonl").write_text('{"row": 1}\n')          # untracked, pre-existing
+        cp.take_checkpoint(workspace_root=self.ws, request_id="AIR-5", reason="pre_spawn", base_dir=self.tools)
+        (self.ws / "src" / "a.py").write_text("print(9)\n")           # the one real edit
+        for tool, path in (("Read", "notes.jsonl"), ("Read", "src/a.py"), ("Edit", "src/a.py"), ("Read", "package.json")):
+            hooks.record_journal(
+                {"tool_name": tool, "tool_input": {"file_path": str(self.ws / path)}},
+                base_dir=self.tools, request_id="AIR-5", session_id="s", tool_use_id="t",
+            )
+        rows = hooks.journal_rows_for("AIR-5", base_dir=self.tools)
+        self.assertEqual([r["command_family"] for r in rows], ["file_read", "file_read", "file_write", "file_read"])
+        result = cp.restore_checkpoint(workspace_root=self.ws, request_id="AIR-5", base_dir=self.tools)
+        self.assertEqual((self.ws / "src" / "a.py").read_text(), "print(1)\n")
+        self.assertEqual((self.ws / "notes.jsonl").read_text(), '{"row": 1}\n', "a file the agent only read is untouched")
+        self.assertEqual((result["restored"], result["removed"]), (["src/a.py"], []))
+
     def test_I_V12_CKPT_04_prune_drops_beyond_the_cap(self) -> None:
         for _ in range(4):
             cp.take_checkpoint(workspace_root=self.ws, request_id="AIR-2", reason="x", base_dir=self.tools, min_interval_seconds=0)
@@ -124,6 +144,20 @@ class HookTakesThePreWriteCheckpoint(_Repo):
         code, _ = hooks.run_hook("pre-tool", payload, base_dir=self.tools, workspace_root=self.ws, request_id="AIR-3")
         self.assertEqual(code, 0)
         self.assertEqual([c.seq for c in cp.list_checkpoints("AIR-3", base_dir=self.tools)], [1])
+        # ARIA-HIGH-145 — an untracked file the agent overwrites on its FIRST
+        # touch is held by the pre-write checkpoint (the write's own target
+        # joins it), so the rollback restores it instead of removing it.
+        (self.ws / "local.env").write_text("before\n")
+        untracked = {"session_id": "s", "tool_use_id": "t2", "tool_name": "Write",
+                     "tool_input": {"file_path": str(self.ws / "local.env")}}
+        with mock.patch.object(cp, "MIN_INTERVAL_SECONDS", 0):
+            code, _ = hooks.run_hook("pre-tool", untracked, base_dir=self.tools, workspace_root=self.ws, request_id="AIR-3")
+        self.assertEqual(code, 0)
+        (self.ws / "local.env").write_text("after\n")
+        hooks.record_journal(untracked, base_dir=self.tools, request_id="AIR-3", session_id="s", tool_use_id="t2")
+        result = cp.restore_checkpoint(workspace_root=self.ws, request_id="AIR-3", base_dir=self.tools)
+        self.assertEqual((self.ws / "local.env").read_text(), "before\n")
+        self.assertEqual((result["restored"], result["removed"]), (["local.env"], []))
         with mock.patch.object(cp, "take_checkpoint", side_effect=RuntimeError("no store")):
             code, out = hooks.run_hook("pre-tool", payload, base_dir=self.tools, workspace_root=self.ws, request_id="AIR-3")
         self.assertEqual(code, 0, "a failed checkpoint never denies an allowed edit")

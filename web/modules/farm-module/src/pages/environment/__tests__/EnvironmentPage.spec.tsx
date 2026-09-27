@@ -121,12 +121,18 @@ function layer(
   };
 }
 
+const MONITORING_ENABLED_ROUTE = {
+  match: 'query EnvironmentMonitoringStatus',
+  result: { environmentMonitoringStatus: { enabled: true } },
+};
+
 function installBaseRoutes(
   sites: Record<string, unknown>[] = [AUTHORIZED_SITE],
   layers: Record<string, unknown>[] = [layer('backend:wave', 'Backend wave label', 'READY')],
   currentValues: Record<string, unknown>[] = [CURRENT_WAVE_VALUE],
 ): void {
   routeGraphql([
+    MONITORING_ENABLED_ROUTE,
     {
       match: 'query Sites(',
       result: { sites: { items: sites, total: sites.length, page: 1, limit: 100 } },
@@ -197,8 +203,102 @@ beforeEach(() => {
 });
 
 describe('EnvironmentPage', () => {
+  it('states that monitoring is not enabled for this deployment and issues no site reads', async () => {
+    routeGraphql([
+      {
+        match: 'query EnvironmentMonitoringStatus',
+        result: { environmentMonitoringStatus: { enabled: false } },
+      },
+      {
+        match: 'query Sites(',
+        result: { sites: { items: [AUTHORIZED_SITE], total: 1, page: 1, limit: 100 } },
+      },
+    ]);
+
+    renderWithProviders(<EnvironmentPage />, {
+      route: `/sites/environment/${AUTHORIZED_SITE_ID}`,
+      path: '/sites/environment/:siteId',
+    });
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Environmental monitoring is not enabled for this deployment',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+    expect(
+      requestMock.mock.calls.some(
+        ([query]) =>
+          String(query).includes('SiteEnvironment') ||
+          String(query).includes('EnvironmentLayerCatalog') ||
+          String(query).includes('EnvironmentScenes'),
+      ),
+    ).toBe(false);
+  });
+
+  it('reports when the rollout gate itself cannot be read, without guessing', async () => {
+    routeGraphql([
+      {
+        match: 'query Sites(',
+        result: { sites: { items: [AUTHORIZED_SITE], total: 1, page: 1, limit: 100 } },
+      },
+    ]);
+
+    renderWithProviders(<EnvironmentPage />, { route: '/sites/environment' });
+
+    expect(
+      await screen.findByText('Environmental monitoring availability could not be determined.'),
+    ).toBeInTheDocument();
+    expect(
+      requestMock.mock.calls.some(([query]) => String(query).includes('SiteEnvironmentCurrent')),
+    ).toBe(false);
+  });
+
+  it('keeps the last-known gate answer when the gate refetch fails', async () => {
+    let rejectGateRefresh = false;
+    routeGraphql([
+      {
+        match: 'query EnvironmentMonitoringStatus',
+        result: () => {
+          if (rejectGateRefresh) {
+            throw new Error('gate refresh failed');
+          }
+          return { environmentMonitoringStatus: { enabled: true } };
+        },
+      },
+      {
+        match: 'query Sites(',
+        result: { sites: { items: [AUTHORIZED_SITE], total: 1, page: 1, limit: 100 } },
+      },
+      {
+        match: 'query SiteEnvironmentCurrent',
+        result: { siteEnvironmentCurrent: { siteId: AUTHORIZED_SITE_ID, values: [] } },
+      },
+      { match: 'query EnvironmentLayerCatalog', result: { environmentLayerCatalog: [] } },
+    ]);
+
+    const rendered = renderWithProviders(<EnvironmentPage />, {
+      route: `/sites/environment/${AUTHORIZED_SITE_ID}`,
+      path: '/sites/environment/:siteId',
+    });
+    expect(
+      await screen.findByRole('heading', { name: 'Environmental monitoring' }),
+    ).toBeInTheDocument();
+
+    rejectGateRefresh = true;
+    await act(async () => {
+      await rendered.queryClient.invalidateQueries({ queryKey: ['tenant'] });
+    });
+
+    expect(screen.getByRole('heading', { name: 'Environmental monitoring' })).toBeInTheDocument();
+    expect(
+      screen.queryByText('Environmental monitoring availability could not be determined.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows a terminal error when the authorized site list has never loaded', async () => {
-    requestMock.mockRejectedValueOnce(new Error('site list unavailable'));
+    routeGraphql([MONITORING_ENABLED_ROUTE]);
 
     renderWithProviders(<EnvironmentPage />, { route: '/sites/environment' });
 
@@ -269,6 +369,7 @@ describe('EnvironmentPage', () => {
     const readyLayer = layer('backend:wave', 'Backend wave label', 'READY');
 
     routeGraphql([
+      MONITORING_ENABLED_ROUTE,
       {
         match: 'query Sites(',
         result: () => {
@@ -623,6 +724,9 @@ describe('EnvironmentPage', () => {
         variables?: Record<string, unknown>,
         options?: { signal?: AbortSignal },
       ) => {
+        if (query.includes('query EnvironmentMonitoringStatus')) {
+          return { environmentMonitoringStatus: { enabled: true } };
+        }
         if (query.includes('query Sites(')) {
           return {
             sites: {
@@ -760,6 +864,9 @@ describe('EnvironmentPage', () => {
     ];
 
     requestMock.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes('query EnvironmentMonitoringStatus')) {
+        return { environmentMonitoringStatus: { enabled: true } };
+      }
       if (query.includes('query Sites(')) {
         return {
           sites: {
@@ -890,6 +997,9 @@ describe('EnvironmentPage', () => {
 
     installBaseRoutes([AUTHORIZED_SITE], [imageryLayer]);
     requestMock.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes('query EnvironmentMonitoringStatus')) {
+        return { environmentMonitoringStatus: { enabled: true } };
+      }
       if (query.includes('query Sites(')) {
         return {
           sites: { items: [AUTHORIZED_SITE], total: 1, page: 1, limit: 100 },

@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .debt import debts_dir
+from .finding import findings_dir
 from .ledger import load_jsonl
 from .tool_registry import ensure_tools_dir
 
@@ -53,7 +55,9 @@ class CycleEmptiness:
 def _open_finding_count(repo_root: Path | None) -> int:
     if repo_root is None:
         return 0
-    index = repo_root / "aria-findings" / "_index.json"
+    # ARIA-HIGH-191: through the seam the writers use, so a redirected
+    # state store is counted, not the checkout's stale copy.
+    index = findings_dir(repo_root) / "_index.json"
     if not index.exists():
         return 0
     try:
@@ -74,7 +78,7 @@ def _open_finding_count(repo_root: Path | None) -> int:
 def _open_debt_count(repo_root: Path | None) -> int:
     if repo_root is None:
         return 0
-    index = repo_root / "aria-debts" / "_index.json"
+    index = debts_dir(repo_root) / "_index.json"
     if not index.exists():
         return 0
     try:

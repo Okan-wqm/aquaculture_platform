@@ -180,8 +180,13 @@ class DrainParallelism(_Repo):
         self.assertIn("if len(inflight) >= max_concurrent:\n            _settle(inflight.pop(0))", drain)
         self.assertLess(drain.index("    while inflight:\n        _settle(inflight.pop(0))"), drain.index('f"drain_done attempted='))
         self.assertIn('child_env["ARIA_WORKSPACE_ROOT"] = str(worktree)', drain)
-        self.assertIn('"worktree", "add", "--detach"', drain)
-        self.assertIn('"worktree", "remove", "--force"', drain)
+        # ARIA-HIGH-176 — the worktree bracket is the kernel's one spelling
+        # (`aria_kernel.request_worktree`), which the drain imports; the two
+        # git argv are pinned where they now live.
+        self.assertIn("from aria_kernel.request_worktree import", drain)
+        bracket = (_POC.parents[1] / "aria-kernel" / "aria_kernel" / "request_worktree.py").read_text(encoding="utf-8")
+        self.assertIn('"worktree", "add", "--detach"', bracket)
+        self.assertIn('"worktree", "remove", "--force"', bracket)
         executor = (_POC / "ci_executor.py").read_text(encoding="utf-8")
         self.assertIn('os.environ.get("ARIA_WORKSPACE_ROOT")', executor)
         import sys

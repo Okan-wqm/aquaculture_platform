@@ -31,6 +31,7 @@ from aria_kernel.evidence_probe import (
     GIT_PROBE_WORST_CASE_SECONDS,
 )
 from aria_kernel.human_required import HUMAN_REQUIRED_RECORD_WAIT_SECONDS
+from aria_kernel.implementation_delivery import IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS
 from aria_kernel.ledger import STATE_LOCK_LIVENESS_SECONDS
 from aria_kernel.state_store import (
     GIT_TIMEOUT_SECONDS,
@@ -67,9 +68,14 @@ print(json.dumps({
     "lifecycle_bound": ci_executor._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
     "checkout_arc": ci_executor._STATE_STORE_CHECKOUT_ARC_SECONDS,
     "record_wait": ci_executor._HUMAN_REQUIRED_RECORD_WAIT_SECONDS,
-    "record_timeout": ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+    "record_worst_case": ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS,
+    "delivery_worst_case": ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
     "child_worst_case": ci_executor.child_worst_case_seconds(1800),
     "child_worst_case_with_worktree": ci_executor.child_worst_case_seconds(1800, worktree_per_request=True),
+    "implementation_child_worst_case": ci_executor.child_worst_case_seconds(
+        1800, worktree_per_request=True,
+        implementation_delivery_seconds=ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+    ),
 }))
 """
 
@@ -117,8 +123,14 @@ class KernelImportFallbackIsAnnounced(unittest.TestCase):
         self.assertEqual(without_kernel["lifecycle_bound"], STATE_STORE_LIFECYCLE_LIVENESS_SECONDS)
         self.assertEqual(without_kernel["checkout_arc"], STATE_STORE_CHECKOUT_ARC_SECONDS)
         self.assertEqual(without_kernel["record_wait"], HUMAN_REQUIRED_RECORD_WAIT_SECONDS)
-        self.assertEqual(without_kernel["record_timeout"], with_kernel["record_timeout"])
-        self.assertEqual(with_kernel["record_timeout"], ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS)
+        self.assertEqual(without_kernel["record_worst_case"], with_kernel["record_worst_case"])
+        self.assertEqual(with_kernel["record_worst_case"], ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS)
+        # ARIA-HIGH-124 (round 3) — the implementation child's delivery term
+        # (the publication, the contained gate at the canonical ceiling, the
+        # push, the PR) is the kernel's derivation, mirrored standalone.
+        self.assertEqual(without_kernel["delivery_worst_case"], IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS)
+        self.assertEqual(with_kernel["delivery_worst_case"], IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS)
+        self.assertEqual(without_kernel["implementation_child_worst_case"], with_kernel["implementation_child_worst_case"])
         self.assertEqual(
             without_kernel["child_worst_case_with_worktree"], with_kernel["child_worst_case_with_worktree"],
         )

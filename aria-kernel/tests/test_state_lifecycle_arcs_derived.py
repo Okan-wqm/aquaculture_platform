@@ -483,6 +483,20 @@ class TheBoundIsTheSumOverTheArcs(unittest.TestCase):
         self.assertEqual(arcs.git_operation(("push", "origin", "a:b")), "push")
         self.assertEqual(arcs.git_operation(()), "")
 
+    def test_an_index_edit_is_metadata_scaled_while_a_tree_removal_stays_priced(self) -> None:
+        # The publish preamble drops inherited unclaimable entries with
+        # `git rm --cached` in pathspec slices under the lifecycle lock: an
+        # index edit that scales with the entry count, not with the tree on
+        # disk or the remote — the walker found it unregistered on the
+        # ARIA-HIGH-090 publisher once the arcs registry landed. `rm` without
+        # the flag removes a tree (the bootstrap's tree clear) and is priced.
+        self.assertEqual(arcs.git_operation(("rm", "--cached", "--quiet", "--", "a", "b")), "rm --cached")
+        self.assertEqual(arcs.git_operation(("-c", "x=y", "rm", "--quiet", "--cached", "--", "a")), "rm --cached")
+        self.assertEqual(arcs.git_operation(("rm", "-rf", "--quiet", "--ignore-unmatch", ".")), "rm")
+        self.assertIn("rm --cached", arcs.METADATA_SCALED_GIT_OPERATIONS)
+        self.assertIn("rm", arcs.TREE_OR_REMOTE_SCALED_GIT_OPERATIONS)
+        self.assertNotIn("rm --cached", arcs.TREE_OR_REMOTE_SCALED_GIT_OPERATIONS)
+
 
 class TheRuntimeRefusesAnUnregisteredHeavyCallUnderTheLock(unittest.TestCase):
     def setUp(self) -> None:

@@ -261,6 +261,7 @@ class RealAutoMergeRunner:
                         pr_number=pr_number,
                         base_dir=base_dir,
                         readiness_claim_id=readiness_claim_id,
+                        workspace_root=workspace_root,
                     )
                 ),
             )

@@ -5,12 +5,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .candidate_blocks import OWNER_AGENT_PANEL, describe_candidate_block
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
 from .ledger import append_declared_jsonl, load_jsonl
 from .proactive_priority import latest_priorities
-from .runs_reader import read_runs_rows
-from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 
 # ORPHAN-MEDIUM-730 — EVERY BUILDER BELOW OWES A `next_action`, OR OMITS IT.
@@ -41,25 +40,86 @@ from .tool_registry import ensure_tools_dir, utc_now
 # do not flood the mission store with low-value maintenance candidates.
 PROACTIVE_CANDIDATE_MIN_PRIORITY: float = 60.0
 
+# THE ADMISSION BUDGET IS SPENT ON ADMISSIBLE CANDIDATES ONLY.
+#
+# WHAT: `generate_task_candidates` ranks every candidate, then PARTITIONS it
+# three ways (payload schema_version 2):
+#   ``tasks``           — the top-``limit`` candidates with an empty
+#                         ``blocked_by``; the only ones the adopter may open.
+#   ``routed_to_panel`` — candidates whose every block token the AGENT PANEL
+#                         owns (`candidate_blocks.OWNER_AGENT_PANEL`). They are
+#                         not mission work by construction: the genesis sweep
+#                         (`agent_genesis.sweep_candidate_gaps_for_
+#                         adjudication`) reads the same gaps straight off the
+#                         capability-gap ledger and opens a panel escalation
+#                         per gap. The adopter never sees them, so no refusal
+#                         row is written for them — nothing was refused.
+#   ``blocked``         — candidates the OPERATOR must clear (or carrying a
+#                         token nobody registered), outside the budget and
+#                         annotated with who clears it. The adopter refuses
+#                         each ONCE per claim (`mission.adopt_task_candidates`).
+#
+# WHY: the limit used to cut the ranked list BEFORE `mission.adopt_task_
+# candidates` looked at ``blocked_by``. A blocked candidate cannot become a
+# mission by construction (C9/E8), yet it still held a slot. Measured on the
+# live store's `tasks/task-candidates.jsonl` 2026-09-12 (11 payloads,
+# 2026-08-16 → 2026-09-04): every payload filled all ten slots and 5–7 of
+# them held a blocked candidate (scores 32–90; ``operator_feedback_required``
+# until 2026-08-17, ``genesis_adjudication_required`` after — the Y8 rename)
+# inside the cut, so an admissible candidate ranked past the tenth slot never
+# reached the adopter. "Try the next admissible candidate" was impossible
+# because the next admissible candidate had been dropped one function
+# earlier. Partitioning first makes that starvation impossible rather than
+# merely less likely.
+#
+# A first revision of the partition put panel-owned candidates in
+# ``blocked`` and let the adopter refuse them: on the live shape that wrote
+# the same five ``mission_candidate_refused`` rows every night (2 capability
+# gaps + 3 shadow summaries on 2026-09-04) — the constant never-clearing
+# block this module retired `_candidate_from_shadow_summary` for, reproduced
+# through `_candidate_from_capability_gap`. Routing them out here is what
+# makes that row impossible to write.
+#
+# THE ``shadow_run_summary`` PRODUCER IS RETIRED. It minted a CONSTANT block
+# (``operator_feedback_required``, renamed ``genesis_adjudication_required``
+# by Y8), so every candidate it ever produced was refused: 42 of the 71
+# ``candidate_blocked`` rows on the live store (2026-08-13 → 2026-09-04) name
+# it; the other 29 name the twin ``capability_gap shadow_run:*`` rows. Nothing
+# routed it anywhere — the panel sweep reads capability gaps, and
+# `capability_gap._gaps_from_shadow_runs` already mints the SAME shadow run
+# as a panel-routed gap, while the pressure engine mints the schedulable
+# triage (``pressure:shadow-raw-delta:<tool>``). A block that is a constant
+# can never clear, so the only way for it to clear was to stop minting it.
+# `mission.RETIRED_SOURCE_KINDS` closes the missions it opened before the
+# guard existed.
+
+# The task-candidates payload contract. v1 held one ``tasks`` list whose
+# rows could carry ``blocked_by``; v2 partitions (above), so a v2 reader
+# knows ``tasks`` is admissible-only without scanning it. Bumped for the same
+# reason `observability.record_cycle_metrics` and `reflection` bumped theirs:
+# a reader that keys on the version must not mistake a v1 row's ``tasks``
+# for an admissible list. Every reader in this kernel accesses partitions by
+# ``.get`` (the adopter, the tests), so v1 rows on the live store stay
+# serveable.
+TASK_CANDIDATES_SCHEMA_VERSION = 2
 
 
-def _emitted_count(run: dict, kind: str) -> int:
-    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
-    counts = run.get("emitted_counts")
-    if isinstance(counts, dict):
-        return int(counts.get(kind, 0))
-    legacy = run.get(f"emitted_{kind}")
-    if isinstance(legacy, list):
-        return len(legacy)
-    if isinstance(legacy, int):
-        return legacy
-    return 0
 def generate_task_candidates(
     *,
     cycle_id: str,
     base_dir: str | Path | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
+    """Rank this cycle's work and split it into schedulable, panel-routed
+    and operator-blocked.
+
+    ``tasks`` — the top-``limit`` ADMISSIBLE candidates, the only ones the
+    mission adopter may open. ``routed_to_panel`` — candidates the agent
+    panel owns; disclosed here, never offered to the adopter. ``blocked`` —
+    every candidate the operator must clear first, each carrying ``block``
+    (owner + operator action) so the ledger row itself says who is holding
+    the work. See the module comment for why the split is made HERE.
+    """
     root = ensure_tools_dir(base_dir)
     pressure_payload = _read_json(root / "pressure" / f"{cycle_id}.json")
     candidates: list[dict[str, Any]] = []
@@ -91,21 +151,29 @@ def generate_task_candidates(
         if float(entry.get("priority") or 0) < PROACTIVE_CANDIDATE_MIN_PRIORITY:
             continue
         candidates.append(_candidate_from_proactive(cycle_id, entry))
-    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
-        if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
-            continue
-        raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)
-        emitted_count = _emitted_count(run, "findings")
-        if raw_count > 0 and emitted_count == 0:
-            candidates.append(_candidate_from_shadow_summary(cycle_id, run, raw_count))
     candidates.sort(key=lambda item: (-float(item["score"]), item["task_id"]))
-    candidates = candidates[:limit]
+    admissible = [item for item in candidates if not item["blocked_by"]]
+    routed_to_panel: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    for item in candidates:
+        if not item["blocked_by"]:
+            continue
+        annotated = {**item, "block": describe_candidate_block(item["blocked_by"])}
+        if annotated["block"]["owner"] == OWNER_AGENT_PANEL:
+            routed_to_panel.append(annotated)
+        else:
+            blocked.append(annotated)
+    tasks = admissible[:limit]
     payload = {
-        "schema_version": 1,
+        "schema_version": TASK_CANDIDATES_SCHEMA_VERSION,
         "generated_at": utc_now(),
         "cycle_id": cycle_id,
-        "task_count": len(candidates),
-        "tasks": candidates,
+        "task_count": len(tasks),
+        "tasks": tasks,
+        "routed_to_panel_count": len(routed_to_panel),
+        "routed_to_panel": routed_to_panel,
+        "blocked_count": len(blocked),
+        "blocked": blocked,
     }
     append_declared_jsonl(root / "tasks" / "task-candidates.jsonl", payload, expected_surface="task_candidates")
     return payload
@@ -264,32 +332,6 @@ def _candidate_from_proactive(cycle_id: str, entry: dict[str, Any]) -> dict[str,
         "validation_commands": ["PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify"],
         "score": float(entry.get("priority") or 0),
         "blocked_by": [],
-    }
-
-
-def _candidate_from_shadow_summary(cycle_id: str, run: dict[str, Any], raw_count: int) -> dict[str, Any]:
-    tool_id = str(run.get("tool_id"))
-    return {
-        "schema_version": 1,
-        "task_id": _task_id(cycle_id, "shadow", tool_id),
-        "cycle_id": cycle_id,
-        "source": "shadow_run_summary",
-        "source_id": tool_id,
-        "source_authority": "shadow_draft",
-        "title": f"Triage {raw_count} SHADOW findings from {tool_id}",
-        # Names the count the run measured and the tool that produced it.
-        **_next_action(
-            f"Triage the {raw_count} SHADOW findings {tool_id} produced, then "
-            f"calibrate or suppress it"
-        ),
-        "problem": f"{tool_id} produced {raw_count} suppressed SHADOW findings that need calibration before action.",
-        "evidence_refs": _strings(run.get("read_paths"))[:20],
-        "candidate_tools": [tool_id],
-        "risk_class": "triage_only",
-        "validation_commands": ["PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'"],
-        "score": min(75, 30 + raw_count),
-        # Y8 (ORPHAN-709) — routes to the genesis panel, not the operator.
-        "blocked_by": ["genesis_adjudication_required"],
     }
 
 

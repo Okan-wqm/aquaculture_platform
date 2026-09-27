@@ -13,6 +13,7 @@
  * source records, never the report.
  */
 import React, { useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 import {
   ReportDeadline,
@@ -91,28 +92,36 @@ export const ReportsDueSection: React.FC = () => {
 
   return (
     <section
-      className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4"
+      className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4"
       aria-label="Reports due"
     >
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-900">Scheduled reports due</h2>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          Scheduled reports due
+        </h2>
         {deadlines && deadlines.length > 0 && (
-          <span className="text-xs text-gray-500">{deadlines.length} draft(s)</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {deadlines.length} draft(s)
+          </span>
         )}
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500">Loading scheduled reports…</p>}
+      {isLoading && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading scheduled reports…</p>
+      )}
       {isError && (
-        <p className="text-sm text-red-600">Could not load scheduled reports. Try again.</p>
+        <p className="text-sm text-error-600 dark:text-error-400">
+          Could not load scheduled reports. Try again.
+        </p>
       )}
       {!isLoading && !isError && (!deadlines || deadlines.length === 0) && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           No scheduled reports are due. Drafts appear here automatically each reporting period.
         </p>
       )}
 
       {!isLoading && deadlines && deadlines.length > 0 && (
-        <ul className="divide-y divide-gray-100">
+        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
           {deadlines.map((d) => {
             const rowResult = results[d.id];
             const isBusy = busyId === d.id;
@@ -121,13 +130,13 @@ export const ReportsDueSection: React.FC = () => {
               <li key={d.id} className="py-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {reportTypeLabel(d.reportType)}
                     </p>
-                    <p className="text-xs text-gray-500">{periodLabel(d)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{periodLabel(d)}</p>
                     {rowResult && (
                       <p
-                        className={`text-xs mt-1 ${rowResult.ok ? 'text-green-700' : 'text-red-600'}`}
+                        className={`text-xs mt-1 ${rowResult.ok ? 'text-success-700 dark:text-success-300' : 'text-error-600 dark:text-error-400'}`}
                       >
                         {rowResult.text}
                       </p>
@@ -145,40 +154,44 @@ export const ReportsDueSection: React.FC = () => {
                   )}
 
                   <div className="flex items-center gap-2">
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="xs"
                       type="button"
                       onClick={() => setReviewingId(isReviewing ? null : d.id)}
                       aria-expanded={isReviewing}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
                     >
                       {isReviewing ? 'Hide' : 'Review'}
-                    </button>
+                    </Button>
                     {d.status === 'READY' && (
-                      <button
+                      <Button
+                        variant="primary"
+                        size="xs"
                         type="button"
                         onClick={() => handleApprove(d.id)}
                         disabled={isBusy}
-                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                       >
                         Approve &amp; Submit
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="xs"
                       type="button"
                       onClick={() => refresh.mutate(d.id)}
                       disabled={isBusy}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
                     >
                       Refresh
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       type="button"
                       onClick={() => dismiss.mutate(d.id)}
                       disabled={isBusy}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700 disabled:opacity-50"
                     >
                       Dismiss
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 {isReviewing && <DraftReviewPanel draftId={d.id} />}

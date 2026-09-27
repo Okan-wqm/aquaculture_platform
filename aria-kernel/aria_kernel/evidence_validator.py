@@ -1,50 +1,24 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 from .evidence_probe import GitProbeSession
-from .evidence_trust import EvidencePolicy, classify_evidence_ref
-from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations, normalize_path
+from .evidence_trust import EVIDENCE_REF_RE, EvidencePolicy, classify_evidence_ref, parse_evidence_ref
+from .canonical_path import lexical_repo_path
+from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations
 from .tool_registry import GovernanceError
 from .snapshot import snapshot_allowed_set
 from .ledger import load_declared_jsonl
 
 
-# Plan 016 Faz C7 — agent response evidence revalidation regex.
-# Why a separate path-parser: agent envelopes ship refs as plain strings
-# ("apps/foo.ts:42") whereas tool output uses {path, line} dicts. We keep
-# the existing dict-based validator unchanged for backward compatibility
-# and add a string-aware revalidator below.
-#
-# ORPHAN-HIGH-081 (2026-05-18) — the previous pattern
-#     ^(?P<path>[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?)(?::(?P<line>\d+))?$
-# was a textbook catastrophic-backtracking shape: `[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?`
-# reduces to `X+(X+)*?` with the same character class repeated in overlapping
-# groups. On any rejected input (e.g. plan_synthesizer's `path:line:content`
-# format, which adds a SECOND colon the regex never expected), the engine
-# explores 2^N partitions of the path before failing. Benchmarked: a 29-char
-# rejected input exceeds 2 seconds; a 49-char rejected input (typical kernel
-# paths) burns ~120 seconds at 100% CPU — exactly the submit_claim_result
-# hang observed during V8 verification.
-#
-# The replacement below matches the canonical evidence-ref languages
-# (path | path:line | path:line:content) with no overlapping
-# quantifiers. Worst-case time stays linear in input length even for
-# pathological inputs that the pre-V8.3 ReDoS pattern hung on.
-#
-# Plan ARIA-V8.6 — accept the third `path:line:content` form. The
-# `plan_synthesizer` (V7.9) emits evidence_refs as
-# `path:line:<excerpt>` triplets so operators can spot-check the
-# claimed line text without opening every file. The pre-V8.6 regex
-# rejected those refs as malformed because it only allowed the
-# 2-part `path:line` form, so the agent's response evidence_refs
-# (which echo the request's refs) hit `agent_evidence_ref_malformed`
-# at the kernel validator. The `(?::.*)?` clause captures the
-# trailing `:<excerpt>` non-greedily without backtracking risk
-# (atomic alternation; the path group is anchored by `[^\s:]+`).
-_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+)(?::.*)?)?$")
+# Plan 016 Faz C7 — agent envelopes ship refs as plain strings
+# ("apps/foo.ts:42") whereas tool output uses {path, line} dicts.
+# ORPHAN-HIGH-081 / V8.6 / ARIA-HIGH-195 — the string grammar and its
+# linear-time regex live in evidence_trust (EVIDENCE_REF_RE), the module that
+# grades the ref; a second copy here is how the validator came to admit a
+# triplet the classifier rejected.
+_AGENT_REF_RE = EVIDENCE_REF_RE
 
 
 # An unverified ref is rejected under a code that says WHOSE gap it is. Three
@@ -126,7 +100,7 @@ def validate_tool_output_evidence(
         errors.append({"code": "read_paths_field_missing_in_output"})
     elif read_paths_present:
         for path in raw_read_paths:
-            normalized = normalize_path(path)
+            normalized = lexical_repo_path(path)
             declared_read_paths.add(normalized)
             if allowed_paths and normalized not in allowed_paths:
                 errors.append({"code": "read_path_outside_snapshot", "path": normalized})
@@ -175,7 +149,7 @@ def validate_tool_output_evidence(
                     # gates the subset, not truthiness. Empty
                     # declared_read_paths set with an evidence path is a
                     # contract violation, not a free pass.
-                    norm = normalize_path(ref["path"])
+                    norm = lexical_repo_path(ref["path"])
                     if norm not in declared_read_paths:
                         errors.append({
                             "code": "evidence_outside_declared_read_paths",
@@ -204,7 +178,7 @@ def validate_tool_output_evidence(
             # evidence_sources outside an empty-list declaration is also
             # rejected (not bypassed by the empty-set falsy gate).
             if isinstance(source, str) and read_paths_present:
-                norm = normalize_path(source)
+                norm = lexical_repo_path(source)
                 if norm not in declared_read_paths:
                     errors.append({
                         "code": "evidence_outside_declared_read_paths",
@@ -214,7 +188,7 @@ def validate_tool_output_evidence(
         errors.append({"code": "evidence_sources_not_array"})
 
     self_output = any(
-        normalize_path(error.get("path", "")).startswith(SELF_OUTPUT_MARKERS)
+        lexical_repo_path(error.get("path", "")).startswith(SELF_OUTPUT_MARKERS)
         for error in errors
     )
     return {
@@ -269,13 +243,13 @@ def validate_evidence_path(
 ) -> dict[str, Any] | None:
     # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
     # prefix check, mirroring _check_agent_ref. Pre-fix this code
-    # path applied normalize_path (lexical) and prefix-matched on
+    # path applied lexical_repo_path (lexical) and prefix-matched on
     # the lexical form; the resolved absolute path was only used
     # later for relative_to + existence checks. The shared helper
     # now produces the canonical posix-relative form which the
     # SELF_OUTPUT match consumes.
     from .tool_registry import GovernanceError as _GE
-    raw_path_str = normalize_path(raw_path)  # keep checked_sources entry consistent with legacy callers
+    raw_path_str = lexical_repo_path(raw_path)  # keep checked_sources entry consistent with legacy callers
     checked_sources.append(raw_path_str)
     envelope = classify_evidence_ref(
         raw_path_str if line is None else f"{raw_path_str}:{line}",
@@ -340,11 +314,7 @@ def validate_evidence_path(
 
 def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
     """Parse a string ref like 'path/to/file.ts:42' into (path, line) or None on malformed input."""
-    match = _AGENT_REF_RE.match(ref.strip())
-    if not match:
-        return None
-    line = match.group("line")
-    return match.group("path"), int(line) if line is not None else None
+    return parse_evidence_ref(ref)
 
 
 # Plan 026R §E.5 — canonical-resolve helper promoted to the
@@ -504,7 +474,7 @@ def _check_agent_ref(
     # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
     # prefix check. Pre-fix the prefix match operated on the
     # lexically-normalized string; a `src/../aria-tools/...` traversal
-    # could bypass detection if normalize_path didn't fully collapse
+    # could bypass detection if lexical_repo_path didn't fully collapse
     # it. Post-fix the resolution runs first, then SELF_OUTPUT is
     # decided on the canonical posix-relative form.
     from .tool_registry import GovernanceError as _GE

@@ -169,18 +169,14 @@ describe('RangeColorMapping', () => {
   });
 
   it('renders the correct number of range rows', () => {
-    const { container } = render(
-      <RangeColorMapping ranges={defaultRanges} onChange={onChange} />,
-    );
+    const { container } = render(<RangeColorMapping ranges={defaultRanges} onChange={onChange} />);
 
     const rows = container.querySelectorAll('[data-testid="range-row"]');
     expect(rows.length).toBe(3);
   });
 
   it('add button creates a new range', () => {
-    render(
-      <RangeColorMapping ranges={defaultRanges} onChange={onChange} />,
-    );
+    render(<RangeColorMapping ranges={defaultRanges} onChange={onChange} />);
 
     const addBtn = screen.getByTestId('add-range-btn');
     fireEvent.click(addBtn);
@@ -192,9 +188,7 @@ describe('RangeColorMapping', () => {
   });
 
   it('add button is disabled when at maxRanges', () => {
-    render(
-      <RangeColorMapping ranges={defaultRanges} onChange={onChange} maxRanges={3} />,
-    );
+    render(<RangeColorMapping ranges={defaultRanges} onChange={onChange} maxRanges={3} />);
 
     const addBtn = screen.getByTestId('add-range-btn');
     expect(addBtn.hasAttribute('disabled')).toBe(true);
@@ -204,9 +198,7 @@ describe('RangeColorMapping', () => {
   });
 
   it('remove button deletes a range', () => {
-    render(
-      <RangeColorMapping ranges={defaultRanges} onChange={onChange} />,
-    );
+    render(<RangeColorMapping ranges={defaultRanges} onChange={onChange} />);
 
     const removeBtns = screen.getAllByTestId('remove-range-btn');
     // Remove the second range (index 1)
@@ -225,16 +217,14 @@ describe('RangeColorMapping', () => {
       { min: 50, max: 30, fill: '#ef4444' }, // min > max = invalid
     ];
 
-    const { container } = render(
-      <RangeColorMapping ranges={invalidRanges} onChange={onChange} />,
-    );
+    const { container } = render(<RangeColorMapping ranges={invalidRanges} onChange={onChange} />);
 
     // The row should have error styling (red background)
     const row = container.querySelector('[data-testid="range-row"]');
-    expect(row?.className).toContain('bg-red-50');
+    expect(row?.className).toContain('bg-error-50');
 
     // Validation banner should appear
-    const banner = container.querySelector('.bg-amber-50');
+    const banner = container.querySelector('.bg-warning-50');
     expect(banner).toBeTruthy();
     expect(banner?.textContent).toContain('Min must be less than Max');
   });
@@ -245,9 +235,7 @@ describe('RangeColorMapping', () => {
       { min: 0, max: 30, fill: '#22c55e' },
     ];
 
-    render(
-      <RangeColorMapping ranges={unsortedRanges} onChange={onChange} />,
-    );
+    render(<RangeColorMapping ranges={unsortedRanges} onChange={onChange} />);
 
     const addBtn = screen.getByTestId('add-range-btn');
     fireEvent.click(addBtn);
@@ -274,13 +262,9 @@ describe('RangeColorMapping', () => {
   });
 
   it('renders label input when showLabel is true', () => {
-    const rangesWithLabel: ColorRange[] = [
-      { min: 0, max: 50, fill: '#22c55e', label: 'Normal' },
-    ];
+    const rangesWithLabel: ColorRange[] = [{ min: 0, max: 50, fill: '#22c55e', label: 'Normal' }];
 
-    render(
-      <RangeColorMapping ranges={rangesWithLabel} onChange={onChange} showLabel />,
-    );
+    render(<RangeColorMapping ranges={rangesWithLabel} onChange={onChange} showLabel />);
 
     const labelInput = screen.getByDisplayValue('Normal');
     expect(labelInput).toBeDefined();

@@ -42,12 +42,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
     createElement('div', { 'data-testid': 'queued-status-badge' }, operationId),
 }));
 
-vi.mock('konsta/react', () => ({
-  BlockTitle: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
-  List: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
-  ListInput: ({ children }: { children?: ReactNode }) => createElement('select', null, children),
-}));
-
 // The shared form is exercised by its own suite; here it is a fixed set of
 // values so the assertion is about THIS page's payload, not the form's UI.
 vi.mock('@aquaculture/farm-shared', () => ({

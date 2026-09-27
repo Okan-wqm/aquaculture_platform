@@ -35,9 +35,7 @@ prevent.
 
 from __future__ import annotations
 
-import json
 import unittest
-from datetime import date
 from pathlib import Path
 
 from aria_kernel.literal_provenance import ProductionIndex
@@ -47,16 +45,15 @@ from aria_kernel.surface_reachability import (
     unwritten_members,
     written_members,
 )
+from aria_kernel.surface_waivers import (
+    REQUIRED_WAIVER_FIELDS,
+    UNWRITTEN_MANIFEST,
+    iter_waivers,
+    lapsed_waivers,
+    load_waiver_manifest,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = REPO_ROOT / "aria-kernel" / "surface-reachability.unwritten.json"
-REQUIRED_WAIVER_FIELDS = ("owner", "reason", "expires_on", "finding_id")
-
-
-def _manifest() -> dict[str, dict[str, dict[str, str]]]:
-    if not MANIFEST_PATH.exists():
-        return {}
-    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
 class SurfaceReachabilityTests(unittest.TestCase):
@@ -67,7 +64,11 @@ class SurfaceReachabilityTests(unittest.TestCase):
         cls.unwritten = {
             surface.surface_id: unwritten_members(surface, cls.index) for surface in cls.surfaces
         }
-        cls.manifest = _manifest()
+        # ARIA-MEDIUM-128 — the manifest is read by the production reader the
+        # doctor's `deadlines` organ reads it with (`UNWRITTEN_MANIFEST` in
+        # `surface_waivers.WAIVER_MANIFESTS`), so the gate and the organ
+        # parse one file one way and cannot disagree about a date.
+        cls.manifest = load_waiver_manifest(REPO_ROOT, UNWRITTEN_MANIFEST)
 
     def test_the_surfaces_still_describe_real_closed_vocabularies(self) -> None:
         # If a refactor emptied one of the imported sets, every later
@@ -144,30 +145,26 @@ class SurfaceReachabilityTests(unittest.TestCase):
         )
 
     def test_every_waiver_names_an_owner_a_reason_a_deadline_and_a_finding(self) -> None:
-        for surface_id, entries in sorted(self.manifest.items()):
-            for member, entry in sorted(entries.items()):
-                with self.subTest(surface=surface_id, member=member):
-                    for field in REQUIRED_WAIVER_FIELDS:
-                        self.assertTrue(
-                            str(entry.get(field, "")).strip(),
-                            f"waiver for {surface_id}.{member} is missing {field}",
-                        )
-                    # Without an ID nothing gets worked — which is how
-                    # twenty-five TypeScript waivers reached one shared expiry.
-                    self.assertRegex(
-                        entry["finding_id"], r"^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$"
+        for key, entry in iter_waivers(self.manifest, UNWRITTEN_MANIFEST):
+            with self.subTest(waiver=key):
+                for field in REQUIRED_WAIVER_FIELDS:
+                    self.assertTrue(
+                        str(entry.get(field, "")).strip(),
+                        f"waiver for {key} is missing {field}",
                     )
+                # Without an ID nothing gets worked — which is how
+                # twenty-five TypeScript waivers reached one shared expiry.
+                self.assertRegex(
+                    entry["finding_id"], r"^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$"
+                )
 
     def test_a_waiver_expires_against_the_clock_not_against_a_regex(self) -> None:
         # THE LESSON. `invariant-reachability.spec.ts` checked this field's
         # shape and not its value; every waiver was a month stale and green.
-        today = date.today()
-        expired = [
-            f"{surface_id}.{member} (expired {entry['expires_on']}, {entry['finding_id']})"
-            for surface_id, entries in sorted(self.manifest.items())
-            for member, entry in sorted(entries.items())
-            if date.fromisoformat(entry["expires_on"]) < today
-        ]
+        # The predicate is `surface_waivers.lapsed_waivers` — the one the
+        # doctor announces seven days ahead of (ARIA-MEDIUM-128); the gate
+        # that fires here and the organ that warns before it read one clock.
+        expired = lapsed_waivers(self.manifest, UNWRITTEN_MANIFEST)
         self.assertEqual(expired, [], "waiver(s) past their deadline: " + ", ".join(expired))
 
     def test_a_waiver_for_a_member_that_is_now_written_must_be_removed(self) -> None:

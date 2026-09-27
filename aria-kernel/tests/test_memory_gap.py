@@ -145,7 +145,28 @@ class MemoryContinuityTests(unittest.TestCase):
             current=fresh, reference=anchor, reference_kind="daily_anchor"
         )
         self.assertEqual(verdict.status, GAP_CRITICAL)
-        self.assertTrue(any("chain" in reason for reason in verdict.reasons), verdict.reasons)
+        # A fresh probe against a committed anchor is not a broken chain but
+        # a store that was never restored into this workspace; the reason
+        # says so and names the restore.
+        self.assertTrue(
+            any(reason.startswith("state_continuity_store_not_restored:anchor=root-1") for reason in verdict.reasons),
+            verdict.reasons,
+        )
+        self.assertTrue(any("state checkout" in reason for reason in verdict.reasons), verdict.reasons)
+
+    def test_a_probe_naming_another_predecessor_is_a_broken_chain(self) -> None:
+        """A tree that DOES name a predecessor, and not the anchor's, is a fork
+        or a rewrite — that is the chain-broken verdict, kept apart from the
+        never-restored one."""
+        anchor = {"snapshot_id": "s1", "manifest_root": "root-1"}
+        forked = _snapshot("s3", surfaces={"cycles": "a"}, prev_id="s9", prev_root="root-9")
+        verdict = assess_memory_continuity(
+            current=forked, reference=anchor, reference_kind="daily_anchor"
+        )
+        self.assertEqual(verdict.status, GAP_CRITICAL)
+        self.assertIn(
+            "state_continuity_chain_broken:expected_prev=root-1 got_prev=root-9", verdict.reasons,
+        )
 
     def test_a_surfaceless_reference_does_not_claim_surfaces_were_lost(self) -> None:
         """The half it cannot see must not be reported as evidence either way —

@@ -241,6 +241,19 @@ pressure-source invariant.
 ONE parameterised form — the parameter is a tool id validated against the registry's ACTIVE set
 (`scheduler.validate_action`), never text.
 
+Amendment 2026-09-12 (B6): the table exists by construction.
+`gateway.default_schedules.DEFAULT_SCHEDULES` (`doctor`, `self_improve`, `economy`, `deliver`) is
+seeded by the daemon on start (`ensure_default_schedules`, `add` rows with `operator_ref =
+kernel:default_schedules`, recorded once — a seeded store records nothing on restart); every other
+`SCHEDULE_ACTIONS` member is in `OPERATOR_ONLY_ACTIONS` with the reason it must not be seeded (a
+workflow cron, the systemd timer, the tick, the auto-cycle already own that cadence). The partition
+is total (`tests/test_gateway_default_schedules.py`). After seeding the LEDGER is the SSoT: an
+operator's remove is never resurrected, a pause survives restarts, and a cadence drift between code
+and ledger is reported (`gateway_daemon_started.schedules_drift`), never rewritten. The heartbeat
+carries `poll_interval_seconds`; the doctor organ `gateway_heartbeat_fresh` FAILS (not warns) when
+the beat is older than `HEARTBEAT_STALE_AFTER_BEATS` beats of that cadence, or absent while a
+schedule table exists.
+
 ## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
 
 **Decision:** `aria_kernel/data/mcp_registry.json` is the only source of MCP servers an autonomous
@@ -294,6 +307,31 @@ for any surface removed from the list.
 
 **Mitigation:** I-V12-MEM-01..02 (incl. the D4 embedder ranking + degradation test), I-V12-ECON-01,
 I-V12-SELF-01..02.
+
+Amendment 2026-09-12 (B6): the lane is CONNECTED, not only correct in isolation. A
+`self_improvement` mission's pointer `SELF_CHANGE_NEXT_ACTION` is dispatched through
+`mission_dispatch.NEXT_ACTION_CONTRACTS`: the queue drain mints the `aria/self-change-request/v1`
+contract (`self_change_bridge.SELF_CHANGE_MUST_SATISFY` — `details.evidence_paths` / `problem` /
+`proposed_change`, kernel-scope `allowed_scope`) to aria-autonomy-planner; the accepted-result bridge
+(`self_change_bridge.record_self_change_result`, run by `agent_invocations._invoke_bridges_for_result`)
+calls `propose_self_change` with those fields, so `authority_surface_violations` and the HUMAN_REQUIRED
+adjudication fire from the kernel, and then parks the mission in `HUMAN_REQUIRED` (a `WAITING_STATES`
+member `select_next_mission` skips). `propose_self_change` is the accept-time AUTHORITY BOUNDARY and
+judges the mission AS IT IS THEN, with the same discriminator the mint uses
+(`self_improvement.is_self_change_mission`): a terminal, operator-held (`OPERATOR_HELD_STATES`) or
+re-pointed mission, or one with an OPEN `self_change_adjudication`, is refused by name
+(`SELF_CHANGE_MISSION_REFUSALS`, governance `self_change_mission_refused`) BEFORE any write — two
+in-flight requests for one mission are routine, so the stale second answer transitions nothing and
+overwrites no operator's `next_action`. The drain asks a kernel contract once per MISSION while a
+request is in flight (`mission_dispatch.in_flight_mission_request`, governance
+`next_cycle_queue_item_mission_request_in_flight`), not once per queue item. One validator
+(`validate_self_change_response`) serves the executor's pre-submit gate (release
+`self_change_contract_violation`, harness-class) and the bridge. `self_improvement` is a ranked
+`mission_scheduler.SOURCE_RANK` source (below `finding`, above `pressure`). Every `*_NEXT_ACTION`
+constant is in exactly one of `mission_dispatch.NEXT_ACTION_CONTRACTS` (a builder, compared against
+outside the CLI and the table) or `GENERIC_PROJECTION_POINTERS` (a mandatory reason plus a named
+consumer the test runs against a minted mission)
+(`tests/test_self_change_bridge.py::EveryNextActionHasADispatcher`).
 
 ## 18. Security foundations: CRITICAL severity, profile, prerequisite gate (Plan 033 Faz 033a)
 

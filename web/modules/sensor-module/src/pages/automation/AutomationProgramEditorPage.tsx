@@ -12,7 +12,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -22,7 +35,6 @@ import {
   Trash2,
   CheckCircle,
   AlertCircle,
-  Loader2,
   Variable,
   Server,
   Send,
@@ -43,11 +55,23 @@ import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 import { setTags as setEditorTags } from '../../components/unified-editor/StCompletionProvider';
 import SimulationPanel from '../../simulation/SimulationPanel';
 import VariableSyncPanel from '../../components/automation/VariableSyncPanel';
-import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
-import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
+import DeployTargetSelector, {
+  DeployTarget,
+} from '../../components/automation/DeployTargetSelector';
+import {
+  useEdgeDevices,
+  useEdgeDevice,
+  DeviceLifecycleState,
+  getDeviceModelText,
+} from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
-import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
+import {
+  ProgramStatus,
+  ProgramType,
+  getStatusColor,
+  getStatusText,
+} from '../../utils/automation.utils';
 import {
   extractIoVariables,
   analyzeBindings,
@@ -166,7 +190,6 @@ interface ProgramTransition {
   priority?: number;
 }
 
-
 // ============================================================================
 // Components
 // ============================================================================
@@ -185,16 +208,16 @@ const TabButton: React.FC<{
       onClick={disabled ? undefined : onClick}
       className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
         disabled
-          ? 'border-transparent text-gray-500 cursor-not-allowed'
+          ? 'border-transparent text-gray-500 dark:text-gray-400 cursor-not-allowed'
           : active
-            ? 'border-indigo-600 text-indigo-600'
-            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
       }`}
     >
       {icon}
       <span>{label}</span>
       {count !== undefined && (
-        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">
+        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">
           {count}
         </span>
       )}
@@ -211,65 +234,35 @@ const StepCard: React.FC<{
   step: ProgramStep;
   onRemove: () => void;
 }> = ({ step, onRemove }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-4">
+  <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
     <div className="flex items-start justify-between">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-        }`}>
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${
+            step.stepType === 'initial'
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+          }`}
+        >
           {step.stepOrder}
         </div>
         <div>
-          <h4 className="font-medium text-gray-900">{step.stepName}</h4>
+          <h4 className="font-medium text-gray-900 dark:text-gray-100">{step.stepName}</h4>
           {step.description && (
-            <p className="text-sm text-gray-500">{step.description}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{step.description}</p>
           )}
         </div>
       </div>
-      <button
-        onClick={onRemove}
-        className="p-1.5 rounded hover:bg-red-100 text-red-500"
-      >
+      <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={onRemove}>
         <Trash2 className="h-4 w-4" />
-      </button>
+      </Button>
     </div>
     {step.stepType === 'initial' && (
-      <span className="mt-2 inline-block text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
+      <span className="mt-2 inline-block text-xs text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 px-2 py-0.5 rounded">
         Initial Step
       </span>
     )}
   </div>
-);
-
-const VariableRow: React.FC<{
-  variable: ProgramVariable;
-  onRemove: () => void;
-}> = ({ variable, onRemove }) => (
-  <tr className="hover:bg-gray-50">
-    <td className="px-4 py-3 font-mono text-sm">{variable.varName}</td>
-    <td className="px-4 py-3 text-sm">{variable.dataType}</td>
-    <td className="px-4 py-3 text-sm font-mono">{variable.initialValue || '-'}</td>
-    <td className="px-4 py-3 text-sm">{variable.scope}</td>
-    {/* Show bound I/O tag name -- helps operators verify correct physical wiring */}
-    <td className="px-4 py-3 text-sm">
-      {variable.ioTagName ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
-          {variable.ioTagName}
-        </span>
-      ) : (
-        <span className="text-gray-500">-</span>
-      )}
-    </td>
-    <td className="px-4 py-3 text-sm text-gray-500">{variable.description || '-'}</td>
-    <td className="px-4 py-3">
-      <button
-        onClick={onRemove}
-        className="p-1.5 rounded hover:bg-red-100 text-red-500"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </td>
-  </tr>
 );
 
 // ============================================================================
@@ -278,9 +271,9 @@ const VariableRow: React.FC<{
 
 /** Direction badge color */
 const directionBadge: Record<string, string> = {
-  input: 'bg-blue-100 text-blue-700',
-  output: 'bg-orange-100 text-orange-700',
-  inout: 'bg-purple-100 text-purple-700',
+  input: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+  output: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+  inout: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
 };
 
 const directionLabel: Record<string, string> = {
@@ -291,9 +284,9 @@ const directionLabel: Record<string, string> = {
 
 /** Status badge styling */
 const statusBadgeStyle: Record<string, string> = {
-  bound: 'bg-green-100 text-green-700',
-  unbound: 'bg-red-100 text-red-700',
-  mismatch: 'bg-yellow-100 text-yellow-700',
+  bound: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+  unbound: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+  mismatch: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
 };
 
 const statusLabel: Record<string, string> = {
@@ -313,12 +306,12 @@ const IoTagAnalysisPanel: React.FC<{
 
   if (ioVariables.length === 0 && parseErrors.length === 0) {
     return (
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-        <div className="flex items-center gap-2 text-gray-500 text-sm">
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
           <Unlink className="h-4 w-4" />
           <span>
-            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code.
-            I/O variables are required for binding to physical device tags.
+            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code. I/O variables are
+            required for binding to physical device tags.
           </span>
         </div>
       </div>
@@ -329,42 +322,98 @@ const IoTagAnalysisPanel: React.FC<{
   const mismatchCount = bindings.filter((b) => b.status === 'mismatch').length;
   const boundCount = bindings.filter((b) => b.status === 'bound').length;
 
+  const ioVariableWithBindingColumns: DataTableColumn<IoVariableWithBinding>[] = [
+    {
+      key: 'variable',
+      header: 'Variable',
+      render: (_value, b) => b.name,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, b) => b.dataType,
+    },
+    {
+      key: 'direction',
+      header: 'Direction',
+      render: (_value, b) => (
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+        >
+          {directionLabel[b.direction] || b.direction}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, b) => (
+        <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeStyle[b.status]}`}>
+          {statusLabel[b.status]}
+        </span>
+      ),
+    },
+    {
+      key: 'boundTag',
+      header: 'Bound Tag',
+      render: (_value, b) => (
+        <>
+          {b.boundTagName ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 text-xs font-mono">
+              <Link2 className="h-3 w-3" />
+              {b.boundTagName}
+            </span>
+          ) : (
+            <span className="text-gray-500 dark:text-gray-400 text-xs">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'line',
+      header: 'Line',
+      render: (_value, b) => <>L{b.line}</>,
+    },
+  ];
+
   return (
     <div className="space-y-3">
       {/* Summary bar */}
-      <div className="bg-white rounded-lg border border-gray-200 p-3">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-indigo-600" />
-            <span className="text-sm font-medium text-gray-700">
+            <Zap className="h-4 w-4 text-primary-600 dark:text-primary-400" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               I/O Tag Analysis
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
               {inputCount} Input
             </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 text-orange-700">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
               {outputCount} Output
             </span>
             {inoutCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
                 {inoutCount} In/Out
               </span>
             )}
-            <span className="mx-1 text-gray-500">|</span>
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+            <span className="mx-1 text-gray-500 dark:text-gray-400">|</span>
+            <span
+              className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}
+            >
               <Link2 className="h-3 w-3" />
               {boundCount} Bound
             </span>
             {unboundCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 text-red-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300">
                 <Unlink className="h-3 w-3" />
                 {unboundCount} Unbound
               </span>
             )}
             {mismatchCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-50 text-yellow-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                 <AlertCircle className="h-3 w-3" />
                 {mismatchCount} Mismatched
               </span>
@@ -375,10 +424,10 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Parse errors */}
       {parseErrors.length > 0 && (
-        <div className="bg-red-50 rounded-lg border border-red-200 p-3">
+        <div className="bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800 p-3">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 text-error-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-error-700 dark:text-error-300">
               <p className="font-medium mb-1">ST Parse Errors:</p>
               {parseErrors.map((err, i) => (
                 <div key={i} className="text-xs font-mono">
@@ -392,16 +441,16 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Unbound warnings */}
       {unboundCount > 0 && (
-        <div className="bg-amber-50 rounded-lg border border-amber-200 p-3">
+        <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg border border-warning-200 dark:border-warning-800 p-3">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-700">
+            <AlertCircle className="h-4 w-4 text-warning-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-warning-700 dark:text-warning-300">
               <p className="font-medium">
                 {unboundCount} I/O variables are not bound to a physical tag
               </p>
               <p className="text-xs mt-0.5">
-                These variables need to be bound to a device I/O tag to access hardware.
-                You can bind each one to a tag from the Variables tab below.
+                These variables need to be bound to a device I/O tag to access hardware. You can
+                bind each one to a tag from the Variables tab below.
               </p>
             </div>
           </div>
@@ -410,10 +459,10 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Binding suggestions */}
       {suggestions.length > 0 && hasDevice && (
-        <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-3">
+        <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-200 dark:border-primary-800 p-3">
           <div className="flex items-start gap-2 mb-2">
-            <Zap className="h-4 w-4 text-indigo-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-indigo-700 font-medium">
+            <Zap className="h-4 w-4 text-primary-600 dark:text-primary-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-primary-700 dark:text-primary-300 font-medium">
               Auto-Binding Suggestions
             </div>
           </div>
@@ -421,29 +470,42 @@ const IoTagAnalysisPanel: React.FC<{
             {suggestions.map((s) => (
               <div
                 key={s.variableName}
-                className="flex items-center justify-between bg-white rounded px-3 py-1.5 border border-indigo-100"
+                className="flex items-center justify-between bg-white dark:bg-gray-900 rounded px-3 py-1.5 border border-primary-100"
               >
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-mono font-medium text-gray-900">{s.variableName}</span>
-                  <span className="text-gray-500">&#8594;</span>
-                  <span className="font-mono text-indigo-700">{s.suggestedTag.tagName}</span>
-                  <span className="text-gray-500">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
+                  <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                    {s.variableName}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">&#8594;</span>
+                  <span className="font-mono text-primary-700 dark:text-primary-300">
+                    {s.suggestedTag.tagName}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    ({s.suggestedTag.ioType} {s.suggestedTag.dataType})
+                  </span>
                   {s.matchType === 'exact' && (
-                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">Exact Match</span>
+                    <span className="px-1.5 py-0.5 rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-[10px]">
+                      Exact Match
+                    </span>
                   )}
                   {s.matchType === 'normalized' && (
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">Similar</span>
+                    <span className="px-1.5 py-0.5 rounded bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-[10px]">
+                      Similar
+                    </span>
                   )}
                   {s.matchType === 'partial' && (
-                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]">Partial</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px]">
+                      Partial
+                    </span>
                   )}
                 </div>
-                <button
+                <Button
+                  variant="primary"
+                  size="xs"
                   onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}
-                  className="px-2 py-0.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   Apply
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -451,61 +513,33 @@ const IoTagAnalysisPanel: React.FC<{
       )}
 
       {/* I/O variable binding table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Variable</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Direction</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Bound Tag</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Line</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {bindings.map((b) => (
-              <tr key={`${b.name}-${b.line}`} className="hover:bg-gray-50">
-                <td className="px-4 py-2 font-mono text-sm text-gray-900">{b.name}</td>
-                <td className="px-4 py-2 text-xs text-gray-600">{b.dataType}</td>
-                <td className="px-4 py-2">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}>
-                    {directionLabel[b.direction] || b.direction}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeStyle[b.status]}`}>
-                    {statusLabel[b.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  {b.boundTagName ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
-                      <Link2 className="h-3 w-3" />
-                      {b.boundTagName}
-                    </span>
-                  ) : (
-                    <span className="text-gray-500 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-xs text-gray-500 font-mono">L{b.line}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<IoVariableWithBinding>
+        data={bindings}
+        columns={ioVariableWithBindingColumns}
+        keyExtractor={(b) => `${b.name}-${b.line}`}
+        emptyMessage="No I/O variables"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        compact
+      />
 
       {/* Warnings list */}
       {bindings.some((b) => b.warning) && (
         <div className="space-y-1">
-          {bindings.filter((b) => b.warning).map((b) => (
-            <div key={`warn-${b.name}-${b.line}`} className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5">
-              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-              <span>
-                <span className="font-mono font-medium">{b.name}</span>: {b.warning}
-              </span>
-            </div>
-          ))}
+          {bindings
+            .filter((b) => b.warning)
+            .map((b) => (
+              <div
+                key={`warn-${b.name}-${b.line}`}
+                className="flex items-start gap-2 text-xs text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 rounded px-3 py-1.5"
+              >
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-mono font-medium">{b.name}</span>: {b.warning}
+                </span>
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -524,7 +558,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<
+    'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'
+  >('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
@@ -541,17 +577,38 @@ const AutomationProgramEditorPage: React.FC = () => {
   }>({});
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
-  const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
+  const [newStep, setNewStep] = useState({
+    stepName: '',
+    stepCode: '',
+    stepOrder: 1,
+    stepType: 'normal',
+  });
   // Variable form state -- ioTagName/ioConfigId are only populated when scope is INPUT/OUTPUT/IN_OUT
-  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+  const [newVariable, setNewVariable] = useState({
+    varName: '',
+    dataType: 'BOOL',
+    initialValue: '',
+    scope: 'LOCAL',
+    ioTagName: '',
+    ioConfigId: '',
+  });
   // Tracks which device the user selected in the I/O picker (separate from deploy device)
   const [ioDeviceId, setIoDeviceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<{ added: number; removed: number; updated: number; unchanged: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    added: number;
+    removed: number;
+    updated: number;
+    unchanged: number;
+  } | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const closeRejectModal = (): void => {
+    setShowRejectModal(false);
+    setRejectReason('');
+  };
   const [showAddTransition, setShowAddTransition] = useState(false);
   const [newTransition, setNewTransition] = useState({
     transitionCode: '',
@@ -601,7 +658,9 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: io.description,
       })),
     );
-    return () => { setEditorTags([]); };
+    return () => {
+      setEditorTags([]);
+    };
   }, [ioDeviceId, ioTags]);
 
   // Query
@@ -660,7 +719,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       showSuccess('Program created successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      });
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`, { replace: true });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to create program'),
@@ -671,7 +732,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
       showSuccess('Program updated successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to save program'),
   });
@@ -680,7 +743,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW_MUTATION, { id: programId }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to submit for review'),
   });
@@ -690,9 +755,16 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_STEP_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddStep(false);
-      setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
+      setNewStep({
+        stepName: '',
+        stepCode: '',
+        stepOrder: (data?.programSteps?.length ?? 0) + 1,
+        stepType: 'normal',
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add step'),
   });
@@ -701,7 +773,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_STEP_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete step'),
   });
@@ -711,9 +785,18 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_VARIABLE_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddVariable(false);
-      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+      setNewVariable({
+        varName: '',
+        dataType: 'BOOL',
+        initialValue: '',
+        scope: 'LOCAL',
+        ioTagName: '',
+        ioConfigId: '',
+      });
       setIoDeviceId('');
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add variable'),
@@ -723,21 +806,32 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete variable'),
   });
 
   const syncVariablesMutation = useMutation({
-    mutationFn: (input: { programId: string; variables: { varName: string; dataType: string; initialValue?: string; scope: string }[] }) =>
-      graphqlFetch<{ syncProgramVariables: { added: number; removed: number; updated: number; unchanged: number } }>(
-        SYNC_PROGRAM_VARIABLES_MUTATION,
-        { input },
-      ),
+    mutationFn: (input: {
+      programId: string;
+      variables: { varName: string; dataType: string; initialValue?: string; scope: string }[];
+    }) =>
+      graphqlFetch<{
+        syncProgramVariables: {
+          added: number;
+          removed: number;
+          updated: number;
+          unchanged: number;
+        };
+      }>(SYNC_PROGRAM_VARIABLES_MUTATION, { input }),
     onSuccess: (result) => {
       setErrorMessage(null);
       setSyncResult(result.syncProgramVariables);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       // Auto-clear sync result after 5 seconds
       setTimeout(() => setSyncResult(null), 5000);
     },
@@ -746,17 +840,23 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const deployMutation = useMutation({
     mutationFn: (input: { programId: string; deviceId: string }) =>
-      graphqlFetch<{ deployProgram: { success: boolean; programId: string; deviceId: string; error?: string } }>(
-        DEPLOY_PROGRAM_MUTATION,
-        { input },
-      ),
+      graphqlFetch<{
+        deployProgram: { success: boolean; programId: string; deviceId: string; error?: string };
+      }>(DEPLOY_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       if (result.deployProgram.success) {
         showSuccess('Deployment started successfully');
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory') });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory'),
+        });
       } else {
-        handleMutationError(new Error(result.deployProgram.error || 'Unknown error'), 'Deployment failed');
+        handleMutationError(
+          new Error(result.deployProgram.error || 'Unknown error'),
+          'Deployment failed',
+        );
       }
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to start deployment'),
@@ -766,18 +866,23 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
     onSuccess: () => {
       showSuccess('Program approved');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to approve program'),
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string) => graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
+    mutationFn: (reason: string) =>
+      graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
     onSuccess: () => {
       showSuccess('Program rejected');
       setShowRejectModal(false);
       setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to reject program'),
   });
@@ -787,9 +892,17 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_TRANSITION_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddTransition(false);
-      setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
+      setNewTransition({
+        transitionCode: '',
+        fromStepId: '',
+        toStepId: '',
+        conditionExpression: '',
+        priority: 1,
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add transition'),
   });
@@ -798,7 +911,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_TRANSITION_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete transition'),
   });
@@ -807,10 +922,15 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { data: deploymentHistoryData } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'deploymentHistory', selectedDeviceId),
     queryFn: () =>
-      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasNextPage: boolean; hasPreviousPage: boolean; totalPages: number } }>(
-        DEPLOYMENT_HISTORY_QUERY,
-        { deviceId: selectedDeviceId, page: 1, limit: 10 },
-      ),
+      graphqlFetch<{
+        deploymentHistory: {
+          items: DeploymentRecord[];
+          total: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
+          totalPages: number;
+        };
+      }>(DEPLOYMENT_HISTORY_QUERY, { deviceId: selectedDeviceId, page: 1, limit: 10 }),
     enabled: !isNew && !!selectedDeviceId && activeTab === 'deploy',
   });
   const deploymentHistory = deploymentHistoryData?.deploymentHistory?.items ?? [];
@@ -900,7 +1020,13 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   const handleAddTransition = () => {
-    if (!isNew && programId && newTransition.fromStepId && newTransition.toStepId && newTransition.conditionExpression) {
+    if (
+      !isNew &&
+      programId &&
+      newTransition.fromStepId &&
+      newTransition.toStepId &&
+      newTransition.conditionExpression
+    ) {
       addTransitionMutation.mutate({ ...newTransition, programId });
     }
   };
@@ -911,10 +1037,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const transitions = data?.programTransitions || [];
 
   // ── I/O Tag Analysis ──────────────────────────────────────────────────
-  const tagAnalysis: TagExtractionResult = useMemo(
-    () => extractIoVariables(stCode),
-    [stCode],
-  );
+  const tagAnalysis: TagExtractionResult = useMemo(() => extractIoVariables(stCode), [stCode]);
 
   const ioBindings: IoVariableWithBinding[] = useMemo(
     () => analyzeBindings(tagAnalysis.ioVariables, variables),
@@ -932,10 +1055,11 @@ const AutomationProgramEditorPage: React.FC = () => {
   }, [ioTags]);
 
   const unboundVars = useMemo(
-    () => tagAnalysis.ioVariables.filter((v) => {
-      const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
-      return binding && binding.status !== 'bound';
-    }),
+    () =>
+      tagAnalysis.ioVariables.filter((v) => {
+        const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
+        return binding && binding.status !== 'bound';
+      }),
     [tagAnalysis.ioVariables, ioBindings],
   );
 
@@ -946,12 +1070,16 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const handleApplySuggestion = (variableName: string, tag: DeviceTag) => {
     if (!programId || isNew) return;
-    const existingVar = variables.find((v) => v.varName.toLowerCase() === variableName.toLowerCase());
+    const existingVar = variables.find(
+      (v) => v.varName.toLowerCase() === variableName.toLowerCase(),
+    );
     const extracted = tagAnalysis.ioVariables.find((v) => v.name === variableName);
     if (!extracted) return;
 
     if (existingVar) {
-      setSuccessMessage(`Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`);
+      setSuccessMessage(
+        `Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`,
+      );
     } else {
       const scopeMap: Record<string, string> = { input: 'INPUT', output: 'OUTPUT', inout: 'INOUT' };
       const scope = scopeMap[extracted.direction] || 'INPUT';
@@ -989,7 +1117,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   // Bulk sync all detected variables with the backend in a single call
-  const handleSyncAllVariables = (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => {
+  const handleSyncAllVariables = (
+    variables: { varName: string; dataType: string; initialValue?: string; scope: string }[],
+  ) => {
     if (!isNew && programId) {
       const sanitized = variables.map((v) => ({
         varName: v.varName,
@@ -1004,167 +1134,284 @@ const AutomationProgramEditorPage: React.FC = () => {
   if (!isNew && isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
+
+  const deploymentRecordColumns: DataTableColumn<DeploymentRecord>[] = [
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, dep) => {
+        const statusBadge: Record<string, string> = {
+          success: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+          failed: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+          pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+          in_progress: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+          rolled_back: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
+        };
+        return (
+          <span
+            className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+          >
+            {dep.status}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (_value, dep) => <>v{dep.version}</>,
+    },
+    {
+      key: 'deployedBy',
+      header: 'Deployed By',
+      render: (_value, dep) => dep.deployedBy,
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, dep) => new Date(dep.deployedAt).toLocaleString('en-US'),
+    },
+    {
+      key: 'commandId',
+      header: 'Command ID',
+      render: (_value, dep) => dep.commandId || '-',
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, dep, idx) => (
+        <>
+          {idx === 0 && dep.status === 'success' && (
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Undo2 className="h-3 w-3" />}
+              title="Roll back to this version"
+            >
+              Rollback
+            </Button>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  const variableColumns: DataTableColumn<ProgramVariable>[] = [
+    {
+      key: 'varName',
+      header: 'Name',
+      render: (_value, variable) => <span className="font-mono">{variable.varName}</span>,
+    },
+    { key: 'dataType', header: 'Type' },
+    {
+      key: 'initialValue',
+      header: 'Value',
+      render: (_value, variable) => (
+        <span className="font-mono">{variable.initialValue || '-'}</span>
+      ),
+    },
+    { key: 'scope', header: 'Scope' },
+    {
+      key: 'ioTagName',
+      header: 'I/O Tag',
+      // Show bound I/O tag name -- helps operators verify correct physical wiring
+      render: (_value, variable) =>
+        variable.ioTagName ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 text-xs font-mono">
+            {variable.ioTagName}
+          </span>
+        ) : (
+          <span className="text-gray-500 dark:text-gray-400">-</span>
+        ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, variable) => (
+        <span className="text-gray-500 dark:text-gray-400">{variable.description || '-'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (_value, variable) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Delete"
+          onClick={() => removeVariableMutation.mutate(variable.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {/* Error Toast */}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between" role="alert">
-          <div className="flex items-center gap-2 text-red-700">
+        <div
+          className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center justify-between"
+          role="alert"
+        >
+          <div className="flex items-center gap-2 text-error-700 dark:text-error-300">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{errorMessage}</span>
           </div>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-red-500 hover:text-red-700 text-sm font-medium px-2"
-            aria-label="Dismiss error"
-          >
+          <Button variant="ghost" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">
             Close
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Success Toast */}
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between" role="status">
-          <div className="flex items-center gap-2 text-green-700">
+        <div
+          className="mb-4 p-3 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg flex items-center justify-between"
+          role="status"
+        >
+          <div className="flex items-center gap-2 text-success-700 dark:text-success-300">
             <CheckCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{successMessage}</span>
           </div>
-          <button
+          <Button
+            variant="ghost"
             onClick={() => setSuccessMessage(null)}
-            className="text-green-500 hover:text-green-700 text-sm font-medium px-2"
             aria-label="Dismiss success"
           >
             Close
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Reject Modal */}
       {showRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Reject Program</h3>
-              <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <XCircle className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Enter rejection reason..."
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-                className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
-              >
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Program"
+          showCloseButton={!rejectMutation.isPending}
+          closeOnEscape={!rejectMutation.isPending}
+          closeOnOverlayClick={!rejectMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="secondary" type="button" onClick={closeRejectModal}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
                 onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())}
                 disabled={!rejectReason.trim() || rejectMutation.isPending}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
+                {rejectMutation.isPending ? (
+                  <Spinner size="sm" color="inherit" className="inline mr-1" />
+                ) : null}
                 Reject
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </>
+          }
+        >
+          <Textarea
+            fullWidth
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Enter rejection reason..."
+            rows={4}
+          />
+        </Modal>
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Link
-            to="/sensor/automation"
-            className="p-2 rounded-lg hover:bg-gray-100"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isNew ? 'New Automation Program' : formData.name || 'Program'}
-            </h1>
+      <PageHeader
+        title={isNew ? 'New Automation Program' : formData.name || 'Program'}
+        description={
+          <>
             {program && (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-gray-500 font-mono">{program.programCode}</span>
+              <span className="flex items-center gap-2">
+                <span className="font-mono">{program.programCode}</span>
                 <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(program.status)}`}>
                   {getStatusText(program.status)}
                 </span>
-              </div>
+              </span>
             )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {program?.status === ProgramStatus.DRAFT && (
-            <button
-              onClick={() => submitForReviewMutation.mutate()}
-              disabled={submitForReviewMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
-              <Send className="h-4 w-4" />
-              Submit for Review
-            </button>
-          )}
-          {program?.status === ProgramStatus.PENDING_REVIEW && (
-            <>
-              <button
-                onClick={() => approveMutation.mutate()}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {approveMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle className="h-4 w-4" />
-                )}
-                Approve
-              </button>
-              <button
-                onClick={() => setShowRejectModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-              >
-                <XCircle className="h-4 w-4" />
-                Reject
-              </button>
-            </>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={createMutation.isPending || updateMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          </>
+        }
+        leading={
+          <Link
+            to="/sensor/automation"
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            {(createMutation.isPending || updateMutation.isPending) ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {program?.status === ProgramStatus.DRAFT && (
+              <Button
+                variant="secondary"
+                leftIcon={<Send className="h-4 w-4" />}
+                onClick={() => submitForReviewMutation.mutate()}
+                disabled={submitForReviewMutation.isPending}
+              >
+                Submit for Review
+              </Button>
             )}
-            Save
-          </button>
-        </div>
-      </div>
+            {program?.status === ProgramStatus.PENDING_REVIEW && (
+              <>
+                <Button
+                  variant="primary"
+                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending}
+                >
+                  {approveMutation.isPending ? (
+                    <Spinner size="sm" color="inherit" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" />
+                  )}
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  leftIcon={<XCircle className="h-4 w-4" />}
+                  onClick={() => setShowRejectModal(true)}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+            <Button
+              variant="primary"
+              onClick={handleSave}
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? (
+                <Spinner size="sm" color="inherit" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Save
+            </Button>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Approval/Rejection Info */}
       {program?.approvedBy && (
-        <div className="mb-4 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+        <div className="mb-4 px-3 py-2 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg text-sm text-success-700 dark:text-success-300">
           Approveyan: {program.approvedBy}
         </div>
       )}
       {program?.status === ProgramStatus.DRAFT && !program?.approvedBy && program?.version > 1 && (
-        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="mb-4 px-3 py-2 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-sm text-error-700 dark:text-error-300">
           Program rejected
         </div>
       )}
@@ -1173,14 +1420,22 @@ const AutomationProgramEditorPage: React.FC = () => {
       {program && (
         <div className="mb-6">
           <div className="flex items-center justify-between">
-            {([
-              { key: ProgramStatus.DRAFT, label: 'Draft' },
-              { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
-              { key: ProgramStatus.APPROVED, label: 'Approved' },
-              { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
-              { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
-            ] as const).map((step, index, arr) => {
-              const statusOrder = [ProgramStatus.DRAFT, ProgramStatus.PENDING_REVIEW, ProgramStatus.APPROVED, ProgramStatus.DEPLOYING, ProgramStatus.DEPLOYED];
+            {(
+              [
+                { key: ProgramStatus.DRAFT, label: 'Draft' },
+                { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
+                { key: ProgramStatus.APPROVED, label: 'Approved' },
+                { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
+                { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
+              ] as const
+            ).map((step, index, arr) => {
+              const statusOrder = [
+                ProgramStatus.DRAFT,
+                ProgramStatus.PENDING_REVIEW,
+                ProgramStatus.APPROVED,
+                ProgramStatus.DEPLOYING,
+                ProgramStatus.DEPLOYED,
+              ];
               const currentIndex = statusOrder.indexOf(program.status);
               const stepIndex = statusOrder.indexOf(step.key);
               const isCompleted = stepIndex < currentIndex;
@@ -1192,17 +1447,19 @@ const AutomationProgramEditorPage: React.FC = () => {
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
                         isCompleted
-                          ? 'bg-green-500 text-white'
+                          ? 'bg-success-500 text-white'
                           : isCurrent
-                            ? 'bg-indigo-600 text-white ring-4 ring-indigo-100'
-                            : 'bg-gray-200 text-gray-500'
+                            ? 'bg-primary-600 text-white ring-4 ring-primary-100'
+                            : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {isCompleted ? <CheckCircle className="h-4 w-4" /> : index + 1}
                     </div>
                     <span
                       className={`mt-1 text-xs ${
-                        isCurrent ? 'font-semibold text-indigo-600' : 'text-gray-500'
+                        isCurrent
+                          ? 'font-semibold text-primary-600 dark:text-primary-400'
+                          : 'text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {step.label}
@@ -1211,7 +1468,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   {index < arr.length - 1 && (
                     <div
                       className={`flex-1 h-0.5 mx-1 mt-[-12px] ${
-                        stepIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200'
+                        stepIndex < currentIndex ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'
                       }`}
                     />
                   )}
@@ -1223,7 +1480,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
         <TabButton
           active={activeTab === 'info'}
           onClick={() => setActiveTab('info')}
@@ -1234,9 +1491,11 @@ const AutomationProgramEditorPage: React.FC = () => {
           active={activeTab === 'variables'}
           onClick={() => setActiveTab('variables')}
           icon={
-            ioBindings.some((b) => b.status === 'unbound')
-              ? <AlertCircle className="h-4 w-4 text-amber-500" />
-              : <Variable className="h-4 w-4" />
+            ioBindings.some((b) => b.status === 'unbound') ? (
+              <AlertCircle className="h-4 w-4 text-warning-500" />
+            ) : (
+              <Variable className="h-4 w-4" />
+            )
           }
           label="Variables"
           count={isNew ? undefined : variables.length}
@@ -1267,51 +1526,51 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Info Tab / New Form */}
       {activeTab === 'info' && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="grid grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Code *
               </label>
-              <input
+              <Input
+                fullWidth
                 type="text"
                 value={formData.programCode}
                 onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
                 disabled={!isNew}
                 placeholder="PRG_001"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white disabled:bg-gray-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Name *
               </label>
-              <input
+              <Input
+                fullWidth
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="Feeding Automation"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Type
               </label>
-              <div className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-700">
+              <div className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                 Structured Text (ST)
               </div>
             </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
-              <textarea
+              <Textarea
+                fullWidth
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
                 placeholder="Program description..."
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
               />
             </div>
           </div>
@@ -1320,7 +1579,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Variables Tab */}
       {activeTab === 'variables' && isNew && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
           <Variable className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Save the program first to use this tab.</p>
         </div>
@@ -1352,45 +1611,51 @@ const AutomationProgramEditorPage: React.FC = () => {
           )}
 
           <div className="flex justify-end">
-            <button
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => setShowAddVariable(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
             >
-              <Plus className="h-4 w-4" />
               Add Variable
-            </button>
+            </Button>
           </div>
 
           {showAddVariable && (
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h3 className="font-medium mb-3">New Variable</h3>
-              <div className="grid grid-cols-4 gap-4">
-                <input
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Input
                   type="text"
                   value={newVariable.varName}
                   onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
                   placeholder="Variable name"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
                 />
-                <select
+                <Select
+                  options={[
+                    { value: 'BOOL', label: 'BOOL' },
+                    { value: 'INT', label: 'INT' },
+                    { value: 'REAL', label: 'REAL' },
+                    { value: 'TIME', label: 'TIME' },
+                    { value: 'STRING', label: 'STRING' },
+                  ]}
                   value={newVariable.dataType}
                   onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
-                >
-                  <option value="BOOL">BOOL</option>
-                  <option value="INT">INT</option>
-                  <option value="REAL">REAL</option>
-                  <option value="TIME">TIME</option>
-                  <option value="STRING">STRING</option>
-                </select>
-                <input
+                />
+                <Input
                   type="text"
                   value={newVariable.initialValue}
                   onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })}
                   placeholder="Initial value"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
                 />
-                <select
+                <Select
+                  options={[
+                    { value: 'LOCAL', label: 'LOCAL' },
+                    { value: 'INPUT', label: 'INPUT' },
+                    { value: 'OUTPUT', label: 'OUTPUT' },
+                    { value: 'INOUT', label: 'INOUT' },
+                    { value: 'RETAIN', label: 'RETAIN' },
+                    { value: 'CONSTANT', label: 'CONSTANT' },
+                  ]}
                   value={newVariable.scope}
                   onChange={(e) => {
                     const scope = e.target.value;
@@ -1400,41 +1665,40 @@ const AutomationProgramEditorPage: React.FC = () => {
                       setIoDeviceId('');
                     }
                   }}
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
-                >
-                  <option value="LOCAL">LOCAL</option>
-                  <option value="INPUT">INPUT</option>
-                  <option value="OUTPUT">OUTPUT</option>
-                  <option value="INOUT">INOUT</option>
-                  <option value="RETAIN">RETAIN</option>
-                  <option value="CONSTANT">CONSTANT</option>
-                </select>
+                />
               </div>
               {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}
               {showIoTagPicker && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-blue-700 mb-3">I/O Tag Binding</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="mt-4 p-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg">
+                  <h4 className="text-sm font-medium text-info-700 dark:text-info-300 mb-3">
+                    I/O Tag Binding
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Edge Device</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Edge Device
+                      </label>
                       <select
                         value={ioDeviceId}
                         onChange={(e) => {
                           setIoDeviceId(e.target.value);
                           setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
                         }}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
                       >
                         <option value="">Select device...</option>
                         {allActiveDevices.map((device: EdgeDevice) => (
                           <option key={device.id} value={device.id}>
-                            {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                            {device.deviceName} ({device.deviceCode}) -{' '}
+                            {getDeviceModelText(device.deviceModel)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">I/O Tag</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        I/O Tag
+                      </label>
                       <select
                         value={newVariable.ioConfigId}
                         onChange={(e) => {
@@ -1446,16 +1710,23 @@ const AutomationProgramEditorPage: React.FC = () => {
                               ...newVariable,
                               ioConfigId: selectedTag.id,
                               ioTagName: selectedTag.tagName,
-                              dataType: IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                              dataType:
+                                IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
                             });
                           } else {
                             setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
                           }
                         }}
                         disabled={!ioDeviceId || ioTags.length === 0}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm disabled:bg-gray-100"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
                       >
-                        <option value="">{!ioDeviceId ? 'Select device first...' : ioTags.length === 0 ? 'No I/O tags found' : 'Select tag...'}</option>
+                        <option value="">
+                          {!ioDeviceId
+                            ? 'Select device first...'
+                            : ioTags.length === 0
+                              ? 'No I/O tags found'
+                              : 'Select tag...'}
+                        </option>
                         {ioTags.map((tag) => (
                           <option key={tag.id} value={tag.id}>
                             {tag.tagName} ({tag.ioType} - {tag.dataType})
@@ -1467,96 +1738,82 @@ const AutomationProgramEditorPage: React.FC = () => {
                     </div>
                   </div>
                   {newVariable.ioTagName && (
-                    <div className="mt-2 text-xs text-blue-600">
-                      Bound tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
-                      {' | Data type auto-set: '}<span className="font-medium">{newVariable.dataType}</span>
+                    <div className="mt-2 text-xs text-info-600 dark:text-info-400">
+                      Bound tag:{' '}
+                      <span className="font-mono font-medium">{newVariable.ioTagName}</span>
+                      {' | Data type auto-set: '}
+                      <span className="font-medium">{newVariable.dataType}</span>
                     </div>
                   )}
                 </div>
               )}
               <div className="flex justify-end gap-2 mt-4">
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => {
                     setShowAddVariable(false);
                     setIoDeviceId('');
                   }}
-                  className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
                   onClick={handleAddVariable}
                   disabled={addVariableMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                 >
                   Add
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scope</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">I/O Tag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {variables.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No variables added yet
-                    </td>
-                  </tr>
-                ) : (
-                  variables.map((variable) => (
-                    <VariableRow
-                      key={variable.id}
-                      variable={variable}
-                      onRemove={() => removeVariableMutation.mutate(variable.id)}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ProgramVariable>
+            data={variables}
+            columns={variableColumns}
+            keyExtractor={(variable) => variable.id}
+            emptyMessage="No variables added yet"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 
       {/* Code Tab - ST Editor */}
       {activeTab === 'code' && (
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+        <div className="flex flex-col h-[calc(100vh_-_320px)] min-h-[400px]">
           {/* I/O Tag status bar */}
           {tagAnalysis.ioVariables.length > 0 && (
-            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-t-lg text-xs flex-shrink-0">
-              <span className="flex items-center gap-1 text-gray-600">
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-t-lg text-xs flex-shrink-0">
+              <span className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                 <Zap className="h-3.5 w-3.5" />
                 I/O Variables:
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{tagAnalysis.inputCount} Input</span>
-              <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{tagAnalysis.outputCount} Output</span>
+              <span className="px-1.5 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
+                {tagAnalysis.inputCount} Input
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                {tagAnalysis.outputCount} Output
+              </span>
               {tagAnalysis.inoutCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">{tagAnalysis.inoutCount} In/Out</span>
+                <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                  {tagAnalysis.inoutCount} In/Out
+                </span>
               )}
               {ioBindings.filter((b) => b.status === 'unbound').length > 0 && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                   <AlertCircle className="h-3 w-3" />
                   {ioBindings.filter((b) => b.status === 'unbound').length} unbound tags
                 </span>
               )}
-              {ioBindings.filter((b) => b.status === 'unbound').length === 0 && tagAnalysis.ioVariables.length > 0 && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 text-green-700">
-                  <CheckCircle className="h-3 w-3" />
-                  All tags bound
-                </span>
-              )}
+              {ioBindings.filter((b) => b.status === 'unbound').length === 0 &&
+                tagAnalysis.ioVariables.length > 0 && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300">
+                    <CheckCircle className="h-3 w-3" />
+                    All tags bound
+                  </span>
+                )}
             </div>
           )}
           <StEditorPanel
@@ -1571,14 +1828,14 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Simulation Tab */}
       {activeTab === 'simulation' && (
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+        <div className="flex flex-col h-[calc(100vh_-_320px)] min-h-[400px]">
           <SimulationPanel code={stCode} />
         </div>
       )}
 
       {/* Deploy Tab */}
       {activeTab === 'deploy' && isNew && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
           <Upload className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Save the program first to use this tab.</p>
         </div>
@@ -1586,8 +1843,8 @@ const AutomationProgramEditorPage: React.FC = () => {
       {activeTab === 'deploy' && !isNew && (
         <div className="space-y-6">
           {/* Deploy Target Selection */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
               Target Platform
             </h3>
             <DeployTargetSelector
@@ -1599,75 +1856,78 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {/* Edge Device Selector */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
               Select Edge Device
             </h3>
             {onlineDevices.length === 0 ? (
-              <div className="text-center py-4 text-gray-500 text-sm">
-                <WifiOff className="h-8 w-8 mx-auto text-gray-500 mb-2" />
+              <div className="text-center py-4 text-gray-500 dark:text-gray-400 text-sm">
+                <WifiOff className="h-8 w-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" />
                 No active and online devices found
               </div>
             ) : (
               <select
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               >
                 <option value="">Select device...</option>
                 {onlineDevices.map((device: EdgeDevice) => (
                   <option key={device.id} value={device.id}>
-                    {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                    {device.deviceName} ({device.deviceCode}) -{' '}
+                    {getDeviceModelText(device.deviceModel)}
                     {device.isOnline ? ' [Online]' : ' [Offline]'}
                   </option>
                 ))}
               </select>
             )}
-            {selectedDeviceId && onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
-              <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
-                <Wifi className="h-4 w-4" />
-                <span>
-                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Online
-                </span>
-              </div>
-            )}
+            {selectedDeviceId &&
+              onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-success-600 dark:text-success-400">
+                  <Wifi className="h-4 w-4" />
+                  <span>
+                    {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} -
+                    Online
+                  </span>
+                </div>
+              )}
           </div>
 
           {/* Deploy Action */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="text-center py-4">
-              <Server className="h-12 w-12 mx-auto text-gray-500 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <Server className="h-12 w-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
                 Deploy to Edge Device
               </h3>
-              <p className="text-gray-500 mb-4 text-sm">
+              <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
                 {program?.status === ProgramStatus.APPROVED
                   ? `Will deploy to ${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} target`
                   : 'Program must be approved before deployment'}
               </p>
-              <button
+              <Button
+                variant="primary"
                 onClick={handleDeploy}
                 disabled={
                   program?.status !== ProgramStatus.APPROVED ||
                   !selectedDeviceId ||
                   deployMutation.isPending
                 }
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deployMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
                 Start Deployment
-              </button>
+              </Button>
               {program?.status !== ProgramStatus.APPROVED && (
-                <p className="mt-2 text-xs text-amber-600">
+                <p className="mt-2 text-xs text-warning-600 dark:text-warning-400">
                   Program must be approved for deployment.
                 </p>
               )}
               {program?.status === ProgramStatus.APPROVED && !selectedDeviceId && (
-                <p className="mt-2 text-xs text-amber-600">
+                <p className="mt-2 text-xs text-warning-600 dark:text-warning-400">
                   Please select an edge device.
                 </p>
               )}
@@ -1675,73 +1935,35 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {/* Deployment History */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center gap-2 mb-4">
-              <History className="h-4 w-4 text-gray-500" />
-              <h3 className="text-sm font-medium text-gray-700">
+              <History className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Deployment History
               </h3>
             </div>
             {deploymentHistory.length === 0 ? (
-              <div className="text-center py-6 text-gray-500 text-sm">
+              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">
                 No deployments yet
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Deployed By</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Command ID</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {deploymentHistory.map((dep, idx) => {
-                      const statusBadge: Record<string, string> = {
-                        success: 'bg-green-100 text-green-700',
-                        failed: 'bg-red-100 text-red-700',
-                        pending: 'bg-yellow-100 text-yellow-700',
-                        in_progress: 'bg-blue-100 text-blue-700',
-                        rolled_back: 'bg-gray-100 text-gray-700',
-                      };
-                      return (
-                        <tr key={dep.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2">
-                            <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}>
-                              {dep.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-sm">v{dep.version}</td>
-                          <td className="px-3 py-2 text-sm text-gray-600">{dep.deployedBy}</td>
-                          <td className="px-3 py-2 text-sm text-gray-500">{new Date(dep.deployedAt).toLocaleString('en-US')}</td>
-                          <td className="px-3 py-2 text-xs font-mono text-gray-500">{dep.commandId || '-'}</td>
-                          <td className="px-3 py-2">
-                            {idx === 0 && dep.status === 'success' && (
-                              <button
-                                className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 rounded"
-                                title="Roll back to this version"
-                              >
-                                <Undo2 className="h-3 w-3" />
-                                Rollback
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<DeploymentRecord>
+                data={deploymentHistory}
+                columns={deploymentRecordColumns}
+                keyExtractor={(dep) => dep.id}
+                emptyMessage="No deployments yet"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+                compact
+              />
             )}
-            {deploymentHistory.length > 0 && deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
-              <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
-                Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
-              </div>
-            )}
+            {deploymentHistory.length > 0 &&
+              deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
+                <div className="mt-3 p-2 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded text-sm text-error-600 dark:text-error-400">
+                  Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
+                </div>
+              )}
           </div>
         </div>
       )}

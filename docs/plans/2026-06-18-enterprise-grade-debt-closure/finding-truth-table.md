@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `ec4b6924b9d36bff2b64f963918fa9dbdef29f1d6d29162b3613bed7c3be635e`
+Registry tip: `a26ffc6f15646f70f20b0c4670588e6ea630ca9fd695dbe406be5045fc4bb0cf`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -230,7 +230,6 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-007`   | OPEN           | Task 10      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
@@ -246,6 +245,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ORPHAN-CRITICAL-810` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -372,6 +372,34 @@ Allowed truth buckets:
   ticket and support-messaging tables beside the auth/messaging authorities; the RC chain's support-silo
   consolidation was not re-derived. Real open work, owner admin-expert, deadline 2026-10-15
   (`docs/reviews/admin-expert/2026-09-04-admin-panel-rc1-integration.md`).
+- `ORPHAN-CRITICAL-810` (2026-09-05, registered by the messaging-fix-1 line and carried onto main by
+  PR #1586): the live `aqua-postgres` container was created from the base TimescaleDB image with a
+  bind-mounted checkout entrypoint, while the declared release uses the custom
+  `Dockerfile.postgres-walg` image, root bootstrap, exact certificate mounts and runtime tmpfs — a
+  restart replays an entrypoint from one release contract into a container from another. Real open
+  work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
+  `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
+
+- `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
+  the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected
+  billing service, farm-service's re-provided day-plan recalculation plus a `Pick<>`-typed handler
+  dependency, and gateway-api's `useClass` limiter plus a root-scoped revocation store each kept a
+  service from booting; all four are fixed in the cycle that registered them, with a per-service
+  DI-graph spec, two Nest DI invariants and the boot-path ACL smoke as gates. The rows stay OPEN
+  until the post-merge close ceremony records the main-reachable closing commit
+  (`docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md`).
+
+- `PLAT-CRITICAL-918` (2026-09-20, the boot-path outage's last blocker): the event bus registered
+  durable consumers with the v3 client's create-only action, so every subscriber died on the first
+  deploy after a consumer field changed; fixed in the cycle that registered it (create, then update
+  in place on "consumer already exists"), unit-pinned and verified against nats:2.10.24. The row
+  stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
+
+- `FARM-CRITICAL-332` (2026-09-20, the boot-path outage, sixth blocker): three farm source-schema
+  tables recorded as migrated were missing (cause not established, DATA-HIGH-018), so the drift
+  validator refused farm-service's cold start; two new
+  migrations recreate them idempotently, proven against a Postgres shaped like production. The row
+  stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.
@@ -834,3 +862,24 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `SENSOR-CRITICAL-111`: registry state is `RESOLVED` with closing commit
   `339dc644e`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `ARIA-CRITICAL-007`: registry state is `RESOLVED` with closing commit
+  `be7eb53e4`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SENSOR-CRITICAL-127`: registry state is `RESOLVED` with closing commit
+  `9c0341f16`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `BILLING-CRITICAL-019`: registry state is `RESOLVED` with closing commit
+  `9c0341f16`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-331`: registry state is `RESOLVED` with closing commit
+  `0ef5dcea7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SEC-CRITICAL-169`: registry state is `RESOLVED` with closing commit
+  `0ef5dcea7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `PLAT-CRITICAL-918`: registry state is `RESOLVED` with closing commit
+  `a571ac03b`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-332`: registry state is `RESOLVED` with closing commit
+  `dd8fec13f`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

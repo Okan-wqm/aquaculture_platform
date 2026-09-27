@@ -15,7 +15,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/api/messaging';
 import type {
@@ -25,6 +32,7 @@ import type {
   RetentionBucket,
   DailyAuditData,
 } from '../../services/api/messaging';
+import { CircleCheck, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // Empty-state defaults (used before first API response)
@@ -51,11 +59,14 @@ const StatCard: React.FC<{
   color?: 'blue' | 'green' | 'yellow' | 'red' | 'purple';
 }> = ({ title, value, subtitle, color = 'blue' }) => {
   const colorMap = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+    blue: 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800',
+    green:
+      'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800',
+    yellow:
+      'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800',
+    red: 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800',
+    purple:
+      'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800',
   };
 
   return (
@@ -74,7 +85,9 @@ const StatCard: React.FC<{
 const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
   <span
     className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-      active ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'
+      active
+        ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
     }`}
   >
     {active ? 'ACTIVE' : 'RELEASED'}
@@ -83,12 +96,14 @@ const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
 
 const ExportStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const map: Record<string, string> = {
-    completed: 'bg-green-100 text-green-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    failed: 'bg-red-100 text-red-800',
+    completed: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+    pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    failed: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   };
   return (
-    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${map[status] ?? 'bg-gray-100 text-gray-800'}`}>
+    <span
+      className={`px-2 py-0.5 text-xs font-semibold rounded-full ${map[status] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+    >
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -104,7 +119,10 @@ const AuditOperationsChart: React.FC<{ data: DailyAuditData[]; height?: number }
 }) => {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>
+      <div
+        className="flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm"
+        style={{ height }}
+      >
         No audit data available
       </div>
     );
@@ -112,7 +130,11 @@ const AuditOperationsChart: React.FC<{ data: DailyAuditData[]; height?: number }
   const maxVal = Math.max(...data.map((d) => d.count), 1);
   const barWidth = Math.max(12, Math.floor(400 / data.length) - 4);
   return (
-    <svg viewBox={`0 0 ${data.length * (barWidth + 4)} ${height}`} className="w-full" style={{ height }}>
+    <svg
+      viewBox={`0 0 ${data.length * (barWidth + 4)} ${height}`}
+      className="w-full"
+      style={{ height }}
+    >
       {data.map((d, i) => {
         const barHeight = (d.count / maxVal) * (height - 20);
         return (
@@ -123,7 +145,7 @@ const AuditOperationsChart: React.FC<{ data: DailyAuditData[]; height?: number }
               width={barWidth}
               height={barHeight}
               rx={3}
-              className="fill-indigo-500"
+              className="fill-primary-500"
             />
             <text
               x={i * (barWidth + 4) + barWidth / 2}
@@ -150,7 +172,7 @@ const RetentionChart: React.FC<{ buckets: RetentionBucket[] }> = ({ buckets }) =
 
   if (buckets.every((b) => b.tenantCount === 0)) {
     return (
-      <div className="flex items-center justify-center text-gray-400 text-sm py-8">
+      <div className="flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm py-8">
         No retention data available
       </div>
     );
@@ -160,14 +182,16 @@ const RetentionChart: React.FC<{ buckets: RetentionBucket[] }> = ({ buckets }) =
     <div className="space-y-3">
       {buckets.map((bucket) => (
         <div key={bucket.label} className="flex items-center gap-3">
-          <span className="text-xs text-gray-600 w-20 text-right">{bucket.label}</span>
-          <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+          <span className="text-xs text-gray-600 dark:text-gray-400 w-20 text-right">
+            {bucket.label}
+          </span>
+          <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-5 overflow-hidden">
             <div
               className={`h-full rounded-full ${bucket.color} transition-all duration-500`}
               style={{ width: `${(bucket.tenantCount / maxCount) * 100}%` }}
             />
           </div>
-          <span className="text-xs text-gray-500 w-8">{bucket.tenantCount}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 w-8">{bucket.tenantCount}</span>
         </div>
       ))}
     </div>
@@ -183,17 +207,15 @@ const ErrorBanner: React.FC<{
   onRetry?: () => void;
   canRetry?: boolean;
 }> = ({ message, onRetry, canRetry }) => (
-  <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between">
+  <div className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 p-4 flex items-center justify-between">
     <div className="flex items-center gap-2">
-      <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z" />
-      </svg>
-      <p className="text-sm text-red-700">{message}</p>
+      <TriangleAlert className="w-5 h-5 text-error-500 flex-shrink-0" aria-hidden="true" />
+      <p className="text-sm text-error-700 dark:text-error-300">{message}</p>
     </div>
     {canRetry && onRetry && (
       <button
         onClick={onRetry}
-        className="text-xs px-3 py-1 rounded font-medium text-red-600 hover:bg-red-100"
+        className="text-xs px-3 py-1 rounded font-medium text-error-600 dark:text-error-400 hover:bg-error-100 dark:hover:bg-error-900/50"
       >
         Retry
       </button>
@@ -211,16 +233,16 @@ const MessagingCompliancePage: React.FC = () => {
   const [mutationError, setMutationError] = useState<string | null>(null);
 
   // ── Compliance Stats ──
-  const statsQuery = useAsyncData<ComplianceStats>(
-    () => messagingApi.getComplianceStats(),
-    { cacheKey: 'messaging-compliance-stats', cacheTTL: 15_000 },
-  );
+  const statsQuery = useAsyncData<ComplianceStats>(() => messagingApi.getComplianceStats(), {
+    cacheKey: 'messaging-compliance-stats',
+    cacheTTL: 15_000,
+  });
 
   // ── Legal Holds ──
-  const holdsQuery = useAsyncData<LegalHold[]>(
-    () => messagingApi.getLegalHolds(),
-    { cacheKey: 'messaging-compliance-legal-holds', cacheTTL: 15_000 },
-  );
+  const holdsQuery = useAsyncData<LegalHold[]>(() => messagingApi.getLegalHolds(), {
+    cacheKey: 'messaging-compliance-legal-holds',
+    cacheTTL: 15_000,
+  });
 
   const stats = statsQuery.data ?? EMPTY_STATS;
   const legalHolds = holdsQuery.data ?? [];
@@ -230,10 +252,10 @@ const MessagingCompliancePage: React.FC = () => {
   // the messaging-service exposes the corresponding aggregation queries.
   const exports: ExportRecord[] = [];
   const retentionBuckets: RetentionBucket[] = [
-    { label: '90 days', tenantCount: 0, color: 'bg-blue-500' },
-    { label: '1 year', tenantCount: 0, color: 'bg-green-500' },
-    { label: '3 years', tenantCount: 0, color: 'bg-yellow-500' },
-    { label: 'Indefinite', tenantCount: 0, color: 'bg-purple-500' },
+    { label: '90 days', tenantCount: 0, color: 'bg-info-500' },
+    { label: '1 year', tenantCount: 0, color: 'bg-success-500' },
+    { label: '3 years', tenantCount: 0, color: 'bg-warning-500' },
+    { label: 'Indefinite', tenantCount: 0, color: 'bg-accent-500' },
   ];
   const dailyAudit: DailyAuditData[] = [];
 
@@ -248,49 +270,168 @@ const MessagingCompliancePage: React.FC = () => {
   }, [statsQuery, holdsQuery]);
 
   /** Release an active legal hold via DELETE endpoint, then refresh. */
-  const handleReleaseLegalHold = useCallback(async (holdId: string, tenantId: string): Promise<void> => {
-    setReleaseLoading(holdId);
-    setMutationError(null);
-    try {
-      await messagingApi.releaseLegalHold(holdId, tenantId);
-      // Refresh both stats and holds to reflect the release
-      await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to release legal hold';
-      setMutationError(message);
-    } finally {
-      setReleaseLoading(null);
-    }
-  }, [statsQuery, holdsQuery]);
+  const handleReleaseLegalHold = useCallback(
+    async (holdId: string, tenantId: string): Promise<void> => {
+      setReleaseLoading(holdId);
+      setMutationError(null);
+      try {
+        await messagingApi.releaseLegalHold(holdId, tenantId);
+        // Refresh both stats and holds to reflect the release
+        await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to release legal hold';
+        setMutationError(message);
+      } finally {
+        setReleaseLoading(null);
+      }
+    },
+    [statsQuery, holdsQuery],
+  );
 
-  const handleDownloadExport = useCallback((exportId: string) => {
-    const exportRecord = exports.find((e) => e.id === exportId);
-    if (exportRecord?.downloadUrl) {
-      window.open(exportRecord.downloadUrl, '_blank', 'noopener,noreferrer');
-    }
-  }, [exports]);
+  const handleDownloadExport = useCallback(
+    (exportId: string) => {
+      const exportRecord = exports.find((e) => e.id === exportId);
+      if (exportRecord?.downloadUrl) {
+        window.open(exportRecord.downloadUrl, '_blank', 'noopener,noreferrer');
+      }
+    },
+    [exports],
+  );
 
-  const scoreColor = stats.complianceScore >= 90 ? 'green' : stats.complianceScore >= 70 ? 'yellow' : 'red';
+  const scoreColor =
+    stats.complianceScore >= 90 ? 'green' : stats.complianceScore >= 70 ? 'yellow' : 'red';
+
+  const exportRecordColumns: DataTableColumn<ExportRecord>[] = [
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, exp) => exp.tenantName,
+    },
+    {
+      key: 'format',
+      header: 'Format',
+      render: (_value, exp) => exp.format,
+    },
+    {
+      key: 'records',
+      header: 'Records',
+      align: 'right',
+      render: (_value, exp) => exp.recordCount.toLocaleString(),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      render: (_value, exp) => <ExportStatusBadge status={exp.status} />,
+    },
+    {
+      key: 'legalHold',
+      header: 'Legal Hold',
+      align: 'center',
+      render: (_value, exp) => (
+        <>
+          {exp.isUnderLegalHold && (
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
+              HOLD
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'exported',
+      header: 'Exported',
+      align: 'right',
+      render: (_value, exp) => new Date(exp.createdAt).toLocaleString(),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, exp) => (
+        <>
+          {exp.status === 'completed' && exp.downloadUrl && (
+            <button
+              onClick={() => handleDownloadExport(exp.id)}
+              className="text-xs px-2 py-1 rounded font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/30"
+            >
+              Download
+            </button>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  const legalHoldColumns: DataTableColumn<LegalHold>[] = [
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, hold) => <HoldStatusBadge active={hold.isActive} />,
+    },
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, hold) => hold.tenantName,
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      render: (_value, hold) => hold.channelName ?? 'Tenant-wide',
+    },
+    {
+      key: 'reason',
+      header: 'Reason',
+      render: (_value, hold) => hold.reason,
+    },
+    {
+      key: 'started',
+      header: 'Started',
+      render: (_value, hold) => new Date(hold.startedAt).toLocaleDateString(),
+    },
+    {
+      key: 'released',
+      header: 'Released',
+      render: (_value, hold) =>
+        hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '--',
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, hold) => (
+        <>
+          {hold.isActive && (
+            <button
+              onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
+              disabled={releaseLoading === hold.id}
+              className="text-xs px-2 py-1 rounded font-medium text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 disabled:opacity-50"
+            >
+              {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
+            </button>
+          )}
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Compliance</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Legal holds, data exports, retention compliance, and audit log summary
-          </p>
-        </div>
-        <Button
-          onClick={() => void handleRefresh()}
-          disabled={loading}
-          variant="secondary"
-          size="sm"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Compliance"
+        description="Legal holds, data exports, retention compliance, and audit log summary"
+        actions={
+          <Button
+            onClick={() => void handleRefresh()}
+            disabled={loading}
+            variant="secondary"
+            size="sm"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       {/* Error banners */}
       {queryError && (
@@ -300,9 +441,7 @@ const MessagingCompliancePage: React.FC = () => {
           canRetry={statsQuery.canRetry || holdsQuery.canRetry}
         />
       )}
-      {mutationError && (
-        <ErrorBanner message={mutationError} />
-      )}
+      {mutationError && <ErrorBanner message={mutationError} />}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -312,27 +451,15 @@ const MessagingCompliancePage: React.FC = () => {
           subtitle="messages"
           color="red"
         />
-        <StatCard
-          title="Active Holds"
-          value={stats.activeHoldsCount}
-          color="yellow"
-        />
+        <StatCard title="Active Holds" value={stats.activeHoldsCount} color="yellow" />
         <StatCard
           title="Pending Cleanup"
           value={stats.pendingRetentionCleanup.toLocaleString()}
           subtitle="messages"
           color="purple"
         />
-        <StatCard
-          title="Retention Policies"
-          value={stats.retentionPoliciesCount}
-          color="blue"
-        />
-        <StatCard
-          title="Active Exports"
-          value={stats.activeExports}
-          color="green"
-        />
+        <StatCard title="Retention Policies" value={stats.retentionPoliciesCount} color="blue" />
+        <StatCard title="Active Exports" value={stats.activeExports} color="green" />
         <StatCard
           title="Compliance Score"
           value={`${stats.complianceScore}%`}
@@ -344,11 +471,13 @@ const MessagingCompliancePage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Audit Operations Per Day</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+              Audit Operations Per Day
+            </h3>
             <AuditOperationsChart data={dailyAudit} />
             <div className="mt-3 flex justify-between items-center">
-              <span className="text-xs text-gray-400">Last 14 days</span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-400 dark:text-gray-500">Last 14 days</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 Total: {stats.auditEntriesCount.toLocaleString()} entries
               </span>
             </div>
@@ -357,17 +486,23 @@ const MessagingCompliancePage: React.FC = () => {
 
         <Card>
           <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Retention Distribution</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+              Retention Distribution
+            </h3>
             <RetentionChart buckets={retentionBuckets} />
             <div className="mt-4 space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Messages Under Hold</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Messages Under Hold
+                </span>
                 <Badge variant={stats.messagesUnderLegalHold > 0 ? 'error' : 'success'}>
                   {stats.messagesUnderLegalHold.toLocaleString()}
                 </Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Pending Retention Cleanup</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Pending Retention Cleanup
+                </span>
                 <Badge variant={stats.pendingRetentionCleanup > 1000 ? 'warning' : 'success'}>
                   {stats.pendingRetentionCleanup.toLocaleString()}
                 </Badge>
@@ -381,71 +516,36 @@ const MessagingCompliancePage: React.FC = () => {
       <Card>
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Legal Holds</h3>
-            <span className="text-xs text-gray-400">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Legal Holds</h3>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
               {legalHolds.filter((h) => h.isActive).length} active / {legalHolds.length} total
             </span>
           </div>
           {holdsQuery.loading && legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-gray-400">Loading legal holds...</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">Loading legal holds...</p>
             </div>
           ) : legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <svg className="w-10 h-10 text-green-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-gray-500">No legal holds</p>
+                <CircleCheck
+                  className="w-10 h-10 text-success-400 mx-auto mb-2"
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No legal holds</p>
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scope</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Released</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {legalHolds.map((hold) => (
-                    <tr key={hold.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <HoldStatusBadge active={hold.isActive} />
-                      </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{hold.tenantName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {hold.channelName ?? 'Tenant-wide'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{hold.reason}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {new Date(hold.startedAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '--'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {hold.isActive && (
-                          <button
-                            onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
-                            disabled={releaseLoading === hold.id}
-                            className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                          >
-                            {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<LegalHold>
+              data={legalHolds}
+              columns={legalHoldColumns}
+              keyExtractor={(hold) => hold.id}
+              emptyMessage="No legal holds"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
       </Card>
@@ -454,63 +554,26 @@ const MessagingCompliancePage: React.FC = () => {
       <Card>
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Export Jobs</h3>
-            <span className="text-xs text-gray-400">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Export Jobs</h3>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
               {exports.filter((e) => e.status === 'completed').length} completed
             </span>
           </div>
           {exports.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
               No export jobs found.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Format</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Records</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Legal Hold</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Exported</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {exports.map((exp) => (
-                    <tr key={exp.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{exp.tenantName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 uppercase">{exp.format}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">{exp.recordCount.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-center">
-                        <ExportStatusBadge status={exp.status} />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {exp.isUnderLegalHold && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-                            HOLD
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {new Date(exp.createdAt).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {exp.status === 'completed' && exp.downloadUrl && (
-                          <button
-                            onClick={() => handleDownloadExport(exp.id)}
-                            className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
-                          >
-                            Download
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ExportRecord>
+              data={exports}
+              columns={exportRecordColumns}
+              keyExtractor={(exp) => exp.id}
+              emptyMessage="No exports"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
       </Card>

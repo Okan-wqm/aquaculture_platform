@@ -8,6 +8,12 @@ import {
   DeleteConfirmationDialog,
   DeletePreviewData,
   AffectedItemGroup,
+  useToast,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
 } from '@aquaculture/shared-ui';
 import {
   useDepartmentList,
@@ -19,6 +25,8 @@ import {
   CreateDepartmentInput,
 } from '../../../hooks/useDepartments';
 import { useSiteList } from '../../../hooks/useSites';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Plus, Search as SearchIcon, Square, TriangleAlert } from 'lucide-react';
 
 const typeLabels: Record<string, string> = {
   HATCHERY: 'Hatchery',
@@ -32,14 +40,14 @@ const typeLabels: Record<string, string> = {
 };
 
 const typeColors: Record<string, string> = {
-  HATCHERY: 'bg-purple-100 text-purple-800',
-  NURSERY: 'bg-cyan-100 text-cyan-800',
-  GROW_OUT: 'bg-green-100 text-green-800',
-  BROODSTOCK: 'bg-blue-100 text-blue-800',
-  QUARANTINE: 'bg-red-100 text-red-800',
-  PROCESSING: 'bg-orange-100 text-orange-800',
-  STORAGE: 'bg-gray-100 text-gray-800',
-  LABORATORY: 'bg-indigo-100 text-indigo-800',
+  HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  NURSERY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  GROW_OUT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  BROODSTOCK: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  PROCESSING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  STORAGE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  LABORATORY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
 };
 
 interface DepartmentFormData {
@@ -155,9 +163,9 @@ export const DepartmentsTab: React.FC = () => {
   };
 
   const getLoadColor = (percentage: number) => {
-    if (percentage >= 90) return 'bg-red-500';
-    if (percentage >= 70) return 'bg-yellow-500';
-    return 'bg-green-500';
+    if (percentage >= 90) return 'bg-error-500';
+    if (percentage >= 70) return 'bg-warning-500';
+    return 'bg-success-500';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -201,10 +209,11 @@ export const DepartmentsTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save department:', err);
-      alert('Failed to save department. Please try again.');
+      toast({ title: 'Failed to save department. Please try again.', variant: 'error' });
     }
   };
 
+  const { toast } = useToast();
   const handleEdit = (dept: Department) => {
     setEditingId(dept.id);
     setFormData({
@@ -232,7 +241,7 @@ export const DepartmentsTab: React.FC = () => {
       setDeptToDelete(null);
     } catch (err) {
       console.error('Failed to delete department:', err);
-      alert('Failed to delete department. Please try again.');
+      toast({ title: 'Failed to delete department. Please try again.', variant: 'error' });
     }
   };
 
@@ -240,6 +249,101 @@ export const DepartmentsTab: React.FC = () => {
     setDeleteDialogOpen(false);
     setDeptToDelete(null);
   };
+
+  type DeptRow = (typeof filteredDepartments)[number];
+  const deptRowColumns: DataTableColumn<DeptRow>[] = [
+    {
+      key: 'department',
+      header: 'Department',
+      render: (_value, dept) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{dept.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{dept.code}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, dept) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {typeLabels[dept.type || ''] || dept.type || '-'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'site',
+      header: 'Site',
+      render: (_value, dept) => (
+        <>
+          {/* WHY: render the site name from the department's OWN fetched
+            `site { id name }` (useDepartments query), NOT a second
+            useSiteList() join. The join falsely showed "Not associated
+            with any site" whenever that list was loading / empty / past
+            its limit — even though dept.siteId + dept.site were set. */}
+          {dept.site?.name ? (
+            <span className="text-gray-500 dark:text-gray-400">{dept.site.name}</span>
+          ) : (
+            <span className="text-error-600 dark:text-error-400 italic font-medium">
+              Not associated with any site
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'capacity',
+      header: 'Capacity',
+      render: (_value, dept) => {
+        const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
+        return (
+          <>
+            {dept.capacity ? (
+              <>
+                <div className="flex items-center">
+                  <div className="flex-1 max-w-[100px]">
+                    <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
+                        style={{ width: `${loadPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                    {loadPercentage}%
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  {(dept.currentLoad || 0).toLocaleString()} / {dept.capacity.toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, dept) => (
+        <>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(dept)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(dept)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div>
@@ -252,91 +356,63 @@ export const DepartmentsTab: React.FC = () => {
               placeholder="Search departments..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <SearchIcon
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
-          <select
+          <Select
+            aria-label="Site filter"
+            fullWidth={false}
             value={selectedSite}
             onChange={(e) => setSelectedSite(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Sites</option>
-            <option value="orphaned">Orphaned (No Site)</option>
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Sites' },
+              { value: 'orphaned', label: 'Orphaned (No Site)' },
+              ...sites.map((site) => ({ value: site.id, label: site.name })),
+            ]}
+          />
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={() => {
             setEditingId(null);
             setFormData(initialFormData);
             setFormErrors({});
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Add Department
-        </button>
+        </Button>
       </div>
 
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load departments. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load departments. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Orphaned Departments Warning */}
       {orphanedCount > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <svg
-            className="w-5 h-5 text-red-500 mr-2 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <span className="text-sm text-red-700">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center">
+          <TriangleAlert className="w-5 h-5 text-error-500 mr-2 flex-shrink-0" aria-hidden="true" />
+          <span className="text-sm text-error-700 dark:text-error-300">
             {orphanedCount} department(s) are not associated with any site
           </span>
         </div>
@@ -344,123 +420,28 @@ export const DepartmentsTab: React.FC = () => {
 
       {/* Departments Table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Department
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Site
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Capacity
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredDepartments.map((dept) => {
-                const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
-                return (
-                  <tr
-                    key={dept.id}
-                    className={!dept.siteId ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{dept.name}</div>
-                        <div className="text-sm text-gray-500">{dept.code}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 text-gray-800'}`}
-                      >
-                        {typeLabels[dept.type || ''] || dept.type || '-'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {/* WHY: render the site name from the department's OWN fetched
-                        `site { id name }` (useDepartments query), NOT a second
-                        useSiteList() join. The join falsely showed "Not associated
-                        with any site" whenever that list was loading / empty / past
-                        its limit — even though dept.siteId + dept.site were set. */}
-                      {dept.site?.name ? (
-                        <span className="text-gray-500">{dept.site.name}</span>
-                      ) : (
-                        <span className="text-red-600 italic font-medium">
-                          Not associated with any site
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {dept.capacity ? (
-                        <>
-                          <div className="flex items-center">
-                            <div className="flex-1 max-w-[100px]">
-                              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
-                                  style={{ width: `${loadPercentage}%` }}
-                                />
-                              </div>
-                            </div>
-                            <span className="ml-2 text-sm text-gray-500">{loadPercentage}%</span>
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {(dept.currentLoad || 0).toLocaleString()} /{' '}
-                            {dept.capacity.toLocaleString()}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEdit(dept)}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(dept)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<DeptRow>
+            data={filteredDepartments}
+            columns={deptRowColumns}
+            keyExtractor={(dept) => dept.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Empty State */}
           {filteredDepartments.length === 0 && (
             <div className="text-center py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No departments found</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <Square
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No departments found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Get started by creating a new department.
               </p>
             </div>
@@ -478,7 +459,9 @@ export const DepartmentsTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Name *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Name *
+              </label>
               <input
                 type="text"
                 required
@@ -488,12 +471,16 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.name && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, name: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.name ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
-              {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
+              {formErrors.name && (
+                <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.name}</p>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Code *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Code *
+              </label>
               <input
                 type="text"
                 required
@@ -503,83 +490,78 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.code && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, code: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.code ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
-              {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Type</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              >
-                {Object.entries(typeLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Site *</label>
-              <select
-                value={formData.siteId}
-                onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, siteId: e.target.value }));
-                  if (formErrors.siteId && e.target.value)
-                    setFormErrors((prev) => ({ ...prev, siteId: undefined }));
-                }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
-                required
-              >
-                <option value="">Select Site...</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-              {formErrors.siteId && (
-                <p className="mt-1 text-sm text-red-600">{formErrors.siteId}</p>
+              {formErrors.code && (
+                <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.code}</p>
               )}
             </div>
+            <Select
+              label="Type"
+              value={formData.type}
+              onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
+              options={Object.entries(typeLabels).map(([key, label]) => ({
+                value: key,
+                label,
+              }))}
+            />
+            <Select
+              label="Site"
+              required
+              placeholder="Select Site..."
+              value={formData.siteId}
+              onChange={(e) => {
+                setFormData((prev) => ({ ...prev, siteId: e.target.value }));
+                if (formErrors.siteId && e.target.value)
+                  setFormErrors((prev) => ({ ...prev, siteId: undefined }));
+              }}
+              error={formErrors.siteId}
+              options={sites.map((site) => ({ value: site.id, label: site.name }))}
+            />
             <div>
-              <label className="block text-sm font-medium text-gray-700">Capacity</label>
-              <input
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Capacity
+              </label>
+              <Input
+                fullWidth
                 type="number"
                 min="0"
                 value={formData.capacity}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
                 }
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Notes</label>
-              <textarea
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Notes
+              </label>
+              <Textarea
+                fullWidth
                 value={formData.notes}
                 onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                 rows={3}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
-            <button
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
               type="submit"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
             >
               {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

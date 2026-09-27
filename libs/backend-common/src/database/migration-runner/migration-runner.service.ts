@@ -73,7 +73,7 @@ export interface PostConditionAwareMigration {
    * after `executeMigration()` returns successfully but before the
    * wrapper transaction commits. Return `false` or throw to abort.
    */
-  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
+  postCondition?(queryRunner: QueryRunner, schema?: string): Promise<unknown>;
 }
 
 /**
@@ -104,6 +104,9 @@ export interface PostConditionAwareMigration {
  *     `SET search_path` leak can't poison the next (the 2026-04-07
  *     farm-service incident).
  *   - Per-migration transaction: partial failures rollback cleanly.
+ *     A migration declaring `transaction = false` (CONCURRENTLY DDL)
+ *     runs unwrapped — the ORPHAN-CRITICAL-058 contract the db-migrate
+ *     orchestrator honours; both runners apply the same opt-out.
  *
  * # Tenant-aware fan-out (added for the schema-per-tenant services)
  *
@@ -582,7 +585,22 @@ export function createMigrationRunnerService(
 
             // Per-migration transaction so a partial failure in migration
             // N does not leak uncommitted DDL into migration N+1.
-            await queryRunner.startTransaction();
+            //
+            // ORPHAN-CRITICAL-058 contract (shared with the db-migrate
+            // orchestrator): a migration that declares `transaction = false`
+            // opts OUT of the wrapper. `CREATE INDEX CONCURRENTLY` and a
+            // consumer of `ALTER TYPE … ADD VALUE` cannot run inside a
+            // transaction block, so an unconditional startTransaction() made
+            // every such migration fail under this runner (dev / E2E) while
+            // the orchestrator applied it in production. Both runners now
+            // honour TypeORM's instance-level opt-out. A non-transactional
+            // migration owns its own idempotency (IF NOT EXISTS + INVALID
+            // heal) and its postCondition probe cannot roll the ledger row
+            // back — a failed probe still aborts the boot.
+            const useTransaction = migration.instance?.transaction !== false;
+            if (useTransaction) {
+              await queryRunner.startTransaction();
+            }
             try {
               await executor.executeMigration(migration);
 
@@ -601,7 +619,9 @@ export function createMigrationRunnerService(
                 schema,
               );
 
-              await queryRunner.commitTransaction();
+              if (useTransaction && queryRunner.isTransactionActive) {
+                await queryRunner.commitTransaction();
+              }
               appliedNames.push(migration.name);
               this.logger.log(
                 `Migration "${migration.name}" applied on "${schema}"`,
@@ -613,7 +633,9 @@ export function createMigrationRunnerService(
                 Date.now() - migrationStartedAt,
               );
             } catch (migrationErr) {
-              await queryRunner.rollbackTransaction();
+              if (useTransaction && queryRunner.isTransactionActive) {
+                await queryRunner.rollbackTransaction();
+              }
               const msg =
                 migrationErr instanceof Error
                   ? migrationErr.message
@@ -703,7 +725,7 @@ export function createMigrationRunnerService(
 
       let result: unknown;
       try {
-        result = await candidate.postCondition(queryRunner);
+        result = await candidate.postCondition(queryRunner, schema);
       } catch (probeErr) {
         const msg =
           probeErr instanceof Error ? probeErr.message : String(probeErr);

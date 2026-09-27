@@ -6,7 +6,7 @@
  * teslimatı dakikalar içinde yansıtır.
  */
 import React, { useMemo, useState } from 'react';
-import { useI18n } from '@aquaculture/shared-ui';
+import { useI18n, Select } from '@aquaculture/shared-ui';
 
 import { useProtocolFeedForecast } from '../../../hooks/useProtocolFeeding';
 import { useSiteList } from '../../../hooks/useSites';
@@ -25,50 +25,50 @@ export function ForecastTab(): React.ReactElement {
   // Siteler yüklenmeden sorgu ATILMAZ (FARM-MEDIUM-232): siteId'siz istek
   // MODULE_USER'da Forbidden üretir ve site çözülünce ikinci istek doğurur.
   const effectiveSiteId = siteId || sites[0]?.id;
-  const { data: forecast, isLoading: forecastLoading, isError } = useProtocolFeedForecast(
-    effectiveSiteId,
-    horizonDays,
-    { enabled: !!effectiveSiteId },
-  );
+  const {
+    data: forecast,
+    isLoading: forecastLoading,
+    isError,
+  } = useProtocolFeedForecast(effectiveSiteId, horizonDays, { enabled: !!effectiveSiteId });
   const isLoading = sitesLoading || (!!effectiveSiteId && forecastLoading);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm text-gray-700">
+        <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.siteLabel')}
-          <select
-            className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
+          <Select
+            className="ml-2 inline-block align-middle"
+            fullWidth={false}
+            size="sm"
             value={effectiveSiteId ?? ''}
             onChange={(e) => setSiteId(e.target.value)}
-          >
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
-          </select>
+            options={sites.map((site) => ({ value: site.id, label: site.name }))}
+          />
         </label>
-        <label className="text-sm text-gray-700">
+        <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.horizonLabel')}
-          <select
-            className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
+          <Select
+            className="ml-2 inline-block align-middle"
+            fullWidth={false}
+            size="sm"
             value={horizonDays}
             onChange={(e) => setHorizonDays(Number(e.target.value))}
-          >
-            {HORIZON_OPTIONS.map((days) => (
-              <option key={days} value={days}>
-                {days}
-              </option>
-            ))}
-          </select>
+            options={HORIZON_OPTIONS.map((days) => ({ value: days, label: String(days) }))}
+          />
         </label>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500 py-8">{t('common.loading')}</p>}
-      {isError && <p className="text-sm text-red-600 py-8">{t('common.error')}</p>}
+      {isLoading && (
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('common.loading')}</p>
+      )}
+      {isError && (
+        <p className="text-sm text-error-600 dark:text-error-400 py-8">{t('common.error')}</p>
+      )}
       {!isLoading && !isError && !forecast && (
-        <p className="text-sm text-gray-500 py-8">{t('feedingV2.forecast.notComputed')}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">
+          {t('feedingV2.forecast.notComputed')}
+        </p>
       )}
       {forecast && (
         <>

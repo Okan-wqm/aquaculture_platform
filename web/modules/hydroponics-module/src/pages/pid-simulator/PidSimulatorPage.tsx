@@ -28,14 +28,14 @@ const PidSimulatorPage: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4">
       <div className="max-w-[1400px] mx-auto">
         {/* Header */}
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-gray-900">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
             Dosing Simulator - Hydroponics pH/EC Control
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Carbonate chemistry model | HNO₃ / KOH dosing | Range-based control | Real-time Deffeyes diagram
           </p>
         </div>

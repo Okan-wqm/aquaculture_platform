@@ -1,13 +1,14 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-36228228821",
-  "claim_id": "claim_02c331164ae3218f",
+  "agent_id": "ci-executor:gha-36282406816",
+  "claim_id": "claim_a7e2123c80065389",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:1cfb872556111014ba9cd86d425e5d6ca985d8e16a0c757217f989806a9a81bf",
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-consensus-arbiter",
-    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-consensus-arbiter-7d2978faccd6\",\n  \"claim_id\": \"AIR-aria-consensus-arbiter-7d2978faccd6\",\n  \"agent_id\": \"aria-consensus-arbiter\",\n  \"role\": \"consensus_arbitration\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-consensus_arbitration-AIR-aria-consensus-arbiter-7d2978faccd6.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"consensus\",\n      \"verdict\": \"blocked\",\n      \"note\": \"Consensus gate fails at the agreement condition: the two unique judges returned opposing verdicts \u2014 aria-evidence-judge true_positive at 0.94, aria-adversarial-judge false_positive at 0.60. Mean confidence 0.77 also sits below the 0.80 floor, so two of the four gate conditions fail. This lane aggregates and cannot mint a verdict neither judge supplied, so the judgment group returns uncertainty_reason=judge_disagreement and routes to operator adjudication. The cited refs are the document lines the two supplied rationales themselves name (line 11 reviewed-files bullet; lines 108-109 the impersonation.service.ts citation) \u2014 they mark the loci of the disagreement as quoted in this request, not a fresh reading of repository content by this arbiter.\",\n      \"evidence_refs\": [\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109\"\n  ],\n  \"details\": {\n    \"uncertainty_reason\": \"judge_disagreement\",\n    \"consensus\": {\n      \"verdict\": \"uncertainty\",\n      \"consensus_reached\": false,\n      \"mean_confidence\": 0.77,\n      \"judge_count\": 2,\n      \"unique_judge_ids\": [\n        \"aria-adversarial-judge\",\n        \"aria-evidence-judge\"\n      ],\n      \"duplicate_judge_ids\": [],\n      \"tool_id\": \"doc-staleness-adapter\",\n      \"run_id\": \"1710fe2e-111a-4ab0-af0a-39c591ff6c2f\",\n      \"finding_id\": \"doc-staleness:missing:docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109:apps/admin-api-service/src/impersonation/services/impersonation.service.ts\",\n      \"judgment_group_id\": \"judge:doc-staleness-adapter:finding:7a24af1267c22ae9a8cbe1bc8dab1f6e58b760a5df7e06b670244c019401c177\",\n      \"judge_verdicts\": [\n        {\n          \"judge_id\": \"aria-evidence-judge\",\n          \"verdict\": \"true_positive\",\n          \"confidence\": 0.94,\n          \"stated_basis\": \"Asserts both halves of the staleness claim hold at the snapshot SHA: the review file cites the impersonation.service.ts path at line 109 and again from line 108.\"\n        },\n        {\n          \"judge_id\": \"aria-adversarial-judge\",\n          \"verdict\": \"false_positive\",\n          \"confidence\": 0.6,\n          \"stated_basis\": \"Frames falsification as two independent halves \u2014 the doc cites the path, and the path is absent from the tree at the snapshot SHA \u2014 and states the supplied excerpt establishes the first half via the reviewed-files bullet at line 11.\"\n        }\n      ],\n      \"gate\": {\n        \"unique_judges_present\": 2,\n        \"unique_judges_required\": 2,\n        \"verdict_agreement\": false,\n        \"mean_confidence\": 0.77,\n        \"mean_confidence_required\": 0.8,\n        \"duplicate_judge_id_counted\": false,\n        \"conditions_failed\": [\n          \"verdict_agreement\",\n          \"mean_confidence\"\n        ],\n        \"reported_reason\": \"judge_disagreement\"\n      },\n      \"disagreement_axis\": \"The second half of the doc_references_missing_path claim \u2014 w...",
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-consensus-arbiter-7d2978faccd6\",\n  \"claim_id\": \"AIR-aria-consensus-arbiter-7d2978faccd6\",\n  \"agent_id\": \"aria-consensus-arbiter\",\n  \"role\": \"consensus_arbitration\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-consensus_arbitration-AIR-aria-consensus-arbiter-7d2978faccd6.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"consensus\",\n      \"verdict\": \"blocked\",\n      \"note\": \"The consensus gate fails, so no aggregated verdict exists to return. Two unique judge_ids are present (aria-adversarial-judge, aria-evidence-judge), which clears the >=2 unique judges condition, but the agreement condition fails: the adversarial judge returned false_positive at confidence 0.6 while the evidence judge returned true_positive at confidence 0.94. Mean confidence is 0.77, which also falls under the 0.80 floor, so the gate would fail on a second, independent condition even if the verdicts had matched. The two judges are not disputing arithmetic; they are grounded on different halves of the doc_references_missing_path claim. The evidence judge reads the reference half as established from the review file, which cites apps/admin-api-service/src/impersonation/services/impersonation.service.ts at docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109 and again at :108, :110, :111, :112, with the reviewed-files bullet at :11. The adversarial judge accepts that half and contests the second half, whether the path is absent from the tree at the snapshot SHA, on the retirement path at apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4 and :78 together with apps/admin-api-service/src/app.module.ts. Resolving which reading holds is fresh judgment of the finding, and an aggregator that supplies it manufactures a consensus no judge voted for. I record the conflict instead: uncertainty_reason judge_disagreement, judge_count 2, mean_confidence 0.77.\",\n      \"evidence_refs\": [\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:104\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:110\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:111\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:112\",\n        \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:125\",\n        \"apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4\",\n        \"apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:78\",\n        \"apps/admin-api-service/src/app.module.ts\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:104\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:110\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:111\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:112\",\n    \"docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:125\",\n    \"apps/admin-api-service/src/migrations...",
+    "aggregator_boundary": "No independent verdict on the underlying finding is emitted. This request carries no MODE: anchor_refutation marker, so the hard limits that forbid fresh judgment apply, and the evidence_refs above are cited as the disputed material the two judges anchored on, not as grounds for an arbiter verdict.",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 52543,
@@ -26,13 +27,13 @@
           "cache_creation_input_tokens": 52543,
           "cache_read_input_tokens": 3309,
           "input_tokens": 2,
-          "output_tokens": 9115,
+          "output_tokens": 7707,
           "type": "message"
         }
       ],
-      "output_tokens": 9115,
+      "output_tokens": 7707,
       "output_tokens_details": {
-        "thinking_tokens": 6363
+        "thinking_tokens": 3285
       },
       "server_tool_use": {
         "web_fetch_requests": 0,
@@ -42,44 +43,23 @@
       "speed": "standard"
     },
     "consensus": {
-      "consensus_reached": false,
-      "disagreement_axis": "The second half of the doc_references_missing_path claim \u2014 whether apps/admin-api-service/src/impersonation/services/impersonation.service.ts is absent from the tree at the snapshot SHA. The evidence judge's supplied rationale asserts both halves hold; the adversarial judge's supplied rationale establishes only the first half in the text delivered to this arbiter.",
-      "duplicate_judge_ids": [],
-      "finding_id": "doc-staleness:missing:docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109:apps/admin-api-service/src/impersonation/services/impersonation.service.ts",
-      "gate": {
-        "conditions_failed": [
-          "verdict_agreement",
-          "mean_confidence"
-        ],
-        "duplicate_judge_id_counted": false,
-        "mean_confidence": 0.77,
-        "mean_confidence_required": 0.8,
-        "reported_reason": "judge_disagreement",
-        "unique_judges_present": 2,
-        "unique_judges_required": 2,
-        "verdict_agreement": false
-      },
-      "judge_count": 2,
-      "judge_verdicts": [
-        {
-          "confidence": 0.94,
-          "judge_id": "aria-evidence-judge",
-          "stated_basis": "Asserts both halves of the staleness claim hold at the snapshot SHA: the review file cites the impersonation.service.ts path at line 109 and again from line 108.",
-          "verdict": "true_positive"
-        },
-        {
-          "confidence": 0.6,
-          "judge_id": "aria-adversarial-judge",
-          "stated_basis": "Frames falsification as two independent halves \u2014 the doc cites the path, and the path is absent from the tree at the snapshot SHA \u2014 and states the supplied excerpt establishes the first half via the reviewed-files bullet at line 11.",
-          "verdict": "false_positive"
-        }
+      "agreement": false,
+      "confidence": 0.77,
+      "evidence_relied_on": [
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:110",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:111",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:112",
+        "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4",
+        "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:78",
+        "apps/admin-api-service/src/app.module.ts"
       ],
-      "judgment_group_id": "judge:doc-staleness-adapter:finding:7a24af1267c22ae9a8cbe1bc8dab1f6e58b760a5df7e06b670244c019401c177",
+      "gate_passed": false,
+      "judge_count": 2,
       "mean_confidence": 0.77,
-      "operator_adjudication_input": "Settling this requires one determination: whether the referenced impersonation service file exists at the snapshot SHA. The request's evidence payload carries apps/admin-api-service/src/app.module.ts and apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4,:78 as the surfaces bearing on that question. This arbiter did not read them and records no verdict on them.",
-      "rationale_delivery": "Both judge rationales arrive truncated mid-sentence in this request. Their verdict and confidence fields \u2014 the only fields the gate reads \u2014 are complete and well-formed, so the refusal protocol for malformed judge responses does not apply.",
-      "run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
-      "tool_id": "doc-staleness-adapter",
+      "uncertainty_reason": "judge_disagreement",
       "unique_judge_ids": [
         "aria-adversarial-judge",
         "aria-evidence-judge"
@@ -87,19 +67,75 @@
       "verdict": "uncertainty"
     },
     "explanation": {
-      "downstream_surface": "The uncertainty result stops the consensus write and routes this judgment group to HUMAN_REQUIRED operator adjudication \u2014 the same disposition decision memory records for consensus-bd4b689c1f0620d4 and consensus-d0b717b37a33ee24, both opened for judge_disagreement on adapter findings.",
-      "what_breaks_if_skipped": "The tempting shortcut is to let 0.94 outvote 0.60 and call it consensus. That fabricates agreement the panel never reached, and the error is asymmetric: a wrong false_positive silences a working staleness rule across every future run, while a wrong true_positive files a documentation fix against a path whose very existence is the disputed point. A 0.77 mean is also the panel telling you it is unsure; averaging past that discards the signal the threshold exists to catch.",
-      "what_evidence_proves_it": "Arithmetic over the supplied verdicts, which is fully auditable from this envelope: two distinct judge_id values (gate condition one passes), true_positive against false_positive (condition two fails), (0.94 + 0.60) / 2 = 0.77 < 0.80 (condition three fails), no repeated judge_id (condition four passes). The cited document lines are the disagreement loci named inside the judges' own rationales, carried forward so an operator can open the dispute at the exact lines the panel argued over.",
-      "what_must_be_done": "Combine the two supplied judge verdicts under a fixed four-condition gate \u2014 at least two unique judge_id values, all counted judges agreeing on verdict, mean confidence at least 0.80, no judge_id counted twice \u2014 and emit either a settled verdict or an uncertainty reason. Nothing else: this lane does not open the finding and re-decide it.",
-      "why_it_matters": "feedback_store.generate_ai_consensus converts a settled verdict into repository ground truth. A settled true_positive promotes the finding for fix and scores the judges who backed it; a settled false_positive quarantines the emitting rule of doc-staleness-adapter. Ground truth minted from a split panel corrupts both surfaces at once, and nothing downstream re-checks it."
+      "downstream_surface": "feedback_store.generate_ai_consensus consumes details.consensus. A blocked result means the agreeing-judge count stays below the anchor bar, no suppression and no rule quarantine fire for judgment_group_id judge:doc-staleness-adapter:finding:7a24af1267c22ae9a8cbe1bc8dab1f6e58b760a5df7e06b670244c019401c177, and the finding routes to operator adjudication. Decision memory shows this exact path taken twice before for security-boundary-adapter findings, both recorded as HUMAN_REQUIRED open consensus rows with reason judge_disagreement.",
+      "evidence_that_proves_the_result": "The gate arithmetic is checkable from the two supplied verdicts: false_positive at 0.6 against true_positive at 0.94 is a disagreement on its face, and (0.6 + 0.94) / 2 = 0.77 sits below the 0.80 floor. That the disagreement is substantive rather than a formatting artifact is visible in where each judge anchors: the review file cites the impersonation service path at line 109 and again from line 108 onward with the reviewed-files bullet at line 11, while the retirement migration at lines 4 and 78 plus apps/admin-api-service/src/app.module.ts are what the adversarial judge reads against the path still existing at the snapshot SHA. Two judges reading the same evidence list to opposite conclusions is the signal an operator needs, and flattening it into one verdict would destroy it.",
+      "what_breaks_if_skipped": "If an aggregator picks the louder judge \u2014 here the evidence judge at 0.94 against the adversarial judge at 0.6 \u2014 it writes a verdict no panel reached. Two concrete failure directions follow. Settling on true_positive on a finding whose path may have been retired by migration 1808800000000 keeps a stale-doc finding alive and charges the adversarial judge with a wrong call it did not make. Settling on false_positive suppresses the doc-staleness class for this reference and silences future genuine hits at the same review file. Either way the judge-scoring loop learns from a fabricated agreement, and the damage compounds because later cycles read the recorded consensus as settled.",
+      "what_must_be_done": "Take the verdicts the two judges already returned and run them through the four-condition consensus gate: at least two unique judge_ids, unanimous verdict, mean confidence at or above 0.80, and no judge_id counted twice. Emit the aggregated verdict when all four hold, and an uncertainty result naming the failing condition when they do not. Here the second and third conditions fail, so the answer is blocked with uncertainty_reason judge_disagreement.",
+      "why_it_matters": "A passing consensus is not advisory \u2014 feedback_store.generate_ai_consensus counts the judges who agreed with the settled verdict, and that count is what lets a verdict suppress a whole finding class, quarantine an adapter rule and score the judges who voted. Consensus is therefore the last point at which a disputed verdict can be stopped before it becomes repository ground truth."
     },
-    "runtime_attempt_ledger_hash": "sha256:2da7f58b1905b68189ef5ffdbccd10039211d394c68d3c1b2b6bf967e69fdcda",
+    "finding_id": "doc-staleness:missing:docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109:apps/admin-api-service/src/impersonation/services/impersonation.service.ts",
+    "gate_evaluation": {
+      "duplicate_judge_ids_counted": {
+        "observed": 0,
+        "passed": true,
+        "required": "none"
+      },
+      "mean_confidence": {
+        "computation": "(0.6 + 0.94) / 2",
+        "observed": 0.77,
+        "passed": false,
+        "required": ">= 0.80"
+      },
+      "unique_judge_ids_present": {
+        "observed": 2,
+        "passed": true,
+        "required": ">= 2"
+      },
+      "verdict_agreement": {
+        "observed": {
+          "aria-adversarial-judge": "false_positive",
+          "aria-evidence-judge": "true_positive"
+        },
+        "passed": false,
+        "required": "all counted judges agree"
+      }
+    },
+    "judges": [
+      {
+        "confidence": 0.6,
+        "grounds_as_supplied": "Splits the doc_references_missing_path claim into two halves \u2014 the doc cites the path, and the path is gone at the snapshot SHA \u2014 accepts the first half from the reviewed-files bullet, and contests the second.",
+        "judge_id": "aria-adversarial-judge",
+        "rationale_truncated_in_prompt": true,
+        "verdict": "false_positive"
+      },
+      {
+        "confidence": 0.94,
+        "grounds_as_supplied": "Reads both halves as holding against repo content at the snapshot SHA, anchored on the review file's citation of the impersonation service path at line 109 and again at 108 onward.",
+        "judge_id": "aria-evidence-judge",
+        "rationale_truncated_in_prompt": true,
+        "verdict": "true_positive"
+      }
+    ],
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:7a24af1267c22ae9a8cbe1bc8dab1f6e58b760a5df7e06b670244c019401c177",
+    "mode": "aggregation",
+    "refusal_not_warranted": "Two judge verdicts are reachable in this request and both carry a parseable judge_id, verdict and confidence, so neither the fewer-than-two-responses condition nor the malformed-response condition of the refusal protocol is met. The rationale strings are truncated where the prompt quotes them, which does not affect the gate: the gate reads judge_id, verdict and confidence, all of which are intact.",
+    "run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
+    "runtime_attempt_ledger_hash": "sha256:86dfae09fe7d80e7c97df8dbfddc8cc1edce0a7871ac8890c506f53a4073c94b",
+    "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "judge_disagreement"
   },
   "evidence_refs": [
     "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11",
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:104",
     "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108",
-    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109"
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109",
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:110",
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:111",
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:112",
+    "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:125",
+    "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4",
+    "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:78",
+    "apps/admin-api-service/src/app.module.ts"
   ],
   "request_id": "AIR-aria-consensus-arbiter-7d2978faccd6",
   "role": "consensus_arbitration",
@@ -107,11 +143,19 @@
     {
       "evidence_refs": [
         "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:11",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:104",
         "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:108",
-        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109"
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:110",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:111",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:112",
+        "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:125",
+        "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4",
+        "apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:78",
+        "apps/admin-api-service/src/app.module.ts"
       ],
       "id": "consensus",
-      "note": "Consensus gate fails at the agreement condition: the two unique judges returned opposing verdicts \u2014 aria-evidence-judge true_positive at 0.94, aria-adversarial-judge false_positive at 0.60. Mean confidence 0.77 also sits below the 0.80 floor, so two of the four gate conditions fail. This lane aggregates and cannot mint a verdict neither judge supplied, so the judgment group returns uncertainty_reason=judge_disagreement and routes to operator adjudication. The cited refs are the document lines the two supplied rationales themselves name (line 11 reviewed-files bullet; lines 108-109 the impersonation.service.ts citation) \u2014 they mark the loci of the disagreement as quoted in this request, not a fresh reading of repository content by this arbiter.",
+      "note": "The consensus gate fails, so no aggregated verdict exists to return. Two unique judge_ids are present (aria-adversarial-judge, aria-evidence-judge), which clears the >=2 unique judges condition, but the agreement condition fails: the adversarial judge returned false_positive at confidence 0.6 while the evidence judge returned true_positive at confidence 0.94. Mean confidence is 0.77, which also falls under the 0.80 floor, so the gate would fail on a second, independent condition even if the verdicts had matched. The two judges are not disputing arithmetic; they are grounded on different halves of the doc_references_missing_path claim. The evidence judge reads the reference half as established from the review file, which cites apps/admin-api-service/src/impersonation/services/impersonation.service.ts at docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109 and again at :108, :110, :111, :112, with the reviewed-files bullet at :11. The adversarial judge accepts that half and contests the second half, whether the path is absent from the tree at the snapshot SHA, on the retirement path at apps/admin-api-service/src/migrations/1808800000000-RetireImpersonationAndDebugTools.ts:4 and :78 together with apps/admin-api-service/src/app.module.ts. Resolving which reading holds is fresh judgment of the finding, and an aggregator that supplies it manufactures a consensus no judge voted for. I record the conflict instead: uncertainty_reason judge_disagreement, judge_count 2, mean_confidence 0.77.",
       "verdict": "blocked"
     }
   ],

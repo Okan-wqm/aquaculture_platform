@@ -1,27 +1,13 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-36228228821",
-  "claim_id": "claim_3d2862877046154f",
+  "agent_id": "ci-executor:gha-36282406816",
+  "claim_id": "claim_0d07401284385fcc",
   "details": {
     "agent_confidence_source": "self_reported",
     "agent_contract_hash": "sha256:1cfb872556111014ba9cd86d425e5d6ca985d8e16a0c757217f989806a9a81bf",
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-consensus-arbiter",
-    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-consensus-arbiter-253591852538\",\n  \"claim_id\": \"AIR-aria-consensus-arbiter-253591852538\",\n  \"agent_id\": \"aria-consensus-arbiter\",\n  \"role\": \"consensus_arbitration\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-consensus_arbitration-AIR-aria-consensus-arbiter-253591852538.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"consensus\",\n      \"verdict\": \"blocked\",\n      \"note\": \"The consensus gate fails at the agreement condition, and independently at the confidence floor. Two unique judge_ids are present (aria-adversarial-judge, aria-evidence-judge), so the >=2 judges condition holds, but the verdicts are opposed: true_positive at confidence 0.72 versus false_positive at confidence 0.84. Mean confidence is 0.78, under the 0.80 floor, so even identical verdicts would not have cleared the gate. The disagreement is substantive rather than a formatting artifact of the two responses: the adversarial rationale asserts the target file is a TypeORM migration (implements MigrationInterface at 1801700000000-CreateHrFinanceTables.ts:27) whose up() issues raw per-tenant DDL (lines 120-121), while the evidence rationale asserts the adapter's hazard predicate is a fixed keyword set /\\\\b(DROP|DELETE|TRUNCATE|ALTER TYPE|ENABLE|FORCE ROW LEVEL SECURITY)\\\\b/i at test-gap-adapter.ts:274-275 which CREATE TABLE text does not satisfy before the migration_without_test emit at test-gap-adapter.ts:296. Those are contradictory readings of whether the rule's own premise holds, and both quoted rationales are truncated mid-sentence in the delivered request, so agreement cannot be reconstructed from the supplied text either. Aggregation may not mint a verdict neither judge supplied, so this returns uncertainty with reason judge_disagreement for operator adjudication.\",\n      \"evidence_refs\": [\n        \"tools/aria-adapters/test-gap-adapter.ts:274\",\n        \"tools/aria-adapters/test-gap-adapter.ts:275\",\n        \"tools/aria-adapters/test-gap-adapter.ts:296\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"tools/aria-adapters/test-gap-adapter.ts:274\",\n    \"tools/aria-adapters/test-gap-adapter.ts:275\",\n    \"tools/aria-adapters/test-gap-adapter.ts:296\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121\"\n  ],\n  \"details\": {\n    \"consensus\": {\n      \"verdict\": \"uncertainty\",\n      \"confidence\": 0.78,\n      \"mean_confidence\": 0.78,\n      \"confidence_floor\": 0.8,\n      \"judge_count\": 2,\n      \"unique_judge_ids\": [\"aria-adversarial-judge\", \"aria-evidence-judge\"],\n      \"duplicate_judge_ids\": [],\n      \"agreement\": false,\n      \"gate_passed\": false,\n      \"gate_failures\": [\"judge_disagreement\", \"low_confidence\"],\n      \"verdict_tally\": { \"true_positive\": 1, \"false_positive\": 1 },\n      \"tool_id\": \"test-gap-adapter\",\n      \"run_id\": \"31f76115-1fd5-49e3-ab0a-789a0f32994c\",\n      \"finding_id\": \"migration-without-test:apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts\",\n      \"judgment_group_id\": \"judge:test-gap-adapter:finding:4bba2b929b4a188e5cc98eed62dfd7d8694c56e40a06541ebbbeed0c15bed1be\",\n      \"evidence_relied_on\": [\n        \"tools/aria-adapters/test-gap-adapter.ts:274\",\n        \"tools/aria-adapters/test-gap-adapter.ts:275\",\n        \"tools/aria-adapters/test-gap-adapter.ts:296\",\n        \"apps/hr-service/src/database/migrations/1801700000000-C...",
-    "aggregation_discipline": {
-      "fresh_judgment_performed": false,
-      "judge_response_paths_read_this_run": [],
-      "mode": "aggregation",
-      "note_on_evidence_refs": "No judge-response file paths were supplied in this request; the verdicts arrived quoted inline. The refs cited above are the admissible repository refs the two quoted rationales pivot on, cited to locate the disagreement, not to derive an independent verdict."
-    },
-    "arbitration_explanation": {
-      "downstream_surface": "feedback_store.generate_ai_consensus opens a HUMAN_REQUIRED row for this judgment group instead of settling it, which is the same disposition the decision memory records for consensus-bd4b689c1f0620d4 and consensus-d0b717b37a33ee24. test-gap-adapter rule scoring and judge calibration for this group stay unchanged until an operator adjudicates.",
-      "what_breaks_if_skipped": "If the arbiter resolved the split by siding with the higher-confidence judge, a single 0.84 opinion would become ground truth and suppress migration_without_test for every migration shaped like this one, while the adversarial judge's contradictory reading of the same two surfaces would never reach a human. The rule at tools/aria-adapters/test-gap-adapter.ts could be quarantined on one vote. Manufacturing a verdict no judge supplied also breaks the count feedback_store relies on, because the agreeing-judge tally would no longer correspond to judges who actually agreed.",
-      "what_evidence_proves_the_result": "The gate arithmetic is verifiable from the two verdict/confidence pairs quoted in the request (2 unique judges, opposed verdicts, mean 0.78 < 0.80). The disagreement is substantive rather than cosmetic because each rationale rests on a different pair of admissible refs that cannot both be controlling: test-gap-adapter.ts:274-275 with the emit at :296 for the false_positive reading, and 1801700000000-CreateHrFinanceTables.ts:27 with 120-121 for the true_positive reading.",
-      "what_must_be_done": "Read the supplied judge verdicts as the only input, count unique judge_ids, test whether every counted verdict is the same string, compute the arithmetic mean of the confidences, and compare that mean to the 0.80 floor. A consensus verdict is emitted only when all three conditions hold; otherwise the result is an uncertainty carrying the named failure mode (single_judge, judge_disagreement, low_confidence).",
-      "what_this_run_measured": "2 unique judges (condition met), opposed verdicts true_positive vs false_positive (condition failed), mean confidence (0.72 + 0.84) / 2 = 0.78 against a 0.80 floor (condition failed). Two failures, reported under the dominant one: judge_disagreement.",
-      "why_it_matters": "details.consensus is consumed by feedback_store.generate_ai_consensus, which counts the judges who agreed with the settled verdict. A settled false_positive suppresses this finding class and scores the rule that produced it; a settled true_positive keeps the finding live and scores the judges. The arbiter's output is therefore the write path into repository ground truth, not a summary of it."
-    },
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-consensus-arbiter-253591852538\",\n  \"claim_id\": \"AIR-aria-consensus-arbiter-253591852538\",\n  \"agent_id\": \"aria-consensus-arbiter\",\n  \"role\": \"consensus_arbitration\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-consensus_arbitration-AIR-aria-consensus-arbiter-253591852538.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"consensus\",\n      \"verdict\": \"blocked\",\n      \"note\": \"The consensus gate fails on two independent counts. Count one, agreement: the two unique judges return opposite verdicts \u2014 aria-adversarial-judge true_positive at confidence 0.72, aria-evidence-judge false_positive at confidence 0.84. Count two, confidence: mean confidence is (0.72 + 0.84) / 2 = 0.78, below the 0.80 floor. Judge count (2 unique ids, no duplicate counted twice) is the only gate condition that holds. Disagreement is the dominant failure mode, so the recorded uncertainty reason is judge_disagreement; the low mean is a second, independent reason and is recorded alongside it. No aggregated verdict is emitted: in aggregation mode this agent combines the verdicts the judges supplied and never mints one they did not, so details.consensus carries verdict=uncertainty and this judgment group routes to operator adjudication rather than becoming repository ground truth.\",\n      \"evidence_refs\": [\n        \"tools/aria-adapters/test-gap-adapter.ts:274\",\n        \"tools/aria-adapters/test-gap-adapter.ts:275\",\n        \"tools/aria-adapters/test-gap-adapter.ts:296\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120\",\n        \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121\",\n        \"tests/invariants/migration-spec-quarantine.spec.ts:46\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"tools/aria-adapters/test-gap-adapter.ts:274\",\n    \"tools/aria-adapters/test-gap-adapter.ts:275\",\n    \"tools/aria-adapters/test-gap-adapter.ts:296\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121\",\n    \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:126\",\n    \"tests/invariants/migration-spec-quarantine.spec.ts:46\"\n  ],\n  \"details\": {\n    \"mode\": \"aggregation\",\n    \"consensus\": {\n      \"verdict\": \"uncertainty\",\n      \"confidence\": 0.78,\n      \"mean_confidence\": 0.78,\n      \"judge_count\": 2,\n      \"unique_judge_ids\": [\"aria-adversarial-judge\", \"aria-evidence-judge\"],\n      \"agreement\": false,\n      \"duplicate_judge_ids_counted\": 0,\n      \"uncertainty_reason\": \"judge_disagreement\",\n      \"judges\": [\n        {\n          \"judge_id\": \"aria-adversarial-judge\",\n          \"verdict\": \"true_positive\",\n          \"confidence\": 0.72,\n          \"rationale_as_delivered_truncated\": true,\n          \"claim_locus_cited\": [\n            \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27\",\n            \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120\",\n            \"apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121\"\n          ]\n        },\n        {\n          \"judge_id\": \"aria-evidence-judge\",\n          \"verdict\": \"false_positive\",\n          \"confidence\": 0.84,\n          \"rationale_as_delivered_truncated\": true,\n          \"claim_locus_cited\": [\n            \"tools/aria-adapters/test-gap-adapter.ts:274\",\n            \"tools/aria-adapters/test-gap-adapter.ts:275\",\n            \"tools/aria-adapters/test-gap-adapter.ts:296\"\n          ]\n        }\n      ],\n      \"judgment_group_id\": \"judge:t...",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 54551,
@@ -40,13 +26,13 @@
           "cache_creation_input_tokens": 54551,
           "cache_read_input_tokens": 3309,
           "input_tokens": 2,
-          "output_tokens": 9655,
+          "output_tokens": 9282,
           "type": "message"
         }
       ],
-      "output_tokens": 9655,
+      "output_tokens": 9282,
       "output_tokens_details": {
-        "thinking_tokens": 5410
+        "thinking_tokens": 5623
       },
       "server_tool_use": {
         "web_fetch_requests": 0,
@@ -58,80 +44,85 @@
     "consensus": {
       "agreement": false,
       "confidence": 0.78,
-      "confidence_floor": 0.8,
-      "duplicate_judge_ids": [],
-      "evidence_relied_on": [
-        "tools/aria-adapters/test-gap-adapter.ts:274",
-        "tools/aria-adapters/test-gap-adapter.ts:275",
-        "tools/aria-adapters/test-gap-adapter.ts:296",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121"
-      ],
+      "duplicate_judge_ids_counted": 0,
       "finding_id": "migration-without-test:apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts",
-      "gate_failures": [
-        "judge_disagreement",
-        "low_confidence"
-      ],
-      "gate_passed": false,
       "judge_count": 2,
+      "judges": [
+        {
+          "claim_locus_cited": [
+            "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
+            "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
+            "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121"
+          ],
+          "confidence": 0.72,
+          "judge_id": "aria-adversarial-judge",
+          "rationale_as_delivered_truncated": true,
+          "verdict": "true_positive"
+        },
+        {
+          "claim_locus_cited": [
+            "tools/aria-adapters/test-gap-adapter.ts:274",
+            "tools/aria-adapters/test-gap-adapter.ts:275",
+            "tools/aria-adapters/test-gap-adapter.ts:296"
+          ],
+          "confidence": 0.84,
+          "judge_id": "aria-evidence-judge",
+          "rationale_as_delivered_truncated": true,
+          "verdict": "false_positive"
+        }
+      ],
       "judgment_group_id": "judge:test-gap-adapter:finding:4bba2b929b4a188e5cc98eed62dfd7d8694c56e40a06541ebbbeed0c15bed1be",
       "mean_confidence": 0.78,
       "run_id": "31f76115-1fd5-49e3-ab0a-789a0f32994c",
       "tool_id": "test-gap-adapter",
+      "uncertainty_reason": "judge_disagreement",
       "unique_judge_ids": [
         "aria-adversarial-judge",
         "aria-evidence-judge"
       ],
-      "verdict": "uncertainty",
-      "verdict_tally": {
-        "false_positive": 1,
-        "true_positive": 1
-      }
+      "verdict": "uncertainty"
     },
-    "disagreement_axis": {
-      "decidable_from": [
-        "tools/aria-adapters/test-gap-adapter.ts:274",
-        "tools/aria-adapters/test-gap-adapter.ts:275",
-        "tools/aria-adapters/test-gap-adapter.ts:296",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:126",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:148",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:151"
-      ],
-      "not_adjudicated_here": "Aggregation mode forbids re-judging the finding from the repository; the question above is recorded for the operator or an anchor-refutation re-judgment, not answered by this envelope.",
-      "unresolved_question": "Does the target migration's raw file text satisfy the adapter's hazard predicate at tools/aria-adapters/test-gap-adapter.ts:274-275, such that the migration_without_test emit at :296 is reached at all?",
-      "why_it_decides_the_verdict": "The adversarial judge's true_positive stands on the file being a hazardous DDL migration without a covering spec; the evidence judge's false_positive stands on the hazard predicate never matching this file's CREATE TABLE text, which would make the emit unreachable and the finding a rule defect rather than a repository defect. Exactly one of these readings of the same two surfaces can hold."
+    "disagreement_crux_for_the_operator": "The judges do not dispute what the migration file contains; they dispute whether the adapter's own hazard predicate fires on it. aria-evidence-judge reads the predicate at tools/aria-adapters/test-gap-adapter.ts:274-275 and concludes the rule's premise is unmet, making the emission at :296 unsupported. aria-adversarial-judge reads apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27 onward and concludes the migration is a raw-DDL migration the rule is meant to catch. That is a mechanical question settled by reading those two loci together plus the quarantine invariant at tests/invariants/migration-spec-quarantine.spec.ts:46. This arbiter states the crux and does not resolve it: resolving it would be a fresh judgment aggregation mode forbids.",
+    "evidence_provenance": {
+      "cited_refs_meaning": "Every ref cited above is drawn from this request's evidence_payload and marks the locus each judge's quoted rationale names. They are cited as the coordinates of the disagreement, not as independent verification performed by this arbiter.",
+      "identity_note": "The request header carried request_id and expected_output_path but no claim_id. The request_id is echoed into claim_id rather than synthesizing a claim-shaped identifier; no identity value is invented here.",
+      "judge_inputs": "The two judge verdicts, confidences and truncated rationales were delivered inline in this request prompt. No aria/agent-response/v1 judge-response file paths were supplied in evidence_refs, so none were read in this run and none are cited.",
+      "rationale_truncation": "Both rationales arrive cut mid-sentence ('three per-tenant CREATE TABL', 'when no spe'). This does not make the judge responses malformed for gate purposes: verdict and confidence \u2014 the only fields the gate consumes \u2014 are intact and unambiguous for both judges, so the refusal protocol does not apply and the gate is computed rather than refused."
     },
-    "judges": [
+    "explanation": {
+      "downstream_surface_affected": "feedback_store consensus rows and the HUMAN_REQUIRED escalation queue. Decision memory already holds two open consensus-* rows opened for judge_disagreement (2026-09-04 and 2026-09-18); this judgment group joins them for operator adjudication, and until an operator settles it the adapter rule keeps emitting and the finding stays unsuppressed.",
+      "evidence_that_proves_the_result": "The arithmetic is fully determined by the two supplied verdict/confidence pairs: 2 unique judge ids, opposed verdicts, mean 0.78 < 0.80, 0 duplicates \u2014 reproduced field by field in gate_evaluation above, with the disagreement loci cited from this request's admissible evidence refs.",
+      "what_breaks_if_skipped": "Siding with the higher-confidence judge (false_positive at 0.84) would suppress the migration_without_test class on a contested premise, and a genuine missing test on an HR finance migration would be silenced with an audit trail claiming consensus. Siding with the adversarial judge would promote a finding the other judge argues the adapter's own predicate does not support, training the adapter toward false positives. Either shortcut launders a 0.78-mean contested pair into ground truth and corrupts judge calibration in the same write.",
+      "what_must_be_done": "Apply the consensus gate arithmetically to the verdicts the judges supplied: count unique judge ids, test verdict agreement, compute mean confidence against the 0.80 floor, reject duplicate ids. When any condition fails, emit an uncertainty result naming the failure mode instead of an aggregated verdict.",
+      "why_it_matters": "This envelope is consumed by feedback_store.generate_ai_consensus, which counts the judges who agreed with a settled verdict. A verdict emitted here becomes repository ground truth for the test-gap-adapter rule class: it suppresses or confirms findings, scores the judges, and feeds rule quarantine. The gate is what stops one confident-sounding judge from carrying that authority alone."
+    },
+    "gate_evaluation": [
       {
-        "claim_as_quoted": "Every premise of the rule holds in the hash-stamped excerpt: the file is a TypeORM migration whose up() issues raw per-tenant CREATE TABLE DDL.",
-        "confidence": 0.72,
-        "judge_id": "aria-adversarial-judge",
-        "rationale_pivots_on": [
-          "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
-          "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
-          "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121"
-        ],
-        "rationale_truncated_in_request": true,
-        "verdict": "true_positive"
+        "condition": ">=2 unique judge_id values",
+        "holds": true,
+        "measured": "2 unique (aria-adversarial-judge, aria-evidence-judge)"
       },
       {
-        "claim_as_quoted": "The adapter marks a migration hazardous only when its raw text matches the fixed keyword set /\\b(DROP|DELETE|TRUNCATE|ALTER TYPE|ENABLE|FORCE ROW LEVEL SECURITY)\\b/i, then emits migration_without_test when no spec covers it.",
-        "confidence": 0.84,
-        "judge_id": "aria-evidence-judge",
-        "rationale_pivots_on": [
-          "tools/aria-adapters/test-gap-adapter.ts:274",
-          "tools/aria-adapters/test-gap-adapter.ts:275",
-          "tools/aria-adapters/test-gap-adapter.ts:296"
-        ],
-        "rationale_truncated_in_request": true,
-        "verdict": "false_positive"
+        "condition": "all counted judges agree on verdict",
+        "holds": false,
+        "measured": "true_positive vs false_positive",
+        "reason_code": "judge_disagreement"
+      },
+      {
+        "condition": "mean confidence >= 0.80",
+        "holds": false,
+        "measured": "0.78",
+        "reason_code": "low_confidence"
+      },
+      {
+        "condition": "no duplicate judge_id counted twice",
+        "holds": true,
+        "measured": "0 duplicates"
       }
     ],
-    "runtime_attempt_ledger_hash": "sha256:e326d37b31e389aa7879751b354d5fc8c6e1dc11628c8de9944e0d4e5860cab9",
+    "mode": "aggregation",
+    "reason_precedence_applied": "judge_disagreement over low_confidence \u2014 the verdicts are opposed, so no amount of confidence re-weighting produces an agreed verdict; the sub-floor mean is recorded as a second independent failure in gate_evaluation.",
+    "runtime_attempt_ledger_hash": "sha256:8f1a5cc7fdee69e78b724045c574981c1a9dd6a44d92232f73c6fe081c877afb",
     "uncertainty_reason": "judge_disagreement"
   },
   "evidence_refs": [
@@ -140,7 +131,9 @@
     "tools/aria-adapters/test-gap-adapter.ts:296",
     "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
     "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
-    "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121"
+    "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121",
+    "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:126",
+    "tests/invariants/migration-spec-quarantine.spec.ts:46"
   ],
   "request_id": "AIR-aria-consensus-arbiter-253591852538",
   "role": "consensus_arbitration",
@@ -152,10 +145,11 @@
         "tools/aria-adapters/test-gap-adapter.ts:296",
         "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:27",
         "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:120",
-        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121"
+        "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts:121",
+        "tests/invariants/migration-spec-quarantine.spec.ts:46"
       ],
       "id": "consensus",
-      "note": "The consensus gate fails at the agreement condition, and independently at the confidence floor. Two unique judge_ids are present (aria-adversarial-judge, aria-evidence-judge), so the >=2 judges condition holds, but the verdicts are opposed: true_positive at confidence 0.72 versus false_positive at confidence 0.84. Mean confidence is 0.78, under the 0.80 floor, so even identical verdicts would not have cleared the gate. The disagreement is substantive rather than a formatting artifact of the two responses: the adversarial rationale asserts the target file is a TypeORM migration (implements MigrationInterface at 1801700000000-CreateHrFinanceTables.ts:27) whose up() issues raw per-tenant DDL (lines 120-121), while the evidence rationale asserts the adapter's hazard predicate is a fixed keyword set /\\b(DROP|DELETE|TRUNCATE|ALTER TYPE|ENABLE|FORCE ROW LEVEL SECURITY)\\b/i at test-gap-adapter.ts:274-275 which CREATE TABLE text does not satisfy before the migration_without_test emit at test-gap-adapter.ts:296. Those are contradictory readings of whether the rule's own premise holds, and both quoted rationales are truncated mid-sentence in the delivered request, so agreement cannot be reconstructed from the supplied text either. Aggregation may not mint a verdict neither judge supplied, so this returns uncertainty with reason judge_disagreement for operator adjudication.",
+      "note": "The consensus gate fails on two independent counts. Count one, agreement: the two unique judges return opposite verdicts \u2014 aria-adversarial-judge true_positive at confidence 0.72, aria-evidence-judge false_positive at confidence 0.84. Count two, confidence: mean confidence is (0.72 + 0.84) / 2 = 0.78, below the 0.80 floor. Judge count (2 unique ids, no duplicate counted twice) is the only gate condition that holds. Disagreement is the dominant failure mode, so the recorded uncertainty reason is judge_disagreement; the low mean is a second, independent reason and is recorded alongside it. No aggregated verdict is emitted: in aggregation mode this agent combines the verdicts the judges supplied and never mints one they did not, so details.consensus carries verdict=uncertainty and this judgment group routes to operator adjudication rather than becoming repository ground truth.",
       "verdict": "blocked"
     }
   ],

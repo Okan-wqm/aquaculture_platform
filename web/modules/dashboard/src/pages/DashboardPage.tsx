@@ -15,6 +15,7 @@ import {
   useTenantContext,
   formatNumber,
   formatRelativeTime,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import OverviewWidgets from '../components/OverviewWidgets';
 import RecentActivityList from '../components/RecentActivityList';
@@ -22,8 +23,20 @@ import AlertSummaryWidget from '../widgets/AlertSummaryWidget';
 import type { AlertItem, AlertSeverity } from '../widgets/AlertSummaryWidget';
 import QuickActions from '../components/QuickActions';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
-import { DownloadIcon, PlusIcon, FarmIcon, SensorIcon, BellIcon, TrendUpIcon } from '../components/icons';
-import { useDashboardStats, useAlertSummary, useAcknowledgeAlert, useResolveAlert } from '../hooks/useDashboardData';
+import {
+  DownloadIcon,
+  PlusIcon,
+  FarmIcon,
+  SensorIcon,
+  BellIcon,
+  TrendUpIcon,
+} from '../components/icons';
+import {
+  useDashboardStats,
+  useAlertSummary,
+  useAcknowledgeAlert,
+  useResolveAlert,
+} from '../hooks/useDashboardData';
 
 // ============================================================================
 // Alert Mapping Helper
@@ -115,13 +128,19 @@ const DashboardPage: React.FC = () => {
   }, [alertQuery.data?.alerts]);
 
   // Alert action handlers
-  const handleAcknowledgeAlert = useCallback(async (alertId: string) => {
-    await acknowledgeMutation.mutateAsync(alertId);
-  }, [acknowledgeMutation]);
+  const handleAcknowledgeAlert = useCallback(
+    async (alertId: string) => {
+      await acknowledgeMutation.mutateAsync(alertId);
+    },
+    [acknowledgeMutation],
+  );
 
-  const handleResolveAlert = useCallback(async (alertId: string) => {
-    await resolveMutation.mutateAsync(alertId);
-  }, [resolveMutation]);
+  const handleResolveAlert = useCallback(
+    async (alertId: string) => {
+      await resolveMutation.mutateAsync(alertId);
+    },
+    [resolveMutation],
+  );
 
   // Navigate to alerts page (sensor module hosts the alerts view)
   const handleViewAllAlerts = useCallback(() => {
@@ -134,99 +153,100 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+      <PageHeader
+        title={
+          <>
             {/* DASH-SEC-002: React JSX escapes interpolations. Truncate display names
                 as a defence-in-depth measure against abnormally long server values. */}
             Hos Geldiniz, {(user?.firstName || 'Kullanici').slice(0, 64)}
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {(tenant?.name ?? '').slice(0, 128)} - Son guncelleme: {formatRelativeTime(mountedAt.current)}
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <Button variant="outline" size="sm">
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Rapor Indir
-          </Button>
-          <Link to="/sites/new">
-            <Button size="sm">
-              <PlusIcon className="w-4 h-4 mr-2" />
-              Yeni Ciftlik
+          </>
+        }
+        description={
+          <>
+            {(tenant?.name ?? '').slice(0, 128)} - Son guncelleme:{' '}
+            {formatRelativeTime(mountedAt.current)}
+          </>
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+            <Button variant="outline" size="sm">
+              <DownloadIcon className="w-4 h-4 mr-2" />
+              Rapor Indir
             </Button>
-          </Link>
-        </div>
-      </div>
+            <Link to="/sites/new">
+              <Button size="sm">
+                <PlusIcon className="w-4 h-4 mr-2" />
+                Yeni Ciftlik
+              </Button>
+            </Link>
+          </div>
+        }
+      />
 
       {/* Metrik Kartlari */}
       <div aria-live="polite" aria-atomic="true">
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      ) : hasError ? (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-red-600">
-              Metrikler yuklenirken bir hata olustu.
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => statsQuery.refetch()}
-            >
-              Tekrar Dene
-            </Button>
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
-        </div>
-      ) : metrics ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            title="Toplam Ciftlik"
-            value={formatNumber(metrics.totalFarms)}
-            trend={metrics.farmsTrend}
-            trendLabel="gecen aya gore"
-            icon={<FarmIcon className="w-6 h-6" />}
-          />
-          <MetricCard
-            title="Aktif Kullanici"
-            value={formatNumber(metrics.activeUsers)}
-            trend={metrics.sensorsTrend}
-            trendLabel="gecen haftaya gore"
-            icon={<SensorIcon className="w-6 h-6" />}
-          />
-          {/*
+        ) : hasError ? (
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-error-600 dark:text-error-400">
+                Metrikler yuklenirken bir hata olustu.
+              </p>
+              <Button variant="ghost" size="sm" onClick={() => statsQuery.refetch()}>
+                Tekrar Dene
+              </Button>
+            </div>
+          </div>
+        ) : metrics ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard
+              title="Toplam Ciftlik"
+              value={formatNumber(metrics.totalFarms)}
+              trend={metrics.farmsTrend}
+              trendLabel="gecen aya gore"
+              icon={<FarmIcon className="w-6 h-6" />}
+            />
+            <MetricCard
+              title="Aktif Kullanici"
+              value={formatNumber(metrics.activeUsers)}
+              trend={metrics.sensorsTrend}
+              trendLabel="gecen haftaya gore"
+              icon={<SensorIcon className="w-6 h-6" />}
+            />
+            {/*
             BUG-H1: Alert trend -- more alerts is bad. Pass raw positive trend value
             and let MetricCard know that positive direction is bad via trendPositiveDirection.
             If MetricCard does not yet support that prop, negate at call site with a comment
             explaining the semantic until the prop is added.
           */}
-          <MetricCard
-            title="Bugunku Uyarilar"
-            value={formatNumber(metrics.alertsToday)}
-            trend={-metrics.alertsTrend}
-            trendLabel="dune gore"
-            icon={<BellIcon className="w-6 h-6" />}
-          />
-          <MetricCard
-            title="Toplam Kullanici"
-            value={formatNumber(metrics.totalUsers)}
-            trend={metrics.productionTrend}
-            trendLabel="bu ay"
-            icon={<TrendUpIcon className="w-6 h-6" />}
-          />
-        </div>
-      ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-sm text-gray-500">Henuz veri yok</p>
-          <p className="text-xs text-gray-500 mt-1">
-            Ciftlik ve sensor verileriniz burada gorunecektir.
-          </p>
-        </div>
-      )}
+            <MetricCard
+              title="Bugunku Uyarilar"
+              value={formatNumber(metrics.alertsToday)}
+              trend={-metrics.alertsTrend}
+              trendLabel="dune gore"
+              icon={<BellIcon className="w-6 h-6" />}
+            />
+            <MetricCard
+              title="Toplam Kullanici"
+              value={formatNumber(metrics.totalUsers)}
+              trend={metrics.productionTrend}
+              trendLabel="bu ay"
+              icon={<TrendUpIcon className="w-6 h-6" />}
+            />
+          </div>
+        ) : (
+          <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Henuz veri yok</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Ciftlik ve sensor verileriniz burada gorunecektir.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Icerik Grid */}

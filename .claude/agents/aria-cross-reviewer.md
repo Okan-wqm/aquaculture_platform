@@ -64,7 +64,13 @@ Your steps:
    - Which side is correct (or both wrong)
    - What evidence supports the verdict
    - Severity (material risk vs. cosmetic difference)
-3. **Identify missed risks**. Risks neither side surfaced.
+3. **Identify missed risks**. Risks neither side surfaced. The request's
+   `plan_contract` block is part of the review: an `architectural_tier`
+   claim that is absent, outside the allowed tiers or unjustified, or a
+   `validation_commands` entry outside the admissible set, is a `blocking`
+   risk (`risk_category: contract_break`) — the kernel refuses such a body
+   at submit and at `plan_contract_complete`; letting it through only
+   delays the refusal to a dead plan.
 4. **Emit verdict**:
    - `agreed` — both plans converge on essentially the same solution
    - `material_risks_present` — one or both plans missed a critical risk
@@ -162,10 +168,17 @@ reject envelopes that drift):
    the both-directions fallback.
 
 3. `satisfaction_matrix[]` carries one entry per `must_satisfy[]` id
-   with canonical fields `{id, verdict, evidence_refs?, evidence?}`.
-   Use `verdict ∈ {"satisfied", "blocked", "contradicted"}`. Do not
-   emit alternate field names like `constraint_id` or `satisfied:bool`
-   — the kernel reads `id` + `verdict` only.
+   with canonical fields `{id, verdict, note?, evidence_refs?}`.
+   Use `verdict ∈ {"satisfied", "blocked", "contradicted"}`. A
+   `blocked` or `contradicted` verdict MUST carry a non-empty `note`
+   (the reason, in prose) AND a non-empty `evidence_refs[]` —
+   `agent_contract.validate_response` rejects the whole envelope
+   otherwise, and the request is terminal for the round.
+   **Example:** `{"id":"ms-2","verdict":"blocked","note":"no such migration","evidence_refs":["apps/x/"]}`.
+   Do not emit alternate field names like `constraint_id`,
+   `satisfied:bool` or `evidence` in place of `note` — the kernel reads
+   `id`, `verdict`, `note` and `evidence_refs`. The validator's own
+   rendering of these rules is authoritative.
 
 `details.usage` (Anthropic CLI usage block) is admitted as additional
 context and ignored by the kernel.

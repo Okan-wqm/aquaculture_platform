@@ -294,7 +294,7 @@ describe('MessagingPage message rendering', () => {
     // inbound tenant messages and no read receipt ever drew.
     const bubble = (await screen.findByText('ops@suderra.com')).closest('div.max-w-2xl');
     expect(bubble).not.toBeNull();
-    expect(bubble?.className).toContain('bg-blue-600');
+    expect(bubble?.className).toContain('bg-info-600');
     expect(within(bubble as HTMLElement).getByText('Read')).toBeInTheDocument();
   });
 

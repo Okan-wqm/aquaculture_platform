@@ -2,11 +2,11 @@
   "$schema": "aria/product-fitness-charter/v2",
   "schema_version": 2,
   "declared_by": "operator",
-  "declared_at": "2026-08-19",
-  "statement": "Repodaki sistemlerin hepsi kusursuz organize bağlanacak ve kusursuz hizmet verecek: güvenli, performanslı, multi-tenant, üretimde olan bir yazılımın endüstriyel şekilde hatasız olması ve üstün kod kalitesi.",
+  "declared_at": "2026-09-16",
+  "statement": "Aqua SaaS platformunun tüm katmanları — apps/ altındaki 16 backend servisi ve db-migrate aracı — 17 dizin (auth, billing, farm, sensor, sensor-ingestion, hydroponics, messaging, hr, event-store, alert-engine, notification, observability, ai, config, admin-api, gateway-api, db-migrate), web/modules altındaki 8 panel modülü, sens-api-gateway Rust edge ajanı ve PostgreSQL + NATS + GraphQL omurgası — kusursuz organize bağlanacak: sözleşmeler (OpenAPI/GraphQL/olay/NATS) sıfır sürüklenme, kiracı verisi okuma/yazmada tam izole, göçler tersine alınabilir, yedekler kanıtlanmış geri yüklenebilir, kritik açık sıfır, performans sınırlı ve ölçülü, E2E akışlar gerçek ortamda geçerli olacak.",
   "threshold_design": {
-    "why_a_ladder": "A bar nobody can measure is a wish. Most of these dimensions are not instrumented today (production deploys have been disabled since 2026-07-15, the WAL-freshness lane has never produced a job, the backup evidence signature is skipped, there is no product-side latency ledger), so the FIRST bar is being able to see, and only then being good.",
-    "zero_tolerance_vs_budgeted": "Cross-tenant reads and critical vulnerabilities are not budgeted — one occurrence ends the product. Latency and error rates ARE budgeted: bounded imperfection is engineering, pretended perfection is theatre.",
+    "why_a_ladder": "A bar nobody can measure is a wish. Several lanes (PITR restore, fuzz, benchmark, post-deploy verify) bind to the commit they ran against; until they run on the evaluated head the dimension is honestly unknown. The FIRST bar is being able to see, and only then being good.",
+    "zero_tolerance_vs_budgeted": "Cross-tenant reads/writes and critical vulnerabilities are not budgeted — one occurrence ends the product. Latency, fuzz crashes on edge parsers and E2E flake ARE budgeted: bounded imperfection is engineering, pretended perfection is theatre.",
     "ratchet": "A stage, once reached, cannot silently regress: falling back below a reached bar is a red night, not a return to the earlier stage.",
     "unknown_is_never_green": "A dimension that cannot be read breaks the streak exactly like a failing one."
   },
@@ -35,16 +35,24 @@
   "dimensions": [
     {
       "id": "connection_integrity",
-      "operator_words": "sistemlerin hepsinin kusursuz organize bağlanması",
+      "operator_words": "sistemlerin kusursuz organize bağlanması — backend↔frontend, GraphQL federasyonu, olay sözleşmeleri",
       "measured_by": "workflow_conclusions",
-      "workflows": ["CI - Affected", "CI - Full"],
-      "budget": { "contract_drift_count": 0 },
-      "instrument_gap": "Contract parity votes inside these lanes but is not reported as its own number; stage B needs the count, not the lane verdict.",
-      "rationale": "Organised connection has an exact measurable form: zero drift between declared and implemented contracts (OpenAPI vs Nest, GraphQL schema vs resolver, event contract vs consumer)."
+      "workflows": [
+        "CI - Affected",
+        "GraphQL Codegen Up-To-Date",
+        "Apollo Supergraph Validate",
+        "NATS SSoT Invariants"
+      ],
+      "budget": {
+        "contract_drift_count": 0,
+        "stale_codegen_count": 0
+      },
+      "instrument_gap": "admin OpenAPI parity ve fe-dto-parity adaptörü bu şeritlerde oy veriyor ama kendi sayısı olarak akmıyor; stage B sayıyı, şerit kararını değil isteyecek. Codegen/Apollo/NATS şeritleri yol-filtrelidir: ilgili yollara dokunulmayan bir head'de koşmazlar ve boyut unknown olur — stage A bu görünürlüğü zorlamak için vardır. CI - Full pazar günleri koştuğu için bu boyuttan code_quality'ye alındı.",
+      "rationale": "Bağlantının ölçülebilir şekli üç sözleşme sınıfında sıfır sürüklenmedir: REST/OpenAPI, GraphQL şema↔resolver, olay/NATS sözleşmesi. codegen güncel değilse frontend sözleşmenin eski kopyasında yaşar."
     },
     {
       "id": "flawless_service",
-      "operator_words": "kusursuz hizmet vermesi",
+      "operator_words": "kusursuz hizmet — kararlılık ve hatasız akış",
       "measured_by": "workflow_conclusions",
       "workflows": ["dataflow-integrity-watchdog"],
       "budget": {
@@ -52,12 +60,12 @@
         "critical_endpoint_p99_ms_max": 500,
         "open_incidents_max": 0
       },
-      "instrument_gap": "detect_http_5xx_share exists (E24-a) but has never ingested a sample; there is no product-side p99 ledger at all.",
-      "rationale": "Service quality is a rate, not a boolean: bounded failure is engineering, and the bound is what makes it honest."
+      "instrument_gap": "probe-runner 5xx payını hesaplıyor ancak henüz örnek yutmadı; ürün tarafı p99 defteri yok. Watchdog şeridi değerlendirilen head'de koşmadıysa boyut dürüstçe unknown kalır.",
+      "rationale": "Hizmet kalitesi boolean değil orandır: sınırlı hata mühendisliktir, sınırın kendisi dürüstlüktür."
     },
     {
       "id": "security",
-      "operator_words": "güvenli",
+      "operator_words": "güvenli — statik, konteyner ve bağımlılık taraması",
       "measured_by": "workflow_conclusions",
       "workflows": ["Security - Gitleaks", "Security - Trivy"],
       "budget": {
@@ -65,46 +73,120 @@
         "high_vulnerability_age_days_max": 30,
         "unallowlisted_public_write_endpoints_max": 0
       },
-      "instrument_gap": "Dependabot severity counts (131 open today: 1 critical, 42 high) are not read by any ARIA consumer.",
-      "rationale": "Zero critical is not negotiable; a high with an age limit is, because a fleet of dependencies is never momentarily perfect."
+      "instrument_gap": "Dependency Review şeridi yalnız PR'da koştuğu için burada sayılmaz; Dependabot şiddet sayıları (açık 100+ istihbarat) hiçbir ARIA tüketicisi tarafından okunmuyor. Taramalar advisory veritabanı güncellendikçe zamana duyarlıdır — bugün yaşanan RUSTSEC/nx olaylarının genel dersi. Security - Snyk yalnız manuel dispatch (SNYK_TOKEN henüz yok) — sha'ya otomatik bağlanmadığı için şerit listesinden çıkarıldı; token + schedule eklenince geri alınmalı.",
+      "rationale": "Sıfır kritik pazarlık konusu değil; yaş sınırı olan high ise öyledir çünkü bir bağımlılık filosu anlık kusursuz olamaz."
     },
     {
       "id": "multi_tenant",
-      "operator_words": "multi-tenant",
+      "operator_words": "çok-kiracılı — kiracı başına veri okuma/yazma izolasyonu",
       "measured_by": "workflow_conclusions",
       "workflows": ["Quality Gates"],
-      "budget": { "cross_tenant_reads_max": 0, "unscoped_repository_reads_max": 0 },
+      "budget": {
+        "cross_tenant_reads_max": 0,
+        "cross_tenant_writes_max": 0,
+        "unscoped_repository_reads_max": 0
+      },
       "zero_tolerance": true,
-      "instrument_gap": "The tenant-scoping adapter's 41 findings live in shadow; nothing yet turns them into this count.",
-      "rationale": "This is the one dimension that cannot carry a budget: a single cross-tenant read is not a degraded service, it is a different product."
+      "instrument_gap": "tenant-scoping adaptörünün bulguları gölgede; bunları bu sayıya çeviren akış yok. FORCE RLS ve şema-sağlayıcı sözleşmeleri Quality Gates içinde oy veriyor.",
+      "rationale": "Bütçe taşıyamayacak tek boyut bu: tek bir kiracılar-arası okuma, degradasyon değil farklı bir üründür."
     },
     {
-      "id": "production_integrity",
-      "operator_words": "üretimde olan bir yazılımın endüstriyel şekilde hatasız olması",
+      "id": "data_durability",
+      "operator_words": "veritabanı — göç, yedek, WAL tazeliği, PITR geri yükleme",
       "measured_by": "workflow_conclusions",
-      "workflows": ["Backup - Production Postgres", "Database Migration Check"],
-      "budget": { "restore_rehearsal_max_age_days": 30, "rpo_minutes_max": 15, "rto_hours_max": 1 },
-      "instrument_gap": "A green backup lane proves an upload, not a recovery; no restore has ever been rehearsed, and the evidence-signing job is skipped while DR activation waits on the operator.",
-      "rationale": "Industrial means provably recoverable. The number that matters is the last time a restore actually worked."
+      "workflows": [
+        "Database Migration Check",
+        "Backup - Production Postgres",
+        "Database WAL Archive Freshness"
+      ],
+      "budget": {
+        "restore_rehearsal_max_age_days": 30,
+        "rpo_minutes_max": 15,
+        "rto_hours_max": 1,
+        "wal_archive_lag_minutes_max": 15
+      },
+      "instrument_gap": "Yeşil yedek şeridi yüklemeyi kanıtlar, kurtarmayı değil; PITR şeridi koşmadan bu boyut head üzerinde unknown'dur. Kanıt-imzalama işi DR aktivasyonu beklerken atlanıyor. PITR Restore şeridi tasarımdan operatör-başlatmalı (yıkıcı prova, zorunlu girdiler) — otomatik schedule edilemez; prova yaşı bu boyutta instrument olarak kalır, şerit listesinde değil.",
+      "rationale": "Endüstriyel, kanıtlanmış geri alınabilirlik demektir. Önemli sayı, bir geri yüklemenin en son ne zaman gerçekten çalıştığıdır."
+    },
+    {
+      "id": "edge_gateway",
+      "operator_words": "sens-api-gateway — Rust edge ajanının güvenliği ve ayrıştırıcı sağlamlığı",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["SENS API Gateway CI", "Nightly Fuzz - ST Parser (sens-api-gateway)"],
+      "budget": {
+        "fuzz_crash_count": 0,
+        "edge_audit_findings_max": 0
+      },
+      "instrument_gap": "Fuzz şeridi zamanlanmış koşar ve değerlendirilen head'e bağlanmayabilir; üretim ayrıştırıcı telemetrisi yok.",
+      "rationale": "Edge, protokol ayrıştırıcıyı dış dünyaya açan katmandır; ayrıştırıcı çökmesi hizmet değil güvenlik olayıdır."
+    },
+    {
+      "id": "e2e_reality",
+      "operator_words": "gerçek akışların uçtan uca çalışması — çiftlik su kimyası ve mesajlaşma",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["E2E Tests", "E2E - Messaging Service"],
+      "budget": {
+        "e2e_red_count": 0
+      },
+      "instrument_gap": "farm-water-chemistry-e2e işi dağıtım-bağımlı olduğundan bu boyuta yalnızca koştuğu geceler veri verir; ürün E2E'si ortam bekliyor.",
+      "rationale": "Birim testleri geçen ama gerçek akışta kırılan sistem, sözleşmesi olan hayaldir."
+    },
+    {
+      "id": "performance",
+      "operator_words": "performanslı — ölçülmüş ve sınırlı",
+      "measured_by": "workflow_conclusions",
+      "budget": {
+        "regression_pct_max": 5,
+        "critical_endpoint_p99_ms_max": 500
+      },
+      "instrument_gap": "Performance Benchmark şeridi bugün yalnız PR ve manuel dispatch ile koşar — main push'a tetikleyicisi ve schedule'ı yok, dolayısıyla gece değerlendirmesinde bu boyut unknown kalır. Stage A'nın kabulü bunu görünür kılar: şeride schedule eklendiği an boyut ölçülebilir olur (k6 API).",
+      "rationale": "Performans, tabana göre yüzde ile konuşur; taban yoksa iddia yoktur. %5, mevcut karşılaştırma altyapısının varsayılan eşiğidir.",
+      "workflows": ["Performance Benchmark"]
+    },
+    {
+      "id": "deploy_pipeline",
+      "operator_words": "teslim — geliştirme ortamı ve altyapı tanımları sağlıklı",
+      "measured_by": "workflow_conclusions",
+      "workflows": [
+        "Deploy Development",
+        "Infrastructure - Helm Lint",
+        "Monitoring Stack Validate"
+      ],
+      "budget": {
+        "development_delivery_age_days_max": 1
+      },
+      "instrument_gap": "Üretim dağıtımı kapalı (PRODUCTION_DEPLOY_ENABLED=false, 2026-07-15'ten beri); bu boyut yalnızca geliştirme teslimini görür.",
+      "rationale": "Teslim boru hattı kendisi hasta ise her başka ölçüm bayat haber taşır."
     },
     {
       "id": "code_quality",
-      "operator_words": "üstün kod kalitesi",
+      "operator_words": "üstün kod kalitesi — lint, tip, test tüm repo üzerinde",
       "measured_by": "workflow_conclusions",
-      "workflows": ["aria-kernel"],
+      "workflows": ["CI - Full"],
       "budget": {
         "changed_line_coverage_min": 0.8,
         "banned_constructs_max": 0,
         "duplicate_ssot_count_max": 0
       },
-      "instrument_gap": "Total coverage is reported; changed-line coverage is not, and total coverage flatters a large repository.",
-      "rationale": "Changed-line coverage is the only coverage number that cannot be inflated by untouched code."
+      "instrument_gap": "Toplam kapsam raporlanıyor; değişen-satır kapsamı değil — büyük repoda toplam, dokunulmamış kodla övünür. CI - Full yalnız pazar 02:00 schedule'ı ile main ucuna bağlanır: sessiz hafta uçlarında yeşil, otherwise unknown.",
+      "rationale": "Değişen-satır kapsamı, dokunulmamış kodla şişirilemeyen tek kapsam sayısıdır."
+    },
+    {
+      "id": "aria_self_health",
+      "operator_words": "ARIA'nın kendi sağlığı — çekirdek CI ve durum dalı bakımı (ürün kalitesinden ayrı ölçülür)",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["aria-kernel", "ARIA State Maintenance"],
+      "budget": {
+        "main_push_failures_max": 0
+      },
+      "instrument_gap": "Çekirdek kendi sağlığını ürün kalitesine karıştırmamalı — eski charter code_quality'yi bu şeride bağlıyordu; ayrım bilinçlidir.",
+      "rationale": "Denetçi kendi hastalığını ürüne bulaştırırsa skor ikisi için de yalan olur."
     }
   ],
   "outcome_metrics_stage_c": {
     "escaped_defect_rate_max": 0.05,
     "change_failure_rate_max": 0.15,
     "mttr_hours_max": 1,
-    "note": "Both rates are unmeasurable while production deploys stay disabled (PRODUCTION_DEPLOY_ENABLED=false since 2026-07-15). Stage C cannot begin before that operator decision — the charter says so rather than quietly scoring around it."
+    "note": "Her iki oran da üretim dağıtımları kapalıyken ölçülemez (PRODUCTION_DEPLOY_ENABLED=false, 2026-07-15'ten beri). Stage C bu operatör kararı olmadan başlayamaz — charter bunu sessizce skor etrafında dolaşmak yerine söyler."
   }
 }

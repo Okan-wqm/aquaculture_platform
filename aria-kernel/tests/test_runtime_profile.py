@@ -83,9 +83,15 @@ class ProfileTaxonomyTests(unittest.TestCase):
         # breaker gating. Without cells both ran under `observe`, under
         # `frozen` and with the breaker tripped, reachable straight from the
         # implementer's Bash allowlist.
+        # B7 — `knowledge_record` joins the table: the authority to sign
+        # and append what a CONVERGED cycle learned. Its own cell, because
+        # the signer used to live only inside the V9 runner that
+        # `pr_create` selects, and every live `standard` run therefore
+        # disclosed needs_signing into a knowledge ledger that never got
+        # created. Learning is a store mutation, not a GitHub one.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
             "agent_claim", "change_committed", "change_validated", "pr_create",
-            "pr_open", "pr_merge", "plan_stage", "apply_gate",
+            "pr_open", "pr_merge", "plan_stage", "apply_gate", "knowledge_record",
         })
         self.assertEqual(
             ACTION_PERMISSIONS["agent_claim"],
@@ -122,6 +128,42 @@ class ProfileTaxonomyTests(unittest.TestCase):
             ACTION_PERMISSIONS["apply_gate"],
             frozenset({"strict", "autonomous"}),
         )
+        # Same set as agent_claim / change_committed: every profile that
+        # may mutate the store may remember what it converged on.
+        self.assertEqual(
+            ACTION_PERMISSIONS["knowledge_record"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+
+    def test_the_table_is_the_only_definition_of_who_may_record_knowledge(self) -> None:
+        """B7 — `knowledge_record` decides whether the post-CONVERGED seam
+        mints the cycle signer, and the seam must READ the table rather
+        than mirror it, exactly as the V9 runner factory does for
+        `pr_create` (the copy that drifted is the whole story of
+        ORPHAN-HIGH-728).
+        """
+        from unittest.mock import patch
+
+        from aria_kernel.cycle_phases.knowledge_signer import (
+            KNOWLEDGE_RECORD_ACTION_KIND,
+            knowledge_record_permitted,
+        )
+
+        self.assertEqual(KNOWLEDGE_RECORD_ACTION_KIND, "knowledge_record")
+        for profile in sorted(ACTION_PERMISSIONS["knowledge_record"]):
+            self.assertTrue(knowledge_record_permitted(profile=profile), profile)
+        for profile in sorted(set(PROFILES) - ACTION_PERMISSIONS["knowledge_record"]):
+            self.assertFalse(knowledge_record_permitted(profile=profile), profile)
+        # Revoke standard's cell in the TABLE ONLY. A seam that mirrors the
+        # table instead of reading it keeps minting here.
+        narrowed = dict(ACTION_PERMISSIONS)
+        narrowed["knowledge_record"] = frozenset({"strict", "autonomous"})
+        with patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", narrowed):
+            self.assertFalse(
+                knowledge_record_permitted(profile="standard"),
+                "the knowledge seam is not reading ACTION_PERMISSIONS",
+            )
+            self.assertTrue(knowledge_record_permitted(profile="strict"))
 
     def test_the_table_is_the_only_definition_of_who_may_implement(self) -> None:
         """ORPHAN-HIGH-728 — `pr_create` decides which profiles get the

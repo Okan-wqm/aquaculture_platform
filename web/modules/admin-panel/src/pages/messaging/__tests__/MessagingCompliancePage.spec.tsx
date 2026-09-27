@@ -23,6 +23,7 @@ import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ConfirmProvider } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
@@ -118,7 +119,9 @@ function renderPage(): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MessagingCompliancePage />
+      <ConfirmProvider>
+        <MessagingCompliancePage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
 }
@@ -213,14 +216,19 @@ describe('MessagingCompliancePage with a tenant chosen', () => {
   });
 
   it('asks before releasing a hold, and does not release when refused', async () => {
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false));
     await renderAndSelectTenant();
+    const user = userEvent.setup();
 
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: /Release the legal hold on Kuzey Su/ }));
+    await user.click(
+      await screen.findByRole('button', { name: /Release the legal hold on Kuzey Su/ }),
+    );
 
-    expect(window.confirm).toHaveBeenCalled();
+    // The design-system confirm dialog, not the browser's (`no-alert`).
+    expect(
+      await screen.findByRole('heading', { name: /Release the legal hold on Kuzey Su/ }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
     expect(releaseHold).not.toHaveBeenCalled();
   });
 

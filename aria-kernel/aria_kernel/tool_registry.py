@@ -318,6 +318,48 @@ def ensure_tools_dir_readonly(base_dir: str | os.PathLike[str] | None = None) ->
     return root
 
 
+def declared_bound_repo_root(base_dir: str | os.PathLike[str] | None = None) -> Path | None:
+    """The workspace a bound store DECLARES, or None when it declares none.
+
+    Split from :func:`bound_workspace_root` because the two answers differ in
+    kind: a ``bound_repo_root`` in ``repo_identity.json`` is a fact the
+    binding wrote (:func:`ensure_tools_binding`), while ``root.parent`` is a
+    layout convention the caller falls back on. A reader that has a better
+    inference than the convention — the fixture path guard walks the
+    filesystem for the checkout — needs to know which of the two it got,
+    and the merged form could not say.
+    """
+    root = tools_dir(base_dir)
+    identity_file = root / "repo_identity.json"
+    if not identity_file.is_file():
+        return None
+    try:
+        identity = json.loads(identity_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    bound = identity.get("bound_repo_root") if isinstance(identity, dict) else None
+    if isinstance(bound, str) and bound.strip() and Path(bound).is_absolute() and Path(bound).is_dir():
+        return Path(bound).resolve()
+    return None
+
+
+def bound_workspace_root(base_dir: str | os.PathLike[str] | None = None) -> Path:
+    """The workspace a tools store is bound to — the root operator policy is read from.
+
+    A bound store records it as ``bound_repo_root`` in ``repo_identity.json``
+    (:func:`ensure_tools_binding`); an unbound or legacy store sits at
+    ``<workspace>/aria-tools`` and its parent is the workspace. Policy readers
+    that assumed the parent layout read the DEFAULT policy for every bound
+    store: trial eight (2026-09-12) was refused at the cost-budget gate with
+    the shipped $5 daily cap while its workspace's own policy said
+    ``managed_subscription`` — the store lived under ``trial/store/tools``.
+    """
+    declared = declared_bound_repo_root(base_dir)
+    if declared is not None:
+        return declared
+    return tools_dir(base_dir).parent
+
+
 def ensure_tools_binding(
     base_dir: str | os.PathLike[str] | None = None,
     *,

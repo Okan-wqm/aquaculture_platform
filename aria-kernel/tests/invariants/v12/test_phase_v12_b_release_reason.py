@@ -59,7 +59,7 @@ class RowsCarryTheEnvelope(unittest.TestCase):
             ensure_tools_dir(tools)
             req = create_agent_invocation_request(
                 target_agent="aria-challenger-planner", role="challenger_plan",
-                suggested_prompt="p", must_satisfy=[{"id": "r", "criterion": "c"}],
+                suggested_prompt="p", must_satisfy=[{"id": "r", "description": "c"}],
                 allowed_scope=["aria-kernel/**"], convergence_id="conv-1", base_dir=tools,
             )
             claim = claim_request(request_id=req["request_id"], agent_id="w", base_dir=tools)

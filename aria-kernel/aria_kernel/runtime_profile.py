@@ -164,6 +164,8 @@ PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
 #   - plan_stage        — stage a CONVERGED plan (machine approval + change
 #                         chain + baseline validation)
 #   - apply_gate        — promote a staged apply action to ready_for_pr
+#   - knowledge_record  — mint the cycle signer and append the CONVERGED
+#                         plan's hypothesis to knowledge-graph/conventions
 ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "agent_claim": frozenset({"standard", "strict", "autonomous"}),
     "change_committed": frozenset({"standard", "strict", "autonomous"}),
@@ -184,6 +186,23 @@ ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     # or the gate ref that a PR open consumes.
     "plan_stage": frozenset({"strict", "autonomous"}),
     "apply_gate": frozenset({"strict", "autonomous"}),
+    # B7 — the authority to WRITE what the cycle learned: append a signed
+    # hypothesis row to `knowledge-graph/conventions.jsonl` when a plan
+    # converges. It is its own cell because it is its own decision. The
+    # signer that authenticates the row (the cycle's ephemeral ed25519
+    # key) used to be minted only by the implementing V9 runner, and that
+    # runner is selected by `pr_create` — so a profile that could not open
+    # a pull request could not remember anything either, and every live
+    # run to date (all on `standard`) converged into a ledger that was
+    # never created. Learning is a `standard` authority in the same sense
+    # `change_committed` is: it mutates the store, not GitHub.
+    #
+    # Same set as agent_claim/change_committed: the profiles that may
+    # mutate ledgers. observe and frozen appear in no cell, so the
+    # post-CONVERGED seam (`cycle_phases.knowledge_signer`) mints no key
+    # under them by construction; a memory hook handed no signer discloses
+    # `needs_signing` — its existing path, never a placeholder fingerprint.
+    "knowledge_record": frozenset({"standard", "strict", "autonomous"}),
 }
 
 # ORPHAN-CRITICAL-420 S2 — the set of profiles that hold ANY governed

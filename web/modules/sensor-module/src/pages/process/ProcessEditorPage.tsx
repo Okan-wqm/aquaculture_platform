@@ -25,7 +25,6 @@ import {
   ZoomOut,
   Maximize2,
   Trash2,
-  Loader2,
   Settings,
   Paperclip,
   ChevronDown,
@@ -36,7 +35,7 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import type { Edge } from '@xyflow/react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, Spinner, Button, Input, DesktopOnlyNotice } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
@@ -45,11 +44,7 @@ import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
 import { DeployAutomationModal } from '../../components/deploy/DeployAutomationModal';
 import { WidgetConfigModal } from '../../components/process-editor/WidgetConfigModal';
-import {
-  CANVAS_SOURCE,
-  HOST_SOURCE,
-  PROCESS_EDITOR_CANVAS_URL,
-} from '../../canvas-contract';
+import { CANVAS_SOURCE, HOST_SOURCE, PROCESS_EDITOR_CANVAS_URL } from '../../canvas-contract';
 import { useDeployProcessToEdge } from '../../hooks/useDeployProcess';
 
 // Message types for iframe communication
@@ -84,8 +79,6 @@ interface CanvasEdge {
 
 // Right panel mode type
 type RightPanelMode = 'properties' | 'attachments';
-
-
 
 const ProcessEditorPage: React.FC = () => {
   const { processId } = useParams<{ processId: string }>();
@@ -139,8 +132,8 @@ const ProcessEditorPage: React.FC = () => {
               code: n.data.edgeDeviceCode || n.data.edgeDeviceId!,
               name: n.data.edgeDeviceCode || n.data.edgeDeviceId!,
             },
-          ])
-      ).values()
+          ]),
+      ).values(),
     );
   }, [canvasNodes]);
 
@@ -176,7 +169,7 @@ const ProcessEditorPage: React.FC = () => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         { type, data, source: HOST_SOURCE },
-        window.location.origin
+        window.location.origin,
       );
     }
   }, []);
@@ -265,7 +258,9 @@ const ProcessEditorPage: React.FC = () => {
   // handshake and re-hydrated the store mid-session. The 'ready' replay in
   // the message handler covers the ready-after-load ordering.
   const isCanvasReadyRef = useRef(isCanvasReady);
-  useEffect(() => { isCanvasReadyRef.current = isCanvasReady; }, [isCanvasReady]);
+  useEffect(() => {
+    isCanvasReadyRef.current = isCanvasReady;
+  }, [isCanvasReady]);
 
   // Initialize store based on route. Hydration is ONE store transaction
   // (loadProcess) that ends CLEAN — per-field setters marked the freshly
@@ -303,14 +298,11 @@ const ProcessEditorPage: React.FC = () => {
   }, [processId, loadProcess, startNewProcess, getProcess, sendToCanvas]);
 
   // Handle node template drag start from panel
-  const handleEquipmentDragStart = useCallback(
-    (event: React.DragEvent, template: NodeTemplate) => {
-      // Set drag data that will be read by iframe
-      event.dataTransfer.setData('application/equipment', JSON.stringify(template));
-      event.dataTransfer.effectAllowed = 'move';
-    },
-    []
-  );
+  const handleEquipmentDragStart = useCallback((event: React.DragEvent, template: NodeTemplate) => {
+    // Set drag data that will be read by iframe
+    event.dataTransfer.setData('application/equipment', JSON.stringify(template));
+    event.dataTransfer.effectAllowed = 'move';
+  }, []);
 
   // Zoom controls
   const handleZoomIn = () => sendToCanvas('zoomIn');
@@ -336,29 +328,31 @@ const ProcessEditorPage: React.FC = () => {
     try {
       // Request current state from canvas AND WAIT for response
       // BUG-004: use AbortController so the listener is always cleaned up, even on timeout
-      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve) => {
-        const controller = new AbortController();
-        const handler = (event: MessageEvent) => {
-          // SEC-002: validate origin (already validated in main listener, but guard here too)
-          if (event.origin !== window.location.origin) return;
-          const { type, data, source } = event.data || {};
-          if (source === CANVAS_SOURCE && type === 'state') {
+      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>(
+        (resolve) => {
+          const controller = new AbortController();
+          const handler = (event: MessageEvent) => {
+            // SEC-002: validate origin (already validated in main listener, but guard here too)
+            if (event.origin !== window.location.origin) return;
+            const { type, data, source } = event.data || {};
+            if (source === CANVAS_SOURCE && type === 'state') {
+              controller.abort();
+              resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
+            }
+          };
+          window.addEventListener('message', handler, { signal: controller.signal });
+          sendToCanvas('getState');
+
+          // Timeout fallback - use current state if canvas doesn't respond
+          const timeoutId = setTimeout(() => {
             controller.abort();
-            resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
-          }
-        };
-        window.addEventListener('message', handler, { signal: controller.signal });
-        sendToCanvas('getState');
+            resolve({ nodes: canvasNodes, edges: canvasEdges });
+          }, 2000);
 
-        // Timeout fallback - use current state if canvas doesn't respond
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-          resolve({ nodes: canvasNodes, edges: canvasEdges });
-        }, 2000);
-
-        // Clean up timeout if promise resolves early
-        controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
-      });
+          // Clean up timeout if promise resolves early
+          controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
+        },
+      );
 
       console.log('[handleSave] Got current state from canvas:', {
         nodes: currentState.nodes.length,
@@ -417,29 +411,38 @@ const ProcessEditorPage: React.FC = () => {
     setWidgetConfigModal({ isOpen: false, nodeId: null, data: null });
   }, []);
 
-  const handleWidgetConfigSave = useCallback((updatedData: Record<string, unknown>) => {
-    console.log('[host] Widget config save - nodeId:', widgetConfigModal.nodeId, 'data:', updatedData);
-    if (widgetConfigModal.nodeId) {
-      console.log('[host] Sending updateNodeData to canvas');
-      sendToCanvas('updateNodeData', {
-        nodeId: widgetConfigModal.nodeId,
-        data: updatedData,
-      });
-    } else {
-      console.warn('[host] No nodeId found, cannot update widget');
-    }
-    setWidgetConfigModal({ isOpen: false, nodeId: null, data: null });
-  }, [widgetConfigModal.nodeId, sendToCanvas]);
+  const handleWidgetConfigSave = useCallback(
+    (updatedData: Record<string, unknown>) => {
+      console.log(
+        '[host] Widget config save - nodeId:',
+        widgetConfigModal.nodeId,
+        'data:',
+        updatedData,
+      );
+      if (widgetConfigModal.nodeId) {
+        console.log('[host] Sending updateNodeData to canvas');
+        sendToCanvas('updateNodeData', {
+          nodeId: widgetConfigModal.nodeId,
+          data: updatedData,
+        });
+      } else {
+        console.warn('[host] No nodeId found, cannot update widget');
+      }
+      setWidgetConfigModal({ isOpen: false, nodeId: null, data: null });
+    },
+    [widgetConfigModal.nodeId, sendToCanvas],
+  );
 
   return (
-    <div className="process-editor-container flex flex-col h-screen bg-gray-100">
+    <div className="process-editor-container flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
+      <DesktopOnlyNotice tool="The process editor" />
       {/* Toolbar */}
-      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
+      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         {/* Left Section */}
         <div className="flex items-center gap-4">
           <Link
             to="/sensor/processes"
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back</span>
@@ -447,16 +450,15 @@ const ProcessEditorPage: React.FC = () => {
 
           <div className="h-6 w-px bg-gray-300" />
 
-          <input
+          <Input
             type="text"
             value={processName}
             onChange={(e) => setProcessName(e.target.value)}
             placeholder="Process Name"
-            className="text-lg font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-64"
           />
 
           {isDirty && (
-            <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-1 rounded">
+            <span className="text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-2 py-1 rounded">
               Unsaved changes
             </span>
           )}
@@ -464,77 +466,89 @@ const ProcessEditorPage: React.FC = () => {
 
         {/* Center Section - Controls */}
         <div className="flex items-center gap-2">
-          <button
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Undo"
             title="Undo"
             disabled={!isCanvasReady}
             onClick={() => sendToCanvas('undo')}
           >
             <Undo className="w-4 h-4" />
-          </button>
-          <button
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Redo"
             title="Redo"
             disabled={!isCanvasReady}
             onClick={() => sendToCanvas('redo')}
           >
             <Redo className="w-4 h-4" />
-          </button>
+          </Button>
           <div className="h-6 w-px bg-gray-300 mx-2" />
-          <button
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Zoom Out"
             onClick={handleZoomOut}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Zoom Out"
             disabled={!isCanvasReady}
           >
             <ZoomOut className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Zoom In"
             onClick={handleZoomIn}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Zoom In"
             disabled={!isCanvasReady}
           >
             <ZoomIn className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Fit View"
             onClick={handleFitView}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Fit View"
             disabled={!isCanvasReady}
           >
             <Maximize2 className="w-4 h-4" />
-          </button>
+          </Button>
           {selectedNodeId && (
             <>
               <div className="h-6 w-px bg-gray-300 mx-2" />
-              <button
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Delete Selected"
                 onClick={handleDeleteNode}
-                className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
                 title="Delete Selected"
               >
                 <Trash2 className="w-4 h-4" />
-              </button>
+              </Button>
             </>
           )}
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-3">
-          <button
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          <Button
+            variant="secondary"
+            leftIcon={<Play className="w-4 h-4" />}
             disabled={!isCanvasReady}
           >
-            <Play className="w-4 h-4" />
             Test
-          </button>
+          </Button>
 
           {/* Deploy menüsü — otomasyon programı, proses diyagramı ve SCADA
               paketi girişleri tek yerde */}
           <div className="relative" ref={deployMenuRef}>
             <button
               onClick={() => setIsDeployMenuOpen((open) => !open)}
-              className="flex items-center gap-2 px-4 py-2 text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 disabled:opacity-50 transition-colors"
               disabled={!isCanvasReady}
               title="Deploy secenekleri"
             >
@@ -543,44 +557,44 @@ const ProcessEditorPage: React.FC = () => {
               <ChevronDown className="w-4 h-4" />
             </button>
             {isDeployMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1">
-                <button
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-30 py-1">
+                <Button
+                  variant="ghost"
+                  leftIcon={<Cpu className="w-4 h-4 text-primary-600 dark:text-primary-400" />}
                   onClick={() => {
                     setIsDeployMenuOpen(false);
                     setIsDeployModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 text-left"
                   title="Deploy automation program to edge device"
                 >
-                  <Cpu className="w-4 h-4 text-indigo-600" />
                   Otomasyon Programi Deploy Et
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  leftIcon={<Monitor className="w-4 h-4 text-info-600 dark:text-info-400" />}
                   onClick={() => {
                     setIsDeployMenuOpen(false);
                     setIsEdgeDeployOpen(true);
                   }}
                   disabled={!processId || processId === 'new'}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-cyan-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
                   title="SCADA proses diyagramini edge device'a deploy et"
                 >
-                  <Monitor className="w-4 h-4 text-cyan-600" />
                   Edge'e Deploy
-                </button>
-                <div className="my-1 border-t border-gray-100" />
-                <button
+                </Button>
+                <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
+                <Button
+                  variant="ghost"
+                  leftIcon={<Monitor className="w-4 h-4 text-accent-600 dark:text-accent-400" />}
                   onClick={() => {
                     setIsDeployMenuOpen(false);
                     navigate(
                       `/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`,
                     );
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
                   title="SCADA Paketi Olustur"
                 >
-                  <Monitor className="w-4 h-4 text-purple-600" />
                   SCADA Paketi Olustur
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -590,8 +604,8 @@ const ProcessEditorPage: React.FC = () => {
             disabled={isSaving || !isDirty || !isCanvasReady}
             className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors ${
               isSaving || !isDirty || !isCanvasReady
-                ? 'bg-blue-400 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
+                ? 'bg-info-400 cursor-not-allowed'
+                : 'bg-info-600 hover:bg-info-700'
             }`}
           >
             <Save className="w-4 h-4" />
@@ -601,17 +615,17 @@ const ProcessEditorPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-w-[64rem]">
         {/* Left Panel - Equipment */}
         <EquipmentPanel onDragStart={handleEquipmentDragStart} />
 
         {/* Center - Canvas (iframe) */}
-        <div className="flex-1 bg-gray-50 relative">
+        <div className="flex-1 bg-gray-50 dark:bg-gray-800 relative">
           {!isCanvasReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
               <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-                <p className="text-gray-600">Loading Process Editor...</p>
+                <Spinner size="lg" />
+                <p className="text-gray-600 dark:text-gray-400">Loading Process Editor...</p>
               </div>
             </div>
           )}
@@ -625,29 +639,27 @@ const ProcessEditorPage: React.FC = () => {
         </div>
 
         {/* Right Panel - Properties / Equipment */}
-        <div className="w-80 flex flex-col border-l border-gray-200 bg-white">
+        <div className="w-80 flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
           {/* Panel Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setRightPanelMode('properties')}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                 rightPanelMode === 'properties'
-                  ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Settings className="w-4 h-4" />
               Properties
-              {selectedNodeId && (
-                <span className="w-2 h-2 rounded-full bg-cyan-500" />
-              )}
+              {selectedNodeId && <span className="w-2 h-2 rounded-full bg-info-500" />}
             </button>
             <button
               onClick={() => setRightPanelMode('attachments')}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                 rightPanelMode === 'attachments'
-                  ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Paperclip className="w-4 h-4" />
@@ -667,7 +679,7 @@ const ProcessEditorPage: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+      <div className="px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-4">
           <span>{canvasNodes.length} nodes</span>
           <span>{canvasEdges.length} connections</span>
@@ -675,12 +687,12 @@ const ProcessEditorPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {isCanvasReady ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="w-2 h-2 rounded-full bg-success-500" />
               <span>Ready</span>
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-warning-500 animate-pulse" />
               <span>Initializing...</span>
             </>
           )}

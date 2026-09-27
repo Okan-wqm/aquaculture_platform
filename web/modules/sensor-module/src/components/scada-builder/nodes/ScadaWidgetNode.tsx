@@ -41,6 +41,7 @@ import { useAnimationState } from '../../../engine/animation/useAnimationState';
 import { useWidgetEvents } from '../../../engine/events/useWidgetEvents';
 import type { WidgetEventBus } from '../../../engine/events/WidgetEventBus';
 import type { AnimationState } from '../../../engine/animation/types';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -114,8 +115,8 @@ const BADGE_STYLE: React.CSSProperties = {
   lineHeight: '14px',
   padding: '1px 5px',
   borderRadius: 4,
-  background: '#0e7490',
-  color: '#ecfeff',
+  background: colors.primary[600],
+  color: colors.primary[50],
   pointerEvents: 'none',
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -450,7 +451,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
     zIndex: 500 + widgetZIndex,
     borderRadius: 4,
     border: selected
-      ? '2px solid #06b6d4'
+      ? `2px solid ${themeColors.primary[400]}`
       : '1px solid transparent',
     boxShadow: selected
       ? '0 0 0 2px rgba(6,182,212,0.35)'
@@ -458,7 +459,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
     // Highlight outline from Layers panel hover -- uses outline instead of border
     // to avoid layout shift when hovering layer rows
     outline: isHighlighted && !selected
-      ? '2px dashed #3b82f6'
+      ? `2px dashed ${themeColors.info[500]}`
       : undefined,
     outlineOffset: isHighlighted && !selected ? 2 : undefined,
     background: 'transparent',
@@ -576,19 +577,10 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
       {/* Lock indicator (top-right, only when locked) */}
       {locked && (
         <div
-          style={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            zIndex: 10,
-            background: 'rgba(31, 41, 55, 0.6)',
-            borderRadius: 4,
-            padding: 2,
-            lineHeight: 0,
-          }}
+          className="absolute top-1 right-1 z-10 bg-gray-800/60 rounded p-[2px] leading-[0]"
           title="Kilitli"
         >
-          <Lock style={{ width: 12, height: 12, color: '#ffffff' }} />
+          <Lock style={{ width: 12, height: 12, color: colors.white }} />
         </div>
       )}
 
@@ -619,7 +611,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
                   position: 'absolute',
                   width: isCorner ? 10 : 6,
                   height: isCorner ? 10 : 6,
-                  background: '#06b6d4',
+                  background: colors.primary[400],
                   border: '2px solid white',
                   borderRadius: isCorner ? 3 : 2,
                   cursor: meta.cursor,

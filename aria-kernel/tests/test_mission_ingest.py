@@ -9,9 +9,11 @@ written and never called — and this is the call.
 THE PROPERTY THAT MATTERS is not "candidates become missions". It is that the
 SAME candidate, re-observed on a later night, folds into the SAME mission. That
 is what `mission_id = sha256(source_kind|source_id|repo_hash)` buys, and it only
-holds if every candidate's `source_id` is cycle-independent. All four sources
-are: pressure uses `event_id`/`pressure_id`, finding uses `finding_id`, shadow
-uses `tool_id`, capability_gap uses `gap_id`.
+holds if every candidate's `source_id` is cycle-independent. All sources are:
+pressure uses `event_id`/`pressure_id`, finding uses `finding_id`,
+capability_gap uses `capability_gap_key`, proactive uses `tool_id` (the
+shadow-summary source, which used `tool_id`, is retired — see
+`mission.RETIRED_SOURCE_KINDS`).
 
 With ONE trap. `_candidate_from_pressure` falls back to the literal string
 `"pressure"` when a pressure row carries neither identifier. Adopting that
@@ -168,10 +170,21 @@ class AdoptionTests(unittest.TestCase):
             {
                 "schema_version", "cycle_id", "adopted", "already_tracked",
                 "refused",
+                # `refusals_disclosed` is how many of tonight's refusals were
+                # NEW claims — a refusal row is written once per claim, so
+                # "refused: 3, disclosed: 0" is standing weather, not news.
+                "refusals_disclosed",
                 # `healed` joins the count report because a re-adoption that
                 # repaired a pre-rule row did real work, and a night that
                 # reports only "already_tracked: 1" hides it.
                 "healed",
+                # `blocked_by_owner` says who is holding the refused-as-blocked
+                # work, and `routed_to_panel` how many candidates the generator
+                # handed to the agent panel before adoption: "adopted: 0"
+                # alone cannot tell a starved night from a night the panel
+                # already owns.
+                "blocked_by_owner",
+                "routed_to_panel",
             },
         )
         self.assertEqual(result["cycle_id"], "cycle-1")
@@ -257,7 +270,6 @@ class ForwardPointerTests(unittest.TestCase):
             _candidate_from_finding,
             _candidate_from_pressure,
             _candidate_from_proactive,
-            _candidate_from_shadow_summary,
         )
 
         cases = [
@@ -287,8 +299,10 @@ class ForwardPointerTests(unittest.TestCase):
                 "tool_id": "typeorm-entity-schema-adapter", "priority": 70,
                 "reasons": ["no goldset"],
             }), "typeorm-entity-schema-adapter"),
-            (_candidate_from_shadow_summary("c", {"tool_id": "test-gap-adapter"}, 12),
-             "test-gap-adapter"),
+            # `_candidate_from_shadow_summary` is retired (mission.RETIRED_
+            # SOURCE_KINDS): it minted a constant panel block, so nothing it
+            # produced could ever be adopted; the shadow run reaches the
+            # panel through `capability_gap._gaps_from_shadow_runs` instead.
         ]
         for candidate, identifier in cases:
             with self.subTest(source=candidate["source"]):
@@ -375,12 +389,14 @@ class CandidateIdentityStabilityTests(unittest.TestCase):
     """
 
     def test_no_candidate_source_id_is_derived_from_the_cycle(self) -> None:
-        """AST guard over task.py's five candidate builders.
+        """AST guard over task.py's four candidate builders.
 
         Behavioural tests cannot see this: within one cycle every id is
         perfectly stable, so a cycle-derived id passes any same-run assertion.
         (Count bumped 4 → 5 by E8/M12: `_candidate_from_proactive` joined —
-        its source_id is the tool_id, content-derived like the others.)
+        its source_id is the tool_id, content-derived like the others; back
+        to 4 when `_candidate_from_shadow_summary` was retired, see
+        `mission.RETIRED_SOURCE_KINDS`.)
         """
         import ast
         import inspect
@@ -392,7 +408,7 @@ class CandidateIdentityStabilityTests(unittest.TestCase):
             node.name: node for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name.startswith("_candidate_from_")
         }
-        self.assertEqual(len(builders), 5, sorted(builders))
+        self.assertEqual(len(builders), 4, sorted(builders))
         for name, node in builders.items():
             assigns = [
                 n for n in ast.walk(node)

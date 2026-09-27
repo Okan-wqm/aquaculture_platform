@@ -99,7 +99,54 @@ export function collectRangeAddedLines(
 
 /** Added lines currently staged (pre-commit hook scan). */
 export function collectStagedAddedLines(repoRoot: string): readonly AddedLine[] {
-  return parseAddedLines(runGit(repoRoot, ['diff', '--cached', '--unified=0', '--no-ext-diff', '--']));
+  return parseAddedLines(
+    runGit(repoRoot, ['diff', '--cached', '--unified=0', '--no-ext-diff', '--']),
+  );
+}
+
+/** Added lines in the index relative to an arbitrary ref (a merge parent). */
+export function collectStagedAddedLinesAgainst(
+  repoRoot: string,
+  ref: string,
+): readonly AddedLine[] {
+  return parseAddedLines(
+    runGit(repoRoot, ['diff', '--cached', '--unified=0', '--no-ext-diff', ref, '--']),
+  );
+}
+
+/**
+ * The second parent of the commit being made, when a merge is in progress;
+ * null otherwise. A merge commit has two bases, and a staged-scan that
+ * measures against HEAD alone reads everything the other branch already
+ * carried as this commit's addition.
+ */
+export function mergeInProgressRef(repoRoot: string): string | null {
+  try {
+    runGit(repoRoot, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']);
+    return 'MERGE_HEAD';
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lines the index adds relative to BOTH parents of an in-progress merge:
+ * the lines only this merge introduces. A file taken wholesale from either
+ * side contributes nothing; a conflict resolution that writes a new line
+ * contributes exactly that line.
+ */
+export function collectMergeIntroducedLines(
+  repoRoot: string,
+  otherParentRef: string,
+): readonly AddedLine[] {
+  const againstOther = new Set(
+    collectStagedAddedLinesAgainst(repoRoot, otherParentRef).map(
+      (line) => `${line.path}\u0000${line.lineNumber}`,
+    ),
+  );
+  return collectStagedAddedLines(repoRoot).filter((line) =>
+    againstOther.has(`${line.path}\u0000${line.lineNumber}`),
+  );
 }
 
 /** Names of files changed (Added/Copied/Modified) in a range. */

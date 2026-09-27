@@ -429,12 +429,19 @@ export async function closeE2eTestApp(ctx: E2eTestContext | undefined): Promise<
  *
  * Simulates what the API gateway does: decodes JWT and forwards the payload
  * as x-user-payload header to the subgraph service.
+ *
+ * `resourcePermissions` mirrors the JWT claim auth-service mints from the
+ * caller's role (`entitledCapabilities`). Capability-gated surfaces — the AI
+ * persona picker and `createChannel(type: AI, aiPersona)` — read it through
+ * `hasAllResourcePermissions`, so a spec that exercises them names the
+ * capabilities its caller holds instead of relying on a role bypass.
  */
 export function gqlRequest(
   httpServer: ReturnType<INestApplication['getHttpServer']>,
   tenantId: string,
   userId: string,
   roles: string[] = ['MODULE_USER'],
+  resourcePermissions: string[] = [],
 ): { query: (gql: string, variables?: Record<string, unknown>) => supertest.Test } {
   const userPayload = JSON.stringify({
     sub: userId,
@@ -443,6 +450,7 @@ export function gqlRequest(
     roles,
     role: roles[0],
     type: 'access',
+    resourcePermissions,
   });
 
   return {

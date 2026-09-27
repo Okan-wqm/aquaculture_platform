@@ -44,9 +44,11 @@ class PlanCandidateSource(str, Enum):
 
     OPERATOR_FEEDBACK = "operator_feedback"
     """Signed operator-feedback rows from
-    ``aria-tools/operator-feedback.jsonl``. Signature verified via
-    operator pinned public key; unsigned rows dropped with
-    ``unsigned_operator_feedback`` governance event."""
+    ``aria-tools/operator-feedback.jsonl``. The kernel signs each row it
+    records (keyed HMAC under ``aria-tools/secrets/``, see
+    ``operator_feedback_signature``); ``operator_feedback_ingestion``
+    verifies at ingestion and drops an unsigned row with one
+    ``unsigned_operator_feedback`` governance event (V9.5 check 12)."""
 
     FAILING_CI = "failing_ci"
     """Failing CI runs on ``main`` queried via

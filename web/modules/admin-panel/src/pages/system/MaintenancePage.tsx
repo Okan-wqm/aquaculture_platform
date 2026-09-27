@@ -6,7 +6,17 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Select,
+  Modal,
+  useConfirm,
+  usePrompt,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
@@ -17,6 +27,7 @@ import type {
   CreateMaintenanceWindowInput,
   MaintenanceWindow,
 } from '../../services/types/settings';
+import { Check, Plus, Settings, ShieldCheck } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -57,6 +68,8 @@ const defaultForm: MaintenanceForm = {
 // ============================================================================
 
 export const MaintenancePage: React.FC = () => {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   // State
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -130,6 +143,13 @@ export const MaintenancePage: React.FC = () => {
     void windowsQuery.refetch();
   };
 
+  const closeForm = (): void => {
+    setShowCreateModal(false);
+    setShowEditModal(false);
+    setSelectedMaintenance(null);
+    setFormData(defaultForm);
+  };
+
   const handleCreate = async (): Promise<void> => {
     if (!formData.title || !formData.scheduledStart) return;
 
@@ -169,7 +189,15 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleStartMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Start maintenance "${maintenance.title}" now?`)) return;
+    if (
+      !(await confirm({
+        title: `Start maintenance "${maintenance.title}" now?`,
+        confirmText: 'Start',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
     try {
       await startWindow.mutateAsync(maintenance.id);
     } catch {
@@ -178,7 +206,15 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleEndMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`End maintenance "${maintenance.title}"?`)) return;
+    if (
+      !(await confirm({
+        title: `End maintenance "${maintenance.title}"?`,
+        confirmText: 'End',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
     try {
       await endWindow.mutateAsync(maintenance.id);
     } catch {
@@ -187,7 +223,13 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleExtendMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    const minutes = prompt('Extend by how many minutes?', '30');
+    const minutes = await prompt({
+      title: 'Extend maintenance',
+      label: 'Extend by how many minutes?',
+      defaultValue: '30',
+      confirmText: 'Extend',
+      cancelText: 'Cancel',
+    });
     if (!minutes) return;
     const additionalMinutes = Number.parseInt(minutes, 10);
     if (!Number.isFinite(additionalMinutes) || additionalMinutes <= 0) return;
@@ -200,7 +242,15 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleCancelMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Cancel maintenance "${maintenance.title}"?`)) return;
+    if (
+      !(await confirm({
+        title: `Cancel maintenance "${maintenance.title}"?`,
+        confirmText: 'Cancel maintenance',
+        cancelText: 'Keep',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await cancelWindow.mutateAsync(maintenance.id);
     } catch {
@@ -225,13 +275,14 @@ export const MaintenancePage: React.FC = () => {
 
   const getTypeBadge = (type: string) => {
     const colors: Record<string, string> = {
-      scheduled: 'bg-blue-100 text-blue-800',
-      emergency: 'bg-red-100 text-red-800',
-      rolling_update: 'bg-purple-100 text-purple-800',
-      database_migration: 'bg-indigo-100 text-indigo-800',
-      security_patch: 'bg-orange-100 text-orange-800',
+      scheduled: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+      emergency: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+      rolling_update: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+      database_migration:
+        'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+      security_patch: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
     };
-    return colors[type] || 'bg-gray-100 text-gray-800';
+    return colors[type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };
 
   const filteredMaintenance = maintenanceList.filter((m) => {
@@ -255,7 +306,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const activeMaintenance = maintenanceList.filter(
-    (m) => m.status === 'in_progress' || m.status === 'extended'
+    (m) => m.status === 'in_progress' || m.status === 'extended',
   );
 
   const stats = {
@@ -272,13 +323,13 @@ export const MaintenancePage: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-24" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
@@ -286,20 +337,16 @@ export const MaintenancePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Maintenance Mode</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Schedule and manage system maintenance windows
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Schedule Maintenance
-        </Button>
-      </div>
+      <PageHeader
+        title="Maintenance Mode"
+        description="Schedule and manage system maintenance windows"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+            Schedule Maintenance
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected maintenance action, named on the page.
           It used to go to a fixed toast in the bottom-right corner, while the
@@ -312,18 +359,19 @@ export const MaintenancePage: React.FC = () => {
 
       {/* Active Maintenance Banner */}
       {activeMaintenance.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
-            <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse mt-1.5" />
+            <div className="w-3 h-3 bg-warning-500 rounded-full animate-pulse mt-1.5" />
             <div className="flex-1">
-              <div className="font-semibold text-yellow-800">
-                {activeMaintenance.length} Maintenance {activeMaintenance.length === 1 ? 'Window' : 'Windows'} In Progress
+              <div className="font-semibold text-warning-800 dark:text-warning-200">
+                {activeMaintenance.length} Maintenance{' '}
+                {activeMaintenance.length === 1 ? 'Window' : 'Windows'} In Progress
               </div>
               {activeMaintenance.map((m) => (
-                <div key={m.id} className="text-sm text-yellow-700 mt-1">
+                <div key={m.id} className="text-sm text-warning-700 dark:text-warning-300 mt-1">
                   <span className="font-medium">{m.title}</span>
                   {m.actualStart && (
-                    <span className="ml-2 text-yellow-600">
+                    <span className="ml-2 text-warning-600 dark:text-warning-400">
                       - Started {formatDateTime(m.actualStart)}
                     </span>
                   )}
@@ -337,25 +385,33 @@ export const MaintenancePage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-blue-600">{stats.scheduled}</div>
-          <div className="text-sm text-gray-500">Scheduled</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+            {stats.scheduled}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Scheduled</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.inProgress}</div>
-          <div className="text-sm text-gray-500">In Progress</div>
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {stats.inProgress}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-          <div className="text-sm text-gray-500">Completed</div>
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+            {stats.completed}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Completed</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-600">{stats.cancelled}</div>
-          <div className="text-sm text-gray-500">Cancelled</div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+            {stats.cancelled}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Cancelled</div>
         </Card>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {(['upcoming', 'active', 'history'] as const).map((tab) => (
             <button
@@ -363,13 +419,13 @@ export const MaintenancePage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`py-3 border-b-2 font-medium text-sm capitalize transition-colors ${
                 activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-info-500 text-info-600 dark:text-info-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               {tab}
               {tab === 'active' && activeMaintenance.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                <span className="ml-2 px-2 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 text-xs rounded-full">
                   {activeMaintenance.length}
                 </span>
               )}
@@ -382,21 +438,11 @@ export const MaintenancePage: React.FC = () => {
       <div className="space-y-4">
         {filteredMaintenance.length === 0 ? (
           <Card className="p-12 text-center">
-            <svg
-              className="w-12 h-12 mx-auto text-gray-500 mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <p className="text-gray-500">No {activeTab} maintenance windows</p>
+            <Settings
+              className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4"
+              aria-hidden="true"
+            />
+            <p className="text-gray-500 dark:text-gray-400">No {activeTab} maintenance windows</p>
           </Card>
         ) : (
           filteredMaintenance.map((maintenance) => (
@@ -405,47 +451,61 @@ export const MaintenancePage: React.FC = () => {
                 <div className="flex-1">
                   {/* Header */}
                   <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{maintenance.title}</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                      {maintenance.title}
+                    </h3>
                     <Badge variant={getStatusBadge(maintenance.status)}>
                       {maintenance.status.replace('_', ' ')}
                     </Badge>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(maintenance.type)}`}>
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(maintenance.type)}`}
+                    >
                       {maintenance.type.replace('_', ' ')}
                     </span>
-                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                       {maintenance.scope}
                     </span>
                   </div>
 
                   {/* Description */}
-                  <p className="text-gray-600 mb-4">{maintenance.description}</p>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">{maintenance.description}</p>
 
                   {/* Timeline */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <div>
-                      <div className="text-gray-500">Scheduled Start</div>
-                      <div className="font-medium">{formatDateTime(maintenance.scheduledStart)}</div>
+                      <div className="text-gray-500 dark:text-gray-400">Scheduled Start</div>
+                      <div className="font-medium">
+                        {formatDateTime(maintenance.scheduledStart)}
+                      </div>
                     </div>
                     {maintenance.scheduledEnd && (
                       <div>
-                        <div className="text-gray-500">Scheduled End</div>
-                        <div className="font-medium">{formatDateTime(maintenance.scheduledEnd)}</div>
+                        <div className="text-gray-500 dark:text-gray-400">Scheduled End</div>
+                        <div className="font-medium">
+                          {formatDateTime(maintenance.scheduledEnd)}
+                        </div>
                       </div>
                     )}
                     <div>
-                      <div className="text-gray-500">Duration</div>
-                      <div className="font-medium">{formatDuration(maintenance.estimatedDurationMinutes)}</div>
+                      <div className="text-gray-500 dark:text-gray-400">Duration</div>
+                      <div className="font-medium">
+                        {formatDuration(maintenance.estimatedDurationMinutes)}
+                      </div>
                     </div>
                     {maintenance.actualStart && (
                       <div>
-                        <div className="text-gray-500">Actual Start</div>
-                        <div className="font-medium text-yellow-600">{formatDateTime(maintenance.actualStart)}</div>
+                        <div className="text-gray-500 dark:text-gray-400">Actual Start</div>
+                        <div className="font-medium text-warning-600 dark:text-warning-400">
+                          {formatDateTime(maintenance.actualStart)}
+                        </div>
                       </div>
                     )}
                     {maintenance.actualEnd && (
                       <div>
-                        <div className="text-gray-500">Actual End</div>
-                        <div className="font-medium text-green-600">{formatDateTime(maintenance.actualEnd)}</div>
+                        <div className="text-gray-500 dark:text-gray-400">Actual End</div>
+                        <div className="font-medium text-success-600 dark:text-success-400">
+                          {formatDateTime(maintenance.actualEnd)}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -453,17 +513,19 @@ export const MaintenancePage: React.FC = () => {
                   {/* Affected Services */}
                   {maintenance.affectedServices && maintenance.affectedServices.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-sm text-gray-500 mb-2">Affected Services:</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                        Affected Services:
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         {maintenance.affectedServices.map((service, idx) => (
                           <span
                             key={idx}
                             className={`px-2 py-1 rounded text-xs font-medium ${
                               service.status === 'unavailable'
-                                ? 'bg-red-100 text-red-800'
+                                ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
                                 : service.status === 'degraded'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-green-100 text-green-800'
+                                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
+                                  : 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                             }`}
                           >
                             {service.name}: {service.status}
@@ -475,27 +537,27 @@ export const MaintenancePage: React.FC = () => {
 
                   {/* User Message */}
                   {maintenance.userMessage && (
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <div className="text-xs text-gray-500 mb-1">User Message:</div>
-                      <div className="text-sm text-gray-700">{maintenance.userMessage}</div>
+                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        User Message:
+                      </div>
+                      <div className="text-sm text-gray-700 dark:text-gray-300">
+                        {maintenance.userMessage}
+                      </div>
                     </div>
                   )}
 
                   {/* Flags */}
                   <div className="flex flex-wrap gap-3 mt-3 text-xs">
                     {maintenance.allowReadOnlyAccess && (
-                      <span className="flex items-center gap-1 text-green-600">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
+                      <span className="flex items-center gap-1 text-success-600 dark:text-success-400">
+                        <Check className="w-4 h-4" aria-hidden="true" />
                         Read-only access allowed
                       </span>
                     )}
                     {maintenance.bypassForSuperAdmins && (
-                      <span className="flex items-center gap-1 text-blue-600">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                        </svg>
+                      <span className="flex items-center gap-1 text-info-600 dark:text-info-400">
+                        <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                         Super admin bypass
                       </span>
                     )}
@@ -570,149 +632,166 @@ export const MaintenancePage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       {(showCreateModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">
-                {showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Title <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Maintenance title"
-                  />
-                </div>
+        <Modal
+          isOpen
+          onClose={closeForm}
+          size="lg"
+          title={showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
+          showCloseButton={!saving}
+          closeOnEscape={!saving}
+          closeOnOverlayClick={!saving}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                loading={saving}
+                disabled={!formData.title || !formData.scheduledStart}
+              >
+                {showEditModal ? 'Update' : 'Schedule Maintenance'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Title <span className="text-error-500">*</span>
+              </label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Maintenance title"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="What will be done during this maintenance?"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
+                placeholder="What will be done during this maintenance?"
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <Select
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })}
-                      options={[
-                        { value: 'scheduled', label: 'Scheduled' },
-                        { value: 'emergency', label: 'Emergency' },
-                        { value: 'rolling_update', label: 'Rolling Update' },
-                        { value: 'database_migration', label: 'Database Migration' },
-                        { value: 'security_patch', label: 'Security Patch' },
-                      ]}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
-                    <Select
-                      value={formData.scope}
-                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'service', label: 'Service' },
-                        { value: 'region', label: 'Region' },
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Start Date & Time <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      type="datetime-local"
-                      value={formData.scheduledStart}
-                      onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Estimated Duration (minutes)
-                    </label>
-                    <Input
-                      type="number"
-                      value={formData.estimatedDurationMinutes}
-                      onChange={(e) => setFormData({ ...formData, estimatedDurationMinutes: parseInt(e.target.value) || 60 })}
-                      placeholder="60"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">User Message</label>
-                  <textarea
-                    value={formData.userMessage}
-                    onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Message shown to users during maintenance"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowReadOnlyAccess}
-                      onChange={(e) => setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Allow Read-Only Access</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.bypassForSuperAdmins}
-                      onChange={(e) => setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Bypass for Super Admins</span>
-                  </label>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Type
+                </label>
+                <Select
+                  value={formData.type}
+                  onChange={(e) =>
+                    setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })
+                  }
+                  options={[
+                    { value: 'scheduled', label: 'Scheduled' },
+                    { value: 'emergency', label: 'Emergency' },
+                    { value: 'rolling_update', label: 'Rolling Update' },
+                    { value: 'database_migration', label: 'Database Migration' },
+                    { value: 'security_patch', label: 'Security Patch' },
+                  ]}
+                />
               </div>
-
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setShowEditModal(false);
-                    setSelectedMaintenance(null);
-                    setFormData(defaultForm);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreate}
-                  loading={saving}
-                  disabled={!formData.title || !formData.scheduledStart}
-                >
-                  {showEditModal ? 'Update' : 'Schedule Maintenance'}
-                </Button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Scope
+                </label>
+                <Select
+                  value={formData.scope}
+                  onChange={(e) =>
+                    setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })
+                  }
+                  options={[
+                    { value: 'global', label: 'Global' },
+                    { value: 'tenant', label: 'Tenant' },
+                    { value: 'service', label: 'Service' },
+                    { value: 'region', label: 'Region' },
+                  ]}
+                />
               </div>
             </div>
-          </Card>
-        </div>
-      )}
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Start Date & Time <span className="text-error-500">*</span>
+                </label>
+                <Input
+                  type="datetime-local"
+                  value={formData.scheduledStart}
+                  onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Estimated Duration (minutes)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.estimatedDurationMinutes}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      estimatedDurationMinutes: parseInt(e.target.value) || 60,
+                    })
+                  }
+                  placeholder="60"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                User Message
+              </label>
+              <textarea
+                value={formData.userMessage}
+                onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
+                placeholder="Message shown to users during maintenance"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.allowReadOnlyAccess}
+                  onChange={(e) =>
+                    setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Allow Read-Only Access
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.bypassForSuperAdmins}
+                  onChange={(e) =>
+                    setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Bypass for Super Admins
+                </span>
+              </label>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

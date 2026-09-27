@@ -51,6 +51,13 @@ RUNTIME_PROFILE_FRONTMATTER_KEY = "runtime_profile"
 CLAUDE_TOOL_UNIVERSE: tuple[str, ...] = (
     "Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit",
     "Bash", "Agent", "WebFetch", "WebSearch", "TodoWrite",
+    # ARIA-HIGH-162 — tools the CLI (2.1.278) exposes that no ARIA profile
+    # grants and the deny list never named: a skill loader, a tool-schema
+    # loader, a worktree creator (a filesystem write), an artifact publisher
+    # (network egress through the CLI's own auth) and a session messenger.
+    # Under bwrap the gap was harmless; the read shape's `--tools` allowlist
+    # closes it first, and naming them here keeps the deny list the belt.
+    "Skill", "ToolSearch", "EnterWorktree", "Artifact", "SendMessage",
 )
 # Tools that never appear in an ARIA profile and are therefore denied on every
 # spawn: network reach through tools is not something a repo-scoped agent needs
@@ -78,9 +85,9 @@ EXTERNAL_WRITE_DENY_RULES: tuple[str, ...] = (
 _PROFILE_KEYS: frozenset[str] = frozenset({
     "description", "model", "effort", "tools", "write_scope", "env_passthrough",
     "external_writes", "budget_usd_per_run", "max_concurrent",
-    "mcp_servers",
+    "mcp_servers", "runtime",
 })
-_OPTIONAL_KEYS: frozenset[str] = frozenset({"description", "mcp_servers"})
+_OPTIONAL_KEYS: frozenset[str] = frozenset({"description", "mcp_servers", "runtime"})
 
 
 @dataclass(frozen=True)
@@ -97,6 +104,7 @@ class RuntimeProfile:
     description: str = ""
     # Plan 032 Faz 032g — MCP servers (registry names) this profile may load.
     mcp_servers: tuple[str, ...] = ()
+    runtime: str = "claude"
 
     @property
     def write_capable(self) -> bool:
@@ -116,10 +124,19 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
         raise GovernanceError(
             f"runtime_profile_shape:{profile_id}:unknown={unknown}:missing={missing}"
         )
-    if raw["model"] not in VALID_MODELS:
-        raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
-    if raw["effort"] not in VALID_EFFORTS:
-        raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
+    runtime = raw.get("runtime", "claude")
+    if runtime not in ("claude", "codex"):
+        raise GovernanceError(f"runtime_profile_runtime:{profile_id}:{runtime!r}")
+    if runtime == "codex":
+        if raw["model"] != "gpt-6-astra":
+            raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
+        if raw["effort"] != "ultra":
+            raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
+    else:
+        if raw["model"] not in VALID_MODELS:
+            raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
+        if raw["effort"] not in VALID_EFFORTS:
+            raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
     tools = tuple(str(t) for t in raw["tools"])
     bad_tools = sorted(set(tools) - set(CLAUDE_TOOL_UNIVERSE))
     if not tools or bad_tools or len(set(tools)) != len(tools):
@@ -158,6 +175,7 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
         max_concurrent=int(concurrency),
         description=str(raw.get("description") or ""),
         mcp_servers=mcp_servers,
+        runtime=runtime,
     )
 
 

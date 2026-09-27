@@ -28,8 +28,15 @@ entry under `services:`:
       - "AQUACULTURE_EVENTS.>"
       # ... other subscribe subjects
       - "$JS.API.>"
-      - "_INBOX.>"
+      - "_INBOX<SERVICE_NAME>.>"   # its own reply inbox root (CN upper-cased, `-` → `_`)
 ```
+
+**Request/reply:** the requester's replies arrive on its own inbox root
+(`_INBOX<CN>.<nuid>`, granted above). The responder needs no publish grant
+for that subject: the generator emits `allow_responses` for every user, so a
+service may publish to the reply subject of a request it actually received —
+and to nothing else (INFRA-HIGH-188). Do not add another identity's inbox
+root to a publish list.
 
 **Naming:**
 

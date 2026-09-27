@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { AlertCircle, AlertTriangle, Info, CheckCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { Spinner } from '@aquaculture/shared-ui';
 
 export interface ValidationDiagnostic {
   line: number;
@@ -30,15 +31,15 @@ interface CompileResultPanelProps {
 }
 
 const severityIcon = {
-  error: <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />,
-  warning: <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />,
-  info: <Info className="h-4 w-4 text-blue-500 flex-shrink-0" />,
+  error: <AlertCircle className="h-4 w-4 text-error-500 flex-shrink-0" />,
+  warning: <AlertTriangle className="h-4 w-4 text-warning-500 flex-shrink-0" />,
+  info: <Info className="h-4 w-4 text-info-500 flex-shrink-0" />,
 };
 
 const severityBg = {
-  error: 'bg-red-50 border-red-200',
-  warning: 'bg-yellow-50 border-yellow-200',
-  info: 'bg-blue-50 border-blue-200',
+  error: 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
+  warning: 'bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+  info: 'bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800',
 };
 
 const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
@@ -48,9 +49,9 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 }) => {
   if (isValidating) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg border border-gray-200">
-        <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-        <span className="text-sm text-gray-600">Validating ST code...</span>
+      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <Spinner size="sm" />
+        <span className="text-sm text-gray-600 dark:text-gray-400">Validating ST code...</span>
       </div>
     );
   }
@@ -68,20 +69,24 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
   return (
     <div className="space-y-2">
       {/* Summary */}
-      <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
-        result.valid
-          ? 'bg-green-50 border-green-200'
-          : 'bg-red-50 border-red-200'
-      }`}>
+      <div
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+          result.valid
+            ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+            : 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
+        }`}
+      >
         {result.valid ? (
-          <CheckCircle className="h-4 w-4 text-green-500" />
+          <CheckCircle className="h-4 w-4 text-success-500" />
         ) : (
-          <AlertCircle className="h-4 w-4 text-red-500" />
+          <AlertCircle className="h-4 w-4 text-error-500" />
         )}
-        <span className={`text-sm font-medium ${result.valid ? 'text-green-700' : 'text-red-700'}`}>
+        <span
+          className={`text-sm font-medium ${result.valid ? 'text-success-700 dark:text-success-300' : 'text-error-700 dark:text-error-300'}`}
+        >
           {result.valid ? 'Validation successful' : 'Validation failed'}
         </span>
-        <span className="text-xs text-gray-500 ml-auto">
+        <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
           {result.errors.length} errors, {result.warnings.length} warnings
           {result.parsedSymbols !== undefined && `, ${result.parsedSymbols} symbols`}
         </span>
@@ -89,22 +94,24 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 
       {/* Diagnostics List */}
       {allDiagnostics.length > 0 && (
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
           {allDiagnostics.map((diag, idx) => (
             <button
               key={idx}
               onClick={() => onDiagnosticClick?.(diag.line, diag.column)}
-              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors ${
+              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
                 idx === 0 ? '' : ''
               }`}
             >
               {severityIcon[diag.severity]}
-              <span className="text-gray-500 font-mono text-xs min-w-[4rem]">
+              <span className="text-gray-500 dark:text-gray-400 font-mono text-xs min-w-[4rem]">
                 {diag.line}:{diag.column}
               </span>
-              <span className="text-gray-700 flex-1">{diag.message}</span>
+              <span className="text-gray-700 dark:text-gray-300 flex-1">{diag.message}</span>
               {diag.code && (
-                <span className="text-xs text-gray-500 font-mono">{diag.code}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                  {diag.code}
+                </span>
               )}
             </button>
           ))}

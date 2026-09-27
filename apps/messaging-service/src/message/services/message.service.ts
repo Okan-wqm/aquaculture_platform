@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { unreadMessagePredicateSql } from '../unread-message.predicate';
@@ -15,20 +15,26 @@ import { unreadMessagePredicateSql } from '../unread-message.predicate';
 export class MessageService {
   private readonly logger = new Logger(MessageService.name);
 
-  constructor(
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Validates that a user owns a specific message.
    * @throws NotFoundException if message does not exist
    * @returns the Message entity
    */
-  async validateMessageOwnership(tenantId: string, messageId: string, userId: string): Promise<Message> {
-    const message = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
-      queryRunner.manager.findOne(Message, {
-        where: { tenantId, id: messageId, isDeleted: false },
-      }),
+  async validateMessageOwnership(
+    tenantId: string,
+    messageId: string,
+    userId: string,
+  ): Promise<Message> {
+    const message = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager.findOne(Message, {
+          where: { tenantId, id: messageId, isDeleted: false },
+        }),
     );
     if (!message) {
       throw new NotFoundException(`Message ${messageId} not found.`);
@@ -54,6 +60,71 @@ export class MessageService {
    */
   async getUnreadCount(userId: string, tenantId: string): Promise<number> {
     return this.getUnreadCountFromDb(tenantId, userId);
+  }
+
+  /**
+   * Batched badge lookup for the push fan-out (MSGFIX-FAZ3 3.4).
+   *
+   * The push service used to call `getUnreadCount` once PER RECIPIENT — a
+   * global unread COUNT (messages ⨝ channel_members) per member per message,
+   * executed serially. For a channel with N offline members that is N
+   * identical-shape scans on the hottest send path. This method resolves the
+   * SAME value (each user's GLOBAL unread total — notification-service
+   * renders it as the app-icon badge, which is a global count by contract,
+   * see NotificationSendPushCommand.templateVariables.badge) for a WHOLE
+   * batch in ONE query: it is literally getUnreadCountFromDb's join-count
+   * with the bound `:userId` swapped for the joined `cm."userId"` column and
+   * an IN(...) batch filter (both through the same canonical predicate
+   * helper, so it cannot drift from the single-user path or the channel-list
+   * badge).
+   *
+   * The result is grouped per user; a user with zero unread is simply absent
+   * from the map (callers default to 0).
+   */
+  async getUnreadCountsForUsers(tenantId: string, userIds: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (userIds.length === 0) {
+      return counts;
+    }
+
+    const rows = await runInTenantRead(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager
+          .createQueryBuilder(Message, 'm')
+          .select('cm."userId"', 'userId')
+          .addSelect('COUNT(*)::int', 'unread')
+          .innerJoin(
+            ChannelMember,
+            'cm',
+            'cm."tenantId" = :tenantId AND cm."userId" IN (:...userIds) AND cm."leftAt" IS NULL',
+            { tenantId, userIds },
+          )
+          .where('m."tenantId" = :tenantId', { tenantId })
+          .andWhere('m."channelId" = cm."channelId"')
+          // Canonical unread predicate (ORPHAN-100) — column-ref form: the
+          // "not my own message" test compares against the JOINED member row
+          // so one query counts for the whole batch.
+          .andWhere(
+            unreadMessagePredicateSql({
+              msg: 'm',
+              lastReadAt: 'cm."lastReadAt"',
+              userIdSql: 'cm."userId"',
+            }),
+          )
+          .groupBy('cm."userId"')
+          .getRawMany<{ userId: string; unread: number | string }>(),
+    );
+
+    for (const row of rows) {
+      counts.set(
+        row.userId,
+        typeof row.unread === 'number' ? row.unread : parseInt(row.unread, 10),
+      );
+    }
+    return counts;
   }
 
   /**

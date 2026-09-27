@@ -131,3 +131,48 @@ describe('ToastProvider + useToast', () => {
     expect(screen.getByText('Local')).toBeInTheDocument();
   });
 });
+
+describe('useToast — timing that keeps controls reachable (FE-HIGH-087)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a toast carrying an action stays until it is dismissed', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <ToastProvider>
+        <Trigger options={{ action: { label: 'Retry', onClick: () => {} } }} />
+      </ToastProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'fire' }));
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('hovering a toast holds its timer; leaving restarts it', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <ToastProvider>
+        <Trigger />
+      </ToastProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'fire' }));
+    await user.hover(screen.getByText('Saved'));
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    await user.unhover(screen.getByText('Saved'));
+    act(() => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+});

@@ -39,18 +39,21 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  useConfirm,
+} from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/api/messaging';
-import type {
-  ComplianceStats,
-  LegalHold,
-  ExportRecord,
-  RetentionBucket,
-  DailyAuditData,
-} from '../../services/api/messaging';
+import type { ComplianceStats, LegalHold } from '../../services/api/messaging';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { TenantSelect } from '../../components/TenantSelect';
 import { QueryFailureNotice } from '../../components/QueryFailureNotice';
+import { CircleCheck } from 'lucide-react';
 
 /**
  * A count the page has, or an em dash for one it does not.
@@ -74,13 +77,17 @@ const StatCard: React.FC<{
   color?: 'blue' | 'green' | 'yellow' | 'red' | 'purple' | 'unknown';
 }> = ({ title, value, subtitle, color = 'blue' }) => {
   const colorMap = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+    blue: 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800',
+    green:
+      'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800',
+    yellow:
+      'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800',
+    red: 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800',
+    purple:
+      'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800',
     // A value the page does not have must not borrow a colour that grades it.
-    unknown: 'bg-gray-50 text-gray-500 border-gray-200',
+    unknown:
+      'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
   };
 
   return (
@@ -99,7 +106,9 @@ const StatCard: React.FC<{
 const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
   <span
     className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-      active ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'
+      active
+        ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
     }`}
   >
     {active ? 'ACTIVE' : 'RELEASED'}
@@ -124,11 +133,11 @@ const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
  * and the missing aggregate is a tracked finding rather than a silence.
  */
 const UnservedSection: React.FC<{ what: string; needs: string }> = ({ what, needs }) => (
-  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5">
-    <p className="text-sm font-medium text-gray-700">{what}</p>
-    <p className="text-xs text-gray-500 mt-1">
-      No endpoint serves this yet — {needs}. This panel does not mean the figure is zero.
-      Tracked as ADMIN-HIGH-148.
+  <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 p-5">
+    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{what}</p>
+    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+      No endpoint serves this yet — {needs}. This panel does not mean the figure is zero. Tracked as
+      ADMIN-HIGH-148.
     </p>
   </div>
 );
@@ -138,6 +147,7 @@ const UnservedSection: React.FC<{ what: string; needs: string }> = ({ what, need
 // ============================================================================
 
 const MessagingCompliancePage: React.FC = () => {
+  const confirm = useConfirm();
   /**
    * Which tenant this page is reporting on.
    *
@@ -183,13 +193,20 @@ const MessagingCompliancePage: React.FC = () => {
    * the one thing the hold exists to prevent — and it used to happen on a
    * single click.
    */
-  const handleReleaseLegalHold = (hold: LegalHold): void => {
+  const handleReleaseLegalHold = async (hold: LegalHold): Promise<void> => {
+    // The design-system dialog, not the browser's: `no-alert` bans the latter
+    // panel-wide.
     if (
-      !confirm(
-        `Release the legal hold on ${hold.tenantName}${
+      !(await confirm({
+        title: `Release the legal hold on ${hold.tenantName}${
           hold.channelName ? ` / ${hold.channelName}` : ''
-        }?\n\nHeld messages become eligible for retention cleanup again. This cannot be undone.`,
-      )
+        }?`,
+        message:
+          'Held messages become eligible for retention cleanup again. This cannot be undone.',
+        confirmText: 'Release',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
     ) {
       return;
     }
@@ -205,38 +222,89 @@ const MessagingCompliancePage: React.FC = () => {
           ? 'yellow'
           : 'red';
 
+  const legalHoldColumns: DataTableColumn<LegalHold>[] = [
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, hold) => <HoldStatusBadge active={hold.isActive} />,
+    },
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, hold) => hold.tenantName,
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      render: (_value, hold) => hold.channelName ?? 'Tenant-wide',
+    },
+    {
+      key: 'reason',
+      header: 'Reason',
+      render: (_value, hold) => hold.reason,
+    },
+    {
+      key: 'started',
+      header: 'Started',
+      render: (_value, hold) => new Date(hold.startedAt).toLocaleDateString(),
+    },
+    {
+      key: 'released',
+      header: 'Released',
+      render: (_value, hold) =>
+        hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '—',
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, hold) => (
+        <>
+          {hold.isActive && (
+            <button
+              onClick={() => void handleReleaseLegalHold(hold)}
+              aria-label={`Release the legal hold on ${hold.tenantName}`}
+              disabled={releaseMutation.isPending}
+              className="text-xs px-2 py-1 rounded font-medium text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 disabled:opacity-50"
+            >
+              {releaseMutation.isPending ? 'Releasing...' : 'Release'}
+            </button>
+          )}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Compliance</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Legal holds and retention compliance for one tenant&apos;s messaging data.
-          </p>
-        </div>
-        <div className="flex items-end gap-2">
-          <div className="w-72">
-            <label
-              htmlFor="compliance-tenant"
-              className="block text-xs font-medium text-gray-600 mb-1"
-            >
-              Tenant
-            </label>
-            <div id="compliance-tenant">
-              <TenantSelect value={tenantId} onChange={setTenantId} />
+      <PageHeader
+        title="Messaging Compliance"
+        description="Legal holds and retention compliance for one tenant's messaging data."
+        actions={
+          <div className="flex items-end gap-2">
+            <div className="w-72">
+              <label
+                htmlFor="compliance-tenant"
+                className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+              >
+                Tenant
+              </label>
+              <div id="compliance-tenant">
+                <TenantSelect value={tenantId} onChange={setTenantId} />
+              </div>
             </div>
+            <Button
+              onClick={reload}
+              disabled={tenantId === null || statsQuery.isFetching || holdsQuery.isFetching}
+              variant="secondary"
+              size="sm"
+            >
+              {statsQuery.isFetching || holdsQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
-          <Button
-            onClick={reload}
-            disabled={tenantId === null || statsQuery.isFetching || holdsQuery.isFetching}
-            variant="secondary"
-            size="sm"
-          >
-            {statsQuery.isFetching || holdsQuery.isFetching ? 'Refreshing...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={[statsQuery.error, holdsQuery.error, releaseMutation.error]}
@@ -245,12 +313,12 @@ const MessagingCompliancePage: React.FC = () => {
       />
 
       {tenantId === null ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-          <p className="text-sm font-medium text-gray-700">Choose a tenant</p>
-          <p className="text-xs text-gray-500 mt-1">
-            Legal holds and retention state are held per tenant, and both reads on this page
-            require one. Nothing is shown until a tenant is selected — a compliance score
-            rendered without a tenant would be a number about nobody.
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-8 text-center">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Choose a tenant</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Legal holds and retention state are held per tenant, and both reads on this page require
+            one. Nothing is shown until a tenant is selected — a compliance score rendered without a
+            tenant would be a number about nobody.
           </p>
         </div>
       ) : (
@@ -309,8 +377,10 @@ const MessagingCompliancePage: React.FC = () => {
           <Card>
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-700">Legal Holds</h3>
-                <span className="text-xs text-gray-400">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  Legal Holds
+                </h3>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
                   {holdsQuery.data === undefined
                     ? '—'
                     : `${legalHolds.filter((h) => h.isActive).length} active / ${legalHolds.length} total`}
@@ -318,97 +388,33 @@ const MessagingCompliancePage: React.FC = () => {
               </div>
               {holdsQuery.isPending ? (
                 <div className="flex items-center justify-center py-12">
-                  <p className="text-sm text-gray-400">Loading legal holds...</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">Loading legal holds...</p>
                 </div>
-              ) : holdsQuery.isError ? (
-                // The banner above carries the reason. What must NOT appear
-                // here is the green tick and "No legal holds".
-                null
-              ) : legalHolds.length === 0 ? (
+              ) : holdsQuery.isError ? // The banner above carries the reason. What must NOT appear
+              // here is the green tick and "No legal holds".
+              null : legalHolds.length === 0 ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
-                    <svg
-                      className="w-10 h-10 text-green-400 mx-auto mb-2"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <p className="text-sm text-gray-500">No legal holds on this tenant</p>
+                    <CircleCheck
+                      className="w-10 h-10 text-success-400 mx-auto mb-2"
+                      aria-hidden="true"
+                    />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No legal holds on this tenant
+                    </p>
                   </div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Tenant
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Scope
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Reason
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Started
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Released
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {legalHolds.map((hold) => (
-                        <tr key={hold.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <HoldStatusBadge active={hold.isActive} />
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                            {hold.tenantName}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {hold.channelName ?? 'Tenant-wide'}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
-                            {hold.reason}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">
-                            {new Date(hold.startedAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">
-                            {hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '—'}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {hold.isActive && (
-                              <button
-                                onClick={() => handleReleaseLegalHold(hold)}
-                                aria-label={`Release the legal hold on ${hold.tenantName}`}
-                                disabled={releaseMutation.isPending}
-                                className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                              >
-                                {releaseMutation.isPending ? 'Releasing...' : 'Release'}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<LegalHold>
+                  data={legalHolds}
+                  columns={legalHoldColumns}
+                  keyExtractor={(hold) => hold.id}
+                  emptyMessage="No legal holds"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  className="shadow-none rounded-none"
+                />
               )}
             </div>
           </Card>
@@ -416,10 +422,14 @@ const MessagingCompliancePage: React.FC = () => {
           {/* Retention summary — the two figures the stats endpoint does give */}
           <Card>
             <div className="p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-4">Retention Pressure</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                Retention Pressure
+              </h3>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Messages Under Hold</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Messages Under Hold
+                  </span>
                   <Badge
                     variant={
                       stats === undefined
@@ -433,7 +443,9 @@ const MessagingCompliancePage: React.FC = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Pending Retention Cleanup</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Pending Retention Cleanup
+                  </span>
                   <Badge
                     variant={
                       stats === undefined
@@ -447,7 +459,7 @@ const MessagingCompliancePage: React.FC = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Audit Entries</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Audit Entries</span>
                   <Badge variant="default">{count(stats?.auditEntriesCount)}</Badge>
                 </div>
               </div>

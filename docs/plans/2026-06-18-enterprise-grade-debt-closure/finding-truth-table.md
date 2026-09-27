@@ -384,9 +384,10 @@ Allowed truth buckets:
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
 
 - `ARIA-CRITICAL-214`, `ARIA-CRITICAL-215`, `ARIA-CRITICAL-216` (2026-09-26, plan 037 merge-lane
-  review): a rename's source escaped the risk classifier, the L1 scope reached paths no CI gate covers, and
-  operator approval was a free string. Real open work until the plan 037 integration merges (units L and O
-  carry the `Closes:` lines); owner claude (registry owner_user okan), deadline 2026-10-31
+  review): a rename's source escaped the risk classifier, the L1 scope reached paths no CI gate
+  covers, and operator approval was a free string. Real open work until the plan 037 integration
+  merges (units L and O carry the `Closes:` lines); owner claude (registry owner_user okan),
+  deadline 2026-10-31
   (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,

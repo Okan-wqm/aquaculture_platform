@@ -231,6 +231,13 @@ networks:
   # INFRA-HIGH-042 remains OPEN: this dedicated bridge removes PostgreSQL
   # from the application egress path and disables peer-to-peer traffic, but
   # host firewall allowlisting is still required to constrain destinations.
+  # BYOK LLM provider egress (Z.ai / OpenAI / Anthropic) — ai-service only.
+  # Same isolation posture as the backup egress: bridge with ICC disabled so
+  # co-attached containers cannot talk to each other THROUGH this network.
+  aqua-llm-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: 'false'
   aqua-backup-egress:
     driver: bridge
     driver_opts:
@@ -1755,6 +1762,8 @@ services:
     container_name: aqua-messaging
     restart: unless-stopped
     environment:
+      # FARM-AI: the chat pipeline is fixed and shipped — the kill-switch ships ON
+      MESSAGING_AI_TRIGGER_ENABLED: 'true'
       SERVICE_NAME: messaging-service
       NODE_ENV: production
       PORT: 3000
@@ -1872,7 +1881,10 @@ services:
       - *nats-ai-key-mount
       - *jwt-public-key-mount
     networks:
-      - aqua-internal
+      - aqua-internal      # BYOK LLM egress (Z.ai/OpenAI/Anthropic); aqua-internal is internal-only.
+      # Dedicated network — NOT aqua-backup-egress (postgres's isolated backup
+      # channel; the walg-pitr invariant pins its membership to postgres alone).
+      - aqua-llm-egress
     depends_on:
       postgres:
         condition: service_healthy
@@ -2185,10 +2197,14 @@ services:
     image: nats-io/prometheus-nats-exporter:0.20.2
     container_name: aqua-nats-exporter
     restart: unless-stopped
-    # -prefix nats renames jetstream_* metrics to nats_server_jetstream_*
-    # (the naming the alert rules and Grafana dashboards expect). The NATS
-    # monitoring endpoint is plain HTTP on the internal docker network only.
-    command: ['-varz', '-js=server', '-prefix', 'nats', 'http://nats:8222']
+    # MSGFIX-FAZ0 (2026-09-16): '-js=server' is NOT a valid flag in v0.20.2
+    # ("flag provided but not defined: -js" → crash-loop Exited(2) → the
+    # Prometheus nats-exporter job went blind and a 16h NATS outage went
+    # unnoticed). '-jsz=all' is the correct JetStream filter for this version
+    # and renames jetstream_* metrics to nats_server_jetstream_* via -prefix,
+    # which is the naming the alert rules and Grafana dashboards expect. The
+    # NATS monitoring endpoint is plain HTTP on the internal docker network only.
+    command: ['-varz', '-jsz=all', '-prefix', 'nats', 'http://nats:8222']
     networks:
       - aqua-internal
     deploy:

@@ -96,20 +96,44 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # A diagnostic, not the verdict: when bwrap is present but cannot
+        # build its namespaces, its own stderr names the syscall that was
+        # refused (uid map, mount, netns), which the kernel's boolean probe
+        # deliberately does not carry. The verdict below stays with
+        # sandbox_backend() — the one function every spawn consults.
+        if command -v bwrap >/dev/null 2>&1; then
+          echo "bwrap: $(bwrap --version 2>&1 | head -1)"
+          binds=()
+          for root in /usr /bin /lib /lib64 /etc/ssl /etc/resolv.conf; do
+            [ -e "${root}" ] && binds+=(--ro-bind "${root}" "${root}")
+          done
+          if ! bwrap "${binds[@]}" --proc /proc --dev /dev --tmpfs /tmp --unshare-net -- /bin/true 2> "${RUNNER_TEMP}/bwrap-probe.stderr"; then
+            echo "bwrap probe stderr: $(head -c 2000 "${RUNNER_TEMP}/bwrap-probe.stderr")"
+          fi
+        fi
         PYTHONPATH=aria-kernel python3 - <<'PY'
         import os
         import sys
 
-        from aria_kernel.implementation_safety import sandbox_backend
+        import shutil
+        from pathlib import Path
+
+        from aria_kernel.implementation_safety import sandbox_backend, sandbox_unavailable_detail
 
         backend = sandbox_backend()
         if backend is None:
+            # Name the host facts the two causes differ by, so the reader is
+            # not sent to a second workflow to learn which one this was.
+            knob = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+            restriction = knob.read_text().strip() if knob.is_file() else "absent"
             sys.exit(
                 "sandbox_backend_unavailable: no backend could build the namespaces "
                 "wrap_bash_in_sandbox relies on, so READONLY_PATHS cannot be enforced "
-                "at the syscall level. Either bubblewrap is absent (this host has no "
-                "apt egress or no passwordless sudo) or it is installed on a host with "
-                "unprivileged user namespaces disabled. Run the "
+                f"at the syscall level. detail={sandbox_unavailable_detail()!r} "
+                f"bwrap={shutil.which('bwrap') or 'absent'} "
+                f"apparmor_restrict_unprivileged_userns={restriction}. Either bubblewrap "
+                "is absent (this host has no apt egress or no passwordless sudo) or it is "
+                "installed on a host with unprivileged user namespaces disabled. Run the "
                 "aria-runner-capability-probe workflow to tell those two apart."
             )
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:

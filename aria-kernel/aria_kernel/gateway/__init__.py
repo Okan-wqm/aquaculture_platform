@@ -7,4 +7,4 @@ daemon holds the autonomous host lease like every other long-running lane.
 """
 from __future__ import annotations
 
-__all__ = ["daemon", "inbox", "normalize", "router", "scheduler", "server"]
+__all__ = ["daemon", "default_schedules", "inbox", "normalize", "router", "scheduler", "server"]

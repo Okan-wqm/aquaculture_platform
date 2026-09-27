@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CircuitBreakerService,
@@ -37,10 +37,29 @@ export class AiKeyMissingError extends Error {
   }
 }
 
+/**
+ * Thrown when a conversation is continued with a different persona than the
+ * one it was created with. A conversation is bound to its persona: the stored
+ * history was produced under that persona's prompt and tool belt, and the
+ * clients reset the conversation when the user switches persona.
+ */
+export class PersonaConversationMismatchError extends BadRequestException {
+  constructor(conversationPersona: string, requestedPersona: string) {
+    super(
+      `Conversation belongs to persona "${conversationPersona}"; start a new conversation to use "${requestedPersona}"`,
+    );
+  }
+}
+
 export interface ChatRequest {
   message: string;
   conversationId?: string;
-  persona: string;
+  /**
+   * The persona id the caller named, or null for the tenant default
+   * (`tenant_agent_configs.baseProfileId`). Resolved to a published catalogue
+   * id before anything else runs; an unknown id is a BAD_REQUEST.
+   */
+  persona: string | null;
   tenantId: string;
   userId: string;
   userRoles: string[];
@@ -51,6 +70,43 @@ export interface ChatRequest {
   resourcePermissions: string[];
   schemaName: string;
   correlationId: string;
+  /**
+   * FARM-AI Sprint 1.2: run WITHOUT any persisted conversation. No
+   * agent_conversations row is created, no user/assistant message is stored,
+   * and the response carries conversationId=null. The turn still hits the
+   * durable cost ledger (with correlationId + servicePrincipal in place of
+   * the conversation reference) and the token budget. Service paths
+   * (action_watch narratives, routine runs) use this so machine-driven calls
+   * never occupy a user's conversation history.
+   */
+  ephemeral?: boolean;
+  /**
+   * FARM-AI Sprint 1.2: identity of the CALLING SERVICE (e.g.
+   * 'messaging_service', 'farm_service'). Enforced against the server-side
+   * SERVICE_PERSONA_GRANTS map in AgentProfileService — never trusted from
+   * payload claims for capability purposes. Absent = user-direct path
+   * (capability check only).
+   */
+  serviceId?: string;
+  /**
+   * FARM-AI Sprint 1.2: rate-limit namespace. Default (undefined) keeps the
+   * legacy user-chat key `ai:ratelimit:{tenant}:{hour}` EXACTLY as-is;
+   * service namespaces get their own counter so machine-driven bursts can
+   * neither consume nor hide behind user quota. Allowlisted in
+   * RateLimitService ('routine' is claimed by the Faz 5 routine orchestrator).
+   */
+  rateNamespace?: string;
+  /**
+   * MSGFIX-FAZ2 2.3: externally-supplied conversation history (the messaging
+   * AI-channel bridge's consent-filtered channel context). Used INSTEAD of
+   * stored conversation rows when the caller sends no conversationId:
+   * channel-derived conversations would collide with ConversationService's
+   * per-user ownership model in multi-user channels and with GDPR
+   * eraseForUser (third-party contributions are not erasable there).
+   * Mapped by the responder — rızalı other users → 'user', the AI's own
+   * prior replies → 'assistant'.
+   */
+  priorMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 /**
@@ -86,7 +142,8 @@ export interface TokenUsageBreakdown {
 }
 
 export interface ChatResponse {
-  conversationId: string;
+  /** Null for ephemeral runs (FARM-AI Sprint 1.2) — no conversation exists. */
+  conversationId: string | null;
   message: string;
   toolCalls: Array<{
     name: string;
@@ -94,6 +151,8 @@ export interface ChatResponse {
     result: unknown;
   }>;
   tokenUsage: TokenUsageBreakdown;
+  /** The RESOLVED persona id the turn ran under (catalogue id, never the raw request string). */
+  personaId: string;
   /**
    * MOB-HIGH-001: a held actuation-class tool call, persisted as a proposal
    * awaiting human confirmation. Rides the chat response metadata so the
@@ -153,11 +212,12 @@ export class AgentRunnerService {
     }
     const provider = this.providerFactory.get(credential.provider);
 
-    // 2. Check rate limit
+    // 2. Check rate limit (namespaced for service paths — FARM-AI Sprint 1.2)
     const config = await this.agentConfig.getConfig(request.tenantId);
     const rateLimitCheck = await this.rateLimit.checkRateLimit(
       request.tenantId,
       config.hourlyRequestLimit,
+      request.rateNamespace,
     );
     if (!rateLimitCheck.allowed) {
       throw new Error(`Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`);
@@ -168,21 +228,32 @@ export class AgentRunnerService {
     // concurrent request passed it and all spent). reserveBudget is the
     // single enforcement point.
 
-    // 4. Resolve agent profile (persona tier authorized against the caller's
+    // 4. Resolve agent profile (persona authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
-    // the ai_personas:<tier> grant).
-    const profile = await this.profileService.resolveProfile(request.tenantId, request.persona, {
-      roles: request.userRoles,
-      resourcePermissions: request.resourcePermissions,
-    });
+    // the ai_personas:<tier> ∧ ai_specialties:<module> grants; serviceId routes
+    // through the server-side service→persona grant map — FARM-AI Sprint 1.2).
+    // No persona named → the tenant default; an unknown id → UnknownPersonaError
+    // (no fallback).
+    const personaId = request.persona ?? config.baseProfileId;
+    const profile = await this.profileService.resolveProfile(
+      request.tenantId,
+      personaId,
+      {
+        roles: request.userRoles,
+        resourcePermissions: request.resourcePermissions,
+      },
+      { serviceId: request.serviceId },
+    );
+    const resolvedPersonaId = profile.persona.id;
 
-    // 5. Get or create conversation
-    let conversationId = request.conversationId;
-    if (!conversationId) {
+    // 5. Get or create conversation — SKIPPED for ephemeral runs (FARM-AI
+    // Sprint 1.2): machine-driven calls never touch conversation storage.
+    let conversationId: string | null = request.conversationId ?? null;
+    if (!request.ephemeral && !conversationId) {
       const conversation = await this.conversationService.create({
         tenantId: request.tenantId,
         userId: request.userId,
-        persona: request.persona,
+        persona: resolvedPersonaId,
       });
       conversationId = conversation.id;
     }
@@ -195,6 +266,9 @@ export class AgentRunnerService {
     const existingConversation = conversationId
       ? await this.conversationService.getById(conversationId, request.tenantId, request.userId)
       : null;
+    if (existingConversation && existingConversation.persona !== resolvedPersonaId) {
+      throw new PersonaConversationMismatchError(existingConversation.persona, resolvedPersonaId);
+    }
 
     const messages: LlmMessage[] = [];
 
@@ -220,27 +294,38 @@ export class AgentRunnerService {
       }
     }
 
+    // MSGFIX-FAZ2 2.3: externally-supplied history (messaging AI-channel
+    // context). Only consulted when there is no stored conversation — the
+    // bridge deliberately sends no conversationId (per-user ownership +
+    // GDPR eraseForUser would both break on a shared channel conversation).
+    if (!existingConversation && request.priorMessages?.length) {
+      for (const prior of request.priorMessages) {
+        pushAlternating(messages, prior.role, prior.content);
+      }
+    }
+
     // Add new user message
-    messages.push({
-      role: 'user',
-      content: [{ type: 'text', text: request.message }],
-    });
+    pushAlternating(messages, 'user', request.message);
 
-    // Save user message to conversation
+    // Save user message to conversation — ephemeral runs persist nothing.
     // SECURITY: addMessage now requires tenantId + userId ownership check
-    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
-      role: 'user',
-      content: request.message,
-      timestamp: new Date().toISOString(),
-    });
+    if (conversationId) {
+      await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+        role: 'user',
+        content: request.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
-    const safetyResult = this.aiSafety.preProcess(
-      request.message,
-      request.tenantId,
-      profile.persona.name,
-      profile.persona.systemPrompt,
-    );
+    // 7. SECURITY: Pre-process input through the AI safety pipeline (jailbreak
+    // filter + prompt assembly). AISAFETY-MEDIUM-025: the composed base prompt
+    // and the tenant custom prompt travel SEPARATELY into the pipeline, which
+    // returns the one final system prompt the provider sees.
+    const safetyResult = this.aiSafety.preProcess(request.message, request.tenantId, {
+      personaName: profile.persona.name,
+      baseSystemPrompt: profile.baseSystemPrompt,
+      tenantCustomPrompt: profile.tenantCustomPrompt,
+    });
 
     if (!safetyResult.allowed) {
       this.logger.warn(
@@ -249,9 +334,7 @@ export class AgentRunnerService {
       throw new Error('Your message was flagged by our safety system and cannot be processed.');
     }
 
-    // Use hardened system prompt if instruction hierarchy is active
-    const effectiveSystemPrompt =
-      safetyResult.hardenedSystemPrompt ?? profile.effectiveSystemPrompt;
+    const effectiveSystemPrompt = safetyResult.systemPrompt;
 
     // 8. Build tool definitions (provider-neutral shape)
     const toolDefinitions: LlmToolDefinition[] = this.toolRegistry
@@ -283,7 +366,15 @@ export class AgentRunnerService {
       userId: request.userId,
       userRoles: request.userRoles,
       correlationId: request.correlationId,
-      persona: request.persona,
+      persona: resolvedPersonaId,
+      // AISAFETY-MEDIUM-021: the composed persona's tier is the executor's
+      // authority dimension for a human turn. Service personas (narrator)
+      // carry no tier — they run toolless and authorize through the service
+      // grant map instead (FARM-AI Sprint 1.2).
+      personaTier: 'tier' in profile.persona ? profile.persona.tier : null,
+      // RBAC-MEDIUM-016: the executor refuses any tool_use outside this list —
+      // the module/block-list offer filter becomes binding at execution time.
+      offeredToolNames: profile.effectiveToolNames,
       // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
       // most-restrictive) gates whether an actuation tool may run autonomously.
       actuationPolicy: profile.actuationPolicy,
@@ -443,7 +534,7 @@ export class AgentRunnerService {
             description: this.describeAction(toolUse.name, toolUse.input),
             requestedBy: request.userId,
             requesterRoles: request.userRoles,
-            persona: request.persona,
+            persona: resolvedPersonaId,
             correlationId: request.correlationId,
           });
           proposedAction = {
@@ -525,8 +616,12 @@ export class AgentRunnerService {
     ];
     await this.turnLedger.recordTurn({
       tenantId: request.tenantId,
+      // Ephemeral runs have no conversation — the ledger row keys on the
+      // correlationId + calling service instead (FARM-AI Sprint 1.2).
       conversationId,
-      personaId: request.persona,
+      correlationId: conversationId ? null : request.correlationId,
+      servicePrincipal: conversationId ? null : (request.serviceId ?? null),
+      personaId: resolvedPersonaId,
       model: profile.persona.model,
       usage: {
         input: totalTokens.input,
@@ -537,31 +632,37 @@ export class AgentRunnerService {
       flaggedCategories,
     });
 
-    // 12. Save assistant response to conversation
+    // 12. Save assistant response to conversation — skipped for ephemeral runs
     // SECURITY: addMessage requires tenantId + userId ownership check
-    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
-      role: 'assistant',
-      content: finalMessage,
-      toolUse: toolCalls,
-      timestamp: new Date().toISOString(),
-    });
+    if (conversationId) {
+      await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+        role: 'assistant',
+        content: finalMessage,
+        toolUse: toolCalls,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // 13. Update token usage (total = input + output + cacheCreation — see
     // the TokenUsageBreakdown docblock for the budget semantics)
     // SEC-MEDIUM-075: budget accounting happened per call via
-    // reserve/settle — a final addUsage here would double-count.
-    await this.conversationService.updateTokenCount(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      totalTokens.total,
-    );
+    // reserve/settle — a final addUsage here would double-count. Ephemeral
+    // runs (FARM-AI Sprint 1.2) have no conversation aggregate to update.
+    if (conversationId) {
+      await this.conversationService.updateTokenCount(
+        conversationId,
+        request.tenantId,
+        request.userId,
+        totalTokens.total,
+      );
+    }
 
     return {
       conversationId,
       message: finalMessage,
       toolCalls,
       tokenUsage: totalTokens,
+      personaId: resolvedPersonaId,
       proposedAction,
     };
   }
@@ -577,4 +678,29 @@ export class AgentRunnerService {
     }
     return `Run ${toolName}`;
   }
+}
+
+/**
+ * MSGFIX-FAZ2 2.3: alternation-safe append onto an LlmMessage[] list.
+ *
+ * Channel-derived history (multiple consenting users in a row, several AI
+ * replies back-to-back after skipped turns) does NOT naturally alternate,
+ * but the Messages API contract requires user/assistant roles to alternate.
+ * When the incoming role equals the tail's role, the content is folded into
+ * the tail with a blank-line separator instead of erroring the whole turn.
+ */
+function pushAlternating(messages: LlmMessage[], role: 'user' | 'assistant', text: string): void {
+  const last = messages[messages.length - 1];
+  if (last && last.role === role) {
+    const existingText = last.content
+      .filter((block): block is Extract<LlmContentBlock, { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n\n');
+    last.content = [{ type: 'text', text: existingText ? `${existingText}\n\n${text}` : text }];
+    return;
+  }
+  messages.push({
+    role,
+    content: [{ type: 'text', text }],
+  });
 }

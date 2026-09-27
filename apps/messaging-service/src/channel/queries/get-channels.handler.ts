@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { GetChannelsQuery } from './get-channels.query';
 import { Channel } from '../entities/channel.entity';
 import { unreadMessagePredicateSql } from '../../message/unread-message.predicate';
@@ -17,14 +17,10 @@ export interface GetChannelsResult {
 
 @Injectable()
 @QueryHandler(GetChannelsQuery)
-export class GetChannelsHandler
-  implements IQueryHandler<GetChannelsQuery, GetChannelsResult>
-{
+export class GetChannelsHandler implements IQueryHandler<GetChannelsQuery, GetChannelsResult> {
   private readonly logger = new Logger(GetChannelsHandler.name);
 
-  constructor(
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Return a paginated list of channels where the user is an active member,
@@ -40,8 +36,12 @@ export class GetChannelsHandler
   async execute(query: GetChannelsQuery): Promise<GetChannelsResult> {
     const { tenantId, userId, limit, offset } = query;
 
-    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
-      // Tenant-pinned transaction keeps channel list reads in the same physical
+    // MSGFIX-FAZ3 3.5: hot read path — READ-ONLY tenant boundary. Same
+    // tenant-scoped search_path pin as the write path (read-after-write
+    // preserved: READ COMMITTED sees committed sends), but the channel list
+    // can no longer contend with or block on write transactions.
+    return runInTenantRead(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      // Tenant-pinned read keeps channel list reads in the same physical
       // schema as channel/member/message writes, preserving read-after-write.
       const qb = queryRunner.manager
         .createQueryBuilder(Channel, 'channel')
@@ -85,18 +85,23 @@ export class GetChannelsHandler
       const items = rawAndEntities.entities.map((entity, idx) => {
         const raw = rawAndEntities.raw[idx];
         // Attach computed values as non-column properties (GraphQL @ResolveField will use them)
-        (entity as Channel & { unreadCount: number }).unreadCount =
-          parseInt(raw['channel_unreadCount'] ?? '0', 10);
-        (entity as Channel & { memberCount: number }).memberCount =
-          parseInt(raw['channel_memberCount'] ?? '0', 10);
-        (entity as Channel & { lastMessageAt: Date | null }).lastMessageAt =
-          raw['channel_lastMessageAt'] ? new Date(raw['channel_lastMessageAt']) : null;
+        (entity as Channel & { unreadCount: number }).unreadCount = parseInt(
+          raw['channel_unreadCount'] ?? '0',
+          10,
+        );
+        (entity as Channel & { memberCount: number }).memberCount = parseInt(
+          raw['channel_memberCount'] ?? '0',
+          10,
+        );
+        (entity as Channel & { lastMessageAt: Date | null }).lastMessageAt = raw[
+          'channel_lastMessageAt'
+        ]
+          ? new Date(raw['channel_lastMessageAt'])
+          : null;
         return entity;
       });
 
-      this.logger.debug(
-        `Fetched ${items.length}/${total} channels for user ${userId}`,
-      );
+      this.logger.debug(`Fetched ${items.length}/${total} channels for user ${userId}`);
 
       return { items, total };
     });

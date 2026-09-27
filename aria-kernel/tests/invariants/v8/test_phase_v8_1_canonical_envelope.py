@@ -130,10 +130,17 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
             "fold_plan_state", src,
             "_canonicalize_challenger_payload MUST fetch kernel state via fold_plan_state",
         )
-        # Must extract plan_content from MULTIPLE known locations
+        # Must extract plan_content through the ONE table the submit-time
+        # plan-contract check also reads (`submitted_plan_content`), and that
+        # table must honor top-level plan_content (V8.1 agent contract).
         self.assertIn(
-            'response.get("plan_content")', src,
-            "_canonicalize_challenger_payload MUST honor top-level plan_content (V8.1 agent contract)",
+            "submitted_plan_content(", src,
+            "_canonicalize_challenger_payload MUST read the body through submitted_plan_content",
+        )
+        extractor = inspect.getsource(plan_convergence_bridge.submitted_plan_content)
+        self.assertIn(
+            'response.get("plan_content")', extractor,
+            "submitted_plan_content MUST honor top-level plan_content (V8.1 agent contract)",
         )
 
     def test_i_v8_1_04_ci_executor_has_validator_helper(self):

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import type Redis from 'ioredis';
 
 import {
@@ -85,7 +85,13 @@ const BUDGET_KEY_PREFIX = 'orchestrator:budget:';
 const FREEZE_KEY = 'orchestrator:emergency-freeze';
 const RATE_LIMIT_WINDOW_KEY_PREFIX = 'orchestrator:429-window:';
 
-@Injectable()
+// Not a Nest provider: no module registers it and its constructor takes a
+// plain options object plus a Redis client the caller owns, so it is built by
+// hand (`new ClaudeApiBudgetService(redis, options)`). The @Injectable() it
+// carried claimed otherwise while its `Redis` dependency was a type-only
+// import — exactly the shape that left billing-service unbootable (2026-09-20
+// outage); tests/invariants/nest-injected-type-only-import.spec.ts now bans
+// that shape on every class that claims Nest may instantiate it.
 export class ClaudeApiBudgetService {
   private readonly logger = new Logger(ClaudeApiBudgetService.name);
   private readonly emergencyFreezeThreshold: number;
@@ -96,8 +102,7 @@ export class ClaudeApiBudgetService {
     options: ClaudeApiBudgetOptions = {},
   ) {
     this.emergencyFreezeThreshold = options.emergencyFreezeThreshold ?? 5;
-    this.emergencyFreezeDurationSeconds =
-      options.emergencyFreezeDurationSeconds ?? 300;
+    this.emergencyFreezeDurationSeconds = options.emergencyFreezeDurationSeconds ?? 300;
   }
 
   /**
@@ -108,12 +113,7 @@ export class ClaudeApiBudgetService {
   async reserve(reservation: BudgetReservation): Promise<void> {
     const key = this.budgetKey(reservation.cycleId, reservation.model);
     try {
-      await this.redis.set(
-        key,
-        String(reservation.maxTokens),
-        'EX',
-        reservation.expirySeconds,
-      );
+      await this.redis.set(key, String(reservation.maxTokens), 'EX', reservation.expirySeconds);
       orchestratorCycleBudgetRemainingTokens.set(
         { model: reservation.model },
         reservation.maxTokens,
@@ -228,12 +228,7 @@ export class ClaudeApiBudgetService {
             `(threshold=${this.emergencyFreezeThreshold}). Freezing dispatch for ` +
             `${this.emergencyFreezeDurationSeconds}s.`,
         );
-        await this.redis.set(
-          FREEZE_KEY,
-          '1',
-          'EX',
-          this.emergencyFreezeDurationSeconds,
-        );
+        await this.redis.set(FREEZE_KEY, '1', 'EX', this.emergencyFreezeDurationSeconds);
       }
     } catch (err) {
       this.logger.error(

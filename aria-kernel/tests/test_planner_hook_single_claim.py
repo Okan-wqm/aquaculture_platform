@@ -41,7 +41,7 @@ from aria_kernel.agent_invocations import (  # noqa: E402
     render_invocation_prompt,
 )
 from aria_kernel.planner_dispatch_hook import (  # noqa: E402
-    CLAIM_METADATA_ENV_VAR,
+    CLAIM_METADATA_FILE_ENV_VAR,
     CLAIM_METADATA_FORBIDDEN_KEYS,
     LEASE_TOKEN_ENV_VAR,
     _serialise_claim_metadata_for_env,
@@ -234,7 +234,7 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
             ci_executor.MOCK_MODE_ENV_VAR: "1",
             "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID", "local"),
             LEASE_TOKEN_ENV_VAR: self.claim["lease_token"],
-            CLAIM_METADATA_ENV_VAR: metadata,
+            CLAIM_METADATA_FILE_ENV_VAR: _metadata_file(self, metadata),
         }
         captured = []
 
@@ -257,12 +257,12 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
             )
 
     def test_main_claims_normally_when_no_metadata_env(self) -> None:
-        # Without ARIA_CLAIM_METADATA, the executor claims via subprocess.
+        # Without a claim-metadata file, the executor claims via subprocess.
         env_patch = {
             ci_executor.MOCK_MODE_ENV_VAR: "1",
             "GITHUB_RUN_ID": "local",
         }
-        for key in (CLAIM_METADATA_ENV_VAR, LEASE_TOKEN_ENV_VAR):
+        for key in (CLAIM_METADATA_FILE_ENV_VAR, LEASE_TOKEN_ENV_VAR):
             env_patch.pop(key, None)
         captured = []
 
@@ -304,7 +304,7 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         with patch.dict(
             os.environ, env_patch, clear=False,
         ):
-            os.environ.pop(CLAIM_METADATA_ENV_VAR, None)
+            os.environ.pop(CLAIM_METADATA_FILE_ENV_VAR, None)
             os.environ.pop(LEASE_TOKEN_ENV_VAR, None)
             with patch("ci_executor.subprocess.run", fake_run):
                 exit_code = ci_executor.main(
@@ -314,6 +314,19 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         # ``agent claim`` subprocess MUST have been invoked.
         claim_invoked = any("claim" in argv for argv in captured)
         self.assertTrue(claim_invoked)
+
+
+def _metadata_file(case: unittest.TestCase, payload: str) -> str:
+    """The hook writes the metadata to a 0600 file and names it in the
+    environment (ARIA-HIGH-085); fixtures reproduce that transport."""
+    import tempfile
+
+    directory = tempfile.mkdtemp(prefix="aria-claim-metadata-fixture-")
+    case.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
+    path = Path(directory) / "claim-metadata.json"
+    path.write_text(payload, encoding="utf-8")
+    path.chmod(0o600)
+    return str(path)
 
 
 class SingleClaimArgvSafetyTests(_SingleClaimBase):
@@ -330,7 +343,7 @@ class SingleClaimArgvSafetyTests(_SingleClaimBase):
             ci_executor.MOCK_MODE_ENV_VAR: "1",
             "GITHUB_RUN_ID": "local",
             LEASE_TOKEN_ENV_VAR: token,
-            CLAIM_METADATA_ENV_VAR: metadata,
+            CLAIM_METADATA_FILE_ENV_VAR: _metadata_file(self, metadata),
         }
         captured = []
 

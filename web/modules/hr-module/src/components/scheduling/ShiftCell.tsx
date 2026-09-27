@@ -10,7 +10,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Coffee, Calendar, GraduationCap, Umbrella } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import type { WeeklyPlanEntry, WeeklyPlanEntryType } from '../../types/scheduling.types';
 import { useOptionalSchedulingKeyboard } from './SchedulingKeyboardContext';
 // SEC-006: sanitize API-sourced color codes before interpolation into inline styles
@@ -31,11 +31,36 @@ const entryTypeConfig: Record<
   WeeklyPlanEntryType,
   { label: string; icon: React.ElementType; bgClass: string; textClass: string }
 > = {
-  work: { label: 'Mesai', icon: Calendar, bgClass: 'bg-blue-100', textClass: 'text-blue-800' },
-  off: { label: 'Tatil', icon: Coffee, bgClass: 'bg-gray-100', textClass: 'text-gray-600' },
-  leave: { label: 'Izin', icon: Umbrella, bgClass: 'bg-green-100', textClass: 'text-green-800' },
-  holiday: { label: 'Resmi', icon: Calendar, bgClass: 'bg-purple-100', textClass: 'text-purple-800' },
-  training: { label: 'Egitim', icon: GraduationCap, bgClass: 'bg-amber-100', textClass: 'text-amber-800' },
+  work: {
+    label: 'Mesai',
+    icon: Calendar,
+    bgClass: 'bg-info-100 dark:bg-info-900/40',
+    textClass: 'text-info-800 dark:text-info-200',
+  },
+  off: {
+    label: 'Tatil',
+    icon: Coffee,
+    bgClass: 'bg-gray-100 dark:bg-gray-800',
+    textClass: 'text-gray-600 dark:text-gray-400',
+  },
+  leave: {
+    label: 'Izin',
+    icon: Umbrella,
+    bgClass: 'bg-success-100 dark:bg-success-900/40',
+    textClass: 'text-success-800 dark:text-success-200',
+  },
+  holiday: {
+    label: 'Resmi',
+    icon: Calendar,
+    bgClass: 'bg-accent-100 dark:bg-accent-900/40',
+    textClass: 'text-accent-800 dark:text-accent-200',
+  },
+  training: {
+    label: 'Egitim',
+    icon: GraduationCap,
+    bgClass: 'bg-warning-100 dark:bg-warning-900/40',
+    textClass: 'text-warning-800 dark:text-warning-200',
+  },
 };
 
 export function ShiftCell({
@@ -95,7 +120,7 @@ export function ShiftCell({
           const { shiftId, isOffDay } = keyboardCtx.selectedShift;
           onDrop(shiftId, isOffDay);
           keyboardCtx.announce(
-            `${keyboardCtx.selectedShift.shiftName || 'Vardiya'} ${dayLabel} gunune atandi.`
+            `${keyboardCtx.selectedShift.shiftName || 'Vardiya'} ${dayLabel} gunune atandi.`,
           );
           // Clear selection after applying
           keyboardCtx.clearSelection();
@@ -105,7 +130,7 @@ export function ShiftCell({
         }
       }
     },
-    [isEditable, onDrop, onSelect, keyboardCtx, dayLabel]
+    [isEditable, onDrop, onSelect, keyboardCtx, dayLabel],
   );
 
   // Build accessible label
@@ -156,20 +181,24 @@ export function ShiftCell({
       <div
         {...keyboardProps}
         className={cn(
-          'h-full min-h-[48px] border border-dashed border-gray-200 rounded-md',
+          'h-full min-h-[48px] border border-dashed border-gray-200 dark:border-gray-700 rounded-md',
           'flex items-center justify-center',
-          isEditable && 'cursor-pointer hover:bg-gray-50',
-          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-          isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'border-indigo-300 bg-indigo-50/30',
-          isDragOver && 'ring-2 ring-indigo-400'
+          isEditable && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800',
+          isEditable &&
+            'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+          isSelected && 'ring-2 ring-primary-500',
+          hasKeyboardSelection &&
+            'border-primary-300 dark:border-primary-700 bg-primary-50/30 dark:bg-primary-900/20/30',
+          isDragOver && 'ring-2 ring-primary-400',
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <span className="text-xs text-gray-400" aria-hidden="true">-</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500" aria-hidden="true">
+          -
+        </span>
       </div>
     );
   }
@@ -186,10 +215,11 @@ export function ShiftCell({
           'h-full min-h-[48px] rounded-md p-1.5',
           config.bgClass,
           isEditable && 'cursor-pointer hover:opacity-80',
-          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-          isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'ring-1 ring-indigo-300',
-          isDragOver && 'ring-2 ring-indigo-400'
+          isEditable &&
+            'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+          isSelected && 'ring-2 ring-primary-500',
+          hasKeyboardSelection && 'ring-1 ring-primary-300',
+          isDragOver && 'ring-2 ring-primary-400',
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
@@ -213,10 +243,11 @@ export function ShiftCell({
           'h-full min-h-[48px] rounded-md p-1.5',
           entryTypeConfig.leave.bgClass,
           isEditable && 'cursor-pointer hover:opacity-80',
-          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-          isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'ring-1 ring-indigo-300',
-          isDragOver && 'ring-2 ring-indigo-400'
+          isEditable &&
+            'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+          isSelected && 'ring-2 ring-primary-500',
+          hasKeyboardSelection && 'ring-1 ring-primary-300',
+          isDragOver && 'ring-2 ring-primary-400',
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
@@ -225,7 +256,9 @@ export function ShiftCell({
       >
         <div className="flex flex-col items-center justify-center h-full">
           <Umbrella className={cn('h-4 w-4', entryTypeConfig.leave.textClass)} aria-hidden="true" />
-          {!compact && <span className={cn('text-xs mt-0.5', entryTypeConfig.leave.textClass)}>Izin</span>}
+          {!compact && (
+            <span className={cn('text-xs mt-0.5', entryTypeConfig.leave.textClass)}>Izin</span>
+          )}
         </div>
       </div>
     );
@@ -234,7 +267,7 @@ export function ShiftCell({
   // Work day with shift
   // SEC-006: sanitize colorCode from the API before using in inline style
   const shift = entry.shift;
-  const shiftColor = sanitizeColor(shift?.colorCode, '#3B82F6');
+  const shiftColor = sanitizeColor(shift?.colorCode, colors.info[500]);
 
   return (
     <div
@@ -242,10 +275,11 @@ export function ShiftCell({
       className={cn(
         'h-full min-h-[48px] rounded-md p-1.5 transition-all',
         isEditable && 'cursor-pointer hover:opacity-80',
-        isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-        isSelected && 'ring-2 ring-indigo-500',
-        hasKeyboardSelection && 'ring-1 ring-indigo-300',
-        isDragOver && 'ring-2 ring-indigo-400'
+        isEditable &&
+          'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+        isSelected && 'ring-2 ring-primary-500',
+        hasKeyboardSelection && 'ring-1 ring-primary-300',
+        isDragOver && 'ring-2 ring-primary-400',
       )}
       style={{ backgroundColor: `${shiftColor}20` }}
       onClick={onSelect}
@@ -255,16 +289,13 @@ export function ShiftCell({
     >
       <div className="flex flex-col h-full">
         {/* Shift code/name */}
-        <div
-          className="text-xs font-semibold truncate"
-          style={{ color: shiftColor }}
-        >
+        <div className="text-xs font-semibold truncate" style={{ color: shiftColor }}>
           {shift?.code || entry.shiftId?.slice(0, 4)}
         </div>
 
         {/* Time range */}
         {!compact && (
-          <div className="text-[10px] text-gray-600 mt-auto">
+          <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-auto">
             {entry.plannedStartTime || shift?.startTime || '07:00'} -{' '}
             {entry.plannedEndTime || shift?.endTime || '15:00'}
           </div>
@@ -272,7 +303,7 @@ export function ShiftCell({
 
         {/* Minutes indicator */}
         {!compact && entry.plannedMinutes > 0 && (
-          <div className="text-[10px] text-gray-500">
+          <div className="text-[10px] text-gray-500 dark:text-gray-400">
             {Math.floor(entry.plannedMinutes / 60)}s
           </div>
         )}

@@ -920,7 +920,7 @@ def _drive_real_panel(tools: Path, escalation_id: str, verdict_value: str) -> An
     import json
 
     from aria_kernel import human_required_adjudication as hra
-    from aria_kernel.ledger import append_declared_jsonl
+    from tests._helpers.adjudication import seed_adjudicator_opinion
 
     record = json.loads(
         (tools / "human-required" / f"{escalation_id}.json").read_text(encoding="utf-8"),
@@ -928,25 +928,8 @@ def _drive_real_panel(tools: Path, escalation_id: str, verdict_value: str) -> An
     row = hra.open_adjudication(
         escalation_request_id=escalation_id, record=record, base_dir=tools,
     )
-    invocations = tools / "agent-invocations"
-    invocations.mkdir(parents=True, exist_ok=True)
     for rid, agent in zip(row["request_ids"], ("judge-a", "judge-b", "judge-c")):
-        output = invocations / f"{rid}.opinion.json"
-        output.write_text(
-            json.dumps({"verdict": verdict_value, "rationale": agent}), encoding="utf-8",
-        )
-        append_declared_jsonl(
-            invocations / "claims.jsonl",
-            {"request_id": rid, "claim_id": f"claim-{rid}", "agent_id": agent},
-            expected_surface="agent_invocation_claims",
-        )
-        append_declared_jsonl(
-            invocations / "results.jsonl",
-            {"request_id": rid, "role": hra.ADJUDICATION_ROLE, "status": "accepted",
-             "agent_id": agent, "output_path": output.as_posix(),
-             "output_hash": "sha256:" + "0" * 64},
-            expected_surface="agent_invocation_results",
-        )
+        seed_adjudicator_opinion(tools, rid, agent_id=agent, verdict=verdict_value, rationale=agent)
     return hra.adjudicate_human_required(
         escalation_request_id=escalation_id, base_dir=tools,
     )

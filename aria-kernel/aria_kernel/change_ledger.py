@@ -257,6 +257,80 @@ def emit_change_planned(
     return persisted
 
 
+def verify_change_scope(
+    *,
+    change_id: str,
+    actual_affected_files: list[str],
+    uncovered_intended_dispositions: dict[str, str] | None = None,
+    base_dir: str | Path | None = None,
+) -> tuple[dict[str, Any], list[str], dict[str, str]]:
+    """The scope verdict of ``emit_change_committed``, WITHOUT the row.
+
+    Returns ``(planned_row, uncovered_intended_files, dispositions)`` or
+    raises the ledger's own ``GovernanceError`` by name — the sequence
+    violation, ``scope_drift_requires_human``,
+    ``implementation_incomplete_undeclared``,
+    ``implementation_disposition_for_covered_file``.
+
+    ARIA-HIGH-124 (round 3) — separated from the write so the executor's
+    delivery can refuse an out-of-scope tip BEFORE it executes that tip's
+    validation suite: the suite is the agent's code, and the scope check is
+    what decides whether the kernel has any business running it. The row
+    is written after the gate passes, through ``emit_change_committed``,
+    which runs this same verdict again (one rule, two call sites).
+
+    Plan 026R §D.2 — scope drift gate. Pre-§D.2 the committed row was
+    persisted regardless of whether ``actual_affected_files`` matched
+    ``intended_affected_files`` from the corresponding change_planned row.
+    Drift was silent — a remediation that touched 5 extra files outside the
+    planned scope landed in the audit trail as a normal commit. Post-§D.2
+    the subset check is enforced at the boundary: actual MUST be a subset of
+    intended; superset / disjoint / empty-intended all raise
+    ``scope_drift_requires_human`` so the operator audit catches the
+    violation before the change_committed row lands.
+    """
+    tools_root = ensure_tools_dir(base_dir)
+    planned = _find_planned(tools_root, change_id)
+    if planned is None:
+        raise GovernanceError(
+            f"change_committed sequence violation: no change_planned for {change_id!r}"
+        )
+    intended_files = set(planned.get("intended_affected_files") or [])
+    actual_set = set(actual_affected_files)
+    if not intended_files:
+        raise GovernanceError(
+            f"scope_drift_requires_human: change_planned for {change_id!r} "
+            f"has empty intended_affected_files; cannot validate actual scope"
+        )
+    if not actual_set.issubset(intended_files):
+        drift = sorted(actual_set - intended_files)
+        raise GovernanceError(
+            f"scope_drift_requires_human: change_committed for {change_id!r} "
+            f"touches files outside the planned scope: drift={drift}. "
+            f"intended={sorted(intended_files)} actual={sorted(actual_set)}"
+        )
+
+    uncovered = sorted(intended_files - actual_set)
+    dispositions = dict(uncovered_intended_dispositions or {})
+    undeclared = [f for f in uncovered if not str(dispositions.get(f, "")).strip()]
+    if undeclared:
+        raise GovernanceError(
+            f"implementation_incomplete_undeclared: change_committed for "
+            f"{change_id!r} leaves intended files untouched with no declared "
+            f"disposition: {undeclared}. Either implement them or record "
+            f"why each needs no change."
+        )
+    stray = sorted(set(dispositions) - set(uncovered))
+    if stray:
+        raise GovernanceError(
+            f"implementation_disposition_for_covered_file: {stray} — a "
+            f"disposition may only name an intended file the diff did not "
+            f"touch; dispositions for touched or unplanned files would let "
+            f"prose overwrite the diff's own record."
+        )
+    return planned, uncovered, dispositions
+
+
 def emit_change_committed(
     *,
     change_id: str,
@@ -296,55 +370,10 @@ def emit_change_committed(
     tools_root = ensure_tools_dir(base_dir)
     _ledger_dir(tools_root).mkdir(parents=True, exist_ok=True)
 
-    planned = _find_planned(tools_root, change_id)
-    if planned is None:
-        raise GovernanceError(
-            f"change_committed sequence violation: no change_planned for {change_id!r}"
-        )
-
-    # Plan 026R §D.2 — scope drift gate. Pre-§D.2 the committed row
-    # was persisted regardless of whether ``actual_affected_files``
-    # matched ``intended_affected_files`` from the corresponding
-    # change_planned row. Drift was silent — a remediation that
-    # touched 5 extra files outside the planned scope landed in the
-    # audit trail as a normal commit. Post-§D.2 the subset check is
-    # enforced at the boundary: actual MUST be a subset of intended;
-    # superset / disjoint / empty-intended all raise
-    # ``scope_drift_requires_human`` so the operator audit catches
-    # the violation before the change_committed row lands.
-    intended_files = set(planned.get("intended_affected_files") or [])
-    actual_set = set(actual_affected_files)
-    if not intended_files:
-        raise GovernanceError(
-            f"scope_drift_requires_human: change_planned for {change_id!r} "
-            f"has empty intended_affected_files; cannot validate actual scope"
-        )
-    if not actual_set.issubset(intended_files):
-        drift = sorted(actual_set - intended_files)
-        raise GovernanceError(
-            f"scope_drift_requires_human: change_committed for {change_id!r} "
-            f"touches files outside the planned scope: drift={drift}. "
-            f"intended={sorted(intended_files)} actual={sorted(actual_set)}"
-        )
-
-    uncovered = sorted(intended_files - actual_set)
-    dispositions = dict(uncovered_intended_dispositions or {})
-    undeclared = [f for f in uncovered if not str(dispositions.get(f, "")).strip()]
-    if undeclared:
-        raise GovernanceError(
-            f"implementation_incomplete_undeclared: change_committed for "
-            f"{change_id!r} leaves intended files untouched with no declared "
-            f"disposition: {undeclared}. Either implement them or record "
-            f"why each needs no change."
-        )
-    stray = sorted(set(dispositions) - set(uncovered))
-    if stray:
-        raise GovernanceError(
-            f"implementation_disposition_for_covered_file: {stray} — a "
-            f"disposition may only name an intended file the diff did not "
-            f"touch; dispositions for touched or unplanned files would let "
-            f"prose overwrite the diff's own record."
-        )
+    planned, uncovered, dispositions = verify_change_scope(
+        change_id=change_id, actual_affected_files=actual_affected_files,
+        uncovered_intended_dispositions=uncovered_intended_dispositions, base_dir=tools_root,
+    )
 
     existing = _find_committed(tools_root, change_id)
     if existing is not None:

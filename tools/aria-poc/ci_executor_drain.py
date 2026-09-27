@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 import sys
 import time
 from pathlib import Path
@@ -33,9 +33,11 @@ import dispatch_failure as _dispatch_failure
 try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+    from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
+    _JUDGE_ROLES = ()  # type: ignore[assignment]
 
 
 # ARIA-HIGH-003 — failure classes that name an environment condition no
@@ -64,6 +66,51 @@ PERSISTENT_BREAKER_KIND_BY_CLASS: dict[str, str] = {
 }
 
 SELECTION_FAILURE_KIND = "executor_selection_failure"
+
+# B8 (2026-09-12) — a child that exited without writing its dispatch summary.
+# The summary is the ONLY evidence of success the drain accepts: a bare
+# exit 0 used to count as drained, and under managed_subscription the
+# native admission's target_revision_mismatch refusal (exit 0, no summary
+# — a routine outcome whenever main moved past a request's target_sha) read
+# as a green drain of requests nothing had dispatched. Classified here, in
+# the drain's own vocabulary, because the child said nothing: the
+# detail_code carries the exit code, the only fact the drain has.
+CHILD_WITHOUT_SUMMARY_FAILURE_CLASS = "child_without_summary"
+
+# ARIA-MEDIUM-177 — whose failure the exit code reports. A child's summary
+# names its failure class from the executor's closed vocabulary; two of
+# those classes say the REQUEST's output was wrong (a contract violation
+# the pre-submit gate refused, a result the kernel rejected) and the
+# kernel already recorded that verdict on the request's own ledger. The
+# rest say the HOST could not serve (no auth, no credit, a hung child, a
+# child that said nothing) — the drain's condition, which the night's red
+# exists to announce. The first live drain after the chain restart (run
+# 35444645590) dispatched thirty, folded twenty-seven and was red for one
+# judge that cited a line range; the harness's health and the agents'
+# quality read as one colour. Request-class failures stay counted,
+# detailed and warned by name, and turn the run red only when they
+# DOMINATE it — every request failing the same way is the harness's
+# condition again (a contract every agent breaks is the contract's), so
+# that share is the floor of red, not the ceiling of green.
+REQUEST_FAULT_FAILURE_CLASSES: frozenset[str] = frozenset({"policy_violation", "response_schema_rejected"})
+REQUEST_FAULT_RED_SHARE = 0.5
+
+
+def drain_exit_code(*, attempted: int, succeeded: int, harness_failed: int, request_failed: int) -> int:
+    """The ONE rule for the drain's exit code (ARIA-MEDIUM-177).
+
+    1 when the harness failed at all, or when request-class failures reach
+    ``REQUEST_FAULT_RED_SHARE`` of what was attempted, or when they are the
+    only outcome; 0 otherwise — including a night where some requests'
+    outputs were rejected by name while the harness served every one.
+    """
+    if harness_failed > 0:
+        return 1
+    if request_failed == 0:
+        return 0
+    if succeeded == 0:
+        return 1
+    return 1 if request_failed >= attempted * REQUEST_FAULT_RED_SHARE else 0
 
 
 def _record_breaker_failure(
@@ -99,6 +146,12 @@ def _breaker_state(tools_dir: Path) -> str:
         return "unknown"
 
 
+# ARIA-HIGH-158 — how many consecutive open-circuit skips end the drain.
+# Five is above any plausible interleaving of routes in a healthy queue and
+# below a minute of selection cost on the live store.
+CIRCUIT_SKIP_STREAK_STOP = 5
+
+
 def _circuit_label(key: tuple[str, str, str]) -> str:
     return "/".join(key)
 
@@ -128,6 +181,8 @@ def build_drain_governance_payload(
     open_circuits: set[tuple[str, str, str]],
     breaker_state: str,
     target_sha: str = "",
+    harness_failed: int = 0,
+    request_failed: int = 0,
 ) -> dict:
     """ARIA-HIGH-003 — the schema-v2 ``executor_drain_completed`` aggregate.
 
@@ -143,6 +198,9 @@ def build_drain_governance_payload(
         "attempted": attempted,
         "succeeded": succeeded,
         "failed": failed,
+        # ARIA-MEDIUM-177 — the halves the exit code is derived from.
+        "harness_failed": harness_failed,
+        "request_failed": request_failed,
         "stop_reason": stop_reason,
         "failure_counts": dict(sorted(failure_counts.items())),
         "by_provider_model_role": {
@@ -186,8 +244,14 @@ DEFAULT_DRAIN_BUDGET_SECONDS = (
         _engine.DEFAULT_TIMEOUT_SECONDS,
         # The env-less window must hold the child in EVERY policy shape:
         # the per-request worktree bracket is priced in whether or not the
-        # repo's policy turns it on.
+        # repo's policy turns it on, and (ARIA-HIGH-124 round 3) the
+        # implementation child's delivery in its canonical shape — the
+        # publication, the contained gate at the canonical ceiling, the
+        # push, the PR — is priced in whether or not tonight's queue holds
+        # one: a default window that cannot start an implementation is a
+        # lane that never delivers one.
         worktree_per_request=True,
+        implementation_delivery_seconds=_engine.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
     )
     + DRAIN_WINDOW_MARGIN_SECONDS
 )
@@ -220,6 +284,15 @@ JOB_RESERVE_SECONDS = int(
     STATE_RESTORE_WORST_CASE_SECONDS
     + _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
     + JOB_STEPS_ALLOWANCE_SECONDS
+)
+# ARIA-HIGH-124 (round 3) — the part of that reserve the job still needs
+# AFTER the drain (the publish arc and the steps allowance): what the
+# workflow subtracts from its own ceiling, anchored at launch, to export the
+# absolute deadline (`ARIA_JOB_DEADLINE_EPOCH`) every spawn and every
+# delivery in the job runs under. The restore arc is spent BEFORE the drain,
+# so it is inside the window's elapsed time, not after the deadline.
+JOB_RESERVE_AFTER_DRAIN_SECONDS = int(
+    _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + JOB_STEPS_ALLOWANCE_SECONDS
 )
 
 
@@ -261,6 +334,37 @@ _ROLE_QUOTA_ORDER: tuple[str, ...] = (
 )
 
 
+def absolute_pythonpath(value: str | None, *, repo_root: Path) -> str:
+    """``PYTHONPATH`` for an executor child, with every entry ABSOLUTE.
+
+    ARIA-HIGH-124 (round 4). The workflow exports ``PYTHONPATH=aria-kernel``
+    — relative to the DRAIN's cwd, the checkout — and the drain launches the
+    child with the request WORKTREE as its cwd, where Python resolves that
+    same entry to ``<worktree>/aria-kernel``. Only ``aria-kernel/aria_kernel/``
+    and ``aria-kernel/tests/invariants/`` are READONLY_PATHS, so the
+    worktree's ``aria-kernel/`` ROOT is a directory the agent may write and
+    commit into — and it sits on the executor's own ``sys.path``, ahead of
+    the stdlib, for every lazily imported module (the round-1 leak, by a
+    second door: there the agent planted an ``aria_kernel`` package at the
+    worktree root and a ``-P`` closed it).
+
+    Each entry is resolved against ``repo_root`` (never the child's cwd),
+    and an EMPTY entry — which means "the current directory" — is dropped
+    for the same reason. An absolute entry is kept as it is: an operator who
+    names a path means that path.
+    """
+    entries: list[str] = []
+    for entry in (value or "").split(os.pathsep):
+        if not entry:
+            continue
+        path = Path(entry)
+        resolved = path if path.is_absolute() else (Path(repo_root) / path)
+        absolute = str(resolved.resolve())
+        if absolute not in entries:
+            entries.append(absolute)
+    return os.pathsep.join(entries)
+
+
 def _drain_budget_seconds() -> int:
     return int(
         os.environ.get("ARIA_DRAIN_BUDGET_SECONDS", DEFAULT_DRAIN_BUDGET_SECONDS)
@@ -273,14 +377,24 @@ def _next_pending_for_role(
     repo_root: Path,
     role_filter: str | None,
     attempted: set[str],
+    target_agent: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """One kernel next-pending query. Returns (candidate, error_reason)."""
-    argv = [
-        "python3", "-m", "aria_kernel", "agent", "next-pending",
+    """One kernel next-pending query. Returns (candidate, error_reason).
+
+    ``target_agent`` (typed-judgment plan Phase 4b) narrows the selection to
+    one agent — the batch fill asks for siblings of the request it holds.
+    """
+    # The one spelling of a kernel CLI subprocess (`-P`: the cwd off
+    # sys.path — the drain runs in the checkout, the child in a request
+    # worktree; neither may resolve the kernel from where it stands).
+    argv = _engine._kernel_cli_argv(
+        "agent", "next-pending",
         "--tools-dir", str(tools_dir),
-    ]
+    )
     if role_filter is not None:
         argv += ["--role", role_filter]
+    if target_agent:
+        argv += ["--target-agent", target_agent]
     for excluded in sorted(attempted):
         argv += ["--exclude", excluded]
     pending_proc = subprocess.run(
@@ -317,6 +431,35 @@ def _next_pending_for_role(
     return None, None
 
 
+def _judge_batch_policy(repo_root: Path) -> tuple[int, tuple[str, ...]]:
+    """`judge_batch_size` and `judge_batch_runtimes` from the judgment
+    pipeline policy; (1, ()) when the kernel is unreachable — no batching."""
+    try:
+        from aria_kernel.genesis_policy import judgment_pipeline_policy
+    except ImportError:  # pragma: no cover — kernel-less standalone import
+        return 1, ()
+    block = judgment_pipeline_policy(repo_root)
+    return max(1, int(block["judge_batch_size"])), tuple(str(r) for r in block["judge_batch_runtimes"])
+
+
+def _provider_runtime(provider_key: str) -> str | None:
+    """The fleet's runtime hint for a provider key ('zai' for the kernel's
+    own HTTP transport); None when the fleet does not know the key."""
+    try:
+        from aria_kernel.model_fleet import _FLEET
+    except ImportError:  # pragma: no cover — kernel-less standalone import
+        return None
+    return next((entry.runtime_hint for entry in _FLEET if entry.key == provider_key), None)
+
+
+def _batch_key(batch: list[dict]) -> str:
+    """The batch child's summary-channel key: the same digest the child
+    derives for its `batch_id` (`ci_executor_judge_batch._batch_id`)."""
+    import hashlib
+    digest = hashlib.sha256("\n".join(sorted(str(r["request_id"]) for r in batch)).encode("utf-8")).hexdigest()[:16]
+    return f"jb-{digest}"
+
+
 class _FinishedChild:
     """A completed serial child wearing the Popen `wait()` shape `_settle` expects."""
 
@@ -338,6 +481,20 @@ def _executor_policy(repo_root: Path) -> dict:
         return {"max_concurrent": 1, "worktree_per_request": False}
 
 
+# The per-request worktrees live INSIDE the checkout, under this directory,
+# and nowhere else. Inside, because the child's validation commands resolve
+# node modules by walking UP from their cwd: `<checkout>/aria-worktrees/req-x`
+# reaches `<checkout>/node_modules` (measured: require.resolve and
+# `npx --no-install` from a nested worktree both resolve the parent's
+# modules); a sibling directory would never reach them. The directory is
+# git-ignored, so the persistent workspace's `git status` never sees a
+# worktree, and nx writes its cache to `<worktree>/.nx/cache` (nx.json's
+# cacheDirectory is workspace-relative and the worktree carries nx.json),
+# which goes with the worktree when it is removed.
+from aria_kernel.request_worktree import REQUEST_WORKTREES_DIR  # noqa: E402 — the kernel's one spelling
+
+
+
 # Plan 032 Faz 032h — the per-request worktree bracket. Each of its two git
 # calls materialises or deletes a whole tree, so each gets the store's own
 # git cap (`state_store.GIT_TIMEOUT_SECONDS`, via the engine's kernel
@@ -352,70 +509,60 @@ WORKTREE_UNANSWERED_BREAKER_KIND = "subprocess_timeout"
 WORKTREE_UNAVAILABLE_STOP_REASON = "worktree_unavailable"
 
 
-@dataclass(frozen=True)
-class _RequestWorktree:
-    """What `git worktree add` came back with: a tree, a refusal, or no answer.
+from aria_kernel.request_worktree import (  # noqa: E402 — after the kernel path insert above
+    RequestWorktree as _RequestWorktree,
+    add_request_worktree as _kernel_add_request_worktree,
+    remove_request_worktree as _kernel_remove_request_worktree,
+    request_worktree_path as _kernel_request_worktree_path,
+    run_worktree_git as _kernel_run_worktree_git,
+)
 
-    ``path`` is the worktree when git created it; ``None`` with no
-    ``unanswered_reason`` means git ANSWERED that it could not (the shared
-    checkout is used instead, as before); ``unanswered_reason`` names why
-    git did not answer inside its bound — the harness's condition, on which
-    the child is not started and the request stays PENDING.
-    """
 
-    path: Path | None
-    unanswered_reason: str | None = None
+def _drain_git_runner(*args: Any, **kwargs: Any) -> "subprocess.CompletedProcess[str]":
+    """The drain's own bounded runner — `ci_executor_drain.subprocess.run`
+    resolved at call time, so the bracket tests that patch it see every
+    worktree call."""
+    return subprocess.run(*args, **kwargs)
+
+
+def _request_worktree_path(repo_root: Path, request_id: str) -> Path:
+    return _kernel_request_worktree_path(repo_root, request_id)
+
+
+def request_worktree_target(request: Mapping[str, Any]) -> str | None:
+    """The commit a request's worktree is added at: the request's anchor —
+    its ``target_sha``, or (ARIA-HIGH-124) for an implementation request,
+    which carried none, the staged ``implementation_ids.base_sha``: the
+    commit the baseline was measured at and the branch the kernel stands
+    the sandbox on is cut from. ARIA-HIGH-144 made that derivation the
+    kernel's (``agent_invocations.request_anchor_sha``), read here and by
+    the executor's native task binding alike, so the tree the drain adds is
+    the tree the child admits. None means the checkout's HEAD (the read-only
+    roles)."""
+    from aria_kernel.agent_invocations import request_anchor_sha
+    return request_anchor_sha(request)
 
 
 def _run_worktree_git(argv: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
     """One bounded worktree call: (answer, None) or (None, why it did not answer)."""
-    try:
-        done = subprocess.run(
-            argv, cwd=str(cwd), capture_output=True, text=True, check=False,
-            timeout=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
-    except OSError as exc:
-        return None, f"spawn_failed:{type(exc).__name__}"
-    return done, None
+    return _kernel_run_worktree_git(argv, cwd=cwd, timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                    run=_drain_git_runner)
 
 
 def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:
-    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded."""
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(request_id))[:64]
-    path = Path(repo_root) / "aria-worktrees" / f"req-{safe}"
-    ref = str(target_sha or "").strip() or "HEAD"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    done, unanswered = _run_worktree_git(
-        ["git", "worktree", "add", "--detach", str(path), ref], cwd=Path(repo_root),
-    )
-    if done is None:
-        _engine._stage(
-            f"drain_worktree_add_unanswered request_id={request_id} reason={unanswered} "
-            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
-        )
-        return _RequestWorktree(path=None, unanswered_reason=unanswered)
-    if done.returncode != 0:
-        _engine._stage(f"drain_worktree_add_failed request_id={request_id} rc={done.returncode} {(done.stderr or '').strip()[:120]}")
-        return _RequestWorktree(path=None)
-    return _RequestWorktree(path=path)
+    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded;
+    `path=None` = fall back to the shared checkout. The one spelling lives in
+    `aria_kernel.request_worktree` (ARIA-HIGH-176: the planner dispatch hook
+    serves its requests from the same tree)."""
+    return _kernel_add_request_worktree(repo_root, request_id, target_sha,
+                                        timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                        log=_engine._stage, run=_drain_git_runner)
 
 
 def _remove_request_worktree(repo_root: Path, path: Path) -> str | None:
     """`git worktree remove --force <path>`, bounded; returns why git did not answer, if it did not."""
-    done, unanswered = _run_worktree_git(
-        ["git", "worktree", "remove", "--force", str(path)], cwd=Path(repo_root),
-    )
-    if done is None:
-        _engine._stage(
-            f"drain_worktree_remove_unanswered path={path} reason={unanswered} "
-            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
-        )
-        return unanswered
-    if done.returncode != 0:
-        _engine._stage(f"drain_worktree_remove_failed path={path} rc={done.returncode}")
-    return None
+    return _kernel_remove_request_worktree(repo_root, path, timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                           log=_engine._stage, run=_drain_git_runner)
 
 
 def _operator_paused(tools_dir: Path) -> bool:
@@ -465,10 +612,20 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     would otherwise run under the `aria-evidence-judge` default profile even
     when the kernel minted it for a different agent.
 
-    Exit code: 0 when every attempted dispatch succeeded (or none were
-    pending); 1 when any child failed — the work that DID succeed is already
-    submitted by the children, so a red run reports the failure without
-    discarding the night's progress.
+    Exit code (`drain_exit_code`, ARIA-MEDIUM-177): 0 when every attempted
+    dispatch succeeded or was refused by name (or none were pending), and
+    also when the only failures are the REQUESTS' own — a contract
+    violation or a rejected result the kernel already recorded against the
+    request — as long as they do not dominate the run; 1 when the harness
+    failed at all (no auth, no credit, a hung or silent child, a selection
+    or worktree git that did not answer), or when request-class failures
+    reach ``REQUEST_FAULT_RED_SHARE`` of the attempted or are the only
+    outcome. The work that DID succeed is already submitted by the
+    children, so a red run reports the failure without discarding the
+    night's progress. Success is the child's ``succeeded`` summary and
+    nothing else: a child that exited without a summary is a
+    ``child_without_summary`` failure, and ``drained`` counts summaries,
+    never exit codes.
     """
     started = time.monotonic()
     attempted: set[str] = set()
@@ -477,8 +634,22 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     # through the same --exclude API the attempted set uses, so the skip
     # never claims, releases, or marks them attempted.
     circuit_excluded: set[str] = set()
+    # (round 3) requests whose own worst case does not fit tonight's
+    # remaining window: skipped without a claim, excluded from selection.
+    window_excluded: set[str] = set()
     open_circuits: set[tuple[str, str, str]] = set()
+    # ARIA-HIGH-158 — consecutive circuit skips with nothing dispatched
+    # between them. Each skip re-runs the queue selection (a kernel
+    # subprocess over the whole request ledger, ~30 s on the live store), so
+    # an open route walked the 800-row backlog for hours on the first
+    # production drain (run 35369756222) after two failures. A streak of
+    # skips says the route is the problem, not the request: the drain stops
+    # by name and the queue stays pending for the next healthy drain.
+    circuit_skip_streak = 0
     failure_counts: dict[str, int] = {}
+    # ARIA-MEDIUM-177 — the two halves of `failed`, for the exit code.
+    harness_failed = 0
+    request_failed = 0
     by_provider_model_role: dict[str, dict] = {}
     failure_details: list[dict] = []
     # ARIA-HIGH-003 — the joined evidence target: the set of trusted
@@ -504,18 +675,52 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     executor_cfg = _executor_policy(repo_root)
     max_concurrent = int(executor_cfg["max_concurrent"])
     worktree_per_request = bool(executor_cfg["worktree_per_request"])
+    judge_batch_size, judge_batch_runtimes = _judge_batch_policy(repo_root)
+
+    def _batch_fill_cap(elapsed_seconds: float) -> int:
+        """How many requests one batch child may still legally serve inside
+        the window: the largest K whose `batch_worst_case_seconds(K)` fits."""
+        k = 1
+        while k < judge_batch_size and elapsed_seconds + _engine._batch_worst_case_seconds(
+            k + 1, worktree_per_request=worktree_per_request,
+        ) <= _drain_budget_seconds():
+            k += 1
+        return k
     inflight: list[dict] = []
 
-    def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None) -> None:
-        """Start one child (Plan 032 Faz 032h: in its own worktree when one was added)."""
-        child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
-        if target_agent:
-            child_argv.append(target_agent)
-        child_output = (
-            Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-            / f"aria-drain-output-{request_id}.txt"
-        )
-        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
+    def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None,
+                batch: list[dict] | None = None) -> None:
+        """Start one child (Plan 032 Faz 032h: in its own worktree when one was added).
+
+        ``batch`` (typed-judgment plan Phase 4b) is the list of requests a
+        batch child serves — ``request`` is its first member; the child is
+        `ci_executor.py --judge-batch <role> <target_agent> <id>...` and its
+        summary channel is keyed by the batch, not the first request.
+        """
+        if batch:
+            child_key = _batch_key(batch)
+            child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), "--judge-batch",
+                          str(request.get("role") or ""), target_agent, *[str(r["request_id"]) for r in batch]]
+        else:
+            child_key = request_id
+            child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
+            if target_agent:
+                child_argv.append(target_agent)
+        # The child writes its summary under RUNNER_TEMP and publishes the
+        # path through GITHUB_OUTPUT; both are handed to it explicitly so the
+        # summary channel exists wherever the drain runs (a local drain with
+        # no RUNNER_TEMP would otherwise make every child summary-less). The
+        # store is handed over the same way: the child derives its tools dir
+        # from ARIA_TOOLS_DIR or else `<cwd>/aria-tools`, and with a worktree
+        # as cwd that fallback is the tracked skeleton at target_sha, not the
+        # store this drain selected the request from.
+        runner_temp = Path(os.environ.get("RUNNER_TEMP", "/tmp"))
+        child_output = runner_temp / f"aria-drain-output-{child_key}.txt"
+        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output), "RUNNER_TEMP": str(runner_temp),
+                     "ARIA_TOOLS_DIR": str(tools_dir),
+                     # ARIA-HIGH-124 (round 4) — the child's import path is
+                     # THIS checkout's, never its cwd's.
+                     "PYTHONPATH": absolute_pythonpath(os.environ.get("PYTHONPATH"), repo_root=repo_root)}
         cwd = repo_root
         if worktree is not None:
             cwd = worktree
@@ -523,6 +728,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         _engine._stage(
             f"drain_dispatch request_id={request_id} target={target_agent or '-'} "
             f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
+            + (f" batch={child_key} k={len(batch)}" if batch else "")
         )
         if max_concurrent <= 1:
             # Serial lane (the default): the same blocking `subprocess.run` the
@@ -531,7 +737,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             proc: Any = _FinishedChild(subprocess.run(child_argv, env=child_env, cwd=str(cwd)))
         else:
             proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
-        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
+        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc,
+                         "worktree": worktree, "requests": list(batch) if batch else [request], "child_key": child_key})
 
     def _settle(entry: dict) -> None:
         """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
@@ -559,7 +766,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                             "run_id": run_ref,
                         },
                     )
-        summary: dict | None = None
+        # Typed-judgment plan Phase 4b — a batch child writes one summary per
+        # request it served; every `dispatch_summary_path=` line is read and
+        # keyed by the summary's own request_id (a foreign id is ignored),
+        # and each request the child was launched with is accounted from its
+        # own summary. The single-request child is the K = 1 case: the last
+        # line wins for its one id, as it always did.
+        summaries: dict[str, dict] = {}
         if child_output.exists():
             for line in child_output.read_text(encoding="utf-8").splitlines():
                 if line.startswith("envelope_path="):
@@ -569,19 +782,34 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 elif line.startswith("dispatch_summary_path="):
                     summary_path = Path(line.split("=", 1)[1])
                     try:
-                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                        read = json.loads(summary_path.read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError) as exc:
                         _engine._stage(
                             f"drain_summary_unreadable request_id={request_id}: {exc}"
                         )
+                        continue
+                    summary_id = str((read or {}).get("request_id") or request_id)
+                    summaries[summary_id] = read
             child_output.unlink()
+        breaker_recorded: set[str] = set()
+        for member in entry.get("requests") or [request]:
+            member_id = str(member.get("request_id") or request_id)
+            _account_request(member, member_id, summaries.get(member_id), child, breaker_recorded)
+
+    def _account_request(request: dict, request_id: str, summary: dict | None, child: Any,
+                         breaker_recorded: set[str]) -> None:
+        """Fold ONE request's terminal outcome (the pre-4b `_settle` tail, verbatim);
+        the persistent breaker is told once per child per kind."""
+        nonlocal succeeded, failed, harness_failed, request_failed
 
         # ARIA-HIGH-003 — classify the terminal outcome from the child's own
-        # v1 summary (falling back to the exit code when the child died
-        # before writing one) and fold it into the circuit, the persistent
-        # breaker, and the schema-v2 aggregate.
+        # v1 summary and fold it into the circuit, the persistent breaker,
+        # and the schema-v2 aggregate. B8: the summary is the only evidence
+        # of success; a child that wrote none is a named failure whatever
+        # its exit code, and a refusal is neither success nor failure.
         outcome = (summary or {}).get("outcome")
         failure_class = (summary or {}).get("failure_class")
+        detail_code = (summary or {}).get("failure_detail_code")
         provider = str((summary or {}).get("provider") or "unknown")
         model = str((summary or {}).get("model") or "unknown")
         role = str(
@@ -591,16 +819,35 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         bucket = _bucket(route_key)
         bucket["attempted"] += 1
         if outcome == "refused":
-            # A model refusal is not a build failure and never a breaker
-            # event: it stays visible as the attempted/succeeded/failed delta.
-            pass
-        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
+            # A refusal — the model's, the contract's, or the executor's own
+            # admission (target_revision_mismatch, no_eligible_provider, a
+            # budget signal, an operator cancel) — is not a build failure and
+            # never a breaker event: it stays visible as the
+            # attempted/succeeded/failed delta, and its detail names why.
+            _engine._stage(f"drain_child_refused request_id={request_id} detail={detail_code or '-'}")
+        elif outcome == "succeeded":
             succeeded += 1
             bucket["succeeded"] += 1
         else:
             failed += 1
             bucket["failed"] += 1
-            counted_class = str(failure_class or "unknown")
+            if summary is None:
+                counted_class = CHILD_WITHOUT_SUMMARY_FAILURE_CLASS
+                detail_code = f"exit_{child.returncode}"
+                _engine._stage(f"drain_child_without_summary request_id={request_id} rc={child.returncode}")
+            else:
+                counted_class = str(failure_class or "unknown")
+            if counted_class in REQUEST_FAULT_FAILURE_CLASSES:
+                request_failed += 1
+                # A GitHub annotation, so the request's own fault is read on
+                # the run page without opening the log; the harness is green.
+                sys.stdout.write(
+                    f"::warning title=request rejected by name::{request_id} {counted_class} "
+                    f"{detail_code or '-'} ({route_key})\n"
+                )
+                sys.stdout.flush()
+            else:
+                harness_failed += 1
             failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
             bucket["failure_classes"][counted_class] = (
                 bucket["failure_classes"].get(counted_class, 0) + 1
@@ -610,13 +857,16 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     "request_id": request_id,
                     "failure_class": counted_class,
                     "retryable": bool((summary or {}).get("retryable")),
-                    "detail_code": (summary or {}).get("failure_detail_code"),
+                    "detail_code": detail_code,
                     "provider": provider,
                     "model": model,
                 }
             )
             persistent_kind = PERSISTENT_BREAKER_KIND_BY_CLASS.get(counted_class)
-            if persistent_kind is not None:
+            if persistent_kind is not None and persistent_kind not in breaker_recorded:
+                # One vendor event is one breaker failure however many
+                # requests the child served (Phase 4b review, C3).
+                breaker_recorded.add(persistent_kind)
                 _record_breaker_failure(
                     tools_dir,
                     kind=persistent_kind,
@@ -676,7 +926,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         # E3/F10 + D10b + Y4 (ORPHAN-705) — quota round, then arc-order
         # fallback, with tonight's attempted ∪ circuit-excluded sets
         # EXCLUDED at the kernel.
-        excluded = attempted | circuit_excluded
+        excluded = attempted | circuit_excluded | window_excluded
         request = None
         selection_error = None
         while quota_pending and request is None and selection_error is None:
@@ -707,6 +957,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             )
             stop_reason = selection_error
             failed += 1
+            harness_failed += 1
             break
         request_id = (request or {}).get("request_id")
         if not request_id:
@@ -734,10 +985,87 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 f"drain_circuit_skip request_id={request_id} "
                 f"route={route.provider}/{route.model}"
             )
+            circuit_skip_streak += 1
+            if circuit_skip_streak >= CIRCUIT_SKIP_STREAK_STOP:
+                stop_reason = "circuit_open_streak"
+                _engine._stage(
+                    f"drain_circuit_open_streak skips={circuit_skip_streak} "
+                    f"open={','.join(sorted(_circuit_label(key) for key in open_circuits))}"
+                )
+                break
+            continue
+        circuit_skip_streak = 0
+        # ARIA-HIGH-124 (round 3) — THIS request's whole worst case, now that
+        # the request is known: an implementation child runs the quarantine's
+        # publication, the contained apply gate at the STAGED suite's ceiling
+        # per command, the push and the PR after the CLI
+        # (`_engine._request_delivery_seconds`, off the staged action — a
+        # plan's recipes make it larger than the canonical shape the window
+        # check above priced). A request that does not fit the remaining
+        # window is skipped by name without a claim — it stays PENDING for a
+        # drain with the room — and excluded from tonight's selection, so the
+        # roles that fit keep draining; the whole loop stops only when the
+        # cheapest child no longer fits (the check above).
+        # Typed-judgment plan Phase 4b — a judge request on a batchable
+        # route gathers siblings: same role, same agent, same anchor, up to
+        # `judge_batch_size` and what the window and the run cap leave.
+        # The fill stops at the first key mismatch and excludes nothing
+        # (the mismatched candidate is the next round's first pick).
+        batch_members: list[dict] = [request]
+        if (
+            judge_batch_size > 1
+            and route is not None
+            and _provider_runtime(route.provider) in judge_batch_runtimes
+            and str(request.get("role") or "") in _JUDGE_ROLES
+        ):
+            batch_cap = min(
+                judge_batch_size,
+                _engine._max_requests() - len(attempted) - len(quota_pending),
+                _batch_fill_cap(time.monotonic() - started),
+            )
+            batch_excluded = set(excluded) | {request_id}
+            while len(batch_members) < batch_cap:
+                sibling, sibling_error = _next_pending_for_role(
+                    tools_dir=tools_dir, repo_root=repo_root, role_filter=str(request.get("role") or ""),
+                    attempted=batch_excluded, target_agent=str(request.get("target_agent") or ""),
+                )
+                if sibling_error is not None or sibling is None:
+                    break
+                if (
+                    str(sibling.get("target_agent") or "") != str(request.get("target_agent") or "")
+                    or str(sibling.get("target_sha") or "") != str(request.get("target_sha") or "")
+                ):
+                    break
+                batch_members.append(sibling)
+                batch_excluded.add(str(sibling["request_id"]))
+        if len(batch_members) > 1:
+            request_worst_case = _engine._batch_worst_case_seconds(
+                len(batch_members), worktree_per_request=worktree_per_request,
+            )
+        else:
+            request_worst_case = _engine._child_worst_case_seconds(
+                worktree_per_request=worktree_per_request,
+                implementation_delivery_seconds=_engine._request_delivery_seconds(
+                    tools_dir=tools_dir, request_id=request_id,
+                ),
+            )
+        elapsed = time.monotonic() - started
+        if elapsed + request_worst_case > _drain_budget_seconds():
+            window_excluded.add(request_id)
+            _engine._stage(
+                f"drain_window_skip request_id={request_id} "
+                f"worst_case_seconds={request_worst_case} remaining_seconds={int(_drain_budget_seconds() - elapsed)}"
+            )
+            if _engine._append_tools_governance is not None:
+                _engine._append_tools_governance(
+                    tools_dir, "executor_drain_window_skip",
+                    {"request_id": request_id, "run_id": run_ref, "worst_case_seconds": request_worst_case,
+                     "remaining_seconds": int(_drain_budget_seconds() - elapsed)},
+                )
             continue
         worktree = None
         if worktree_per_request:
-            added = _add_request_worktree(repo_root, request_id, request.get("target_sha"))
+            added = _add_request_worktree(repo_root, request_id, request_worktree_target(request))
             if added.unanswered_reason is not None:
                 # Git did not answer inside the store's own cap. The child is
                 # NOT started — it would claim a request on a runner whose
@@ -757,13 +1085,15 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 )
                 stop_reason = WORKTREE_UNAVAILABLE_STOP_REASON
                 failed += 1
+                harness_failed += 1
                 break
             worktree = added.path
-        attempted.add(request_id)
+        for member in batch_members:
+            attempted.add(str(member["request_id"]))
         dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
-        _launch(request, request_id, target_agent, worktree)
+        _launch(request, request_id, target_agent, worktree, batch=batch_members if len(batch_members) > 1 else None)
         if len(inflight) >= max_concurrent:
             _settle(inflight.pop(0))
 
@@ -771,8 +1101,9 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         _settle(inflight.pop(0))
     _engine._stage(
         f"drain_done attempted={len(attempted)} succeeded={succeeded} "
-        f"failed={failed} stop={stop_reason} "
-        f"circuit_skipped={len(circuit_excluded)}"
+        f"failed={failed} harness_failed={harness_failed} request_failed={request_failed} "
+        f"stop={stop_reason} "
+        f"circuit_skipped={len(circuit_excluded)} window_skipped={len(window_excluded)}"
     )
     if _engine._append_tools_governance is not None:
         try:
@@ -783,6 +1114,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     attempted=len(attempted),
                     succeeded=succeeded,
                     failed=failed,
+                    harness_failed=harness_failed,
+                    request_failed=request_failed,
                     stop_reason=stop_reason,
                     failure_counts=failure_counts,
                     by_provider_model_role=by_provider_model_role,
@@ -806,4 +1139,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             handle.write("ARIA_DRAIN_EOF\n")
             handle.write(f"drained={succeeded}\n")
             handle.write(f"drain_failed={failed}\n")
-    return 0 if failed == 0 else 1
+            handle.write(f"drain_harness_failed={harness_failed}\n")
+            handle.write(f"drain_request_failed={request_failed}\n")
+    return drain_exit_code(attempted=len(attempted), succeeded=succeeded,
+                           harness_failed=harness_failed, request_failed=request_failed)

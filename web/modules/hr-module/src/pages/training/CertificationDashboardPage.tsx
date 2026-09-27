@@ -8,8 +8,8 @@
  * - Equipment qualifications
  */
 
-import React, { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Award,
@@ -20,23 +20,34 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   Eye,
   RefreshCw,
   Users,
   Calendar,
   FileText,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import {
+  cn,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   useCertificationTypes,
   useExpiringCertifications,
   useAllCertifications,
   useEmployees,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
-import { CertificationExpiryAlert } from '../../components/certification';
-import type { Column } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
+import {
+  CertificationExpiryAlert,
+  AddCertificationModal,
+  AddCertificationTypeModal,
+  RenewCertificationModal,
+} from '../../components/certification';
 import { CertificationRequirement } from '../../types';
 import type {
   CertificationType,
@@ -56,42 +67,42 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
 > = {
   DIVING: {
     label: 'Diving',
-    color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    color: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-400',
     icon: <Shield className="h-4 w-4" />,
   },
   SAFETY: {
     label: 'Safety',
-    color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    color: 'bg-error-100 text-error-700 dark:bg-error-900/30 dark:text-error-400',
     icon: <Shield className="h-4 w-4" />,
   },
   VESSEL: {
     label: 'Vessel',
-    color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+    color: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-400',
     icon: <Award className="h-4 w-4" />,
   },
   EQUIPMENT: {
     label: 'Equipment',
-    color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    color: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400',
     icon: <Award className="h-4 w-4" />,
   },
   FIRST_AID: {
     label: 'First Aid',
-    color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    color: 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-400',
     icon: <Shield className="h-4 w-4" />,
   },
   FOOD_HANDLING: {
     label: 'Food Handling',
-    color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
     icon: <Shield className="h-4 w-4" />,
   },
   ENVIRONMENTAL: {
     label: 'Environmental',
-    color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
     icon: <Shield className="h-4 w-4" />,
   },
   MANAGEMENT: {
     label: 'Management',
-    color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+    color: 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400',
     icon: <Award className="h-4 w-4" />,
   },
   TECHNICAL: {
@@ -106,7 +117,10 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
 };
 
-const STATUS_CONFIG: Record<CertificationStatus, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
+const STATUS_CONFIG: Record<
+  CertificationStatus,
+  { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }
+> = {
   ACTIVE: { label: 'Active', variant: 'success' },
   EXPIRED: { label: 'Expired', variant: 'error' },
   PENDING: { label: 'Pending', variant: 'warning' },
@@ -152,10 +166,13 @@ const StatCard: React.FC<StatCardProps> = ({
           <p
             className={cn(
               'mt-1 text-xs font-medium',
-              trend.isPositive ? 'text-green-600' : 'text-red-600'
+              trend.isPositive
+                ? 'text-success-600 dark:text-success-400'
+                : 'text-error-600 dark:text-error-400',
             )}
           >
-            {trend.isPositive ? '+' : ''}{trend.value}% from last month
+            {trend.isPositive ? '+' : ''}
+            {trend.value}% from last month
           </p>
         )}
       </div>
@@ -169,7 +186,8 @@ const CertificationTypeCard: React.FC<{
   activeCount: number;
   expiringCount: number;
 }> = ({ type, activeCount, expiringCount }) => {
-  const categoryConfig = CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.OTHER;
+  const categoryConfig =
+    CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.OTHER;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
@@ -182,32 +200,32 @@ const CertificationTypeCard: React.FC<{
           </div>
         </div>
         {type.requirement === CertificationRequirement.MANDATORY && (
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+          <span className="rounded bg-error-100 px-2 py-0.5 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
             Required
           </span>
         )}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
         <div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeCount}</p>
-          <p className="text-xs text-gray-500">Active</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
         </div>
         <div>
           <p
             className={cn(
               'text-2xl font-bold',
               expiringCount > 0
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-gray-900 dark:text-white'
+                ? 'text-warning-600 dark:text-warning-400'
+                : 'text-gray-900 dark:text-white',
             )}
           >
             {expiringCount}
           </p>
-          <p className="text-xs text-gray-500">Expiring</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Expiring</p>
         </div>
       </div>
       {type.validityMonths && (
-        <p className="mt-3 text-xs text-gray-500">
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
           Valid for {type.validityMonths} months
         </p>
       )}
@@ -220,13 +238,20 @@ const CertificationTypeCard: React.FC<{
 // ============================================================================
 
 export function CertificationDashboardPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const renewCertId = searchParams.get('renew');
 
+  // Dialogs (FE-MEDIUM-092): the controls above open these; a `?renew=<id>`
+  // link (the expiry alert) opens the renew dialog for that record.
+  const [showAddCertification, setShowAddCertification] = useState(false);
+  const [showAddType, setShowAddType] = useState(false);
+  const [renewing, setRenewing] = useState<EmployeeCertification | null>(null);
+
   // State
-  const [activeTab, setActiveTab] = useState<'overview' | 'certifications' | 'types' | 'compliance'>(
-    'overview'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'certifications' | 'types' | 'compliance'
+  >('overview');
   const [categoryFilter, setCategoryFilter] = useState<CertificationCategory | ''>('');
   const [statusFilter, setStatusFilter] = useState<CertificationStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -234,7 +259,7 @@ export function CertificationDashboardPage() {
 
   // Data fetching
   const { data: certTypes, isLoading: loadingTypes } = useCertificationTypes(
-    categoryFilter ? { category: categoryFilter } : undefined
+    categoryFilter ? { category: categoryFilter } : undefined,
   );
   const { data: expiring30, isLoading: loadingExpiring30 } = useExpiringCertifications(30);
   const { data: expiring7 } = useExpiringCertifications(7);
@@ -252,33 +277,56 @@ export function CertificationDashboardPage() {
   const allCertifications = certData?.items || [];
   const certTotal = certData?.total || 0;
 
+  useEffect(() => {
+    if (!renewCertId) return;
+    const target =
+      allCertifications.find((cert) => cert.id === renewCertId) ??
+      expiring30?.find((cert) => cert.id === renewCertId);
+    if (target) setRenewing(target);
+  }, [renewCertId, allCertifications, expiring30]);
+
+  const closeRenew = (): void => {
+    setRenewing(null);
+    if (renewCertId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('renew');
+      setSearchParams(next, { replace: true });
+    }
+  };
+
   // Calculate stats
   const totalCertTypes = certTypes?.length || 0;
-  const mandatoryCertTypes = certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY).length || 0;
+  const mandatoryCertTypes =
+    certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY).length || 0;
   const expiringIn30Days = expiring30?.length || 0;
   const expiringIn7Days = expiring7?.length || 0;
-  const expiredCount = expiring30?.filter((c) => c.expiryDate ? new Date(c.expiryDate) < new Date() : false).length || 0;
+  const expiredCount =
+    expiring30?.filter((c) => (c.expiryDate ? new Date(c.expiryDate) < new Date() : false))
+      .length || 0;
 
-  const activeCertifications = allCertifications.filter((c) => c.status === ('ACTIVE' as CertificationStatus));
+  const activeCertifications = allCertifications.filter(
+    (c) => c.status === ('ACTIVE' as CertificationStatus),
+  );
   const totalActive = certData?.total || 0;
 
   // Calculate compliance rate
-  const employeesWithMandatoryCerts = employees?.items?.filter((emp) => {
-    const mandatoryTypes = certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY) || [];
-    const empCertTypeIds = emp.certifications || [];
-    return mandatoryTypes.every((mt) => empCertTypeIds.includes(mt.id));
-  }).length || 0;
+  const employeesWithMandatoryCerts =
+    employees?.items?.filter((emp) => {
+      const mandatoryTypes =
+        certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY) || [];
+      const empCertTypeIds = emp.certifications || [];
+      return mandatoryTypes.every((mt) => empCertTypeIds.includes(mt.id));
+    }).length || 0;
   const complianceRate = employees?.total
     ? Math.round((employeesWithMandatoryCerts / employees.total) * 100)
     : 0;
 
   // Certification columns
-  const certificationColumns: Column<EmployeeCertification>[] = [
+  const certificationColumns: DataTableColumn<EmployeeCertification>[] = [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -291,7 +339,9 @@ export function CertificationDashboardPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.employee.employeeNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {row.employee.employeeNumber}
+                </p>
               </div>
             </>
           )}
@@ -301,7 +351,7 @@ export function CertificationDashboardPage() {
     {
       key: 'certification',
       header: 'Certification',
-      accessor: (row) => {
+      render: (_value, row) => {
         const category = row.certificationType?.category;
         const config = category
           ? CERTIFICATION_CATEGORY_CONFIG[category]
@@ -313,7 +363,7 @@ export function CertificationDashboardPage() {
               <p className="font-medium text-gray-900 dark:text-white">
                 {row.certificationType?.name}
               </p>
-              <p className="text-sm text-gray-500">{row.certificationNumber}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{row.certificationNumber}</p>
             </div>
           </div>
         );
@@ -322,18 +372,17 @@ export function CertificationDashboardPage() {
     {
       key: 'issuedBy',
       header: 'Issued By',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-600 dark:text-gray-300">{row.issuingAuthority || '-'}</span>
       ),
     },
     {
       key: 'dates',
       header: 'Validity',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const expiryDate = row.expiryDate ? new Date(row.expiryDate) : new Date();
         const daysUntilExpiry = Math.ceil(
-          (expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          (expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         );
         const isExpired = daysUntilExpiry < 0;
         const isExpiringSoon = daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
@@ -341,17 +390,16 @@ export function CertificationDashboardPage() {
         return (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
-              {new Date(row.issueDate).toLocaleDateString()} -{' '}
-              {expiryDate.toLocaleDateString()}
+              {new Date(row.issueDate).toLocaleDateString()} - {expiryDate.toLocaleDateString()}
             </p>
             <p
               className={cn(
                 'text-xs',
                 isExpired
-                  ? 'text-red-600 dark:text-red-400'
+                  ? 'text-error-600 dark:text-error-400'
                   : isExpiringSoon
-                  ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-gray-500'
+                    ? 'text-warning-600 dark:text-warning-400'
+                    : 'text-gray-500 dark:text-gray-400',
               )}
             >
               {isExpired
@@ -365,8 +413,11 @@ export function CertificationDashboardPage() {
     {
       key: 'status',
       header: 'Status',
-      accessor: (row) => {
-        const config = STATUS_CONFIG[row.status] || { label: row.status, variant: 'neutral' as const };
+      render: (_value, row) => {
+        const config = STATUS_CONFIG[row.status] || {
+          label: row.status,
+          variant: 'neutral' as const,
+        };
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
     },
@@ -375,20 +426,28 @@ export function CertificationDashboardPage() {
       header: '',
       width: '100px',
       align: 'right',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
-          <button
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            title="View"
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="View employee"
+            title="View employee"
+            onClick={() => navigate(`/hr/employees/${row.employeeId}`)}
           >
             <Eye className="h-4 w-4" />
-          </button>
-          <button
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-indigo-600 dark:hover:bg-gray-700"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Renew"
             title="Renew"
+            onClick={() => setRenewing(row)}
           >
             <RefreshCw className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       ),
     },
@@ -418,71 +477,66 @@ export function CertificationDashboardPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Certification Dashboard
-          </h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Track and manage employee certifications and compliance
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
-            <Download className="h-4 w-4" />
-            Export
-          </button>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            Add Certification
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Certification Dashboard"
+        description="Track and manage employee certifications and compliance"
+        actions={
+          <div className="flex items-center gap-3">
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowAddCertification(true)}
+            >
+              Add Certification
+            </Button>
+          </div>
+        }
+      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <StatCard
           title="Active Certs"
           value={totalActive}
-          icon={<CheckCircle className="h-5 w-5 text-green-600" />}
-          color="bg-green-50 dark:bg-green-900/30"
+          icon={<CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/30"
           isLoading={loadingCerts}
         />
         <StatCard
           title="Cert Types"
           value={totalCertTypes}
           subtitle={`${mandatoryCertTypes} mandatory`}
-          icon={<Award className="h-5 w-5 text-indigo-600" />}
-          color="bg-indigo-50 dark:bg-indigo-900/30"
+          icon={<Award className="h-5 w-5 text-primary-600 dark:text-primary-400" />}
+          color="bg-primary-50 dark:bg-primary-900/30"
           isLoading={loadingTypes}
         />
         <StatCard
           title="Expiring Soon"
           value={expiringIn30Days}
           subtitle="Within 30 days"
-          icon={<Clock className="h-5 w-5 text-amber-600" />}
-          color="bg-amber-50 dark:bg-amber-900/30"
+          icon={<Clock className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+          color="bg-warning-50 dark:bg-warning-900/30"
           isLoading={loadingExpiring30}
         />
         <StatCard
           title="Critical"
           value={expiringIn7Days}
           subtitle="Within 7 days"
-          icon={<AlertTriangle className="h-5 w-5 text-orange-600" />}
-          color="bg-orange-50 dark:bg-orange-900/30"
+          icon={<AlertTriangle className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+          color="bg-accent-50 dark:bg-accent-900/30"
         />
         <StatCard
           title="Expired"
           value={expiredCount}
-          icon={<XCircle className="h-5 w-5 text-red-600" />}
-          color="bg-red-50 dark:bg-red-900/30"
+          icon={<XCircle className="h-5 w-5 text-error-600 dark:text-error-400" />}
+          color="bg-error-50 dark:bg-error-900/30"
         />
         <StatCard
           title="Compliance"
           value={`${complianceRate}%`}
           subtitle="Mandatory certs"
-          icon={<Shield className="h-5 w-5 text-emerald-600" />}
-          color="bg-emerald-50 dark:bg-emerald-900/30"
+          icon={<Shield className="h-5 w-5 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/30"
           isLoading={loadingEmployees || loadingTypes}
         />
       </div>
@@ -503,8 +557,8 @@ export function CertificationDashboardPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Overview
@@ -514,8 +568,8 @@ export function CertificationDashboardPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'certifications'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           All Certifications
@@ -525,8 +579,8 @@ export function CertificationDashboardPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'types'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Certification Types
@@ -536,8 +590,8 @@ export function CertificationDashboardPage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'compliance'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Compliance Report
@@ -555,7 +609,9 @@ export function CertificationDashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {certTypes?.map((type) => {
                 const activeCount = allCertifications.filter(
-                  (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
+                  (c) =>
+                    c.certificationTypeId === type.id &&
+                    c.status === ('ACTIVE' as CertificationStatus),
                 ).length;
                 const expiringCount =
                   expiring30?.filter((c) => c.certificationTypeId === type.id).length || 0;
@@ -577,19 +633,19 @@ export function CertificationDashboardPage() {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Recent Certifications
               </h3>
-              <button
-                onClick={() => setActiveTab('certifications')}
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-              >
+              <Button variant="ghost" onClick={() => setActiveTab('certifications')}>
                 View All
-              </button>
+              </Button>
             </div>
-            <DataTable
+            <DataTable<EmployeeCertification>
               data={activeCertifications.slice(0, 5)}
               columns={certificationColumns}
               keyExtractor={(row) => row.id}
-              isLoading={loadingCerts}
+              loading={loadingCerts}
               emptyMessage="No certifications found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
             />
           </div>
         </div>
@@ -600,61 +656,68 @@ export function CertificationDashboardPage() {
           {/* Search and Filters */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search certifications..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-hidden focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
+              <Select
+                options={[
+                  { value: '', label: 'All Categories' },
+                  { value: 'diving', label: 'Diving' },
+                  { value: 'safety', label: 'Safety' },
+                  { value: 'vessel', label: 'Vessel' },
+                  { value: 'equipment', label: 'Equipment' },
+                  { value: 'first_aid', label: 'First Aid' },
+                  { value: 'fire_safety', label: 'Fire Safety' },
+                  { value: 'chemical_handling', label: 'Chemical Handling' },
+                  { value: 'fish_handling', label: 'Fish Handling' },
+                  { value: 'water_quality', label: 'Water Quality' },
+                  { value: 'leadership', label: 'Leadership' },
+                  { value: 'technical', label: 'Technical' },
+                  { value: 'other', label: 'Other' },
+                ]}
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value as CertificationCategory | '')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">All Categories</option>
-                <option value="diving">Diving</option>
-                <option value="safety">Safety</option>
-                <option value="vessel">Vessel</option>
-                <option value="equipment">Equipment</option>
-                <option value="first_aid">First Aid</option>
-                <option value="fire_safety">Fire Safety</option>
-                <option value="chemical_handling">Chemical Handling</option>
-                <option value="fish_handling">Fish Handling</option>
-                <option value="water_quality">Water Quality</option>
-                <option value="leadership">Leadership</option>
-                <option value="technical">Technical</option>
-                <option value="other">Other</option>
-              </select>
-              <select
+              />
+              <Select
+                options={[
+                  { value: '', label: 'All Statuses' },
+                  { value: 'active', label: 'Active' },
+                  { value: 'expired', label: 'Expired' },
+                  { value: 'pending_renewal', label: 'Pending Renewal' },
+                  { value: 'suspended', label: 'Suspended' },
+                  { value: 'revoked', label: 'Revoked' },
+                ]}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as CertificationStatus | '')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="expired">Expired</option>
-                <option value="pending_renewal">Pending Renewal</option>
-                <option value="suspended">Suspended</option>
-                <option value="revoked">Revoked</option>
-              </select>
+              />
             </div>
           </div>
 
           {/* Certifications Table */}
-          <DataTable
+          <DataTable<EmployeeCertification>
             data={filteredCertifications}
             columns={certificationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingCerts}
+            loading={loadingCerts}
+            exportable
+            exportFileName="certifications"
             emptyMessage="No certifications found"
-            total={certTotal}
-            page={pagination.page || 1}
-            pageSize={pagination.limit || 20}
+            pagination={derivePaginationMetadataV1(
+              certTotal,
+              pagination.page || 1,
+              pagination.limit || 20,
+            )}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}
@@ -665,16 +728,21 @@ export function CertificationDashboardPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {certTypes?.length || 0} certification types configured
             </p>
-            <button className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700">
-              <Plus className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowAddType(true)}
+            >
               Add Certification Type
-            </button>
+            </Button>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {certTypes?.map((type) => {
               const activeCount = allCertifications.filter(
-                (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
+                (c) =>
+                  c.certificationTypeId === type.id &&
+                  c.status === ('ACTIVE' as CertificationStatus),
               ).length;
               const expiringCount =
                 expiring30?.filter((c) => c.certificationTypeId === type.id).length || 0;
@@ -722,10 +790,10 @@ export function CertificationDashboardPage() {
                       strokeDasharray={`${complianceRate * 3.52} 352`}
                       className={cn(
                         complianceRate >= 90
-                          ? 'text-green-500'
+                          ? 'text-success-500'
                           : complianceRate >= 70
-                          ? 'text-amber-500'
-                          : 'text-red-500'
+                            ? 'text-warning-500'
+                            : 'text-error-500',
                       )}
                     />
                   </svg>
@@ -742,43 +810,49 @@ export function CertificationDashboardPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
-                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    <div className="rounded-lg bg-success-100 p-2 dark:bg-success-900/30">
+                      <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Fully Compliant</p>
-                      <p className="text-sm text-gray-500">All mandatory certifications</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        All mandatory certifications
+                      </p>
                     </div>
                   </div>
-                  <span className="text-2xl font-bold text-green-600">
+                  <span className="text-2xl font-bold text-success-600 dark:text-success-400">
                     {employeesWithMandatoryCerts}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
-                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    <div className="rounded-lg bg-warning-100 p-2 dark:bg-warning-900/30">
+                      <AlertTriangle className="h-5 w-5 text-warning-600 dark:text-warning-400" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Expiring Soon</p>
-                      <p className="text-sm text-gray-500">Within 30 days</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Within 30 days</p>
                     </div>
                   </div>
-                  <span className="text-2xl font-bold text-amber-600">{expiringIn30Days}</span>
+                  <span className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                    {expiringIn30Days}
+                  </span>
                 </div>
 
                 <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-red-100 p-2 dark:bg-red-900/30">
-                      <XCircle className="h-5 w-5 text-red-600" />
+                    <div className="rounded-lg bg-error-100 p-2 dark:bg-error-900/30">
+                      <XCircle className="h-5 w-5 text-error-600 dark:text-error-400" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Non-Compliant</p>
-                      <p className="text-sm text-gray-500">Missing mandatory certs</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Missing mandatory certs
+                      </p>
                     </div>
                   </div>
-                  <span className="text-2xl font-bold text-red-600">
+                  <span className="text-2xl font-bold text-error-600 dark:text-error-400">
                     {(employees?.total || 0) - employeesWithMandatoryCerts}
                   </span>
                 </div>
@@ -797,7 +871,9 @@ export function CertificationDashboardPage() {
                 .map((type) => {
                   const totalEmployees = employees?.total || 0;
                   const certifiedCount = allCertifications.filter(
-                    (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
+                    (c) =>
+                      c.certificationTypeId === type.id &&
+                      c.status === ('ACTIVE' as CertificationStatus),
                   ).length;
                   const percentage = totalEmployees
                     ? Math.round((certifiedCount / totalEmployees) * 100)
@@ -809,7 +885,7 @@ export function CertificationDashboardPage() {
                         <span className="font-medium text-gray-900 dark:text-white">
                           {type.name}
                         </span>
-                        <span className="text-gray-500">
+                        <span className="text-gray-500 dark:text-gray-400">
                           {certifiedCount}/{totalEmployees} ({percentage}%)
                         </span>
                       </div>
@@ -818,10 +894,10 @@ export function CertificationDashboardPage() {
                           className={cn(
                             'h-full rounded-full transition-all',
                             percentage >= 90
-                              ? 'bg-green-500'
+                              ? 'bg-success-500'
                               : percentage >= 70
-                              ? 'bg-amber-500'
-                              : 'bg-red-500'
+                                ? 'bg-warning-500'
+                                : 'bg-error-500',
                           )}
                           style={{ width: `${percentage}%` }}
                         />
@@ -833,6 +909,14 @@ export function CertificationDashboardPage() {
           </div>
         </div>
       )}
+      <AddCertificationModal
+        open={showAddCertification}
+        onClose={() => setShowAddCertification(false)}
+        employees={employees?.items ?? []}
+        certificationTypes={certTypes ?? []}
+      />
+      <AddCertificationTypeModal open={showAddType} onClose={() => setShowAddType(false)} />
+      <RenewCertificationModal certification={renewing} onClose={closeRenew} />
     </div>
   );
 }

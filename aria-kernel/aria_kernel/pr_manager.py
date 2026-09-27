@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
+from .canonical_path import normalize_repo_relpath
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
     HardFailContext,
+    HardFailReport,
     observe_perimeter,
     run_hard_fail_checks,
 )
@@ -34,6 +37,17 @@ from .worker_dispatch import mission_for_assignment
 # which is the failure shape this whole wave exists to remove.
 PERIMETER_REFUSED_PREFIX = "open_pr_hard_fail_perimeter_refused"
 
+# ARIA-HIGH-124 (round 3) — the wall clock of the ONE network subprocess this
+# module runs, `gh pr create`. It ran unbounded: a GitHub API that stopped
+# answering held the executor's delivery — and the drain's window, which
+# prices every child by its bounds — for as long as the job lived. The same
+# number as the delivery's git push cap (`implementation_delivery._GIT_TIMEOUT_SECONDS`
+# reads `state_store.GIT_TIMEOUT_SECONDS`): one remote round-trip with
+# generous headroom. `implementation_delivery.delivery_worst_case_seconds`
+# prices the PR open with it; a `gh` that did not answer inside it is a
+# receipt `failed` and a refusal by name, never a hung executor.
+GH_PR_CREATE_TIMEOUT_SECONDS: int = 300
+
 REQUIRED_PR_SECTIONS = (
     "Problem",
     "Evidence",
@@ -45,16 +59,20 @@ REQUIRED_PR_SECTIONS = (
 )
 
 
-def _effect_request_id(proposal_id: str) -> str:
+def _effect_request_id(proposal_id: str, request_id: str | None = None) -> str:
     """Plan 032 Faz 032d — the intent/receipt key for a push or PR-create.
 
-    Inside an implementer spawn the executor exports ``ARIA_REQUEST_ID``;
-    keying the effect on the agent request lets `recovery.classify_recovery`
-    and `delivery_closure` see it. Outside a spawn (operator CLI) the legacy
-    ``proposal:<id>`` key stays.
+    ARIA-HIGH-124 — the executor opens the PR OUTSIDE the agent's sandbox
+    and names the agent request explicitly (``request_id``): keying the
+    effect on it is what lets `recovery.classify_recovery` and
+    `delivery_closure` see it. The environment reading (``ARIA_REQUEST_ID``)
+    remains for a kernel CLI run under a spawn; an operator CLI keeps the
+    legacy ``proposal:<id>`` key.
     """
     from .delivery_credentials import request_id_from_env
 
+    if request_id is not None and request_id.strip():
+        return request_id.strip()
     return request_id_from_env(f"proposal:{proposal_id}")
 
 
@@ -84,6 +102,61 @@ def _diff_text_for_action(
     if completed.returncode != 0:
         return None
     return completed.stdout
+
+
+def _branch_commits_for_action(
+    *,
+    workspace_path: Path,
+    base_sha: Any,
+    head_sha: str,
+) -> tuple[dict[str, str], ...] | None:
+    """The commits base_sha..head, ``{sha, subject, body}`` in branch order, or None.
+
+    ARIA-HIGH-104 (4) — None on any failure, for the same reason
+    ``_diff_text_for_action`` returns None: ``_check_commit_contract_honoured``
+    treats absent commits as unverifiable and refuses, whereas an empty tuple
+    would be judged as "no commits on branch". The record separator makes the
+    parse unambiguous however many blank lines a body carries.
+    """
+    if not isinstance(base_sha, str) or not base_sha.strip():
+        return None
+    completed = subprocess.run(
+        ["git", "log", "--reverse", "--format=%H%x00%s%x00%b%x1e", f"{base_sha.strip()}..{head_sha}"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    commits: list[dict[str, str]] = []
+    for record in completed.stdout.split("\x1e"):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        sha, subject, body = (record.split("\x00", 2) + ["", ""])[:3]
+        commits.append({"sha": sha.strip(), "subject": subject.strip(), "body": body})
+    return tuple(commits)
+
+
+def _commit_contract_for_action(
+    action: dict[str, Any], *, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """The commit contract the staged plan admits, or None off the plan lane.
+
+    Derived through the same function the implementation envelope was minted
+    with (`plan_origin.commit_contract_for_plan` over the hash-verified
+    CONVERGED body), so the trailer the agent was told to write and the
+    trailer this gate demands are one derivation.
+    """
+    plan_id = action.get("plan_id")
+    if not isinstance(plan_id, str) or not plan_id.strip():
+        return None
+    from .plan_convergence import fold_plan_state, plan_body_from_state
+    from .plan_origin import commit_contract_for_plan
+
+    body = plan_body_from_state(fold_plan_state(plan_id=plan_id, base_dir=base_dir))
+    return commit_contract_for_plan(body["plan_content"], plan_id=plan_id)
 
 
 def build_pr_body(
@@ -132,7 +205,7 @@ def build_pr_body(
             "",
             "## Provenance",
             f"- Proposal: `{proposal.get('proposal_id')}`",
-            f"- Worktree: `{action.get('worktree_path')}`",
+            f"- Worktree: `{action.get('worktree_path') or action.get('gate_workspace_root') or action.get('workspace_root')}`",
             "",
             *trailer,
         ],
@@ -140,6 +213,8 @@ def build_pr_body(
 
 
 ARIA_PR_BASE = "main"
+# ARIA-HIGH-199 — the one branch namespace `open_revert_pr` admits.
+REVERT_BRANCH_PREFIX = "aria/revert/"
 
 
 def open_pr_for_action(
@@ -151,6 +226,13 @@ def open_pr_for_action(
     base: str = ARIA_PR_BASE,
     assignment_id: str | None = None,
     change_id: str | None = None,
+    # ARIA-HIGH-124 — the executor's two facts for a PR it opens on an
+    # agent request's behalf, outside the sandbox: the request the
+    # intent/receipt rows are keyed on, and the delivery credential's
+    # environment, applied to the ONE `gh pr create` subprocess and to
+    # nothing else (never this process's environ, never a file).
+    request_id: str | None = None,
+    command_environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     # Plan 026R §D.3 — change_id binding. PR open is the strict-
     # pipeline tail; auto-merge §D.4 requires the PR to be bound
@@ -226,7 +308,7 @@ def open_pr_for_action(
     if not action.get("validation_gate_ref"):
         raise GovernanceError("PR open requires validation_gate_ref")
     action = dict(action)
-    latest_validation = _latest_validation_plan_for_proposal(proposal_id, base_dir)
+    latest_validation = _gated_validation_group(action, base_dir)
     if latest_validation:
         action["validation_plan_ref"] = latest_validation.get("ledger_hash")
         action["validation_plan_status"] = latest_validation.get("status")
@@ -336,6 +418,14 @@ def open_pr_for_action(
         validation_commands=tuple(action.get("validation_commands", [])),
         base_branch=base,
         pr_body=body,
+        # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits and
+        # the commits that must honour it; both absent-means-refuse.
+        commit_contract=_commit_contract_for_action(action, base_dir=base_dir),
+        branch_commits=_branch_commits_for_action(
+            workspace_path=workspace_path,
+            base_sha=action.get("base_sha"),
+            head_sha=resolved_head_sha,
+        ),
     )
 
     # RC-2 — the two modes, chosen by whether this call MUTATES anything, and
@@ -369,16 +459,7 @@ def open_pr_for_action(
             )
         perimeter_summary: dict[str, Any] | None = observation.summary
     else:
-        hard_fail_report = run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN)
-        if not hard_fail_report.passed:
-            raise GovernanceError(
-                PERIMETER_REFUSED_PREFIX
-                + ": "
-                + "; ".join(
-                    f"{failure.name}:{failure.reason}"
-                    for failure in hard_fail_report.failures
-                )
-            )
+        _raise_if_perimeter_refused(run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN))
         perimeter_summary = None
 
     payload = {
@@ -418,6 +499,65 @@ def open_pr_for_action(
         # head_sha / base_branch but drops base_sha.
         row["base_sha"] = payload.get("base_sha")
         return row
+    return _create_pull_request(
+        payload=payload,
+        branch=branch,
+        title=str(proposal.get("title")),
+        body=body,
+        workspace_path=workspace_path,
+        effect_request_id=_effect_request_id(proposal_id, request_id),
+        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
+        command_environment=command_environment,
+        base_dir=base_dir,
+        assignment_id=assignment_id,
+    )
+
+
+# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
+# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
+# end-of-string), so a `gh pr create` stdout that adds a newline or
+# diagnostic line still parses cleanly.
+_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
+
+
+def _raise_if_perimeter_refused(hard_fail_report: HardFailReport) -> None:
+    """Refuse by name when the live pre-PR-open perimeter did not pass.
+
+    Every opener in this module runs ``run_hard_fail_checks`` itself (the
+    callsite is pinned per opener) and hands the report here, so a PR ARIA
+    opens for a proposal and the revert PR the self-revert producer opens
+    are refused with the same prefix (``PERIMETER_REFUSED_PREFIX``).
+    """
+    if not hard_fail_report.passed:
+        raise GovernanceError(
+            PERIMETER_REFUSED_PREFIX
+            + ": "
+            + "; ".join(
+                f"{failure.name}:{failure.reason}"
+                for failure in hard_fail_report.failures
+            )
+        )
+
+
+def _create_pull_request(
+    *,
+    payload: dict[str, Any],
+    branch: str,
+    title: str,
+    body: str,
+    workspace_path: Path,
+    effect_request_id: str,
+    intended_postcondition: dict[str, Any],
+    command_environment: Mapping[str, str] | None,
+    base_dir: str | Path | None,
+    assignment_id: str | None,
+) -> dict[str, Any]:
+    """The ONE ``gh pr create`` this kernel runs, bracketed by intent and receipt.
+
+    Called only after the caller's own authority checks and the perimeter
+    have passed. ``payload`` becomes the ``opened`` pr-lifecycle row — the
+    row whose ``change_id`` the merge authority's triple gate joins on.
+    """
     # Plan 023 v3 §P-3 — `--head <branch>` always passed. Pre-fix gh
     # inferred the branch from the current checkout, which could be
     # wrong (the gate may have run on a different worktree than the
@@ -428,26 +568,39 @@ def open_pr_for_action(
     from .recovery import record_intent, record_receipt
 
     intent = record_intent(
-        request_id=_effect_request_id(proposal_id), effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
-        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
+        request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
+        intended_postcondition=intended_postcondition,
         base_dir=base_dir,
     )
-    completed = subprocess.run(
-        [
-            "gh", "pr", "create",
-            "--base", ARIA_PR_BASE,
-            "--head", branch,
-            "--title", str(proposal.get("title")),
-            "--body", body,
-        ],
-        cwd=workspace_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "gh", "pr", "create",
+                "--base", ARIA_PR_BASE,
+                "--head", branch,
+                "--title", title,
+                "--body", body,
+            ],
+            cwd=workspace_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, **dict(command_environment)} if command_environment else None,
+            timeout=GH_PR_CREATE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # The remote did not answer inside the bound, so the outcome is
+        # UNKNOWN — the PR may or may not exist. No receipt is written: the
+        # intent stays unresolved, which is what makes the next attempt's
+        # recovery classifier ask GitHub before anything opens a second PR
+        # (Plan 032 Faz 032c). The refusal is by name.
+        raise GovernanceError(
+            f"gh_pr_create_timed_out: no answer inside {GH_PR_CREATE_TIMEOUT_SECONDS}s; "
+            f"intent {intent['operation_id']} left unresolved for recovery"
+        ) from exc
     if completed.returncode != 0:
         record_receipt(
-            operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+            operation_id=str(intent["operation_id"]), request_id=effect_request_id,
             observed={"returncode": completed.returncode, "stderr": (completed.stderr or "")[:400]},
             status="failed", base_dir=base_dir,
         )
@@ -466,23 +619,117 @@ def open_pr_for_action(
             f"GitHub /pull/<n> URL. stdout={stdout!r}"
         )
     payload["number"] = int(pr_url_match.group(1))
-    payload["url"] = pr_url_match.group(0)
+    # The match admits trailing whitespace (a newline after the URL is the
+    # common stdout shape); the URL itself is the token without it —
+    # measured through the executor's stamp (ARIA-HIGH-124), where the
+    # newline reached the outcome record.
+    payload["url"] = pr_url_match.group(0).strip()
     record_receipt(
-        operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+        operation_id=str(intent["operation_id"]), request_id=effect_request_id,
         observed={"pr_number": payload["number"], "url": payload["url"], "head_sha": payload.get("head_sha")},
         status="confirmed", base_dir=base_dir,
     )
-    return record_pr_lifecycle(
+    opened = record_pr_lifecycle(
         payload, event="opened", base_dir=base_dir,
         assignment_id=assignment_id,
     )
+    # ARIA-HIGH-124 — the URL `gh` printed rides the RETURNED row (the
+    # persisted lifecycle row carries the number; the receipt above carries
+    # the url): the executor stamps it on the implementation record as a
+    # kernel fact. The same augmentation the dry-run branch does for `body`.
+    opened["url"] = payload["url"]
+    return opened
 
 
-# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
-# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
-# end-of-string), so a `gh pr create` stdout that adds a newline or
-# diagnostic line still parses cleanly.
-_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
+def open_revert_pr(
+    *,
+    workspace_root: str | Path,
+    branch: str,
+    base_sha: str,
+    title: str,
+    body: str,
+    change_id: str,
+    changed_files: list[str],
+    validation_commands: list[str],
+    request_id: str,
+    base_dir: str | Path | None = None,
+    command_environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-199 — open the revert of an ARIA merge, and nothing else.
+
+    A revert has no proposal: it is not a remediation anyone planned but
+    the inverse of a merge that went bad, produced by
+    ``self_revert.run_self_revert_producer`` with its purity proven. It is
+    opened under the same authority and through the same boundary as
+    ``open_pr_for_action``: the ``pr_create`` profile gate, the base-branch
+    guard, the full live pre-PR-open perimeter, the change-id anchor the
+    merge authority's triple gate joins on, and the one intent/receipt-
+    bracketed ``gh pr create``. Only ``aria/revert/*`` branches are
+    admitted here, so this opener cannot carry an ordinary change past the
+    proposal-approval checks ``open_pr_for_action`` makes.
+    """
+    if not change_id or not change_id.strip():
+        raise GovernanceError("open_revert_pr_change_id_required")
+    if not branch.startswith(REVERT_BRANCH_PREFIX):
+        raise GovernanceError(f"open_revert_pr_branch_not_a_revert:{branch!r}")
+    enforce_profile_for_action("pr_create", base_dir=base_dir)
+    workspace_path = Path(workspace_root).resolve()
+    rev_completed = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}"],
+        cwd=workspace_path, capture_output=True, text=True, check=False,
+    )
+    head_sha = (rev_completed.stdout or "").strip()
+    if rev_completed.returncode != 0 or not head_sha:
+        raise GovernanceError(
+            f"open_pr_head_sha_unresolvable: {branch!r}: {(rev_completed.stderr or '').strip()!r}"
+        )
+    _validate_pr_body(body)
+    perimeter_context = HardFailContext(
+        workspace_root=workspace_path,
+        diff_text=_diff_text_for_action(workspace_path=workspace_path, base_sha=base_sha, head_sha=head_sha),
+        envelope={"affected_surfaces": list(changed_files)},
+        affected_paths=tuple(changed_files),
+        validation_commands=tuple(validation_commands),
+        base_branch=ARIA_PR_BASE,
+        pr_body=body,
+        # A revert's commit is git's own `Revert "<subject>"`; no plan origin
+        # derives a trailer for it, so the commit-msg gate judges it.
+        commit_contract=None,
+        branch_commits=_branch_commits_for_action(
+            workspace_path=workspace_path, base_sha=base_sha, head_sha=head_sha,
+        ),
+    )
+    _raise_if_perimeter_refused(run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN))
+    payload: dict[str, Any] = {
+        "number": None,
+        "base_branch": ARIA_PR_BASE,
+        "head_sha": head_sha,
+        "base_sha": base_sha,
+        "branch": branch,
+        "task_id": None,
+        "proposal_id": None,
+        "assignment_id": None,
+        "change_id": change_id,
+        "changed_files": list(changed_files),
+        "title": title,
+        "body": body,
+        "dry_run": False,
+        "perimeter_observation": None,
+    }
+    return _create_pull_request(
+        payload=payload,
+        branch=branch,
+        title=title,
+        body=body,
+        workspace_path=workspace_path,
+        effect_request_id=request_id,
+        intended_postcondition={
+            "head_ref": branch, "base": ARIA_PR_BASE, "head_sha": head_sha, "change_id": change_id,
+        },
+        command_environment=command_environment,
+        base_dir=base_dir,
+        assignment_id=None,
+    )
 
 
 def prepare_branch(
@@ -694,7 +941,7 @@ def plan_pr_split(
     if max_files_per_pr <= 0:
         raise GovernanceError("max_files_per_pr must be positive")
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
-    files = [_normalize_path(path) for path in changed_files if isinstance(path, str) and path.strip()]
+    files = [normalize_repo_relpath(path) for path in changed_files if isinstance(path, str) and path.strip()]
     if not files:
         raise GovernanceError("PR split planning requires changed_files")
     grouped: dict[str, list[str]] = {}
@@ -749,9 +996,30 @@ def _latest_action_for_proposal(proposal_id: str, base_dir: str | Path | None) -
     return None
 
 
-def _latest_validation_plan_for_proposal(proposal_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
-    for plan in reversed(list_validation_plans(base_dir=base_dir)):
-        if plan.get("validation_plan_id") == proposal_id:
+def _gated_validation_group(action: dict[str, Any], base_dir: str | Path | None) -> dict[str, Any] | None:
+    """The candidate validation group the action's gate compared — the
+    evidence the PR body cites and the merge gate later joins on.
+
+    Resolved through the action's OWN chain first (ARIA-HIGH-124 round 3):
+    ``validation_comparison_ref`` → the comparison's ``worktree_ref`` → the
+    group. The previous reading matched a group by ``validation_plan_id ==
+    proposal_id``, a name only the operator lane's staging gives; the
+    executor's gate (`run_apply_gate`) names none, so every executor-opened
+    PR read "No validation run refs recorded" under four recorded runs. The
+    name match remains the fallback for a lane that recorded no comparison.
+    """
+    from .validation import _find_comparison, _find_plan, list_validation_comparisons
+
+    plans = list_validation_plans(base_dir=base_dir)
+    comparison_ref = str(action.get("validation_comparison_ref") or "")
+    if comparison_ref:
+        comparison = _find_comparison(list_validation_comparisons(base_dir=base_dir), comparison_ref)
+        if comparison is not None:
+            group = _find_plan(plans, str(comparison.get("worktree_ref") or ""))
+            if group is not None:
+                return group
+    for plan in reversed(plans):
+        if plan.get("validation_plan_id") == action.get("proposal_id"):
             return plan
     return None
 
@@ -829,7 +1097,3 @@ def _git(cwd: Path, args: list[str]) -> str:
 
 def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
-
-
-def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")

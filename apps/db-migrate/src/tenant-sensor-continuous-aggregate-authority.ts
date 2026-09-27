@@ -131,7 +131,28 @@ export async function ensureTenantSensorContinuousAggregateAuthority(
 
     for (const statement of SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS) {
       if (statement.phase !== 'maintenance') continue;
-      await executor.query(statement.sql);
+      try {
+        await executor.query(statement.sql);
+      } catch (error: unknown) {
+        // FARM-AI fazai-2 deploy lesson: a policy with a DIFFERENT window
+        // already on the tenant (live was deliberately widened to a 24h
+        // refresh window during the sensor-simulation session) makes
+        // add_continuous_aggregate_policy(if_not_exists=>TRUE) fail with
+        // "refresh interval overlaps" — if_not_exists only checks that no
+        // policy exists on the aggregate at all. An overlapping policy means
+        // a refresh IS already scheduled (live config wins — the operator
+        // tuned it); alignment is satisfied, not broken. Anything else still
+        // aborts the deploy.
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          statement.sql.includes('add_continuous_aggregate_policy') &&
+          (message.includes('refresh interval overlaps') ||
+            message.includes('multiple refresh policies are not supported'))
+        ) {
+          continue;
+        }
+        throw error;
+      }
     }
 
     return {

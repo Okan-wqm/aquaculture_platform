@@ -15,6 +15,8 @@ import {
   Modal,
   Alert,
   formatDate,
+  Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
@@ -27,6 +29,7 @@ import {
 import { expectedTotalPages } from '@platform/pagination-contracts';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // Tenant Management Page
@@ -257,7 +260,7 @@ const TenantManagementPage: React.FC = () => {
           aria-label="Select all tenants"
           checked={selectedIds.size === tenants.length && tenants.length > 0}
           onChange={toggleSelectAll}
-          className="w-4 h-4 rounded border-gray-300"
+          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
         />
       ),
       render: (tenant) => (
@@ -266,7 +269,7 @@ const TenantManagementPage: React.FC = () => {
           aria-label={`Select ${tenant.name}`}
           checked={selectedIds.has(tenant.id)}
           onChange={() => toggleSelect(tenant.id)}
-          className="w-4 h-4 rounded border-gray-300"
+          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
           onClick={(e) => e.stopPropagation()}
         />
       ),
@@ -277,14 +280,14 @@ const TenantManagementPage: React.FC = () => {
       sortable: true,
       render: (tenant) => (
         <div
-          className="cursor-pointer hover:text-primary-600"
+          className="cursor-pointer hover:text-primary-600 dark:hover:text-primary-300"
           onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
         >
           <div className="flex items-center space-x-2">
-            <p className="font-medium text-gray-900">{tenant.name}</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">{tenant.name}</p>
             {tenant.isTrialActive && <Badge variant="warning">Trial</Badge>}
           </div>
-          <p className="text-sm text-gray-500">{tenant.slug}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{tenant.slug}</p>
         </div>
       ),
     },
@@ -305,9 +308,9 @@ const TenantManagementPage: React.FC = () => {
       header: 'Usage',
       render: (tenant) => (
         <div className="text-sm">
-          <span className="text-gray-600">{tenant.userCount ?? 0} users</span>
-          <span className="mx-1 text-gray-500">|</span>
-          <span className="text-gray-600">{tenant.farmCount ?? 0} farms</span>
+          <span className="text-gray-600 dark:text-gray-400">{tenant.userCount ?? 0} users</span>
+          <span className="mx-1 text-gray-500 dark:text-gray-400">|</span>
+          <span className="text-gray-600 dark:text-gray-400">{tenant.farmCount ?? 0} farms</span>
         </div>
       ),
     },
@@ -334,42 +337,44 @@ const TenantManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tenant Management</h1>
-          {/* The FILTERED result total, so it is labelled as one. It sat here
+      {/* The FILTERED result total, so it is labelled as one. It sat here
               as "Total N tenants" beside a "Total" card holding the platform
               figure, and with a status filter applied the two disagreed by
               design while both claimed to be the total. */}
-          <p className="mt-1 text-sm text-gray-500">
+      <PageHeader
+        title="Tenant Management"
+        description={
+          <>
             {matchingTenants.toLocaleString()} tenant
             {matchingTenants === 1 ? '' : 's'} match
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
-          {selectedIds.size > 0 && (
-            <>
-              {tenants
-                .filter((tenant) => selectedIds.has(tenant.id))
-                .every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
-                <Button variant="outline" onClick={handleBulkActivate} disabled={saving}>
-                  Activate Selected ({selectedIds.size})
-                </Button>
-              )}
-              {tenants
-                .filter((tenant) => selectedIds.has(tenant.id))
-                .every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
-                <Button variant="danger" onClick={() => setIsBulkSuspendModalOpen(true)}>
-                  Suspend Selected ({selectedIds.size})
-                </Button>
-              )}
-            </>
-          )}
-          <Button variant="outline" onClick={reload} disabled={tenantsQuery.isFetching}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
+            {selectedIds.size > 0 && (
+              <>
+                {tenants
+                  .filter((tenant) => selectedIds.has(tenant.id))
+                  .every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
+                  <Button variant="outline" onClick={handleBulkActivate} disabled={saving}>
+                    Activate Selected ({selectedIds.size})
+                  </Button>
+                )}
+                {tenants
+                  .filter((tenant) => selectedIds.has(tenant.id))
+                  .every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
+                  <Button variant="danger" onClick={() => setIsBulkSuspendModalOpen(true)}>
+                    Suspend Selected ({selectedIds.size})
+                  </Button>
+                )}
+              </>
+            )}
+            <Button variant="outline" onClick={reload} disabled={tenantsQuery.isFetching}>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       <QueryFailureNotice errors={queryErrors} hasContent={tenants.length > 0} onRetry={reload} />
 
@@ -385,26 +390,26 @@ const TenantManagementPage: React.FC = () => {
           arithmetic. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Total</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {stats ? stats.totalTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Active</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
+          <p className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats ? stats.activeTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Pending</p>
-          <p className="text-2xl font-bold text-yellow-600">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
+          <p className="text-2xl font-bold text-warning-600 dark:text-warning-400">
             {stats ? stats.pendingTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Suspended</p>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Suspended</p>
+          <p className="text-2xl font-bold text-error-600 dark:text-error-400">
             {stats ? stats.suspendedTenants.toLocaleString() : '—'}
           </p>
         </Card>
@@ -422,19 +427,10 @@ const TenantManagementPage: React.FC = () => {
                 setPage(1);
               }}
               leftIcon={
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+                <SearchIcon
+                  className="w-5 h-5 text-gray-500 dark:text-gray-400"
+                  aria-hidden="true"
+                />
               }
             />
           </div>
@@ -475,8 +471,8 @@ const TenantManagementPage: React.FC = () => {
       {/* Table */}
       {tenantsQuery.isPending ? (
         <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Loading...</p>
+          <Spinner size="lg" block />
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Loading...</p>
         </div>
       ) : (
         <Table
@@ -498,7 +494,7 @@ const TenantManagementPage: React.FC = () => {
           >
             Previous
           </Button>
-          <span className="py-2 px-4 text-sm text-gray-600">
+          <span className="py-2 px-4 text-sm text-gray-600 dark:text-gray-400">
             Page {page} / {expectedTotalPages(matchingTenants, PAGE_SIZE)}
           </span>
           <Button
@@ -521,31 +517,31 @@ const TenantManagementPage: React.FC = () => {
       >
         {selectedTenant && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Slug</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Slug</p>
                 <p className="font-medium">{selectedTenant.slug}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Tier</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Tier</p>
                 <Badge variant={getTierVariant(selectedTenant.tier)}>{selectedTenant.tier}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
                 <Badge variant={getStatusVariant(selectedTenant.status)}>
                   {selectedTenant.status}
                 </Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Users</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Users</p>
                 <p className="font-medium">{selectedTenant.userCount}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Farm</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Farm</p>
                 <p className="font-medium">{selectedTenant.farmCount}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Created</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
                 <p className="font-medium">
                   {formatDate(new Date(selectedTenant.createdAt), 'long')}
                 </p>
@@ -590,7 +586,7 @@ const TenantManagementPage: React.FC = () => {
             access.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Suspension Reason
             </label>
             <textarea
@@ -653,8 +649,8 @@ const TenantManagementPage: React.FC = () => {
             this action — it will be recorded in the audit log.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Reason <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Reason <span className="text-error-500">*</span>
             </label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[80px]"

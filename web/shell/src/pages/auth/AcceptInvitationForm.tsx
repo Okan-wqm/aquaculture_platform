@@ -4,17 +4,7 @@
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  Button,
-  Input,
-  PasswordInput,
-  useI18n,
-  required,
-  minLength,
-  validateField,
-  clearSession,
-  publicGraphqlClient,
-} from '@aquaculture/shared-ui';
+import { Button, Input, PasswordInput, useI18n, required, minLength, validateField, clearSession, publicGraphqlClient, Spinner } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
 import { AuthStatusScreen } from './AuthStatusScreen';
@@ -145,7 +135,7 @@ const AcceptInvitationForm: React.FC = () => {
   if (isValidating) {
     return (
       <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--surface-heading-fg)] mx-auto" />
+        <Spinner size="lg" color="inherit" block className="text-[var(--surface-heading-fg)]" />
         <p className="mt-4 text-[var(--surface-muted-fg)]">{t('invitation.validating')}</p>
       </div>
     );
@@ -174,7 +164,7 @@ const AcceptInvitationForm: React.FC = () => {
         <p className="text-center -mt-4 mb-4 text-sm text-[var(--surface-label-fg)]">{invitationData.email}</p>
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             surface="glass"
             label={t('invitation.firstName')}

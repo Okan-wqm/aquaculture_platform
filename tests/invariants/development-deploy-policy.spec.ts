@@ -231,7 +231,7 @@ describe('development deployment mode policy', () => {
     const docker = join(fixture, 'docker');
     writeFileSync(
       docker,
-      `#!/usr/bin/env bash\nset -euo pipefail\ncontainer="\${!#}"\nif [ "$container" = aqua-redis ]; then\n  printf 'true unhealthy\\n'\nelse\n  printf 'true healthy\\n'\nfi\n`,
+      `#!/usr/bin/env bash\nset -euo pipefail\ncontainer="\${!#}"\ncase "$2" in\n  *Config.Healthcheck*) printf '["CMD","/usr/local/bin/redis-healthcheck.sh"]\\n' ;;\n  *"range .Log"*) printf 'exit=1 end=T1 output="first failure\\\\n"\\nexit=1 end=T2 output="NOAUTH Authentication required.\\\\n"\\n' ;;\n  *)\n    if [ "$container" = aqua-redis ]; then\n      printf 'true unhealthy\\n'\n    else\n      printf 'true healthy\\n'\n    fi\n    ;;\nesac\n`,
     );
     chmodSync(docker, 0o755);
 
@@ -248,6 +248,17 @@ describe('development deployment mode policy', () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(
         'Preserved infrastructure container aqua-redis is not healthy',
+      );
+      // The refusal names its cause: the probe command and every retained
+      // probe result, each on one line, newest last.
+      expect(result.stderr).toContain(
+        '  aqua-redis healthcheck: ["CMD","/usr/local/bin/redis-healthcheck.sh"]',
+      );
+      expect(result.stderr.split('\n').filter((line) => line.includes('aqua-redis probe'))).toEqual(
+        [
+          '  aqua-redis probe exit=1 end=T1 output="first failure\\n"',
+          '  aqua-redis probe exit=1 end=T2 output="NOAUTH Authentication required.\\n"',
+        ],
       );
     } finally {
       removeFixtureTree(fixture);

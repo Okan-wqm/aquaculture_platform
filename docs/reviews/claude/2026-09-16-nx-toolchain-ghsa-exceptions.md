@@ -13,7 +13,7 @@
 
 npm'ın önerisi `@nx/*@22.6.4` / `nx@22.6.4` — **her paket için SemVer-major
 (breaking)**. `@nx/web` için tek başına breaking-olmayan bir sürüm görünse de
-@nx/* paketleri nx çalışma alanına sürüm-kilitlidir; tek paket bump'ı araç
+@nx/\* paketleri nx çalışma alanına sürüm-kilitlidir; tek paket bump'ı araç
 senkronunu bozar. Bu nedenle düzeltme, çalışma alanı genelinin 22.6.4'e
 planlı taşınmasıdır; o çalışma yapılana kadar tarihli, sahipli, kayıt
 referanslı istisna tutuldu (`scripts/ci/npm-audit-exceptions.json`, süre

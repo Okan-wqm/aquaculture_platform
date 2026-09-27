@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
 import { useHrFinanceSummary } from '../hooks/useHrFinance';
+import { colors, PageHeader, Button, downloadCsv } from '@aquaculture/shared-ui';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
@@ -43,21 +44,45 @@ const HRAnalyticsPage: React.FC = () => {
 
   const isLoading = loadingStats || loadingDepts;
 
+  // The report the page shows, as a file: the headline metrics, then one row
+  // per department with its headcount (the same numbers the bars draw).
+  const handleExportReport = (): void => {
+    const rows: unknown[][] = [
+      ['Total employees', stats?.totalEmployees ?? ''],
+      ['Active employees', stats?.activeEmployees ?? ''],
+      ['On leave', stats?.onLeaveEmployees ?? ''],
+      ['Terminated', stats?.terminatedEmployees ?? ''],
+      ['New hires this month', stats?.newHiresThisMonth ?? ''],
+      ['Offshore employees', stats?.offshoreEmployees ?? ''],
+      ['Onshore employees', stats?.onshoreEmployees ?? ''],
+      ['Attendance rate (%)', stats?.attendanceRate ?? ''],
+      ['Pending leave requests', stats?.pendingLeaveRequests ?? ''],
+      ['Departments', stats?.totalDepartments ?? ''],
+      ...(departments ?? []).map((dept) => [
+        `Headcount — ${dept.name}`,
+        headcountByDepartment.get(dept.id) ?? '',
+      ]),
+    ];
+    downloadCsv(`hr-analytics-${new Date().toISOString().slice(0, 10)}`, ['Metric', 'Value'], rows);
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">HR Analytics</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Human resources metrics and insights
-          </p>
-        </div>
-        <button className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-          <Download className="h-4 w-4" />
-          Export Report
-        </button>
-      </div>
+      <PageHeader
+        title="HR Analytics"
+        description="Human resources metrics and insights"
+        actions={
+          <Button
+            variant="secondary"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={handleExportReport}
+            disabled={isLoading}
+          >
+            Export Report
+          </Button>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -73,16 +98,16 @@ const HRAnalyticsPage: React.FC = () => {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Total Employees</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Total Employees</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                     {stats?.totalEmployees ?? '-'}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500">
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                     {stats?.activeEmployees ?? '-'} active
                   </p>
                 </div>
-                <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-900/30">
-                  <Users className="h-6 w-6 text-indigo-600" />
+                <div className="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/30">
+                  <Users className="h-6 w-6 text-primary-600 dark:text-primary-400" />
                 </div>
               </div>
             </div>
@@ -90,13 +115,13 @@ const HRAnalyticsPage: React.FC = () => {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Departments</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Departments</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                     {stats?.totalDepartments ?? departments?.length ?? '-'}
                   </p>
                 </div>
-                <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/30">
-                  <BarChart3 className="h-6 w-6 text-emerald-600" />
+                <div className="rounded-lg bg-success-50 p-3 dark:bg-success-900/30">
+                  <BarChart3 className="h-6 w-6 text-success-600 dark:text-success-400" />
                 </div>
               </div>
             </div>
@@ -104,14 +129,16 @@ const HRAnalyticsPage: React.FC = () => {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Offshore</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Offshore</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                     {stats?.offshoreEmployees ?? '-'}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500">Currently deployed</p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    Currently deployed
+                  </p>
                 </div>
-                <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-                  <TrendingUp className="h-6 w-6 text-blue-600" />
+                <div className="rounded-lg bg-info-50 p-3 dark:bg-info-900/30">
+                  <TrendingUp className="h-6 w-6 text-info-600 dark:text-info-400" />
                 </div>
               </div>
             </div>
@@ -119,13 +146,13 @@ const HRAnalyticsPage: React.FC = () => {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">On Leave</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">On Leave</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                     {stats?.onLeaveEmployees ?? '-'}
                   </p>
                 </div>
-                <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">
-                  <Calendar className="h-6 w-6 text-amber-600" />
+                <div className="rounded-lg bg-warning-50 p-3 dark:bg-warning-900/30">
+                  <Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />
                 </div>
               </div>
             </div>
@@ -148,21 +175,21 @@ const HRAnalyticsPage: React.FC = () => {
                 <div key={dept.id} className="flex items-center gap-4">
                   <div
                     className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: dept.colorCode || '#6366f1' }}
+                    style={{ backgroundColor: dept.colorCode || colors.primary[500] }}
                   />
                   <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
                     {dept.name}
                   </span>
-                  <div className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700" style={{ height: 6 }}>
+                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
                     <div
                       className="h-full rounded-full"
                       style={{
                         width: `${widthPct}%`,
-                        backgroundColor: dept.colorCode || '#6366f1',
+                        backgroundColor: dept.colorCode || colors.primary[500],
                       }}
                     />
                   </div>
-                  <span className="w-12 text-right text-sm text-gray-500">
+                  <span className="w-12 text-right text-sm text-gray-500 dark:text-gray-400">
                     {headcount !== undefined ? headcount : '—'}
                   </span>
                 </div>
@@ -178,22 +205,24 @@ const HRAnalyticsPage: React.FC = () => {
           to="/hr/reports"
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
         >
-          <BarChart3 className="mb-2 h-8 w-8 text-gray-400" />
+          <BarChart3 className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Detailed Reports</p>
         </Link>
         <Link
           to="/hr/payroll/reports"
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
         >
-          <Award className="mb-2 h-8 w-8 text-gray-400" />
+          <Award className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Payroll Reports</p>
         </Link>
         <Link
           to="/hr/training/certifications"
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
         >
-          <Clock className="mb-2 h-8 w-8 text-gray-400" />
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Certification Status</p>
+          <Clock className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Certification Status
+          </p>
         </Link>
       </div>
     </div>

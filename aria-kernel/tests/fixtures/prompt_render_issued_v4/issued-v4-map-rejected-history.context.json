@@ -1,0 +1,31 @@
+{
+  "allowed_scope_hash": "sha256:9e9012ca524f3fefffdd6423cfc9fd569cecd5782c5d61d4da54ae5e996a542d",
+  "budget_audit_hash": "sha256:58774c05f020094f6a026a9a1e760acc42b33f032c771350d4ed634ac11999c9",
+  "context_hash": "sha256:2c1c28daeea0f9bdd78050e47abf64bd7820ce1d59fa1dec2226686e2344bb0a",
+  "context_window_tokens": 200000,
+  "created_at": "2026-09-10T22:31:48+00:00",
+  "excluded_refs": [],
+  "included_refs": [
+    {
+      "ref": "src/feed.py:1",
+      "source": "evidence_refs"
+    },
+    {
+      "ref": "apps/svc/src/a.ts:1",
+      "source": "evidence_refs"
+    }
+  ],
+  "ledger_hash": "sha256:488a1c2219feaa095c81c5a2795cd4fe4b25dc7f0a0da4bc076cbe9cf7b45cf5",
+  "must_satisfy_hash": "sha256:cada298e0ef5e8c30702fb4b8fb3985147b05eebb087416be05a51475c4dc71d",
+  "previous_ledger_hash": "sha256:42ba6b6fbae869af9ddfdf697afc79140a159f27560001c7a0b29a698db7a719",
+  "prompt_hash": "sha256:c993465b53a03d3afac805f51623d195d70b1f9955aaf8eca181571c22a54408",
+  "repo_context_sha": "cb5cdcae59282f1e1cfc0383c9d43f73691c7a85",
+  "repo_root": "/tmp/codex-aria-s3-20260910-jkaa_1c4/v4-issued-baseline-fixture/repo",
+  "request_id": "AIR-aria-evidence-judge-c09bcab42abd",
+  "role": "evidence_judgment",
+  "row_id": "context:AIR-aria-evidence-judge-c09bcab42abd",
+  "row_type": "context",
+  "schema_version": 1,
+  "target_agent": "aria-evidence-judge",
+  "target_sha": "cb5cdcae59282f1e1cfc0383c9d43f73691c7a85"
+}

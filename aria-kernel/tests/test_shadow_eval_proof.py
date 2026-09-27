@@ -218,7 +218,7 @@ class ShadowEvalProofTests(unittest.TestCase):
             "target_agent": "aria-shadow-candidate",
             "role": "primary_plan",
             "suggested_prompt": "Run shadow evaluation.",
-            "must_satisfy": [{"id": "m1", "predicate": "pass"}],
+            "must_satisfy": [{"id": "m1", "description": "pass"}],
             "allowed_scope": ["libs/example/**"],
             "base_dir": self.tools,
         }

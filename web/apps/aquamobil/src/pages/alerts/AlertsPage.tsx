@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { AlertTriangle, ArrowLeft, BellRing, Check, CheckCheck, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BellRing, Check, CheckCheck, RefreshCw } from 'lucide-react';
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import {useSearchParams} from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import type { AlertSeverity } from '@/generated/graphql';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
 
@@ -20,7 +21,7 @@ const SEVERITY_STYLES: Record<AlertSeverity, { chip: string; icon: string; label
   MEDIUM: { chip: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon: 'text-amber-600', label: 'Medium' },
   WARNING: { chip: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300', icon: 'text-yellow-600', label: 'Warning' },
   LOW: { chip: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', icon: 'text-blue-600', label: 'Low' },
-  INFO: { chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', icon: 'text-gray-500', label: 'Info' },
+  INFO: { chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', icon: 'text-gray-500 dark:text-gray-400', label: 'Info' },
 };
 
 function formatTimeAgo(dateStr: string): string {
@@ -64,7 +65,7 @@ function AlertCard({
             <span className={clsx('px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide', style.chip)}>
               {style.label}
             </span>
-            <span className="text-xs text-gray-400">{formatTimeAgo(alert.triggeredAt)}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{formatTimeAgo(alert.triggeredAt)}</span>
           </div>
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 break-words">{alert.message}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{alert.ruleName}</p>
@@ -91,7 +92,6 @@ function AlertCard({
 }
 
 export function AlertsPage(): JSX.Element {
-  const navigate = useNavigate();
   const { alerts, unacknowledgedCount, isLoading, error, acknowledge, refetch } = useAlerts();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('unacked');
   const [ackingId, setAckingId] = useState<string | null>(null);
@@ -128,35 +128,26 @@ export function AlertsPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-red-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(-1)}
-              aria-label="Back"
-              className="p-2 -ml-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 touch-feedback"
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <BellRing size={22} />
-              <h1 className="text-lg font-bold">Alerts</h1>
-            </div>
-          </div>
+      <PageHeader
+        tone="red"
+        icon={BellRing}
+        title="Alerts"
+        actions={
           <button
             onClick={() => void refetch()}
             aria-label="Refresh alerts"
-            className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20"
+            className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center bg-white/10 dark:bg-gray-900/10 rounded-xl touch-feedback hover:bg-white/20 dark:hover:bg-gray-800/20"
           >
             <RefreshCw size={18} />
           </button>
-        </div>
+        }
+      >
         {unacknowledgedCount > 0 && (
           <div className="px-4 pb-3 text-sm font-semibold">
             {unacknowledgedCount} alert{unacknowledgedCount > 1 ? 's' : ''} awaiting acknowledgement
           </div>
         )}
-      </div>
+      </PageHeader>
 
       {/* Status filter */}
       <div className="px-4 pt-4 flex gap-2">
@@ -177,7 +168,7 @@ export function AlertsPage(): JSX.Element {
       </div>
 
       {/* List */}
-      <div className="px-4 py-4 space-y-3 pb-24">
+      <div className="px-4 py-4 space-y-3">
         {isLoading && alerts.length === 0 && (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (

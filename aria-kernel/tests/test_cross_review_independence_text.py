@@ -171,7 +171,7 @@ class DiversityLayerActuallyRuns(unittest.TestCase):
                 target_agent=f"aria-{role.replace('_', '-')}",
                 role=role,
                 suggested_prompt=f"{role} for the independence fixture",
-                must_satisfy=[{"id": "ind-fixture", "criterion": "independence"}],
+                must_satisfy=[{"id": "ind-fixture", "description": "independence"}],
                 allowed_scope=["aria-kernel/**"],
                 convergence_id="conv-ind-001",
                 base_dir=self.tools,

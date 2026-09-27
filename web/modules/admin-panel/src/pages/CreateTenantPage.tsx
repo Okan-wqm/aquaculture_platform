@@ -9,7 +9,17 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Alert, RadioGroup } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Select,
+  Alert,
+  RadioGroup,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -29,6 +39,7 @@ import {
   type QuoteRequest,
 } from '../services/adminApi';
 import { formatDecimalAmount as formatMoney } from '../utils/money';
+import { Check } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -233,38 +244,29 @@ const StepIndicator: React.FC<{
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
                 index < currentStep
-                  ? 'bg-green-500 text-white'
+                  ? 'bg-success-500 text-white'
                   : index === currentStep
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 text-gray-500'
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
             >
-              {index < currentStep ? (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              ) : (
-                index + 1
-              )}
+              {index < currentStep ? <Check className="w-5 h-5" aria-hidden="true" /> : index + 1}
             </div>
             <div className="mt-2 text-center">
               <p
-                className={`text-sm font-medium ${index <= currentStep ? 'text-gray-900' : 'text-gray-500'}`}
+                className={`text-sm font-medium ${index <= currentStep ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}
               >
                 {step.label}
               </p>
-              <p className="text-xs text-gray-500 hidden sm:block">{step.description}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+                {step.description}
+              </p>
             </div>
           </div>
           {index < steps.length - 1 && (
             <div
               className={`flex-1 h-1 mx-4 rounded ${
-                index < currentStep ? 'bg-green-500' : 'bg-gray-200'
+                index < currentStep ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'
               }`}
             />
           )}
@@ -295,7 +297,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
   return (
     <Card
-      className={`p-4 transition-all ${config.enabled ? 'ring-2 ring-indigo-500 bg-indigo-50/50' : 'bg-white'}`}
+      className={`p-4 transition-all ${config.enabled ? 'ring-2 ring-primary-500 bg-primary-50/50 dark:bg-primary-900/20/50' : 'bg-white dark:bg-gray-900'}`}
     >
       {/* Module Header */}
       <div className="flex items-start justify-between mb-4">
@@ -306,29 +308,15 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             onClick={onToggle}
             className={`mt-1 w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
               config.enabled
-                ? 'bg-indigo-600 border-indigo-600'
-                : 'border-gray-300 hover:border-gray-400'
+                ? 'bg-primary-600 border-primary-600'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
             }`}
           >
-            {config.enabled && (
-              <svg
-                className="w-4 h-4 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={3}
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            )}
+            {config.enabled && <Check className="w-4 h-4 text-white" aria-hidden="true" />}
           </button>
           <div>
-            <h4 className="font-semibold text-gray-900">{config.moduleName}</h4>
-            <p className="text-xs text-gray-500">{config.moduleCode}</p>
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100">{config.moduleName}</h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{config.moduleCode}</p>
           </div>
         </div>
         {config.enabled && (
@@ -340,7 +328,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
       {/* Metric Inputs - Only show when enabled */}
       {config.enabled && metrics.length > 0 && (
-        <div className="space-y-3 pt-3 border-t border-gray-200">
+        <div className="space-y-3 pt-3 border-t border-gray-200 dark:border-gray-700">
           {metrics.map((metric) => {
             const quantityField = getQuantityField(metric.metricType);
 
@@ -348,8 +336,10 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             if (isBasePrice(metric.metricType)) {
               return (
                 <div key={metric.metricType} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-gray-600">{getMetricLabel(metric.metricType)}</span>
-                  <span className="text-sm font-semibold text-indigo-600">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {getMetricLabel(metric.metricType)}
+                  </span>
+                  <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">
                     ${formatMoney(metric.price)}/mo
                   </span>
                 </div>
@@ -367,13 +357,17 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             return (
               <div key={metric.metricType} className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm text-gray-600">
+                  <label className="text-sm text-gray-600 dark:text-gray-400">
                     {getMetricLabel(metric.metricType)}
                     {includedQty > 0 && (
-                      <span className="text-xs text-green-600 ml-1">({includedQty} included)</span>
+                      <span className="text-xs text-success-600 dark:text-success-400 ml-1">
+                        ({includedQty} included)
+                      </span>
                     )}
                   </label>
-                  <span className="text-xs text-gray-500">${unitPrice.toFixed(2)}/unit</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    ${unitPrice.toFixed(2)}/unit
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -386,11 +380,11 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                       const newValue = Number.isNaN(parsedValue) ? minQty : parsedValue;
                       onQuantityChange(quantityField, Math.max(newValue, minQty));
                     }}
-                    className="w-24 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-24 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
-                  <span className="text-sm text-gray-500">units</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">units</span>
                   {extraQty > 0 && (
-                    <span className="text-sm font-medium text-indigo-600 ml-auto">
+                    <span className="text-sm font-medium text-primary-600 dark:text-primary-400 ml-auto">
                       +${(extraQty * unitPrice).toFixed(2)}
                     </span>
                   )}
@@ -403,7 +397,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
       {/* No pricing info message */}
       {config.enabled && metrics.length === 0 && (
-        <p className="text-xs text-gray-500 pt-2 border-t">
+        <p className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t">
           Pricing not yet defined for this module
         </p>
       )}
@@ -886,8 +880,12 @@ const CreateTenantPage: React.FC = () => {
         <Card className="p-8">
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Tenant Provisioning</h2>
-              <p className="text-gray-600 mt-1">{formData.name} is being provisioned.</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                Tenant Provisioning
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                {formData.name} is being provisioned.
+              </p>
             </div>
             <Badge variant={isFailed ? 'error' : 'warning'}>{provisioningOperation.status}</Badge>
           </div>
@@ -900,8 +898,10 @@ const CreateTenantPage: React.FC = () => {
 
           <div className="space-y-3 mb-6">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Status URL</span>
-              <span className="font-mono text-gray-700">{provisioningOperation.statusUrl}</span>
+              <span className="text-gray-500 dark:text-gray-400">Status URL</span>
+              <span className="font-mono text-gray-700 dark:text-gray-300">
+                {provisioningOperation.statusUrl}
+              </span>
             </div>
           </div>
 
@@ -945,39 +945,29 @@ const CreateTenantPage: React.FC = () => {
     return (
       <div className="max-w-2xl mx-auto">
         <Card className="p-8 text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg
-              className="w-8 h-8 text-green-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+          <div className="w-16 h-16 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check className="w-8 h-8 text-success-600 dark:text-success-400" aria-hidden="true" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             Tenant Provisioned Successfully!
           </h2>
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
             Tenant <strong>{formData.name}</strong> has been created and provisioned.
           </p>
           {enabledModules.length > 0 && (
-            <div className="bg-indigo-50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-gray-600">Monthly Price</p>
-              <p className="text-3xl font-bold text-indigo-600">
+            <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-4 mb-6">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Monthly Price</p>
+              <p className="text-3xl font-bold text-primary-600 dark:text-primary-400">
                 ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
-                <span className="text-sm font-normal text-gray-500">/mo</span>
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
               </p>
-              <p className="text-xs text-gray-500 mt-1">{enabledModules.length} modules active</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {enabledModules.length} modules active
+              </p>
             </div>
           )}
           {formData.primaryContact.email && (
-            <p className="text-sm text-gray-500 mb-6">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               Primary contact: <strong>{formData.primaryContact.email}</strong>
             </p>
           )}
@@ -995,15 +985,15 @@ const CreateTenantPage: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Create New Tenant</h1>
-          <p className="text-gray-500 mt-1">Create a custom package with module-based pricing</p>
-        </div>
-        <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-          Cancel
-        </Button>
-      </div>
+      <PageHeader
+        title="Create New Tenant"
+        description="Create a custom package with module-based pricing"
+        actions={
+          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
+            Cancel
+          </Button>
+        }
+      />
 
       {/* Step Indicator */}
       <StepIndicator steps={steps} currentStep={currentStep} />
@@ -1056,7 +1046,7 @@ const CreateTenantPage: React.FC = () => {
                   onChange={(e) => updateFormData('domain', e.target.value)}
                   placeholder="ocean-farm.aquaculture.io"
                 />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input
                     label="Country"
                     value={formData.country}
@@ -1098,7 +1088,7 @@ const CreateTenantPage: React.FC = () => {
           {currentStep === 1 && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold border-b pb-2">Admin Information</h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 This information will be used to create the tenant's first admin user.
               </p>
 
@@ -1127,7 +1117,9 @@ const CreateTenantPage: React.FC = () => {
               />
 
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-md font-medium text-gray-700 mb-3">Billing Information</h4>
+                <h4 className="text-md font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Billing Information
+                </h4>
                 <Input
                   label="Billing Email"
                   type="email"
@@ -1146,14 +1138,14 @@ const CreateTenantPage: React.FC = () => {
               <div className="flex items-center justify-between border-b pb-2">
                 <div>
                   <h3 className="text-lg font-semibold">Module Selection & Pricing</h3>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Define the required metrics for each module
                   </p>
                 </div>
               </div>
 
               {/* Plan tier selector (Billing Revival Faz B). FREE = permanent $0. */}
-              <div className="p-4 bg-white rounded-lg border">
+              <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border">
                 <RadioGroup
                   label="Plan Tier"
                   name="pricingTier"
@@ -1175,7 +1167,7 @@ const CreateTenantPage: React.FC = () => {
 
               {dataLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+                  <Spinner size="lg" />
                 </div>
               ) : formData.moduleConfigs.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1196,8 +1188,8 @@ const CreateTenantPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-gray-500">No modules found</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-gray-500 dark:text-gray-400">No modules found</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     Please define modules in Billing &gt; Module Pricing page first
                   </p>
                 </div>
@@ -1212,32 +1204,34 @@ const CreateTenantPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Basic Info Summary */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-700 mb-3">Company Information</h4>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Company Information
+                  </h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Ad:</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">Ad:</dt>
                       <dd className="font-medium">{formData.name}</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Slug:</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">Slug:</dt>
                       <dd className="font-mono">{formData.slug}</dd>
                     </div>
                     {formData.trialDays > 0 && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Trial:</dt>
+                        <dt className="text-gray-500 dark:text-gray-400">Trial:</dt>
                         <dd>{formData.trialDays} days</dd>
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Storage:</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">Storage:</dt>
                       <dd>
                         {formData.maxStorage === -1 ? 'Unlimited' : `${formData.maxStorage} GB`}
                       </dd>
                     </div>
                     {formData.country && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Location:</dt>
+                        <dt className="text-gray-500 dark:text-gray-400">Location:</dt>
                         <dd>
                           {formData.country} {formData.region && `/ ${formData.region}`}
                         </dd>
@@ -1247,20 +1241,22 @@ const CreateTenantPage: React.FC = () => {
                 </div>
 
                 {/* Contact Summary */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-700 mb-3">Admin Information</h4>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Admin Information
+                  </h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Ad:</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">Ad:</dt>
                       <dd className="font-medium">{formData.primaryContact.name}</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">E-posta:</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">E-posta:</dt>
                       <dd>{formData.primaryContact.email}</dd>
                     </div>
                     {formData.primaryContact.phone && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Telefon:</dt>
+                        <dt className="text-gray-500 dark:text-gray-400">Telefon:</dt>
                         <dd>{formData.primaryContact.phone}</dd>
                       </div>
                     )}
@@ -1269,14 +1265,19 @@ const CreateTenantPage: React.FC = () => {
               </div>
 
               {/* Modules Summary */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-medium text-gray-700 mb-3">Selected Modules</h4>
+              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Selected Modules
+                </h4>
                 <div className="space-y-3">
                   {enabledModules.map((config) => {
                     const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
                     const hasQuantities = Object.values(config.quantities).some((v) => v > 0);
                     return (
-                      <div key={config.moduleId} className="p-3 bg-white rounded border">
+                      <div
+                        key={config.moduleId}
+                        className="p-3 bg-white dark:bg-gray-900 rounded border"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="font-medium">{config.moduleName}</span>
                           <Badge variant="success" size="sm">
@@ -1286,22 +1287,22 @@ const CreateTenantPage: React.FC = () => {
                         {hasQuantities && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {config.quantities.users && config.quantities.users > 0 && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
+                              <span className="text-xs bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 px-2 py-1 rounded">
                                 {config.quantities.users} Users
                               </span>
                             )}
                             {config.quantities.farms && config.quantities.farms > 0 && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
+                              <span className="text-xs bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 px-2 py-1 rounded">
                                 {config.quantities.farms} Farms
                               </span>
                             )}
                             {config.quantities.sensors && config.quantities.sensors > 0 && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
+                              <span className="text-xs bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 px-2 py-1 rounded">
                                 {config.quantities.sensors} Sensors
                               </span>
                             )}
                             {config.quantities.storageGb && config.quantities.storageGb > 0 && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
+                              <span className="text-xs bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 px-2 py-1 rounded">
                                 {config.quantities.storageGb} GB
                               </span>
                             )}
@@ -1341,11 +1342,11 @@ const CreateTenantPage: React.FC = () => {
         {/* Pricing Summary Sidebar - Only on Step 3 */}
         {currentStep === 2 && (
           <div className="w-80 flex-shrink-0">
-            <Card className="p-5 sticky top-4 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
-              <h4 className="font-semibold text-gray-900 mb-4">Price Summary</h4>
+            <Card className="p-5 sticky top-4 bg-gradient-to-br from-primary-50 to-accent-50 border-primary-200 dark:border-primary-800">
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Price Summary</h4>
 
               {enabledModules.length === 0 ? (
-                <p className="text-sm text-gray-500">Select modules...</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Select modules...</p>
               ) : (
                 <div className="space-y-4">
                   {/* Selected Modules */}
@@ -1355,7 +1356,9 @@ const CreateTenantPage: React.FC = () => {
                         key={config.moduleId}
                         className="flex items-center justify-between text-sm"
                       >
-                        <span className="text-gray-600 truncate">{config.moduleName}</span>
+                        <span className="text-gray-600 dark:text-gray-400 truncate">
+                          {config.moduleName}
+                        </span>
                         <Badge variant="info" size="sm">
                           Active
                         </Badge>
@@ -1363,43 +1366,50 @@ const CreateTenantPage: React.FC = () => {
                     ))}
                   </div>
 
-                  <div className="border-t border-indigo-200 pt-4">
+                  <div className="border-t border-primary-200 dark:border-primary-800 pt-4">
                     {/* Every figure here is billing's, never recomputed locally. */}
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-500">Subtotal</span>
+                      <span className="text-gray-500 dark:text-gray-400">Subtotal</span>
                       <span>
                         {priceCalculation ? `$${formatMoney(priceCalculation.subtotal)}` : '—'}
                       </span>
                     </div>
                     {priceCalculation && Number(priceCalculation.tierDiscount) > 0 && (
-                      <div className="flex justify-between text-sm text-green-600 mb-1">
+                      <div className="flex justify-between text-sm text-success-600 dark:text-success-400 mb-1">
                         <span>Tier Discount</span>
                         <span>-${formatMoney(priceCalculation.tierDiscount)}</span>
                       </div>
                     )}
                     {priceCalculation && Number(priceCalculation.discountAmount) > 0 && (
-                      <div className="flex justify-between text-sm text-green-600 mb-1">
+                      <div className="flex justify-between text-sm text-success-600 dark:text-success-400 mb-1">
                         <span>{priceCalculation.discountDescription || 'Discount'}</span>
                         <span>-${formatMoney(priceCalculation.discountAmount)}</span>
                       </div>
                     )}
                     {quoteError !== null && (
-                      <p className="text-sm text-amber-700 mb-1" role="status">
+                      <p
+                        className="text-sm text-warning-700 dark:text-warning-300 mb-1"
+                        role="status"
+                      >
                         {quoteError}
                       </p>
                     )}
-                    <div className="flex justify-between items-baseline pt-3 border-t border-indigo-200 mt-3">
-                      <span className="font-semibold text-gray-900">Monthly Total</span>
+                    <div className="flex justify-between items-baseline pt-3 border-t border-primary-200 dark:border-primary-800 mt-3">
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">
+                        Monthly Total
+                      </span>
                       <div className="text-right">
-                        <span className="text-2xl font-bold text-indigo-600">
+                        <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
                           ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
                         </span>
-                        <span className="text-sm text-gray-500">/mo</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">/mo</span>
                       </div>
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500 pt-2">* Prices are shown excluding taxes</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 pt-2">
+                    * Prices are shown excluding taxes
+                  </p>
                 </div>
               )}
             </Card>

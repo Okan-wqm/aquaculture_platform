@@ -1,0 +1,210 @@
+import 'reflect-metadata';
+import {
+  carryingCapacity,
+  feedingImpact,
+  growthProjection,
+  oxygenBudget,
+  specificGrowthRate,
+} from '@platform/aquaculture-engines';
+import type { ToolExecutionContext } from '../../core/tool.interface';
+import { CalculateCarryingCapacityTool } from '../calculate-carrying-capacity.tool';
+import { CalculateGrowthMetricsTool } from '../calculate-growth-metrics.tool';
+import { CalculateOxygenBudgetTool } from '../calculate-oxygen-budget.tool';
+import { PredictFeedingImpactTool } from '../predict-feeding-impact.tool';
+import { roundNumbersDeep } from '../aquaculture-math.schema';
+
+const CTX: ToolExecutionContext = {
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  schemaName: 'tenant_1111111111111111',
+  userId: 'u-1',
+  userRoles: ['operator'],
+  correlationId: 'corr-1',
+  persona: 'expert-farm-production-v1',
+  personaTier: 'expert',
+  offeredToolNames: [],
+  actuationPolicy: 'confirm_required',
+};
+
+/**
+ * FARM-LOW-329 — the ai-service math tools are thin @Tool wrappers over
+ * @platform/aquaculture-engines: core (no module gate), read-only, every tier,
+ * and they return the engine's result unchanged. Input hygiene is the tool's
+ * own job (model-authored numbers).
+ */
+describe('aquaculture-math tools', () => {
+  const tools = [
+    new CalculateOxygenBudgetTool(),
+    new CalculateCarryingCapacityTool(),
+    new CalculateGrowthMetricsTool(),
+    new PredictFeedingImpactTool(),
+  ];
+
+  it('are core, read-only, every-tier tools', () => {
+    for (const tool of tools) {
+      const meta = tool.getMetadata();
+      expect(meta.requiresModule).toBeNull();
+      expect(meta.requiresConfirmation).toBe(false);
+      expect(meta.runtime).toBe('both');
+      expect(meta.requiredPermissions).toEqual(['operator', 'manager', 'expert', 'supervisor']);
+    }
+    expect(tools.map((t) => t.getMetadata().name)).toEqual([
+      'calculate_oxygen_budget',
+      'calculate_carrying_capacity',
+      'calculate_growth_metrics',
+      'predict_feeding_impact',
+    ]);
+  });
+
+  it('calculate_oxygen_budget returns the engine result verbatim', async () => {
+    const input = {
+      temperatureC: 20,
+      dailyFeedKg: 10,
+      tankVolumeM3: 100,
+      currentDoMgL: 8,
+      waterFlowM3h: 50,
+    };
+    const result = await new CalculateOxygenBudgetTool().execute(input, CTX);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(roundNumbersDeep(oxygenBudget(input)));
+  });
+
+  it('calculate_carrying_capacity returns the engine result verbatim', async () => {
+    const input = {
+      tankVolumeM3: 100,
+      temperatureC: 20,
+      maxDensityKgM3: 20,
+      avgFishWeightG: 500,
+      dailyFeedingRatePercent: 2,
+    };
+    const result = await new CalculateCarryingCapacityTool().execute(input, CTX);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(roundNumbersDeep(carryingCapacity(input)));
+  });
+
+  it('predict_feeding_impact returns the engine result verbatim', async () => {
+    const input = {
+      feedKg: 10,
+      biomassKg: 500,
+      tankVolumeM3: 100,
+      temperatureC: 20,
+      currentPH: 7.5,
+      speciesCode: 'trout',
+    };
+    const result = await new PredictFeedingImpactTool().execute(input, CTX);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(roundNumbersDeep(feedingImpact(input), 6));
+  });
+
+  it('calculate_growth_metrics dispatches on mode and tags the result', async () => {
+    const tool = new CalculateGrowthMetricsTool();
+    const sgr = await tool.execute(
+      { mode: 'sgr', initialWeightG: 100, finalWeightG: 150, days: 30 },
+      CTX,
+    );
+    expect(sgr.data).toEqual(
+      roundNumbersDeep({ mode: 'sgr', ...specificGrowthRate(100, 150, 30) }),
+    );
+    expect((sgr.data as { sgrPercentPerDay: number }).sgrPercentPerDay).toBe(1.3516);
+
+    const projection = await tool.execute(
+      {
+        mode: 'projection',
+        currentWeightG: 100,
+        currentQuantity: 1000,
+        sgrPercentPerDay: 1,
+        targetWeightG: 200,
+        mortalityRatePercent: 0.1,
+      },
+      CTX,
+    );
+    // Presentation: whole fish, four decimals; the engine's numbers otherwise.
+    const engine = growthProjection({
+      currentWeightG: 100,
+      currentQuantity: 1000,
+      sgrPercentPerDay: 1,
+      targetWeightG: 200,
+      mortalityRatePercent: 0.1,
+    });
+    const presented = projection.data as {
+      samples: Array<{ quantity: number; cumulativeMortality: number }>;
+      final: { quantity: number };
+      survivalRatePercent: number;
+    };
+    expect(
+      presented.samples.every(
+        (s) => Number.isInteger(s.quantity) && Number.isInteger(s.cumulativeMortality),
+      ),
+    ).toBe(true);
+    expect(presented.final.quantity).toBe(Math.round(engine.final.quantity));
+    expect(presented.survivalRatePercent).toBe(Math.round(engine.survivalRatePercent * 1e4) / 1e4);
+
+    const transfer = await tool.execute(
+      {
+        mode: 'transfer_density',
+        sourceTank: { volumeM3: 100, currentBiomassKg: 1500, maxDensityKgM3: 20 },
+        destTank: { volumeM3: 50, currentBiomassKg: 200, maxDensityKgM3: 20 },
+        transferBiomassKg: 500,
+      },
+      CTX,
+    );
+    expect(transfer.success).toBe(true);
+    expect(transfer.data).toMatchObject({
+      mode: 'transfer_density',
+      feasible: true,
+      maxSafeTransferKg: 800,
+    });
+  });
+
+  it('rejects out-of-range and mode-incomplete input before computing', async () => {
+    const oxygen = await new CalculateOxygenBudgetTool().execute(
+      { temperatureC: 60, dailyFeedKg: 10, tankVolumeM3: 100, currentDoMgL: 8 },
+      CTX,
+    );
+    expect(oxygen.success).toBe(false);
+    expect(oxygen.error).toContain('temperatureC must be ≤ 45');
+
+    const zeroVolume = await new PredictFeedingImpactTool().execute(
+      { feedKg: 10, biomassKg: 500, tankVolumeM3: 0, temperatureC: 20, currentPH: 7.5 },
+      CTX,
+    );
+    expect(zeroVolume.success).toBe(false);
+    expect(zeroVolume.error).toContain('tankVolumeM3');
+
+    const growth = new CalculateGrowthMetricsTool();
+    const missing = await growth.execute({ mode: 'fcr', feedConsumedKg: 10 }, CTX);
+    expect(missing.success).toBe(false);
+    expect(missing.error).toContain('biomassGainKg is required for mode fcr');
+    const noHorizon = await growth.execute(
+      { mode: 'projection', currentWeightG: 100, currentQuantity: 10, sgrPercentPerDay: 1 },
+      CTX,
+    );
+    expect(noHorizon.success).toBe(false);
+    expect(noHorizon.error).toContain('targetWeightG or projectionDays');
+    // A model-authored mode outside the union arrives as parsed JSON.
+    const badMode = await growth.execute(
+      JSON.parse('{"mode":"fcr2"}') as Parameters<typeof growth.execute>[0],
+      CTX,
+    );
+    expect(badMode.success).toBe(false);
+  });
+
+  it('an unfed tank above the floor reads as a surplus, and only declared fields reach the engine', async () => {
+    const unfed = await new CalculateOxygenBudgetTool().execute(
+      { temperatureC: 20, dailyFeedKg: 0, tankVolumeM3: 100, currentDoMgL: 9 },
+      CTX,
+    );
+    expect(unfed.success).toBe(true);
+    expect((unfed.data as { balanceStatus: string }).balanceStatus).toBe('surplus');
+
+    const badFloor = await new CalculateOxygenBudgetTool().execute(
+      { temperatureC: 20, dailyFeedKg: 10, tankVolumeM3: 100, currentDoMgL: 9, minSafeDoMgL: -1e9 },
+      CTX,
+    );
+    expect(badFloor.success).toBe(false);
+    expect(badFloor.error).toContain('minSafeDoMgL');
+
+    for (const tool of tools) {
+      expect(tool.getMetadata().inputSchema['additionalProperties']).toBe(false);
+    }
+  });
+});

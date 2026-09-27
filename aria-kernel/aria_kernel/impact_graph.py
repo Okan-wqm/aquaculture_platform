@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .agent_routing import load_routing_table, recommended_agents_for_project
+from .canonical_path import lexical_repo_path
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -628,8 +629,7 @@ def _normalize_path(path: str) -> str:
     clean = path.replace("\\", "/").split(":", 1)[0]
     if clean.startswith("file://"):
         clean = clean.removeprefix("file://")
-    clean = clean.removeprefix("./").rstrip("/")
-    return clean
+    return lexical_repo_path(clean).rstrip("/")
 
 
 def _children(path: Path) -> list[Path]:

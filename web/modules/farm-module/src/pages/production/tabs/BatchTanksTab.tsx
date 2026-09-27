@@ -11,7 +11,7 @@
  * the detailed allocation list lands as part of PR-2/PR-3.
  */
 import React, { useState } from 'react';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, Button } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import AllocateBatchToTankModal from '../components/AllocateBatchToTankModal';
@@ -51,58 +51,50 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Tank Tahsisleri
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Bu partinin tanklara dağılımı. Yeni tank tahsisi için
             "Tanka Tahsis Et" butonunu kullanın.
           </p>
         </div>
         {canAllocate && (
-          <button
-            type="button"
-            onClick={() => setShowAllocateModal(true)}
-            disabled={buttonDisabled}
-            title={
+          <Button variant="primary" size="sm" type="button" onClick={() => setShowAllocateModal(true)} disabled={buttonDisabled} title={
               buttonDisabled
                 ? batch.currentQuantity <= 0
                   ? 'Tahsis edilebilir adet kalmadı'
                   : 'Bu durumdaki bir parti tahsis edilemez'
                 : undefined
-            }
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Tanka Tahsis Et
-          </button>
+            }>Tanka Tahsis Et</Button>
         )}
       </div>
 
       {/* Summary card — replaced with per-tank breakdown in a follow-up
           when the GraphQL Batch type exposes allocations relationally */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               İlk Stok Adet
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.initialQuantity.toLocaleString('tr-TR')}
             </div>
           </div>
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               Mevcut Adet
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.currentQuantity.toLocaleString('tr-TR')}
             </div>
           </div>
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               Mevcut Biyokütle
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.currentBiomassKg !== undefined
                 ? `${batch.currentBiomassKg.toFixed(1)} kg`
                 : '—'}

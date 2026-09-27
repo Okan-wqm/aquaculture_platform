@@ -37,6 +37,35 @@ describe('channelTitle', () => {
     expect(channelTitle(channel)).toBe('Ayşe Yılmaz, Mehmet Demir');
   });
 
+  it('excludes MY OWN membership from a DM title (FAZ 1: DM header must not contain my name)', () => {
+    const channel = makeChannel({
+      members: [
+        { id: 'm1', userId: 'me', role: 'MEMBER', user: { id: 'me', firstName: 'Ben', lastName: 'Kendim', profileImageUrl: null } },
+        { id: 'm2', userId: 'u2', role: 'MEMBER', user: { id: 'u2', firstName: 'Mehmet', lastName: 'Demir', profileImageUrl: null } },
+      ],
+    });
+    expect(channelTitle(channel, 'me')).toBe('Mehmet Demir');
+  });
+
+  it('still excludes the self member when its user sub-object is unhydrated', () => {
+    const channel = makeChannel({
+      members: [
+        { id: 'm1', userId: 'me', role: 'MEMBER', user: null },
+        { id: 'm2', userId: 'u2', role: 'MEMBER', user: { id: 'u2', firstName: 'Ada', lastName: null, profileImageUrl: null } },
+      ],
+    });
+    expect(channelTitle(channel, 'me')).toBe('Ada');
+  });
+
+  it('falls back to "Direct message" when only my own membership remains', () => {
+    const channel = makeChannel({
+      members: [
+        { id: 'm1', userId: 'me', role: 'MEMBER', user: { id: 'me', firstName: 'Ben', lastName: null, profileImageUrl: null } },
+      ],
+    });
+    expect(channelTitle(channel, 'me')).toBe('Direct message');
+  });
+
   it('falls back to first name only when the last name is missing', () => {
     const channel = makeChannel({
       members: [

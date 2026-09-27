@@ -94,6 +94,9 @@ export const adminKeys = {
     /** Root for the performance dashboard's three independent reads. */
     performance: () => [...adminKeys.system.all(), 'performance'] as const,
     settings: () => [...adminKeys.system.all(), 'settings'] as const,
+    /** Company marine provider credential status, one slice per provider. */
+    providerCredential: (provider: string) =>
+      [...adminKeys.system.all(), 'provider-credential', provider] as const,
     analytics: () => [...adminKeys.system.all(), 'analytics'] as const,
   },
 

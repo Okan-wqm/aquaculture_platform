@@ -14,6 +14,46 @@ name: ARIA State Maintenance
 # It also cleans hot artifacts — the single biggest contributor (529MB
 # from old cycles' tool_run.json files) that the JSONL-only compact
 # never touched.
+#
+# ONE PUBLISHER. This lane used to commit its result itself — `git add -A`,
+# `git commit`, `git push origin HEAD:aria/state` — and that second publish
+# path is what stalled the branch. A whole-tree add admits everything the
+# store's writers leave on disk: the `*.lock` side-cars `file_lock` keeps
+# by design, `repo_identity.json`, `integrity_index.json`. Tip 84032eda1
+# (2026-09-11) carried sixteen of those side-cars, and the kernel's publish
+# — which stages only the surfaces its snapshot attests and verifies the
+# committed tree against that snapshot — inherited them through the index,
+# was refused by its own verifier, and soft-reset. No kernel publish landed
+# after 2026-09-04. The same commits also shipped a STALE snapshot.json:
+# compaction rewrote the ledgers and nothing rebuilt the attestation, so
+# the full verifier refused the tip as state_snapshot_surface_mismatch.
+#
+# The lane now publishes through `aria_kernel state publish`, the verb every
+# other lane uses: a fresh snapshot.json built from the compacted tree, the
+# bounded pathspec, the inherited-entry healing (state_tree_contract) and the
+# immutable verification, then a fast-forward push of the verified commit.
+# tests/invariants/aria-single-publish-path.spec.ts pins that no lane pushes
+# aria/state any other way.
+#
+# THE COMPACTED STORE IS VERIFIED THE WAY THE CONSUMER VERIFIES IT
+# (ARIA-HIGH-117). The snapshot attests the ledgers' bytes; it says nothing
+# about whether the artifacts those ledgers point at exist. This lane ran
+# `state compact` and published on the snapshot alone, so once the 09-04
+# cycles aged past the seven-day window (09-11, 09-12) their hot artifacts
+# were stripped and their index rows dropped while `runs.jsonl` refs and
+# every `raw-findings.jsonl` pointer still named them — by design, the
+# compact archive holds the rows — and the executor lane's "Verify ARIA
+# state integrity" refused the tip it inherited (3,898 issues on runs
+# 34745606502 and 34762798856) on every run since. Two fixes, both here:
+# compaction now attests what it strips on `run-artifacts/compacted.jsonl`
+# (the verifier reads a ref into an attested artifact as `compacted`), and
+# this lane runs the SAME `integrity verify` the executor runs, before its
+# publish, and fails closed on the same `state_valid` verdict. The kernel's
+# `state publish` verifies the runtime pointers on its own as well
+# (`state_publish_runtime_artifacts_unverified`), so no lane can publish a
+# store whose pointers do not verify even without this step; the step is
+# what makes this lane's verdict the consumer's whole verdict (ledger
+# chains, index drift, workspace, cycle lifecycle), not the pointers alone.
 # =============================================================================
 
 on:
@@ -25,6 +65,24 @@ on:
       retain_days:
         description: 'Days of data to retain (default 7)'
         default: '7'
+        required: false
+      state_reduction_ack:
+        # ONE-SHOT, OPERATOR-TYPED, PUBLISH-STEP ONLY. A scheduled run has no
+        # input, so the continuity gate stays fail-closed: the only losses
+        # it accepts are the ones this run's compaction attested. An
+        # operator types the acknowledgement here for exactly one run when
+        # the tip carries losses nothing attested — the 2026-09 tip's stale
+        # manifest still claimed hot artifacts an earlier sweep had removed
+        # — and the value reaches `state publish` alone, never the restore,
+        # so it cannot create the branch (docs/runbooks/aria-state-branch-bootstrap.md).
+        # The value must name THIS repository (`owner/repo`), exactly as the
+        # bootstrap ack must; the publish refuses any other string by name,
+        # and it records the acceptance — the surfaces and the ack — on the
+        # governance ledger inside the commit it accepts
+        # (state_publish_losses_accepted_by_ack), so the reduction is on the
+        # branch's own audit trail, not only in this run's log.
+        description: 'Acknowledge an unattested state reduction for THIS run only: the repository name (owner/repo); leave empty on every normal run'
+        default: ''
         required: false
 
 permissions:
@@ -92,40 +150,94 @@ jobs:
           AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
 
-      # The restore's credential lived only in its own step; the push mints
-      # its own the same way (extraheader in this step's environment).
+      # ARIA-HIGH-117 — the consumer's verdict, applied by the producer of
+      # the compacted tree. Identical to the executor lane's step: the same
+      # verb, the same roots (the restored tools root and this checkout),
+      # the same `state_valid` output the publish is gated on, the verdict
+      # in the step summary. The compaction ledger is what lets a lawfully
+      # stripped store answer valid here; a store that does not is left
+      # unpublished with the previous tip intact.
+      - name: Verify ARIA state integrity
+        id: integrity
+        run: |
+          set -uo pipefail
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir "$ARIA_TOOLS_DIR" \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### ARIA state integrity (after compaction)'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The restore's credential lived only in its own step; the publish
+      # mints its own the same way (extraheader in this step's environment).
       - name: Mint the aria/state push credential
-        id: push_credential
+        id: publish_credential
+        if: steps.integrity.outputs.state_valid == 'true'
         env:
-          STATE_TOKEN: ${{ github.token }}
+          PUBLISH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          HEADER="$(printf 'x-access-token:%s' "$STATE_TOKEN" | base64 -w0)"
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
           echo "::add-mask::${HEADER}"
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push compacted state
+      # THE KERNEL PUBLISHES, NOT THE SHELL. `state publish` opens the store
+      # the restore action checked out, binds one exact base commit, drops
+      # every inherited entry no snapshot can claim (recording each on the
+      # governance ledger), builds a fresh snapshot.json from the compacted
+      # tree, stages only the attested surfaces, verifies the committed tree
+      # against that snapshot, and fast-forward-pushes the verified commit.
+      # "Nothing to publish" is the kernel's own `no_changes` verdict (exit
+      # 0) — no porcelain check here can know what the snapshot will attest.
+      #
+      # The surfaces compaction prunes (old hot-artifact cycles, discovery
+      # FATES) are losses the continuity gate would refuse; compaction
+      # records exactly what it pruned on its `state_compacted` row and the
+      # publish accepts those losses on that attestation — `pruned_paths` on
+      # the governance row IS the audit trail. No standing bootstrap ack is
+      # exported here (the runbook forbids one in a workflow); the
+      # acknowledgement below is empty on every scheduled run and carries
+      # the operator's one-run input only on a manual dispatch.
+      #
+      # Gated on the integrity verdict above (ARIA-HIGH-117), and the verb
+      # itself refuses a store whose runtime pointers do not verify.
+      - name: Publish the compacted state through the kernel
+        if: steps.integrity.outputs.state_valid == 'true'
         env:
-          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
-          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.push_credential.outputs.header }}'
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          ARIA_STATE_BOOTSTRAP_ACK: ${{ github.event.inputs.state_reduction_ack || '' }}
         run: |
           set -euo pipefail
-          # The store worktree is the parent of the exported tools root.
-          cd "$(dirname "${ARIA_TOOLS_DIR}")"
-          git config user.name "aria-state-maintenance"
-          git config user.email "aria-state-maintenance@users.noreply.github.com"
-          # `git diff --quiet` ignores untracked files, and compaction's
-          # archives are new files — the old check could report "already
-          # compact" with a fresh archive sitting unstaged beside it.
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes — state already compact"
-            exit 0
-          fi
-          git add -A
-          git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
-          git push origin HEAD:aria/state
-          echo "PUSHED compacted state"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "state-maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "state-maintenance-${GITHUB_RUN_ID}"
+
+      # ARIA-HIGH-117 — a compaction whose result did not verify is not a
+      # green run. The previous tip is untouched (nothing was pushed); what
+      # is lost is only this run's compaction, which the next run redoes.
+      - name: Fail when the compacted state was not published
+        if: always() && steps.integrity.outputs.state_valid != 'true'
+        run: |
+          set -euo pipefail
+          echo "::error::the compacted aria/state tree did not pass integrity verification; nothing was published (see the step summary)"
+          exit 1
 
       - name: Report size
         if: always()

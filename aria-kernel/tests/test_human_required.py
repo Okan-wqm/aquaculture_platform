@@ -167,7 +167,7 @@ class SweepLeaseLifecycleTests(unittest.TestCase):
             role="primary_plan",
             suggested_prompt="exhaust requeues",
             must_satisfy=[
-                {"id": "exhaust-test", "criterion": "request reaches human_required"},
+                {"id": "exhaust-test", "description": "request reaches human_required"},
             ],
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-sweep-001",

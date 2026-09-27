@@ -17,13 +17,13 @@ describe('Button surface="glass"', () => {
     expect(btn.className).toContain('hover:bg-[var(--surface-btn-bg-hover)]');
     expect(btn.className).toContain('text-[var(--surface-btn-fg)]');
     // glass replaces the primary variant → no raw blue bg
-    expect(btn.className).not.toContain('bg-blue-600');
+    expect(btn.className).not.toContain('bg-primary-600');
   });
 
   it('default surface keeps the primary variant (additive / no-breakage)', () => {
     render(<Button>Giriş</Button>);
     const btn = screen.getByRole('button', { name: 'Giriş' });
-    expect(btn.className).toContain('bg-blue-600');
+    expect(btn.className).toContain('bg-primary-600');
     expect(btn.className).not.toContain('--surface-btn');
   });
 });

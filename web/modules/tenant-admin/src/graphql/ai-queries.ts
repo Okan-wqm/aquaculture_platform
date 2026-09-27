@@ -16,6 +16,7 @@ export const AI_PROVIDER_SETTINGS_QUERY = `
       enablementReason
       anthropicKeyHint
       openaiKeyHint
+      zaiKeyHint
       chatModel
       monthlyTokenBudget
       hourlyRequestLimit
@@ -32,6 +33,7 @@ export const UPDATE_AI_PROVIDER_SETTINGS_MUTATION = `
       enablementReason
       anthropicKeyHint
       openaiKeyHint
+      zaiKeyHint
       chatModel
       monthlyTokenBudget
       hourlyRequestLimit

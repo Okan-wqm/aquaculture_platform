@@ -66,7 +66,7 @@ export function TaskCard({ task, onPress }: TaskCardProps): ReactElement {
               {task.title}
             </h3>
             {task.dueTime && (
-              <span className="text-xs text-gray-400 font-medium whitespace-nowrap mt-0.5">
+              <span className="text-xs text-gray-400 dark:text-gray-500 font-medium whitespace-nowrap mt-0.5">
                 {task.dueTime}
               </span>
             )}
@@ -93,7 +93,7 @@ export function TaskCard({ task, onPress }: TaskCardProps): ReactElement {
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <span className="text-[11px] text-gray-400 font-medium">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">
                 {completedItems.length}/{totalItems}
               </span>
             </div>

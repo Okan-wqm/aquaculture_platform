@@ -28,7 +28,7 @@ import time
 import unittest
 from pathlib import Path
 
-from aria_kernel.file_lock import with_exclusive_lock
+from aria_kernel.file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
 
 
 class WithExclusiveLockTests(unittest.TestCase):
@@ -121,6 +121,41 @@ with with_exclusive_lock(Path({repr(str(target))})):
 
             self.assertFalse(parent.exists())
 
+    def test_the_sidecar_shape_decodes_back_to_its_target(self) -> None:
+        """The side-car this module leaves on disk (POSIX keeps it after
+        release) is the exact thing a published state tree must never
+        carry; `state_tree_contract` recognises one by asking this module,
+        so the decoder must be the precise inverse of the encoder."""
+        from pathlib import PurePosixPath
+
+        for target in (
+            PurePosixPath("runs.jsonl"),
+            PurePosixPath("locks/state-groups/governance.lock"),
+            PurePosixPath("memory/beliefs.jsonl"),
+            PurePosixPath("integrity_index.json"),
+            Path("/tmp/x/ledger.jsonl"),
+        ):
+            sidecar = lock_sidecar_path(target)
+            self.assertEqual(lock_sidecar_target(sidecar), target, sidecar)
+        # A store-relative POSIX path stays pure POSIX through the decoder
+        # AND the encoder (the manifest's group-lock key is built from one);
+        # a concrete Path stays concrete, so the lock helper can open it.
+        self.assertIsInstance(
+            lock_sidecar_target(PurePosixPath("tools/runs.jsonl.lock")),
+            PurePosixPath,
+        )
+        self.assertIs(type(lock_sidecar_path(PurePosixPath("tools/runs.jsonl"))), PurePosixPath)
+        self.assertIsInstance(lock_sidecar_path(Path("/tmp/x/ledger.jsonl")), Path)
+        self.assertIsInstance(lock_sidecar_path("/tmp/x/ledger.jsonl"), Path)
+        # The side-car this module actually creates decodes the same way.
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ledger.jsonl"
+            with with_exclusive_lock(target) as handle:
+                self.assertEqual(lock_sidecar_target(handle.path), target)
+        # Not side-cars: no target name, a different suffix, a plain name.
+        for path in (PurePosixPath(".lock"), PurePosixPath("a/b.txt"), PurePosixPath("runs.jsonl")):
+            self.assertIsNone(lock_sidecar_target(path), path)
+
 
 class ClaimRequestCasTests(unittest.TestCase):
     def test_claim_request_cas_recheck_in_source(self) -> None:
@@ -170,6 +205,288 @@ class SubmitClaimResultIdempotencyTests(unittest.TestCase):
             src.split("submit_claim_result_already_persisted")[0][-500:],
             "Plan 024 §H-2 — existing-result lookup must filter by claim_id",
         )
+
+
+class ImplementationScopeClaimTests(unittest.TestCase):
+    def test_native_implementation_claim_excludes_overlap_until_release(self) -> None:
+        from unittest.mock import patch
+        from aria_kernel.agent_invocations import (
+            claim_request, create_agent_invocation_request, derive_request_state,
+            release_claim,
+        )
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+
+        fixture_directory = tempfile.TemporaryDirectory(prefix="aria-native-scope-claims-")
+        self.addCleanup(fixture_directory.cleanup)
+        fixture = Path(fixture_directory.name)
+        environment = patch.dict(os.environ, {
+            "ARIA_REPO_STATE_ROOT": str(fixture / "repo-state"),
+            "ARIA_STATE_STORE_ROOT": str(fixture / "state-store"),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+        repo = make_repo_with_initial_commit(fixture / "source", {
+            "apps/farm-service/src/interval.ts": "export const interval = 30;\n",
+            "apps/farm-service/src/unit.ts": "export const unit = 'seconds';\n",
+        })
+        tools = fixture / "store" / "tools"
+        ensure_tools_binding(tools, workspace_root=repo)
+        set_profile("strict", operator_approval_ref="test:native-scope-claims", base_dir=tools)
+
+        from tests._helpers.production_shaped import production_implementation_request
+
+        # ARIA-HIGH-104 — minted through the real bridge on a CONVERGED plan
+        # scoped to the path (a bare implementation row is refused by the
+        # request contract); one plan per request keeps the ids distinct.
+        def request_for(path: str, plan_id: str) -> dict:
+            return production_implementation_request(
+                tools_dir=tools, workspace_root=repo, plan_id=plan_id, allowed_path=path,
+            )
+
+        first = request_for("apps/farm-service/src/interval.ts", "plan-first-interval-update")
+        overlapping = request_for("apps/farm-service/src/interval.ts", "plan-second-interval-update")
+        disjoint = request_for("apps/farm-service/src/unit.ts", "plan-independent-unit-update")
+        self.assertEqual(len({row["request_id"] for row in (first, overlapping, disjoint)}), 3)
+        first_claim = claim_request(request_id=first["request_id"], agent_id="scope-worker-a", base_dir=tools)
+        disjoint_claim = claim_request(request_id=disjoint["request_id"], agent_id="scope-worker-c", base_dir=tools)
+        claims_path = tools / "agent-invocations" / "claims.jsonl"
+        claims_before = claims_path.read_bytes()
+        native_claims = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual([row["claim_id"] for row in native_claims],
+            [first_claim["claim_id"], disjoint_claim["claim_id"]])
+        self.assertEqual(native_claims[0]["ledger_hash"], first_claim["claim_ledger_hash"])
+        self.assertEqual(derive_request_state(request_id=disjoint["request_id"], base_dir=tools), "CLAIMED")
+        with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+            claim_request(request_id=overlapping["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        self.assertEqual(claims_path.read_bytes(), claims_before)
+        self.assertEqual(derive_request_state(request_id=overlapping["request_id"], base_dir=tools), "PENDING")
+        release_claim(
+            claim_id=first_claim["claim_id"], agent_id="scope-worker-a",
+            lease_token=first_claim["lease_token"], reason="worker completed its local scope",
+            base_dir=tools,
+        )
+        next_claim = claim_request(request_id=overlapping["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        native_after = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual([row["event"] for row in native_after],
+            ["claimed", "claimed", "released", "requeued", "claimed"])
+        self.assertEqual(native_after[3]["claim_id"], first_claim["claim_id"])
+        self.assertEqual(native_after[3]["request_id"], first["request_id"])
+        self.assertEqual(native_after[:2], native_claims)
+        self.assertEqual(native_after[-1]["claim_id"], next_claim["claim_id"])
+        self.assertEqual(derive_request_state(request_id=overlapping["request_id"], base_dir=tools), "CLAIMED")
+        self.assertEqual(derive_request_state(request_id=disjoint["request_id"], base_dir=tools), "CLAIMED")
+
+    def _scope_fixture(self) -> tuple[Path, Path]:
+        from unittest.mock import patch
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+
+        fixture_directory = tempfile.TemporaryDirectory(prefix="aria-scope-lifecycle-")
+        self.addCleanup(fixture_directory.cleanup)
+        fixture = Path(fixture_directory.name)
+        environment = patch.dict(os.environ, {
+            "ARIA_REPO_STATE_ROOT": str(fixture / "repo-state"),
+            "ARIA_STATE_STORE_ROOT": str(fixture / "state-store"),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+        repo = make_repo_with_initial_commit(fixture / "source", {
+            "apps/farm-service/src/interval.ts": "export const interval = 30;\n",
+            "apps/farm-service/src-other/unit.ts": "export const unit = 'seconds';\n",
+        })
+        tools = fixture / "store" / "tools"
+        ensure_tools_binding(tools, workspace_root=repo)
+        set_profile("strict", operator_approval_ref="test:scope-lifecycle", base_dir=tools)
+        self._scope_repo = repo
+        return repo, tools
+
+    def _scope_request(self, tools: Path, path: str, purpose: str, *, role: str = "implementation") -> dict:
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+        from tests._helpers.production_shaped import production_implementation_request
+
+        if role == "implementation":
+            # ARIA-HIGH-104 — through the real bridge on a CONVERGED plan;
+            # the purpose names the plan so each request is a distinct row.
+            return production_implementation_request(
+                tools_dir=tools, workspace_root=self._scope_repo, plan_id="plan-" + purpose.replace(" ", "-"),
+                allowed_path=path,
+            )
+        return create_agent_invocation_request(
+            target_agent="aria-primary-planner",
+            role=role, suggested_prompt=purpose,
+            must_satisfy=[{"id": "scope-owner", "description": "inspect the declared source"}],
+            allowed_scope=[path], base_dir=tools,
+        )
+
+    def test_heartbeat_owns_scope_through_exact_expiry_then_allows_next_claim(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+        from aria_kernel.agent_invocations import claim_request, derive_request_state, heartbeat_claim
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import GovernanceError
+
+        _repo, tools = self._scope_fixture()
+        path = "apps/farm-service/src/interval.ts"
+        first = self._scope_request(tools, path, "inspect interval before heartbeat")
+        next_request = self._scope_request(tools, path, "inspect interval after heartbeat")
+        stamp = datetime.now(timezone.utc).replace(microsecond=0)
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp):
+            claim = claim_request(request_id=first["request_id"], agent_id="scope-worker-a",
+                lease_seconds=5, base_dir=tools)
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp + timedelta(seconds=4)):
+            heartbeat = heartbeat_claim(claim_id=claim["claim_id"], agent_id="scope-worker-a",
+                lease_token=claim["lease_token"], extend_seconds=60, base_dir=tools)
+        claims_path = tools / "agent-invocations" / "claims.jsonl"
+        rows = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual([row["event"] for row in rows], ["claimed", "heartbeat"])
+        self.assertEqual(rows[0]["ledger_hash"], claim["claim_ledger_hash"])
+        self.assertEqual(rows[1]["claim_id"], claim["claim_id"])
+        expiry = stamp + timedelta(seconds=64)
+        self.assertEqual(heartbeat["lease_expires_at"], expiry.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        claims_before = claims_path.read_bytes()
+        for elapsed in (6, 64):
+            with self.subTest(elapsed=elapsed), patch(
+                "aria_kernel.agent_invocations._utc_now_dt", return_value=stamp + timedelta(seconds=elapsed),
+            ):
+                self.assertEqual(derive_request_state(request_id=first["request_id"], base_dir=tools), "RUNNING")
+                with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+                    claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+                self.assertEqual(claims_path.read_bytes(), claims_before)
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=expiry + timedelta(seconds=1)):
+            next_claim = claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+            self.assertEqual(derive_request_state(request_id=next_request["request_id"], base_dir=tools), "CLAIMED")
+        after = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual(after[:2], rows)
+        self.assertEqual([row["event"] for row in after], ["claimed", "heartbeat", "claimed"])
+        self.assertEqual(after[-1]["claim_id"], next_claim["claim_id"])
+
+    def test_directory_scope_exclusion_preserves_other_roles_and_adjacent_paths(self) -> None:
+        from aria_kernel.agent_invocations import claim_request, derive_request_state, release_claim
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import GovernanceError
+
+        _repo, tools = self._scope_fixture()
+        source = "apps/farm-service/src/interval.ts"
+        planning = self._scope_request(tools, source, "plan the source review", role="primary_plan")
+        parent = self._scope_request(tools, "apps/farm-service/src", "inspect source directory")
+        child = self._scope_request(tools, source, "inspect directory member")
+        adjacent = self._scope_request(tools, "apps/farm-service/src-other/unit.ts", "inspect adjacent directory")
+        planning_claim = claim_request(request_id=planning["request_id"], agent_id="planner-worker", base_dir=tools)
+        parent_claim = claim_request(request_id=parent["request_id"], agent_id="scope-worker-a", base_dir=tools)
+        adjacent_claim = claim_request(request_id=adjacent["request_id"], agent_id="scope-worker-c", base_dir=tools)
+        claims_path = tools / "agent-invocations" / "claims.jsonl"
+        before = claims_path.read_bytes()
+        with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+            claim_request(request_id=child["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        self.assertEqual(claims_path.read_bytes(), before)
+        release_claim(claim_id=parent_claim["claim_id"], agent_id="scope-worker-a",
+            lease_token=parent_claim["lease_token"], reason="worker completed its local scope", base_dir=tools)
+        child_claim = claim_request(request_id=child["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        rows = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual([row["claim_id"] for row in rows if row["event"] == "claimed"],
+            [planning_claim["claim_id"], parent_claim["claim_id"], adjacent_claim["claim_id"], child_claim["claim_id"]])
+        self.assertEqual(derive_request_state(request_id=planning["request_id"], base_dir=tools), "CLAIMED")
+        self.assertEqual(derive_request_state(request_id=adjacent["request_id"], base_dir=tools), "CLAIMED")
+
+
+    def test_native_prepared_submission_keeps_scope_until_terminal_result(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        import hashlib
+        import json
+        from unittest.mock import patch
+        from aria_kernel import ledger
+        from aria_kernel.agent_invocations import (
+            claim_request, create_agent_invocation_request, derive_request_state,
+            submit_claim_result,
+        )
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import GovernanceError
+
+        repo, tools = self._scope_fixture()
+        path = "apps/farm-service/src/interval.ts"
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        request = self._scope_request(tools, path, "inspect interval before returning the bound response")
+        next_request = self._scope_request(tools, path, "inspect interval after terminal response")
+        stamp = datetime.now(timezone.utc).replace(microsecond=0)
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp):
+            claim = claim_request(request_id=request["request_id"], agent_id="scope-worker-a",
+                lease_seconds=5, base_dir=tools)
+        response = {
+            "$schema": "aria/agent-response/v1", "request_id": request["request_id"],
+            "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
+            "role": "implementation", "status": "submitted",
+            # One entry per obligation the real envelope carries.
+            "satisfaction_matrix": [{"id": entry["id"], "verdict": "satisfied",
+                "evidence_refs": [path + ":1"]} for entry in request["must_satisfy"]],
+            "evidence_refs": [path + ":1"],
+        }
+        output = Path(request["expected_output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(response), encoding="utf-8")
+        original_output = output.read_bytes()
+        transcript = tools.parent / "scope-worker-transcript.txt"
+        transcript.write_text("Fixture worker inspected the committed interval declaration.\n", encoding="utf-8")
+        arguments = {
+            "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
+            "lease_token": claim["lease_token"], "output_path": output,
+            "workspace_root": repo, "base_dir": tools,
+            "context_hash": request["context_hash"], "prompt_hash": request["prompt_hash"],
+            "transcript_hash": "sha256:" + hashlib.sha256(transcript.read_bytes()).hexdigest(),
+            "transcript_artifact_ref": str(transcript),
+            # The real implementation envelope carries no target_sha (the
+            # executor verifies evidence at the tree it ran on), so the
+            # submitter names the tree the fixture's evidence was read at.
+            "evidence_target_sha": head,
+        }
+        real_append = ledger.StateTransaction.append_declared_jsonl
+        observed_journals = []
+
+        def append_then_interrupt(transaction, ledger_path, record, **kwargs):
+            stored = real_append(transaction, ledger_path, record, **kwargs)
+            if record.get("event") == "result_submission_prepared" and record.get("claim_id") == claim["claim_id"]:
+                observed_journals.append(stored)
+                raise OSError("fixture write interruption after native prepared append")
+            return stored
+
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp + timedelta(seconds=1)), patch.object(
+            ledger.StateTransaction, "append_declared_jsonl", append_then_interrupt,
+        ), self.assertRaisesRegex(OSError, "after native prepared append"):
+            submit_claim_result(**arguments)
+        self.assertEqual(len(observed_journals), 1)
+        claims_path = tools / "agent-invocations" / "claims.jsonl"
+        results_path = tools / "agent-invocations" / "results.jsonl"
+        prepared_rows = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual([row["event"] for row in prepared_rows], ["claimed", "result_submission_prepared"])
+        self.assertEqual(prepared_rows[0]["ledger_hash"], claim["claim_ledger_hash"])
+        self.assertEqual(prepared_rows[1], observed_journals[0])
+        self.assertEqual(prepared_rows[1]["prepared"]["status"], "accepted")
+        self.assertEqual(load_declared_jsonl(results_path, expected_surface="agent_invocation_results"), [])
+        prepared_bytes = claims_path.read_bytes()
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp + timedelta(seconds=6)):
+            self.assertEqual(derive_request_state(request_id=request["request_id"], base_dir=tools), "CLAIMED")
+            with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+                claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+            self.assertEqual(claims_path.read_bytes(), prepared_bytes)
+            resumed = submit_claim_result(**arguments)
+            self.assertEqual(resumed["status"], "accepted")
+            native_results = load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+            self.assertEqual(len(native_results), 1)
+            self.assertEqual(native_results[0]["claim_id"], claim["claim_id"])
+            self.assertEqual(native_results[0]["request_id"], request["request_id"])
+            self.assertEqual(native_results[0]["submission_operation_id"], prepared_rows[1]["operation_id"])
+            self.assertEqual(native_results[0]["output_hash"], "sha256:" + hashlib.sha256(original_output).hexdigest())
+            self.assertEqual(claims_path.read_bytes(), prepared_bytes)
+            next_claim = claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        final_rows = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        self.assertEqual(final_rows[:2], prepared_rows)
+        self.assertEqual([row["event"] for row in final_rows], ["claimed", "result_submission_prepared", "claimed"])
+        self.assertEqual(final_rows[-1]["claim_id"], next_claim["claim_id"])
+        self.assertEqual(output.read_bytes(), original_output)
+
 
 
 if __name__ == "__main__":

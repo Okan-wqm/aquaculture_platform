@@ -3,7 +3,8 @@
  * TanStack Query hooks for performance reviews and goals
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_PERFORMANCE_REVIEWS,
@@ -306,7 +307,8 @@ export function useCreatePerformanceReview() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Performance review created' },
     mutationFn: (input: CreatePerformanceReviewInput) =>
       graphqlRequest<{ createPerformanceReview: PerformanceReview }, unknown>(
         client,
@@ -323,7 +325,8 @@ export function useSubmitSelfAssessment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Self-assessment submitted' },
     mutationFn: (input: SubmitSelfAssessmentInput) =>
       graphqlRequest<{ submitSelfAssessment: PerformanceReview }, unknown>(
         client,
@@ -340,7 +343,8 @@ export function useSubmitManagerAssessment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Manager assessment submitted' },
     mutationFn: (input: SubmitManagerAssessmentInput) =>
       graphqlRequest<{ submitManagerAssessment: PerformanceReview }, unknown>(
         client,
@@ -357,7 +361,8 @@ export function useFinalizeReview() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Review finalized' },
     mutationFn: (input: FinalizeReviewInput) =>
       graphqlRequest<{ finalizeReview: PerformanceReview }, unknown>(
         client,
@@ -374,7 +379,8 @@ export function useAcknowledgeReview() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Review acknowledged' },
     mutationFn: (input: { reviewId: string; comments?: string }) =>
       graphqlRequest<{ acknowledgeReview: PerformanceReview }, unknown>(
         client,
@@ -395,7 +401,8 @@ export function useCreateGoal() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal created' },
     mutationFn: (input: CreateGoalInput) =>
       graphqlRequest<{ createGoal: Goal }, unknown>(
         client,
@@ -412,7 +419,8 @@ export function useUpdateGoal() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal updated' },
     mutationFn: (input: UpdateGoalInput) =>
       graphqlRequest<{ updateGoal: Goal }, unknown>(
         client,
@@ -429,7 +437,8 @@ export function useUpdateGoalProgress() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal progress updated' },
     mutationFn: (input: UpdateGoalProgressInput) =>
       graphqlRequest<{ updateGoalProgress: Goal }, unknown>(
         client,
@@ -446,7 +455,8 @@ export function useCompleteGoal() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal completed' },
     mutationFn: (input: { goalId: string; completionNotes?: string }) =>
       graphqlRequest<{ completeGoal: Goal }, unknown>(
         client,
@@ -463,7 +473,8 @@ export function useCancelGoal() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal cancelled' },
     mutationFn: (input: { goalId: string; reason: string }) =>
       graphqlRequest<{ cancelGoal: Goal }, unknown>(
         client,
@@ -480,7 +491,8 @@ export function useDeferGoal() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Goal postponed' },
     mutationFn: (input: { goalId: string; newTargetDate: string; reason?: string }) =>
       graphqlRequest<{ deferGoal: Goal }, unknown>(
         client,

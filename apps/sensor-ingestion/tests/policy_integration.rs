@@ -227,27 +227,39 @@ async fn policy_subscriber_applies_live_change_event() {
         .await
         .expect("publish change");
 
-    // Wait for the subscriber to apply. The apply path is
-    // synchronous from the subscriber's POV — 500ms is generous.
+    // Wait for BOTH observables this test asserts: the in-memory
+    // apply and the persisted snapshot. `apply_change_message`
+    // applies in memory first and persists afterwards (the in-memory
+    // policy is authoritative; the disk copy is the cold-boot
+    // fallback), so seeing the backend flip says nothing about the
+    // file yet. Waiting on the flip and then reading the disk raced
+    // the rename and failed main's CI (SENSOR-MEDIUM-128).
     let mut waited = Duration::ZERO;
     let step = Duration::from_millis(20);
-    loop {
-        if matches!(policy.backend_for(tenant_migrated), IngestBackend::Rust) {
-            break;
+    let on_disk = loop {
+        let applied = matches!(policy.backend_for(tenant_migrated), IngestBackend::Rust);
+        let persisted = policy::load_snapshot_from_disk(&disk_path).filter(|snap| {
+            snap.overrides.get(&tenant_migrated).copied() == Some(IngestBackend::Rust)
+        });
+        if applied {
+            if let Some(snap) = persisted {
+                break snap;
+            }
         }
         if waited >= Duration::from_secs(2) {
             panic!(
-                "subscriber did not apply change within 2s; current backend={:?}",
-                policy.backend_for(tenant_migrated)
+                "subscriber did not apply and persist the change within 2s; \
+                 in-memory backend={:?}, persisted override={:?}",
+                policy.backend_for(tenant_migrated),
+                policy::load_snapshot_from_disk(&disk_path)
+                    .and_then(|snap| snap.overrides.get(&tenant_migrated).copied()),
             );
         }
         tokio::time::sleep(step).await;
         waited += step;
-    }
+    };
 
     // Disk fallback reflects the new state.
-    let on_disk = policy::load_snapshot_from_disk(&disk_path)
-        .expect("subscriber persisted snapshot after apply");
     assert_eq!(
         on_disk.overrides.get(&tenant_migrated).copied(),
         Some(IngestBackend::Rust),

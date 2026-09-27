@@ -834,7 +834,7 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
-## ADMIN-HIGH-135 — a price sheet that failed, offered anyway at a guessed price
+## ADMIN-HIGH-159 — a price sheet that failed, offered anyway at a guessed price
 
 **State:** OPEN → closed by W8v · **Wave:** W8v · **Owner:** okan
 **Deadline:** 2026-12-31

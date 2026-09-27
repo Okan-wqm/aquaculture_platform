@@ -106,6 +106,11 @@ the request worktree:
    executor-lane implementation ever had a ``change_committed`` row and
    the merge gate refused every one of them
    (``triple_gate_change_committed_missing``);
+3b. the change ledger's validated row (ARIA-HIGH-196), from the ok runs
+   at the committed tip only (ARIA-MEDIUM-231: never the staging baseline
+   recorded at ``base_sha`` under the same change id); a refusal stops the
+   delivery as ``change_validated:change_validated_refused:…`` — before
+   the credential, the push and the PR;
 4. the credential (round 6): the delivery lease is minted HERE — after
    the gate, inside the window it is consumed in
    (``delivery_credentials.hold_delivery_credentials``, ``covers_seconds``
@@ -171,6 +176,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .change_paths import name_status_args, parse_name_status_z
 from .delivery_credentials import (
     DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
     DELIVERY_CREDENTIAL_WORST_CASE_SECONDS,
@@ -212,8 +218,13 @@ from .validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 # minted after the gate, for the push and the PR), the push, the PR.
 DELIVERY_STAGES: tuple[str, ...] = (
     "branch_publication", "commit_identity", "admission", "change_ledger", "result_admissible",
-    "apply_gate", "credential", "push", "pr_open",
+    "apply_gate", "change_validated", "credential", "push", "pr_open",
 )
+# ARIA-MEDIUM-231 — the validated row that closes the change chain, written
+# after the commit row (it needs it) and before the credential, the push and
+# the PR: a chain that did not validate opens nothing. The request's stage,
+# not the host's — the tip's runs did not satisfy the matrix.
+CHANGE_VALIDATED_STAGE = "change_validated"
 # The stage that decides whether the tip is the kernel's own commit — the
 # gate every external effect below it stands on (round 4).
 COMMIT_IDENTITY_STAGE = "commit_identity"
@@ -246,8 +257,8 @@ KERNEL_STAMPED_DELIVERY_FIELDS: tuple[str, ...] = (
 )
 _PUSH_REMOTE = "origin"
 # The git subprocesses `deliver_implementation` runs, each at the store's git
-# cap: the tip's `rev-parse`, `diff --name-only` (the scope verdict), the
-# push, and `diff` (the stamp's hash).
+# cap: the tip's `rev-parse`, `diff --name-status --no-renames` (the scope
+# verdict), the push, and `diff` (the stamp's hash).
 DELIVERY_GIT_CALLS = 4
 # The `commit_identity` stage's own bounded subprocess: one `git
 # verify-commit` (round 4). Its registry read and anchor write are work,
@@ -594,6 +605,19 @@ def delivery_admission_refusal(
     )
 
 
+class ChangeValidatedRefused(Exception):
+    """``change_validated`` was refused; ``reason`` names why (ARIA-MEDIUM-231).
+
+    Raised, never returned: the helper used to answer ``None`` and its
+    delivery caller logged the refusal and opened the PR anyway. A caller
+    now handles the refusal or propagates it — there is no value to ignore.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 def _record_change_validated(
     *,
     change_id: str,
@@ -602,8 +626,13 @@ def _record_change_validated(
     emit: Callable[..., dict[str, Any]],
     request_id: str,
     cycle_id: str | None,
-) -> dict[str, Any] | None:
-    """Write ``change_validated`` from the ledger's own refs, or record why not."""
+) -> dict[str, Any]:
+    """Write ``change_validated`` from the committed tip's own refs, or refuse.
+
+    The refs are ``refs_for_change`` — the ok runs at the change's committed
+    tip. A refusal is recorded on governance (``change_validated_refused``)
+    and raised as :class:`ChangeValidatedRefused`.
+    """
     from .tool_registry import append_tools_governance
     from .validation_runs_ledger import refs_for_change
 
@@ -611,6 +640,7 @@ def _record_change_validated(
     try:
         return emit(change_id=change_id, validation_run_refs=refs, base_dir=base_dir, workspace_root=workspace)
     except GovernanceErrorType as exc:
+        reason = str(exc)[:500]
         append_tools_governance(
             base_dir,
             "change_validated_refused",
@@ -619,10 +649,10 @@ def _record_change_validated(
                 "request_id": request_id,
                 "cycle_id": cycle_id,
                 "validation_ref_count": len(refs),
-                "reason": str(exc)[:500],
+                "reason": reason,
             },
         )
-        return None
+        raise ChangeValidatedRefused(reason) from exc
 
 
 def deliver_implementation(
@@ -727,10 +757,16 @@ def deliver_implementation(
     # 1. The scope verdict: the diff's own file list (never the agent's word
     #    for it) against the plan's intended surfaces, the agent's
     #    dispositions. Refused by name BEFORE the tip's suite executes.
-    touched = _git(["diff", "--name-only", base_sha, branch_tip_sha], cwd=workspace, env=git_env)
+    #    ARIA-CRITICAL-214 — read through the one change-path reader: a
+    #    rename is its source AND its target, so moving an unplanned file
+    #    into a planned path is refused by the scope verdict for its source.
+    touched = _git(name_status_args(base_sha, branch_tip_sha), cwd=workspace, env=git_env)
     if touched.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(touched.stderr)}")
-    actual_affected_files = sorted(line.strip() for line in touched.stdout.splitlines() if line.strip())
+    try:
+        actual_affected_files = sorted({path for _status, path in parse_name_status_z(touched.stdout)})
+    except GovernanceErrorType as exc:
+        raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{str(exc)[:160]}") from exc
     try:
         verify_change_scope(
             change_id=change_id, actual_affected_files=actual_affected_files,
@@ -828,16 +864,24 @@ def deliver_implementation(
         raise ImplementationDeliveryRefusal("change_ledger", f"change_committed_refused:{str(exc)[:300]}") from exc
 
     # 3b. ARIA-HIGH-196 — the validation row that closes the chain, from the
-    #     runs the apply gate just recorded under this change id. Nothing
-    #     else wrote it autonomously, so every ARIA change stopped at
-    #     change_committed and the merge triple gate could never pass. A
-    #     refusal (the matrix gate blocked, the profile froze) is recorded
-    #     by name and the PR is still delivered for human review: the
-    #     triple gate refuses to auto-merge a change without this row.
-    _record_change_validated(
-        change_id=change_id, base_dir=base_dir, workspace=workspace,
-        emit=emit_change_validated, request_id=request_id, cycle_id=cycle_id,
-    )
+    #     runs the apply gate just recorded at this tip. Nothing else wrote
+    #     it autonomously, so every ARIA change stopped at change_committed
+    #     and the merge triple gate could never pass. ARIA-MEDIUM-231 — the
+    #     row attests exactly the committed tip (`refs_for_change` reads
+    #     only its runs, never the staging baseline at `base_sha`), and a
+    #     refusal (the matrix gate blocked, the profile froze) stops the
+    #     delivery HERE, by name, before the credential, the push and the
+    #     PR: it used to be logged and the PR opened anyway on a chain that
+    #     had not validated.
+    try:
+        _record_change_validated(
+            change_id=change_id, base_dir=base_dir, workspace=workspace,
+            emit=emit_change_validated, request_id=request_id, cycle_id=cycle_id,
+        )
+    except ChangeValidatedRefused as exc:
+        raise ImplementationDeliveryRefusal(
+            CHANGE_VALIDATED_STAGE, f"change_validated_refused:{exc.reason[:300]}",
+        ) from exc
 
     # 4. The credential, minted HERE (round 6): the hold brackets exactly
     #    the push and the PR opener — the window the lease is asked to
@@ -944,6 +988,8 @@ def stamp_implementation_delivery(
 
 __all__ = [
     "ADMISSION_STAGE",
+    "CHANGE_VALIDATED_STAGE",
+    "ChangeValidatedRefused",
     "COMMIT_IDENTITY_STAGE",
     "CREDENTIAL_STAGE",
     "DELIVERY_COMMIT_IDENTITY_SECONDS",

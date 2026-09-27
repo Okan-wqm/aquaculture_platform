@@ -190,6 +190,10 @@ _REPORT_DATE_EXPR = r"\$\{\{\s*steps\.resolved\.outputs\.date\s*\}\}"
 # restore name now because they share one action.
 _RESTORE_STEP = "Restore ARIA state from the aria/state branch"
 _PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+# ARIA-HIGH-217 — lanes that evaluate the pre-merge perimeter shape the PR
+# head as a worktree of their checkout, so the checkout lets go of main.
+_DETACH_STEP = "Detach the checkout from main"
+_EXPERT_REVIEW_STEP = "Request expert review of the implementation"
 _EXECUTOR_RESTORE_STEP = _RESTORE_STEP
 _EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
 _EXECUTOR_PENDING_STEP = "Find next pending request"
@@ -313,6 +317,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     ("actions", "read"),
                     ("id-token", "write"),
                 ),
+                # ARIA-HIGH-208 — token_source is the JOB's token. It opens no
+                # PR: the delivery step mints an App installation token per PR
+                # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
+                # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
@@ -444,7 +452,17 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     # id-token grant is how a job reaches it. Without it the
                     # probe's identity claims carry no platform proof.
                     ("id-token", "write"),
+                    # ARIA-MEDIUM-227: the self-revert producer puts every
+                    # self-merge freeze on GitHub as an issue the merge lane
+                    # reads, the moment it is written (the external
+                    # watchdog's incident issue is the same pattern, written
+                    # with its job token).
+                    ("issues", "write"),
                 ),
+                # ARIA-HIGH-208 — token_source is the JOB's token. It opens no
+                # PR: the delivery step mints an App installation token per PR
+                # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
+                # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
@@ -669,6 +687,32 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=15,
+                # ARIA-HIGH-218 — the rollback bundle is built outside the
+                # store, published as an Actions artifact, downloaded back
+                # through the API, and only then proven by the claim; the
+                # claim is published to aria/state after it is recorded.
+                # ARIA-HIGH-217 — the expert panel is requested here, on the
+                # PR head (a worktree of the detached checkout), and the
+                # requests are published with the claim.
+                required_steps=(
+                    _DETACH_STEP,
+                    _RESTORE_STEP,
+                    "Build the rollback bundle",
+                    "Publish the rollback bundle",
+                    "Download the published rollback bundle",
+                    "Assemble the readiness claim",
+                    _EXPERT_REVIEW_STEP,
+                    _PUBLISH_STEP,
+                ),
+                step_order=(
+                    ("Build the rollback bundle", "Publish the rollback bundle"),
+                    ("Publish the rollback bundle", "Download the published rollback bundle"),
+                    ("Download the published rollback bundle", "Assemble the readiness claim"),
+                    ("Assemble the readiness claim", _PUBLISH_STEP),
+                    (_DETACH_STEP, _EXPERT_REVIEW_STEP),
+                    (_RESTORE_STEP, _EXPERT_REVIEW_STEP),
+                    (_EXPERT_REVIEW_STEP, _PUBLISH_STEP),
+                ),
             ),
         ),
     ),
@@ -676,11 +720,19 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
     # the persistent self-hosted host, which can never attest ephemeral, so
     # verify_runner_attestation refused every one. This lane runs the same
     # auto-merge runner + merge authority on a GitHub-hosted runner after
-    # aria-readiness-claim completes, attests itself with lane=merge, and
-    # merges with the GitHub App installation token (a GITHUB_TOKEN merge
+    # aria-readiness-claim completes, attests each candidate it merges with
+    # lane=merge (ARIA-HIGH-220: bound to the run, the identity proven by
+    # the job's verified OIDC token — hence id-token: write), and merges
+    # with the GitHub App installation token (a GITHUB_TOKEN merge
     # triggers no push workflows on main and would blind post-merge
     # monitoring) — hence token_source github_app:installation. Its store
     # writes (decisions, attestations) publish to aria/state.
+    # ARIA-HIGH-206 — it runs on three triggers besides dispatch: a green
+    # aria-readiness-claim, a green `CI - Affected` run of a pull request
+    # (the heavier workflow three required checks come from, which finishes
+    # after the claim), and an hourly schedule. The trigger set is pinned
+    # by test_readiness_claim_lane.MergeRunnerLaneTests; every one reaches
+    # the same step sequence below, so the job contract is trigger-agnostic.
     "aria-merge-runner": WorkflowContract(
         workflow_id="aria-merge-runner",
         workflow_file=".github/workflows/aria-merge-runner.yml",
@@ -698,24 +750,41 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_RUNNER_TEMP}/aria-merge-runner-preflight\.json$",
                 ),
                 retention_days=7,
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("id-token", "write"),
+                ),
+                # ARIA-HIGH-208 — minted with
+                # gh_token_factory.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS
+                # (checks, statuses and issues read on top of the default),
+                # pinned by test_readiness_claim_lane.MergeRunnerLaneTests.
                 token_source="github_app:installation",
                 network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-merge-runner-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=15,
+                # ARIA-HIGH-220 — no lane-start attestation step: the merge
+                # step records each candidate's attestation, bound to the
+                # run, in the store it restored.
                 required_steps=(
+                    _DETACH_STEP,
                     _RESTORE_STEP,
-                    "Probe runner attestation",
+                    "Mint the aria/state push credential",
                     "Run the merge lane",
                     _PUBLISH_STEP,
                 ),
-                # The attestation must describe the store the merge reads,
-                # and must exist before the merge gate asks for it.
+                # The merge reads (and attests into) the restored store.
+                # ARIA-HIGH-222 — the aria/state credential exists before the
+                # merge step, which publishes each merge's intent before the
+                # merge call.
+                # ARIA-HIGH-217 — the perimeter is evaluated on the PR head,
+                # a worktree of the checkout, which must not stand on main.
                 step_order=(
-                    (_RESTORE_STEP, "Probe runner attestation"),
-                    ("Probe runner attestation", "Run the merge lane"),
+                    (_DETACH_STEP, "Run the merge lane"),
+                    (_RESTORE_STEP, "Run the merge lane"),
+                    ("Mint the aria/state push credential", "Run the merge lane"),
                     ("Run the merge lane", _PUBLISH_STEP),
                 ),
             ),

@@ -105,6 +105,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             github=github_snapshot(),
             changed_files=["apps/farm-service/src/app.module.ts"],
             base_dir=self.tools_dir,
+            workspace_root=None,
         )
         self.assertEqual(report["ready_state"], "blocked")
         self.assertEqual(report["failure_count"], 1)
@@ -154,6 +155,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             github=github_snapshot(),
             changed_files=["apps/farm-service/src/app.module.ts"],
             base_dir=self.tools_dir,
+            workspace_root=None,
         )
         failure_id = list_ci_failures(base_dir=self.tools_dir)[-1]["ci_failure_id"]
         task = produce_ci_review(ci_failure_id=failure_id, base_dir=self.tools_dir)
@@ -196,6 +198,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             github=github_snapshot(),
             changed_files=["apps/farm-service/src/app.module.ts"],
             base_dir=self.tools_dir,
+            workspace_root=None,
         )
         failure_id = list_ci_failures(base_dir=self.tools_dir)[-1]["ci_failure_id"]
         review = record_agent_review_result(

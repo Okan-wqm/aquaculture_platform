@@ -30,6 +30,7 @@ from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXEC
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.node_modules import installed_node_modules
+from tests._helpers.operator_acts import operator_set_profile
 
 _SHA = "a" * 40
 _SOURCE = Path(__file__).resolve().parents[1] / "aria_kernel" / "merge_authority.py"
@@ -44,6 +45,7 @@ class _Adapter:
     def get_pr(self, pr_number: int) -> dict:
         return {
             "number": pr_number,
+            "state": "OPEN",
             "repository": "okan/aqua",
             "base_branch": "main",
             "head_ref": "feat/x",
@@ -55,16 +57,40 @@ class _Adapter:
         self.merged.append(pr_number)
         return {"merged": True}
 
+    def get_open_issues(self, *, labels: list[str]) -> dict:
+        # No self-merge freeze notice is open (ARIA-MEDIUM-227).
+        return {"readable": True, "issues": []}
+
 
 def _gate_patches(head_sha: str = _SHA):
     """Every gate before the perimeter passes; the perimeter is the test."""
     return [
+        # The runner derives dry-run from the authority recorded in the tools
+        # dir (an autonomous profile or a merge-lane grant, ARIA-HIGH-205) —
+        # the same predicate the authority asserts (ARIA-MEDIUM-226), not the
+        # profile it was constructed with; both are fixture controls here.
         patch(
-            "aria_kernel.merge_authority.enforce_profile_for_action",
+            "aria_kernel.runtime_profile.merge_authority_available",
+            return_value=True,
+        ),
+        patch(
+            "aria_kernel.merge_authority.assert_merge_authority_available",
+            return_value="autonomous",
+        ),
+        patch(
+            "aria_kernel.merge_authority.assert_merge_authorized",
             return_value="autonomous",
         ),
         patch(
             "aria_kernel.merge_authority.assert_merge_not_watchdog_frozen",
+            return_value=None,
+        ),
+        # ARIA-HIGH-211 — the fixture's change is runtime source (L2), so the
+        # PR it opens is routed to a person and the lane would name it
+        # `human_merge_lane` before this perimeter; that route is a control
+        # here like the risk decision below.
+        patch(
+            "aria_kernel.merge_authority.human_merge_decision",
             return_value=None,
         ),
         patch(
@@ -170,6 +196,7 @@ class PreMergePerimeterTests(unittest.TestCase):
                 pr_number=77,
                 base_dir=self.tools,
                 readiness_claim_id="claim:77:aaaaaaaaaaaa",
+                intent_publisher=lambda intent: {"published": True},
             )
         finally:
             for p in patches:
@@ -187,7 +214,6 @@ class NativePreMergeContextTests(unittest.TestCase):
         from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
         from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
         from aria_kernel.plan_convergence import plan_status
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.snapshot import build_repo_snapshot
         from aria_kernel.tool_registry import ensure_tools_binding
         from aria_kernel.workspace import canonical_identity
@@ -210,7 +236,7 @@ class NativePreMergeContextTests(unittest.TestCase):
             source_path: "export const sampleIntervalMs = 30000;\n",
         })
         tools = root / "store" / "tools"
-        set_profile("strict", operator_approval_ref="test:pre-merge-context", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
             tools_dir=tools, workspace_root=repo,
@@ -290,6 +316,7 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertEqual(evidence.plan_content_hash, plan.content_hash)
         self.assertEqual(evidence.repo_identity, canonical_identity(repo))
         self.assertEqual(evidence.base_sha, base_sha)
+        self.assertEqual(evidence.live_base_sha, base_sha)
         self.assertEqual(evidence.head_sha, head_sha)
         self.assertEqual(evidence.snapshot_hash, snapshot["snapshot_hash"])
         self.assertEqual({
@@ -297,6 +324,33 @@ class NativePreMergeContextTests(unittest.TestCase):
             for path in tools.rglob("*") if path.is_file()
             and path.suffix in {".json", ".jsonl"}
         }, before)
+
+        # ARIA-HIGH-221 — main moves on while the PR waits for the merge
+        # queue: the PR's live base is main's new tip. The evidence stays
+        # bound to the implementation base (where the head forked from
+        # main), so the join, the changed paths and every row hash are what
+        # they were; the live base is recorded beside it. Joined against the
+        # live tip, main's own commit read as part of the change.
+        git("checkout", "-q", "main")
+        (repo / "docs").mkdir(exist_ok=True)
+        (repo / "docs" / "moved-on.md").write_text("main moved on\n", encoding="utf-8")
+        git("add", "docs/moved-on.md")
+        git("commit", "-q", "-m", "fixture: main moves ahead of the implementation base")
+        live_base_sha = git("rev-parse", "HEAD")
+        git("checkout", "-q", "aria/native-pre-merge-context")
+        self.assertEqual(git("merge-base", live_base_sha, head_sha), base_sha)
+        moved = capture(
+            workspace_root=repo, base_dir=tools, pr=dict(pr, base_sha=live_base_sha),
+            diff_text=git("diff", base_sha, head_sha),
+        )
+        moved_evidence = moved.pre_merge_evidence
+        self.assertEqual(moved_evidence.base_sha, base_sha)
+        self.assertEqual(moved_evidence.live_base_sha, live_base_sha)
+        self.assertEqual(moved.affected_paths, (source_path,))
+        self.assertEqual(moved_evidence.unavailable_reasons, evidence.unavailable_reasons)
+        for field in ("change_id", "pr_row_hash", "planned_row_hash", "committed_row_hash",
+                      "plan_content_hash", "head_sha", "snapshot_hash"):
+            self.assertEqual(getattr(moved_evidence, field), getattr(evidence, field), field)
 
 
 class NativeImplementationContextTests(unittest.TestCase):
@@ -324,7 +378,6 @@ class NativeImplementationContextTests(unittest.TestCase):
         from aria_kernel.knowledge_graph import register_convention_signer
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_convergence import plan_status
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding, utc_now
         from aria_kernel.tool_registry import update_tools_index as actual_index_writer
         from aria_kernel.validation import run_validation_commands
@@ -412,7 +465,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         os.environ["NX_HEAD"] = "HEAD"
         installed = installed_node_modules("nx", "typescript", "eslint", "ts-node")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
-        set_profile("strict", operator_approval_ref="test:native-pre-merge-result", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
             tools_dir=tools, workspace_root=repo, plan_id="plan-native-implementation-result",
@@ -579,7 +632,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "IMPLEMENTATION_RECORDED")
         self.assertEqual(accepted_result_for_request(request_id=request["request_id"], base_dir=tools)["ledger_hash"],
             submitted["row"]["ledger_hash"])
-        pr = {"number": 732, "base_branch": "main", "base_sha": staged["base_sha"],
+        pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
             "head_ref": staged["branch"], "head_sha": head_sha, "body": "Native implementation result fixture.",
             "changed_files": [source_path], "change_id": staged["change_id"],
             "proposal_id": staged["proposal_id"], "url": pr_url}
@@ -645,7 +698,7 @@ class NativeImplementationContextTests(unittest.TestCase):
 
         adapter = SnapshotGitHubAdapter({"pr": pr, "github": {"pr_diff": diff_text}})
         runner = RealAutoMergeRunner(
-            profile="autonomous", adapter_factory=lambda: adapter,
+            profile="autonomous", executes_merges=True, adapter_factory=lambda: adapter,
             pr_enumerator=lambda selected: [pr["number"]],
             readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
         )
@@ -656,9 +709,18 @@ class NativeImplementationContextTests(unittest.TestCase):
             observed_reports.append((value, actual_report))
             return actual_report
 
+        from tests._helpers.actions_oidc import merge_lane_job
+
         with ExitStack() as stack:
             for gate_patch in _gate_patches(head_sha):
                 stack.enter_context(gate_patch)
+            # The runner asks the same route before it resolves a claim.
+            stack.enter_context(patch("aria_kernel.auto_merge.human_merge_decision", return_value=None))
+            # ARIA-HIGH-220 — the runner executes only inside the merge-lane
+            # job (verified identity); the attestation row is covered by
+            # test_merge_lane_attestation and its verification is a gate
+            # control above.
+            stack.enter_context(merge_lane_job())
             capture_call = stack.enter_context(patch(
                 "aria_kernel.merge_authority._capture_pre_merge_context",
                 wraps=merge_owner._capture_pre_merge_context,
@@ -693,13 +755,31 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertFalse(runner_result["dry_run"])
         self.assertEqual(adapter.merge_calls, [])
 
-        # The final perimeter must request review of the accepted implementation,
-        # not reuse a pre-worker plan panel or a review of the base commit.
+        # ARIA-HIGH-217 — the merge perimeter only evaluates. The panel is
+        # requested at claim time, on the PR head, for the accepted
+        # implementation (not a pre-worker plan panel, not the base commit).
         from aria_kernel.agent_invocations import list_agent_invocation_requests
+        self.assertEqual(list_agent_invocation_requests(
+            base_dir=tools, role="specialist_domain_review",
+        ), [])
+        review = merge_owner.request_implementation_expert_review(
+            adapter=adapter, pr_number=pr["number"], base_dir=tools, workspace_root=repo,
+        )
         expert_requests = list_agent_invocation_requests(
             base_dir=tools, role="specialist_domain_review",
         )
         self.assertEqual(len(expert_requests), 2)
+        self.assertEqual(sorted(review["requested"]), sorted(row["request_id"] for row in expert_requests))
+        self.assertTrue(review["perimeter"]["branch_tip_lock_and_recheck"]["passed"])
+        # The same head asks for the same panel: request ids derive from the
+        # implementation binding, so a repeat claim run adds nothing.
+        repeat = merge_owner.request_implementation_expert_review(
+            adapter=adapter, pr_number=pr["number"], base_dir=tools, workspace_root=repo,
+        )
+        self.assertEqual(repeat["requested"], review["requested"])
+        self.assertEqual(len(list_agent_invocation_requests(
+            base_dir=tools, role="specialist_domain_review",
+        )), 2)
         self.assertEqual({row["target_agent"] for row in expert_requests},
             {"farm-expert", "security-reviewer"})
         for expert_request in expert_requests:
@@ -739,7 +819,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                 "pr": pr_observation, "github": {"pr_diff": diff_text},
             })
             selected_runner = RealAutoMergeRunner(
-                profile="autonomous", adapter_factory=lambda: selected_adapter,
+                profile="autonomous", executes_merges=True, adapter_factory=lambda: selected_adapter,
                 pr_enumerator=lambda selected: [pr["number"]],
                 readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
             )
@@ -747,6 +827,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             with ExitStack() as stack:
                 for gate_patch in _gate_patches(head_sha):
                     stack.enter_context(gate_patch)
+                stack.enter_context(merge_lane_job())
                 stack.enter_context(patch(
                     "aria_kernel.merge_authority.run_hard_fail_checks",
                     side_effect=evaluate_actual_context,
@@ -1004,12 +1085,16 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         from aria_kernel.auto_merge import GhCliGitHubAdapter
 
         native_pr = {
-            "number": 732, "baseRefName": "main", "baseRefOid": "b" * 40,
+            "number": 732, "state": "OPEN", "baseRefName": "main", "baseRefOid": "b" * 40,
             "headRefName": "aria/change-732", "headRefOid": "c" * 40,
             "body": "Review this exact implementation revision.",
             "url": "https://github.com/fixture-owner/fixture-repo/pull/732",
             "files": [{"path": "apps/farm-service/src/sample-interval.ts"}],
+            "changedFiles": 1,
+            "labels": [{"name": "aria"}],
             "reviews": [], "reviewDecision": "APPROVED",
+            # ARIA-HIGH-221 — null until the PR merges (the queue settles on it).
+            "mergeCommit": None,
         }
 
         def public_json_transport(args):
@@ -1027,7 +1112,11 @@ class GitHubPreMergeContextTests(unittest.TestCase):
         self.assertEqual(projected["head_sha"], native_pr["headRefOid"])
         self.assertEqual(projected["base_branch"], native_pr["baseRefName"])
         self.assertEqual(projected["changed_files"], native_pr["files"])
+        self.assertEqual(projected["changed_files_count"], native_pr["changedFiles"])
+        self.assertEqual(projected["labels"], native_pr["labels"])
         self.assertEqual(projected["repository"], "fixture-owner/fixture-repo")
+        self.assertEqual(projected["state"], "OPEN")
+        self.assertIsNone(projected["merge_commit_sha"])
         self.assertEqual(transport.call_count, 2)
 
 

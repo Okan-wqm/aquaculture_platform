@@ -32,6 +32,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from tests._helpers.operator_acts import github_operator_acts
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
@@ -72,14 +74,17 @@ class CliProfileCommands(unittest.TestCase):
         from aria_kernel.runtime_profile import DEFAULT_PROFILE
         self.assertEqual(payload["active_profile"], DEFAULT_PROFILE)
 
-    # I-V3.1-02 — profile set.
+    # I-V3.1-02 — profile set. ARIA-CRITICAL-216: standard -> strict widens
+    # authority, so the ref is an operator's GitHub act (faked).
     def test_i_v3_1_02_profile_set_updates_state_via_cli(self) -> None:
-        rc, out = _run_cli([
-            "--tools-dir", str(self.tools),
-            "profile", "set",
-            "--profile", "strict",
-            "--operator-approval-ref", "test-v3.1-02-canary",
-        ])
+        with github_operator_acts() as github:
+            ref = github.approve("runtime_profile", {"profile": "strict", "ceiling": "standard"})
+            rc, out = _run_cli([
+                "--tools-dir", str(self.tools),
+                "profile", "set",
+                "--profile", "strict",
+                "--operator-approval-ref", ref,
+            ])
         self.assertEqual(rc, 0)
         payload = json.loads(out)
         self.assertEqual(payload["active_profile"], "strict")
@@ -94,17 +99,19 @@ class CliProfileCommands(unittest.TestCase):
     def test_i_v3_1_03_profile_history_returns_history_via_cli(self) -> None:
         # Plan ARIA-V3.1 fixture — set the profile twice so history
         # has ≥2 entries; then assert history command returns both.
-        for label, ref in [
-            ("strict", "test-v3.1-03-step1"),
-            ("standard", "test-v3.1-03-step2"),
-        ]:
-            rc, _ = _run_cli([
-                "--tools-dir", str(self.tools),
-                "profile", "set",
-                "--profile", label,
-                "--operator-approval-ref", ref,
-            ])
-            self.assertEqual(rc, 0)
+        with github_operator_acts() as github:
+            raise_ref = github.approve("runtime_profile", {"profile": "strict", "ceiling": "standard"})
+            for label, ref in [
+                ("strict", raise_ref),
+                ("standard", "test-v3.1-03-step2"),
+            ]:
+                rc, _ = _run_cli([
+                    "--tools-dir", str(self.tools),
+                    "profile", "set",
+                    "--profile", label,
+                    "--operator-approval-ref", ref,
+                ])
+                self.assertEqual(rc, 0)
         rc, out = _run_cli(
             ["--tools-dir", str(self.tools), "profile", "history"]
         )
@@ -115,8 +122,25 @@ class CliProfileCommands(unittest.TestCase):
         # Most-recent-first OR most-recent-last depending on
         # implementation; verify both refs appear in the list.
         refs = {row.get("operator_approval_ref") for row in history}
-        self.assertIn("test-v3.1-03-step1", refs)
+        self.assertIn(raise_ref, refs)
         self.assertIn("test-v3.1-03-step2", refs)
+
+    # ARIA-CRITICAL-216 — a raise on a recorded reference (or a bare string)
+    # is refused; the same string lowers authority without ceremony.
+    def test_profile_raise_refuses_what_is_not_a_github_act(self) -> None:
+        with self.assertRaisesRegex(Exception, "runtime_profile_raise_approval_unrecorded"):
+            _run_cli([
+                "--tools-dir", str(self.tools),
+                "profile", "set", "--profile", "strict",
+                "--operator-approval-ref", "test-v3.1-canary",
+            ])
+        rc, out = _run_cli([
+            "--tools-dir", str(self.tools),
+            "profile", "set", "--profile", "frozen",
+            "--operator-approval-ref", "incident: stop",
+        ])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["active_profile"], "frozen")
 
     # I-V3.1-02b — profile set rejects empty operator_approval_ref.
     def test_i_v3_1_02b_profile_set_rejects_empty_approval_ref(self) -> None:

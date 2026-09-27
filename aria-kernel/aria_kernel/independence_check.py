@@ -53,12 +53,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .ledger import load_jsonl
+from .ledger import (
+    LedgerIntegrityError,
+    LedgerReadLimitError,
+    load_declared_jsonl,
+    load_jsonl,
+)
+from .model_fleet import dispatching_provider_for_model
+from .tool_registry import GovernanceError
 
 
 # Per code-reviewer #3 — 0.85 ceiling is the bright-line operator
@@ -104,6 +111,102 @@ def response_principal(response: dict[str, Any]) -> str | None:
     if not stamped or is_executor_identity(stamped):
         return None
     return stamped
+
+
+# The governance kind `budget._reserve_native_runtime_attempt` writes before a
+# native dispatch: the provider, runtime and model a seat was sent to, bound
+# to its request and claim.
+RUNTIME_ATTEMPT_STARTED_KIND = "runtime_attempt_started"
+
+
+@dataclass(frozen=True)
+class Principal:
+    """ARIA-MEDIUM-225 — who answered a seat: the agent AND the route.
+
+    ``agent`` is the agent the kernel minted the seat for (``seat_principal``)
+    and the executor stamped on the sealed response (``response_principal``);
+    the two must agree. ``provider`` / ``model`` are the route that EXECUTED
+    it. Reading the agent name alone made one executor run on one model three
+    principals: three prompts, one mind.
+
+    Two questions, answered separately, neither weaker than before:
+
+    * two seats CONFLICT when they share the agent — one persona is one
+      principal whichever model answered it
+      (:func:`verify_principal_disjointness`, every panel);
+    * two seats SHARE A MIND when they share the route — the question a
+      decision that clears something must also answer
+      (:func:`verify_route_distinctness`). It is not a disjointness rule for
+      every panel: the convergence roles (planner, planner, judge_opus) all
+      run opus, so a route rule there would refuse every convergence rather
+      than measure one.
+    """
+
+    agent: str
+    provider: str
+    model: str
+
+    @property
+    def route(self) -> tuple[str, str]:
+        return (self.provider, self.model)
+
+    def __str__(self) -> str:
+        return f"{self.agent}@{self.provider}/{self.model}"
+
+
+def executed_route(
+    response: Mapping[str, Any],
+    *,
+    attempt_rows: Sequence[Mapping[str, Any]],
+) -> tuple[str, str] | None:
+    """The ``(provider, model)`` that executed one sealed response, or ``None``.
+
+    Two dispatch paths, each with ONE authority, both written by the
+    executor and never by the agent:
+
+    * native runtime — the envelope carries ``runtime_attempt_ledger_hash``,
+      and the route is the ``runtime_attempt_started`` row with that hash,
+      bound to this response's request and claim. A hash the ledger does not
+      hold exactly once, a row bound to another seat, or an
+      ``agent_dispatch_model`` stamp that contradicts the row's model is no
+      route: the two records disagree about what ran.
+    * the spawn path — no attempt row exists; the route is the
+      force-stamped ``details.agent_dispatch_model`` (ORPHAN-HIGH-781,
+      ARIA-MEDIUM-171) under the provider the fleet dispatches that model
+      through.
+
+    ``None`` is a refusal, never a default: a seat whose route cannot be
+    named cannot count toward a claim that the routes were independent.
+    """
+    details = response.get("details")
+    if not isinstance(details, dict):
+        return None
+    stamped = str(details.get("agent_dispatch_model") or "").strip()
+    ledger_hash = details.get("runtime_attempt_ledger_hash")
+    if ledger_hash:
+        matches = [
+            row for row in attempt_rows
+            if row.get("kind") == RUNTIME_ATTEMPT_STARTED_KIND
+            and row.get("ledger_hash") == ledger_hash
+        ]
+        if len(matches) != 1:
+            return None
+        attempt = matches[0].get("details")
+        if not isinstance(attempt, dict):
+            return None
+        if (
+            attempt.get("request_id") != response.get("request_id")
+            or attempt.get("claim_id") != response.get("claim_id")
+        ):
+            return None
+        provider = str(attempt.get("provider") or "").strip()
+        model = str(attempt.get("model") or "").strip()
+        if not provider or not model or (stamped and stamped != model):
+            return None
+        return (provider, model)
+    if not stamped:
+        return None
+    return (dispatching_provider_for_model(stamped), stamped)
 
 
 class IndependenceInputError(ValueError):
@@ -167,6 +270,140 @@ class RoundDispatch:
         return bool(self.request_id and self.request_id.strip())
 
 
+@dataclass(frozen=True)
+class _BoundSeat:
+    role: str
+    claim_ids: frozenset[str]
+    principal: Principal
+
+
+# The ledger's own failure modes on a strict read. Anything else is a defect
+# and propagates.
+_LEDGER_READ_FAILURES: tuple[type[BaseException], ...] = (
+    GovernanceError, LedgerIntegrityError, LedgerReadLimitError, OSError, ValueError,
+)
+
+
+def _sealed_response(root: Path, accepted: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The sealed envelope an accepted result names, read as the bytes its
+    ``output_hash`` seals; ``None`` when they cannot be read or do not match."""
+    from .agent_invocations import (
+        _read_stable_submission_artifact,
+        resolve_output_artifact_path,
+    )
+
+    output_path = accepted.get("output_path")
+    if not isinstance(output_path, str) or not output_path:
+        return None
+    try:
+        content = _read_stable_submission_artifact(
+            resolve_output_artifact_path(root, output_path)
+        )
+    except OSError:
+        return None
+    if "sha256:" + hashlib.sha256(content).hexdigest() != accepted.get("output_hash"):
+        return None
+    try:
+        envelope = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return envelope if isinstance(envelope, dict) else None
+
+
+def _bind_seats(
+    dispatched: Sequence[RoundDispatch],
+    base_dir: str | Path,
+) -> tuple[list[_BoundSeat], list[str]]:
+    """Bind every dispatched role to its receipt and its principal.
+
+    A seat binds only when all of these hold, each refusal named for its role:
+    a claim row (the receipt), a request row naming an agent (the seat), an
+    accepted result whose sealed envelope reads back under its hash, a
+    response stamped for THE SAME agent the seat was minted for, and an
+    executed route (:func:`executed_route`).
+    """
+    from .agent_invocations import accepted_result_for_request
+
+    root = Path(base_dir)
+    reasons: list[str] = []
+    claims_path = root / "agent-invocations" / "claims.jsonl"
+    if not claims_path.exists():
+        return [], ["claims_jsonl_missing"]
+    requests_path = root / "agent-invocations" / "requests.jsonl"
+    if not requests_path.exists():
+        return [], ["requests_jsonl_missing"]
+    by_request: dict[str, list[dict[str, Any]]] = {}
+    for row in load_jsonl(claims_path):
+        rid = row.get("request_id")
+        if rid:
+            by_request.setdefault(str(rid), []).append(row)
+    request_rows: dict[str, dict[str, Any]] = {}
+    for row in load_jsonl(requests_path):
+        rid = row.get("request_id")
+        if rid and row.get("target_agent"):
+            request_rows[str(rid)] = row
+    attempt_rows: list[dict[str, Any]] | None = None
+    bound: list[_BoundSeat] = []
+    for dispatch in dispatched:
+        role = dispatch.role
+        rows_for = by_request.get(str(dispatch.request_id), [])
+        if not rows_for:
+            reasons.append(f"{role}_no_claim_row")
+            continue
+        claim_ids = frozenset(str(r.get("claim_id")) for r in rows_for if r.get("claim_id"))
+        request_row = request_rows.get(str(dispatch.request_id))
+        if request_row is None:
+            reasons.append(f"{role}_no_request_row")
+            continue
+        seat = seat_principal(request_row)
+        if seat is None:
+            reasons.append(f"{role}_request_names_no_principal")
+            continue
+        try:
+            accepted = accepted_result_for_request(
+                request_id=str(dispatch.request_id), base_dir=root,
+            )
+        except _LEDGER_READ_FAILURES as exc:
+            reasons.append(f"{role}_accepted_result_unreadable:{type(exc).__name__}")
+            continue
+        if accepted is None:
+            reasons.append(f"{role}_no_accepted_result")
+            continue
+        response = _sealed_response(root, accepted)
+        if response is None:
+            reasons.append(f"{role}_sealed_response_unavailable")
+            continue
+        answered = response_principal(response)
+        if answered != seat:
+            reasons.append(
+                f"{role}_response_principal_mismatch:{seat}!={answered or 'none'}"
+            )
+            continue
+        details = response.get("details")
+        if (
+            attempt_rows is None
+            and isinstance(details, dict)
+            and details.get("runtime_attempt_ledger_hash")
+        ):
+            try:
+                attempt_rows = load_declared_jsonl(
+                    root / "governance.jsonl", expected_surface="tools_governance",
+                )
+            except _LEDGER_READ_FAILURES as exc:
+                reasons.append(f"{role}_runtime_attempt_ledger_unreadable:{type(exc).__name__}")
+                continue
+        route = executed_route(response, attempt_rows=attempt_rows or ())
+        if route is None:
+            reasons.append(f"{role}_executed_route_unavailable")
+            continue
+        bound.append(_BoundSeat(
+            role=role,
+            claim_ids=claim_ids,
+            principal=Principal(agent=seat, provider=route[0], model=route[1]),
+        ))
+    return bound, reasons
+
+
 def verify_principal_disjointness(
     *,
     dispatches: "Sequence[RoundDispatch]",
@@ -181,71 +418,65 @@ def verify_principal_disjointness(
     every claim gets a fresh claim_id, so a single agent could hold every
     role and pass the receipt check alone.
 
-    ARIA-HIGH-193 — the principal is :func:`seat_principal` of the role's
-    REQUEST row (the agent the kernel minted it for), not the claim's
+    ARIA-HIGH-193 — the principal's agent is :func:`seat_principal` of the
+    role's REQUEST row (the agent the kernel minted it for), not the claim's
     ``agent_id``: that is the executor process that carried the seat, shared
     by every seat one run drains, so it failed every live panel.
+
+    ARIA-MEDIUM-225 — and the agent is only half of it. The principal is the
+    agent bound to the route that executed the seat (:class:`Principal`),
+    read from the seat's accepted, sealed response; the response must be
+    stamped for the agent the seat was minted for. A seat that cannot be
+    bound all the way is a named refusal, never a pass. The pairwise
+    conflict stays the agent (see :class:`Principal`); a shared route is
+    :func:`verify_route_distinctness`'s question.
 
     Roles with no ``request_id`` are skipped because nothing was
     dispatched for them; ``min_dispatched`` is the floor that stops that
     skip from emptying the check.
     """
-    reasons: list[str] = []
     dispatched = [d for d in dispatches if d.was_dispatched]
     if len(dispatched) < min_dispatched:
-        reasons.append(
-            f"insufficient_dispatched_roles:{len(dispatched)}<{min_dispatched}"
-        )
-        return False, reasons
-    claims_path = Path(base_dir) / "agent-invocations" / "claims.jsonl"
-    if not claims_path.exists():
-        return False, ["claims_jsonl_missing"]
-    requests_path = Path(base_dir) / "agent-invocations" / "requests.jsonl"
-    if not requests_path.exists():
-        return False, ["requests_jsonl_missing"]
-    by_request: dict[str, list[dict[str, Any]]] = {}
-    for row in load_jsonl(claims_path):
-        rid = row.get("request_id")
-        if rid:
-            by_request.setdefault(str(rid), []).append(row)
-    request_rows: dict[str, dict[str, Any]] = {}
-    for row in load_jsonl(requests_path):
-        rid = row.get("request_id")
-        if rid and row.get("target_agent"):
-            request_rows[str(rid)] = row
-    claim_ids: dict[str, set[str]] = {}
-    principals: dict[str, str] = {}
-    for dispatch in dispatched:
-        rows_for = by_request.get(str(dispatch.request_id), [])
-        if not rows_for:
-            reasons.append(f"{dispatch.role}_no_claim_row")
-            continue
-        claim_ids[dispatch.role] = {
-            str(r.get("claim_id")) for r in rows_for if r.get("claim_id")
-        }
-        request_row = request_rows.get(str(dispatch.request_id))
-        if request_row is None:
-            reasons.append(f"{dispatch.role}_no_request_row")
-            continue
-        principal = seat_principal(request_row)
-        if principal is None:
-            reasons.append(f"{dispatch.role}_request_names_no_principal")
-            continue
-        principals[dispatch.role] = principal
+        return False, [f"insufficient_dispatched_roles:{len(dispatched)}<{min_dispatched}"]
+    bound, reasons = _bind_seats(dispatched, base_dir)
     if reasons:
         return False, reasons
     # Pair in the caller's order, not alphabetically: the reason strings
     # are read by operators and asserted by invariants, so
     # "primary_challenger_..." must not silently become
     # "challenger_primary_...".
-    roles = [d.role for d in dispatched if d.role in claim_ids]
-    for i, left in enumerate(roles):
-        for right in roles[i + 1:]:
-            if claim_ids[left] & claim_ids[right]:
-                reasons.append(f"{left}_{right}_claim_id_overlap")
-            if principals[left] == principals[right]:
-                reasons.append(f"{left}_{right}_same_principal:{principals[left]}")
+    for i, left in enumerate(bound):
+        for right in bound[i + 1:]:
+            if left.claim_ids & right.claim_ids:
+                reasons.append(f"{left.role}_{right.role}_claim_id_overlap")
+            if left.principal.agent == right.principal.agent:
+                reasons.append(f"{left.role}_{right.role}_same_principal:{left.principal.agent}")
     return (len(reasons) == 0), reasons
+
+
+def verify_route_distinctness(
+    *,
+    dispatches: "Sequence[RoundDispatch]",
+    base_dir: str | Path,
+    min_distinct_routes: int,
+) -> tuple[bool, list[str]]:
+    """ARIA-MEDIUM-225 — do these seats span ``min_distinct_routes`` routes?
+
+    For a decision that CLEARS something (an escalation), distinct agent
+    names are not enough: the voters that carry the decision must have been
+    executed on at least ``min_distinct_routes`` distinct (provider, model)
+    routes, so no single model can carry it by answering under several
+    names. Every seat must bind (:func:`_bind_seats`) first.
+    """
+    dispatched = [d for d in dispatches if d.was_dispatched]
+    bound, reasons = _bind_seats(dispatched, base_dir)
+    if reasons:
+        return False, reasons
+    routes = sorted({seat.principal.route for seat in bound})
+    if len(routes) < min_distinct_routes:
+        spelled = ",".join(f"{provider}/{model}" for provider, model in routes)
+        return False, [f"distinct_routes:{len(routes)}<{min_distinct_routes}:{spelled}"]
+    return True, []
 
 
 # ORPHAN-HIGH-573 — `verify_claim_disjointness` was DELETED here on 2026-09-09.

@@ -27,8 +27,8 @@ from unittest import mock
 from aria_kernel.agent_eval import EVAL_FIXTURE_SCHEMA, run_agent_eval
 from aria_kernel.artifact_safety import ArtifactSafetyError, FORBIDDEN_REAL_MODE_ENV
 from aria_kernel.ledger import append_declared_jsonl
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 FIXTURE_ID = "F900_ENVGUARD"
 
@@ -40,12 +40,7 @@ class RealModeEnvGuardTests(unittest.TestCase):
         self.base = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.base)
         # agent_eval writes require the strict profile (Plan 020 Phase 1.B).
-        set_profile(
-            "strict",
-            operator_approval_ref="test:orphan-high-573",
-            base_dir=self.base,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.base)
         append_declared_jsonl(
             self.base / "agent-evals" / "fixtures.jsonl",
             {

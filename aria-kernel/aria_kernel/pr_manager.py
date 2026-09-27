@@ -23,6 +23,7 @@ from .proposal import (
     get_proposal,
     require_operator_approval,
 )
+from .risk_policy import HUMAN_MERGE_LABEL, merge_route_for_change
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
@@ -567,20 +568,30 @@ def _create_pull_request(
     # recovery classifier asks GitHub about instead of opening a second PR.
     from .recovery import record_intent, record_receipt
 
+    # ARIA-HIGH-211 (operator decision 2026-09-26) — a change outside the
+    # merge lane is still opened, marked for a person's merge. The route is
+    # the merge gate's own classification of the change git holds, and the
+    # label rides the create itself, so no such PR ever exists unmarked. A
+    # change whose paths cannot be read is routed to a person too.
+    route = merge_route_for_change(workspace_path, payload.get("base_sha"), payload.get("head_sha"))
+    payload["merge_route"] = route
     intent = record_intent(
         request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
         intended_postcondition=intended_postcondition,
         base_dir=base_dir,
     )
+    argv = [
+        "gh", "pr", "create",
+        "--base", ARIA_PR_BASE,
+        "--head", branch,
+        "--title", title,
+        "--body", body,
+    ]
+    if route["human_merge"]:
+        argv += ["--label", HUMAN_MERGE_LABEL]
     try:
         completed = subprocess.run(
-            [
-                "gh", "pr", "create",
-                "--base", ARIA_PR_BASE,
-                "--head", branch,
-                "--title", title,
-                "--body", body,
-            ],
+            argv,
             cwd=workspace_path,
             capture_output=True,
             text=True,
@@ -645,6 +656,7 @@ def open_revert_pr(
     *,
     workspace_root: str | Path,
     branch: str,
+    head_sha: str,
     base_sha: str,
     title: str,
     body: str,
@@ -667,6 +679,13 @@ def open_revert_pr(
     bracketed ``gh pr create``. Only ``aria/revert/*`` branches are
     admitted here, so this opener cannot carry an ordinary change past the
     proposal-approval checks ``open_pr_for_action`` makes.
+
+    ``head_sha`` is the revert commit the producer pushed to ``branch`` and
+    validated. It is named by sha, not read off a local branch: the producer
+    builds the revert in a detached worktree and pushes ``HEAD`` to the
+    remote branch (ARIA-MEDIUM-228), so a job killed mid-delivery leaves no
+    local branch behind to block the next attempt. The commit is in the
+    workspace's object store (a worktree shares it).
     """
     if not change_id or not change_id.strip():
         raise GovernanceError("open_revert_pr_change_id_required")
@@ -675,13 +694,12 @@ def open_revert_pr(
     enforce_profile_for_action("pr_create", base_dir=base_dir)
     workspace_path = Path(workspace_root).resolve()
     rev_completed = subprocess.run(
-        ["git", "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}"],
+        ["git", "rev-parse", "--verify", f"{head_sha}^{{commit}}"],
         cwd=workspace_path, capture_output=True, text=True, check=False,
     )
-    head_sha = (rev_completed.stdout or "").strip()
-    if rev_completed.returncode != 0 or not head_sha:
+    if rev_completed.returncode != 0 or (rev_completed.stdout or "").strip() != head_sha:
         raise GovernanceError(
-            f"open_pr_head_sha_unresolvable: {branch!r}: {(rev_completed.stderr or '').strip()!r}"
+            f"open_pr_head_sha_unresolvable: {branch!r}@{head_sha!r}: {(rev_completed.stderr or '').strip()!r}"
         )
     _validate_pr_body(body)
     perimeter_context = HardFailContext(

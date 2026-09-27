@@ -21,8 +21,8 @@ from aria_kernel import preflight
 
 class TestV9PreflightContract(unittest.TestCase):
 
-    def test_i_v9_preflight_required_fields_triad(self):
-        """Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required
+    def test_i_v9_preflight_required_fields_and_merge_queue(self):
+        """Plan ARIA-V9.0-C + V10.3-B prereq — the required
         branch-protection fields MUST be the canonical set.
 
         V10.3-B prereq amendment (operator-acknowledged via
@@ -37,23 +37,30 @@ class TestV9PreflightContract(unittest.TestCase):
         required_pull_request_reviews check via verify_preflight
         deliver the equivalent Tier-1 trust floor.
 
-        Adding a 4th = ADR + arbiter approval + invariant update.
+        ARIA-HIGH-221 amendment (operator decision 2026-09-26, plan
+        037): `required_status_checks.strict` is replaced by a required
+        squash MERGE QUEUE, measured from the branch's active rules. Strict
+        made an ARIA PR mergeable only while main had not moved; the queue
+        tests the change on current main and leaves the PR head, which
+        every proof is bound to, unchanged.
+
+        Adding a field = ADR + arbiter approval + invariant update.
         """
         self.assertEqual(
-            len(preflight.REQUIRED_BRANCH_PROTECTION_FIELDS), 3,
-            "REQUIRED_BRANCH_PROTECTION_FIELDS MUST have exactly 3 entries "
-            "(V10.3-B prereq amendment)",
+            len(preflight.REQUIRED_BRANCH_PROTECTION_FIELDS), 2,
+            "REQUIRED_BRANCH_PROTECTION_FIELDS MUST have exactly 2 entries "
+            "(ARIA-HIGH-221 amendment)",
         )
         keys = {dotted for dotted, _ in preflight.REQUIRED_BRANCH_PROTECTION_FIELDS}
         self.assertEqual(
             keys,
             {
                 "required_signatures.enabled",
-                "required_status_checks.strict",
                 "enforce_admins.enabled",
             },
             "REQUIRED_BRANCH_PROTECTION_FIELDS canonical-keys drifted",
         )
+        self.assertEqual(preflight.REQUIRED_MERGE_QUEUE_METHOD, "SQUASH")
 
     def test_i_v9_preflight_verdict_dataclass_frozen(self):
         """PreflightVerdict MUST be frozen (immutable audit-trail
@@ -177,7 +184,7 @@ class TestV9PreflightContract(unittest.TestCase):
             self.assertEqual(reasons, ("gh_token_absent",))
 
     def test_i_v9_preflight_public_api_pinned(self):
-        """__all__ exports MUST contain the 6 canonical symbols.
+        """__all__ exports MUST contain the canonical symbols.
         Adding/removing exports = explicit invariant amendment."""
         self.assertEqual(
             set(preflight.__all__),
@@ -185,6 +192,9 @@ class TestV9PreflightContract(unittest.TestCase):
                 "PreflightVerdict",
                 "WorkflowPreflightVerdict",
                 "REQUIRED_BRANCH_PROTECTION_FIELDS",
+                "REQUIRED_MERGE_QUEUE_METHOD",
+                "merge_queue_reasons",
+                "merge_queue_rule",
                 "verify_branch_protection",
                 "verify_preflight",
                 "verify_workflow_contract",

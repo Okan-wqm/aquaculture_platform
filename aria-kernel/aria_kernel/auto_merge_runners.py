@@ -110,14 +110,20 @@ class RealAutoMergeRunner:
         self,
         *,
         profile: str,
+        executes_merges: bool,
         adapter_factory: Callable[[], Any] | None = None,
         pr_enumerator: Callable[[Any], list[int]] | None = None,
         readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
+        intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.profile = profile
+        self.executes_merges = executes_merges
         self.adapter_factory = adapter_factory
         self.pr_enumerator = pr_enumerator
         self.readiness_claim_resolver = readiness_claim_resolver
+        # ARIA-HIGH-222 — publishes the merge_intent row before each merge
+        # call; the merge authority refuses to merge without it.
+        self.intent_publisher = intent_publisher
 
     def __call__(
         self,
@@ -144,20 +150,66 @@ class RealAutoMergeRunner:
             }
         from .auto_merge import merge_if_green
         from .batch_containment import guard_item, with_item_failures
-        from .merge_authority import merge_pr_if_ready
         from .watchdog_freeze import open_watchdog_incidents
 
         adapter = self.adapter_factory()
-        candidate_prs = self.pr_enumerator(adapter)
-        # Strict observes (dry_run=True); autonomous enters the real merge
-        # authority path, which remains disabled-by-default through policy,
-        # readiness, and runtime profile gates.
-        dry_run = self.profile != "autonomous"
+        # ARIA-HIGH-205 — live exactly when THIS runner is the merge lane
+        # (`aria-kernel merge-lane run`, aria-merge-runner.yml) AND merge
+        # authority exists: the `autonomous` profile, or an operator's
+        # merge-lane grant in force under a profile that holds action
+        # authority. The nightly cycle constructs the runner with
+        # executes_merges=False and only ever evaluates: merge execution
+        # moved to the attestable GitHub-hosted lane (ARIA-HIGH-198), and a
+        # grant must not turn the self-hosted cycle into a second, refused
+        # merge path that writes risk and unlock rows every night. The
+        # grant's lane is enforced per PR inside merge_pr_if_ready against
+        # the measured risk lane.
+        from .runtime_profile import merge_authority_available
+        from .runner_attestation import measure_merge_lane_identity
+
+        # ARIA-HIGH-220 — the CLI says this runner is the merge lane
+        # (`executes_merges`); the measured identity must agree: the job's
+        # OIDC token, verified, names this run and the merge-runner workflow
+        # on main, on a GitHub-hosted runner. Anywhere else the runner only
+        # evaluates, and says why.
+        lane_identity = measure_merge_lane_identity() if self.executes_merges else None
+        executes = self.executes_merges and lane_identity is not None and lane_identity["merge_lane"] is True
+        dry_run = not (executes and merge_authority_available(base_dir=base_dir))
+        identity_summary = (
+            None if lane_identity is None else {
+                "verified": lane_identity["merge_lane"] is True,
+                "run_id": lane_identity["run_id"],
+                "run_attempt": lane_identity["run_attempt"],
+                "runner_name": lane_identity["runner_name"],
+                "job_workflow_ref": (lane_identity.get("oidc") or {}).get("job_workflow_ref"),
+                "reasons": list(lane_identity["reasons"]),
+            }
+        )
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
         # Containment must not buy silence (ORPHAN-HIGH-578): a candidate
         # lost to a refusal is reported, never absorbed.
         item_failures: list[dict[str, Any]] = []
+        # ARIA-HIGH-221 — main merges through a merge queue, so an earlier
+        # run's `enqueued` PRs are settled first: merged by the queue (the
+        # merge's rows are recorded now), still queued (left alone, and not
+        # a candidate), or removed (a candidate again). Recording a merge
+        # the queue made is not a merge, so it runs under a watchdog freeze
+        # too; a failure to settle costs the settlement, not the run.
+        queue_settled: list[dict[str, Any]] = []
+        if not dry_run:
+            from .merge_authority import reconcile_enqueued_merges
+
+            settled_ok, settled = guard_item(
+                item_failures,
+                item_kind="merge_queue_settlement",
+                item_id="enqueued",
+                work=lambda: reconcile_enqueued_merges(adapter=adapter, base_dir=base_dir),
+            )
+            if settled_ok and settled is not None:
+                queue_settled = settled
+                merges_completed += sum(1 for row in settled if row.get("decision") == "merged")
+        candidate_prs = self.pr_enumerator(adapter)
 
         # ORPHAN-MEDIUM-562 — THE WATCHDOG FREEZE IS A PROPERTY OF THE RUN, NOT
         # OF A PULL REQUEST, and asking it once here rather than N times inside
@@ -194,12 +246,15 @@ class RealAutoMergeRunner:
                     "status": "blocked",
                     "reason": "watchdog_merge_frozen",
                     "watchdog": frozen,
-                    "merges_completed": 0,
+                    "merges_completed": merges_completed,
                     "candidates_evaluated": len(candidate_prs),
+                    "queue_settled": queue_settled,
                     # Same key set as the normal return below. A refusal that
                     # answers with a different shape is a refusal every consumer
                     # has to special-case.
                     "dry_run": dry_run,
+                    "executes_merges": self.executes_merges,
+                    "merge_lane_identity": identity_summary,
                     "profile": self.profile,
                     "decisions": [
                         {
@@ -212,7 +267,16 @@ class RealAutoMergeRunner:
                     ],
                 }
 
+        from .auto_merge import human_merge_decision
+
         for pr_number in candidate_prs:
+            # ARIA-HIGH-211 — a PR ARIA opened for a person's merge is named
+            # (`human_merge_lane`) from ARIA's own opened row and never
+            # evaluated: no readiness resolution, no risk row, every run.
+            skipped = human_merge_decision(int(pr_number), base_dir=base_dir)
+            if skipped is not None:
+                decisions.append(skipped)
+                continue
             try:
                 readiness_claim_id = self.readiness_claim_resolver(
                     adapter,
@@ -254,14 +318,19 @@ class RealAutoMergeRunner:
                         pr_number=pr_number,
                         base_dir=base_dir,
                         dry_run=True,
+                        # ARIA-CRITICAL-215 — the evaluation reads the PR's
+                        # change from this checkout, as the merge does.
+                        workspace_root=workspace_root,
                     )
                     if dry_run
-                    else merge_pr_if_ready(
+                    else _merge_candidate(
                         adapter=adapter,
                         pr_number=pr_number,
                         base_dir=base_dir,
                         readiness_claim_id=readiness_claim_id,
                         workspace_root=workspace_root,
+                        lane_identity=lane_identity,
+                        intent_publisher=self.intent_publisher,
                     )
                 ),
             )
@@ -288,20 +357,106 @@ class RealAutoMergeRunner:
                 "status": status,
                 "merges_completed": merges_completed,
                 "candidates_evaluated": len(candidate_prs),
+                "queue_settled": queue_settled,
                 "decisions": decisions,
                 "dry_run": dry_run,
+                "executes_merges": self.executes_merges,
+                "merge_lane_identity": identity_summary,
                 "profile": self.profile,
             },
             item_failures,
         )
 
 
+def _merge_candidate(
+    *,
+    adapter: Any,
+    pr_number: int,
+    base_dir: str | Path,
+    readiness_claim_id: str,
+    workspace_root: str | Path | None,
+    lane_identity: dict[str, Any] | None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Attest this run for the candidate, then hand it to the authority.
+
+    ARIA-HIGH-220 — the attestation row is recorded by the run that is about
+    to merge, for the one claim it merges under, and bound to the run (id,
+    attempt, runner); ``merge_pr_if_ready`` re-measures the identity at the
+    point of merge and accepts only this run's row. It used to be recorded
+    by a lane-start step for every claim ever made, keyed by (PR, head,
+    claim) alone.
+
+    A module-level function that imports and calls the authority by name:
+    the static safety-control reachability graph
+    (tests/invariants/v3/test_safety_control_reachability.py) resolves
+    neither a call through a parameter nor a ``self.`` method call, and
+    would then report every gate behind ``merge_pr_if_ready`` as dead.
+    """
+    from .merge_authority import merge_pr_if_ready
+
+    _attest_candidate(
+        pr_number=pr_number,
+        base_dir=base_dir,
+        readiness_claim_id=readiness_claim_id,
+        lane_identity=lane_identity,
+    )
+    return merge_pr_if_ready(
+        adapter=adapter,
+        pr_number=pr_number,
+        base_dir=base_dir,
+        readiness_claim_id=readiness_claim_id,
+        workspace_root=workspace_root,
+        intent_publisher=intent_publisher,
+    )
+
+
+def _attest_candidate(
+    *,
+    pr_number: int,
+    base_dir: str | Path,
+    readiness_claim_id: str,
+    lane_identity: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Record this run's merge-lane attestation for the claim it merges under."""
+    from .runner_attestation import MERGE_LANE, probe_runner_attestation
+
+    claim = _claim_row(base_dir, readiness_claim_id)
+    return probe_runner_attestation(
+        pr_number=int(pr_number),
+        head_sha=str(claim.get("head_sha") or ""),
+        readiness_claim_id=readiness_claim_id,
+        repo=str(claim.get("repo") or ""),
+        target_ref=str(claim.get("target_ref") or ""),
+        head_ref=str(claim.get("head_ref") or ""),
+        lane=MERGE_LANE,
+        base_dir=base_dir,
+        identity=lane_identity,
+    )
+
+
+def _claim_row(base_dir: str | Path, readiness_claim_id: str) -> dict[str, Any]:
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "enterprise" / "readiness-claims.jsonl",
+        expected_surface="enterprise_readiness_claims",
+    )
+    matches = [row for row in rows if row.get("readiness_claim_id") == readiness_claim_id]
+    if len(matches) != 1:
+        raise GovernanceError(
+            f"readiness_claim_exact_match_required: claim={readiness_claim_id} matches={len(matches)}"
+        )
+    return matches[0]
+
+
 def select_auto_merge_runner(
     *,
     profile: str,
+    executes_merges: bool,
     adapter_factory: Callable[[], Any] | None = None,
     pr_enumerator: Callable[[Any], list[int]] | None = None,
     readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
+    base_dir: str | Path | None = None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -309,13 +464,27 @@ def select_auto_merge_runner(
     constants at the top of this module AND ``runtime_profile.PROFILES``
     AND the V3 invariant tests I-V3-02 + I-V3-03 (or a new I-V3-XX
     for the new profile). Untyped insertion raises ``ValueError``.
+
+    ARIA-MEDIUM-226 — the merge lane (``executes_merges``) gets the real
+    runner whenever ``runtime_profile.merge_authority_available`` says merge
+    authority exists: the predicate the runner itself and the merge
+    authority read. Keyed on the profile alone, a ``standard`` profile
+    holding an operator's merge-lane grant got the no-op runner here while
+    the authority below would have merged — the grant could never be used.
+    The nightly cycle (``executes_merges=False``) is unchanged.
     """
-    if profile in _REAL_RUNNER_PROFILES:
+    from .runtime_profile import merge_authority_available
+
+    if profile in _REAL_RUNNER_PROFILES or (
+        executes_merges and merge_authority_available(base_dir=base_dir)
+    ):
         return RealAutoMergeRunner(
             profile=profile,
+            executes_merges=executes_merges,
             adapter_factory=adapter_factory,
             pr_enumerator=pr_enumerator,
             readiness_claim_resolver=readiness_claim_resolver,
+            intent_publisher=intent_publisher,
         )
     if profile in _NOOP_RUNNER_PROFILES:
         return NoOpAutoMergeRunner(profile=profile)
@@ -330,19 +499,41 @@ def enumerate_prs_with_readiness_claims(
     *,
     base_dir: str | Path | None,
 ) -> list[int]:
-    _ = adapter
+    """The merge candidates: open PRs whose CURRENT head holds a readiness claim.
+
+    ARIA-HIGH-222 — every PR that ever held a claim used to be a candidate,
+    so the lane evaluated merged and closed PRs on every run and there was
+    never a run with nothing to do: the hourly schedule published every
+    hour. A candidate is now a PR GitHub lists as open whose live head is a
+    head a claim names — the set a merge could act on. An adapter that
+    observes nothing (the recording adapter) yields no candidates.
+    """
     tools_root = ensure_tools_dir(base_dir)
     rows = load_declared_jsonl(
         tools_root / "enterprise" / "readiness-claims.jsonl",
         expected_surface="enterprise_readiness_claims",
     )
-    numbers: set[int] = set()
+    claimed: set[tuple[int, str]] = set()
     for row in rows:
         try:
-            numbers.add(int(row.get("pr_number")))
+            claimed.add((int(row.get("pr_number")), str(row.get("head_sha") or "")))
         except (TypeError, ValueError):
             continue
-    return sorted(numbers)
+    if not claimed:
+        return []
+    open_heads = adapter.list_open_pull_request_heads()
+    if open_heads is None:
+        return []
+    # ARIA-HIGH-221 — a PR ARIA enqueued at this head is the merge queue's
+    # until the queue settles it (merge_authority.reconcile_enqueued_merges):
+    # evaluating it again would enqueue it again.
+    from .merge_authority import pending_enqueued_heads
+
+    queued = pending_enqueued_heads(base_dir)
+    return sorted(
+        number for number, head_sha in open_heads.items()
+        if (number, head_sha) in claimed and (number, head_sha) not in queued
+    )
 
 
 def resolve_readiness_claim_id_from_claims(

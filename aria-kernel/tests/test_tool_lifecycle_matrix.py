@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.operator_acts import github_operator_acts
 from aria_kernel.tool_registry import (
     _FORBIDDEN_ACTIVE_SOURCES,
     GovernanceError,
@@ -66,10 +67,18 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-e10-"))
         self.base = self.tmp / "aria-tools"
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
+        acts = github_operator_acts()
+        self.github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
 
     def tearDown(self) -> None:
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _operator_approval(self, tool_id: str) -> str:
+        # ARIA-HIGH-209 / ARIA-CRITICAL-216 — transition_tool resolves the
+        # ref to an operator's GitHub act (faked in setUp).
+        return self.github.approve("tool_promote", {"tool": tool_id, "target": "ACTIVE"})
 
     def test_forbidden_active_sources_constant_shape(self) -> None:
         self.assertEqual(
@@ -136,7 +145,7 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
                     precision=0.9,
                     critical_false_positives=0,
                     evidence_chains_valid=True,
-                    operator_approval=True,
+                    operator_approval_ref=self._operator_approval("tool-shadow"),
                 )
             except GovernanceError as exc:
                 self.assertNotIn(

@@ -772,25 +772,20 @@ class PublishContentionTests(unittest.TestCase):
         self.assertIn("expected_head=base_head", preamble)
         self.assertIn("previous=previous", preamble)
         self.assertIn("with _state_store_lifecycle_lock(", preamble)
-        for publisher in (
-            state_store.prepare_and_publish_state,
-            state_store._publish_with_contention_replay_locked,
-        ):
-            source = inspect.getsource(publisher)
-            self.assertIn("prepare_publishable_snapshot(", source)
-            self.assertNotIn("build_publishable_snapshot(", source)
-        # The CLI is the single-attempt publisher and runs BOTH halves under
-        # one lifecycle lock through `prepare_and_publish_state`; it neither
-        # runs the preamble nor calls a publish for itself, so nothing can
-        # take the lock between the preamble's index mutation and the commit.
+        source = inspect.getsource(state_store._publish_with_contention_replay_locked)
+        self.assertIn("prepare_publishable_snapshot(", source)
+        self.assertNotIn("build_publishable_snapshot(", source)
+        # ARIA-HIGH-222 — the CLI publishes through the contention-replay
+        # orchestrator, which runs BOTH halves of every attempt under one
+        # lifecycle lock; the CLI neither runs the preamble nor calls a
+        # publish for itself, so nothing can take the lock between the
+        # preamble's index mutation and the commit.
         cli_source = inspect.getsource(cli_module._handle_state_store_command)
-        self.assertIn("prepare_and_publish_state(", cli_source)
+        self.assertIn("publish_with_contention_replay(", cli_source)
         self.assertNotIn("prepare_publishable_snapshot(", cli_source)
-        self.assertNotIn("publish_state(", cli_source.replace("prepare_and_publish_state(", ""))
-        one_lock = inspect.getsource(state_store.prepare_and_publish_state)
+        self.assertNotIn("publish_state(", cli_source.replace("publish_with_contention_replay(", ""))
+        one_lock = inspect.getsource(state_store.publish_with_contention_replay)
         self.assertIn("with _state_store_lifecycle_lock(", one_lock)
-        self.assertIn("expected_base_head=prepared.base_head", one_lock)
-        self.assertIn("_publish_state_locked(", one_lock)
         replay_source = inspect.getsource(
             state_store._publish_with_contention_replay_locked,
         )
@@ -4729,6 +4724,9 @@ class PublishContentionTests(unittest.TestCase):
         store_a = self._store(self.repo_a, "store-a")
         self._append(store_a, "shared-1")
         self._publish(store_a, "snap-base", "cycle-base")
+        # A row to publish: a store with nothing new commits nothing
+        # (ARIA-HIGH-222), and this refusal is about a real publish.
+        self._append(store_a, "shared-2")
 
         calls: list[int] = []
         original = state_store.publish_state

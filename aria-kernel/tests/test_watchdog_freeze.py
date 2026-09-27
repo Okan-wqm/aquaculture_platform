@@ -22,6 +22,7 @@ from aria_kernel.watchdog_freeze import (
     load_incident_signature,
     open_watchdog_incidents,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class _Adapter:
@@ -240,9 +241,20 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
     def _runner(self, payload):
         from aria_kernel.auto_merge_runners import select_auto_merge_runner
 
+
+        # The runner reads merge authority from the control plane it runs
+        # against (ARIA-HIGH-205), so the store must hold what the runner is
+        # told it runs as.
+        operator_set_profile("autonomous", base_dir=self.base, scheduler_ceiling="autonomous")
+        # ARIA-HIGH-220 — the freeze guards a run that executes merges, and
+        # a run executes only inside the merge-lane job.
+        from tests._helpers.actions_oidc import merge_lane_job
+
+        self.enterContext(merge_lane_job())
         adapter = _Adapter(payload)
         return select_auto_merge_runner(
             profile="autonomous",
+            executes_merges=True,
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11, 22, 33],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
@@ -305,6 +317,7 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
         adapter = _Adapter(RuntimeError("must not be asked"))
         runner = select_auto_merge_runner(
             profile="strict",
+            executes_merges=True,
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",

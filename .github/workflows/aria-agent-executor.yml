@@ -570,6 +570,13 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # ARIA-HIGH-208 — the App a delivery mints its PR credential from.
+          # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
+          # never copies the ambient GH_TOKEN (Mode B) into a PR's author.
+          ARIA_REQUIRE_MODE_A: 'true'
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
           # ARIA-HIGH-124 — no PR is opened from inside the agent's sandbox
           # by any path: the executor child pushes the published branch,
           # runs the apply gate and opens the PR after the spawn, with its
@@ -642,21 +649,33 @@ jobs:
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))
           echo "job deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - ${POST_DRAIN_RESERVE_SECONDS}s post-drain reserve, anchored at job launch)"
-          # ORPHAN-722 — PR identity. PRs opened with the job token are
-          # authored by github-actions[bot], and GitHub parks bot-PR
-          # workflows in action_required (anti-recursion, not a repo
-          # setting), so ARIA's own PRs could never go green unattended
-          # (#1266/#1195 sat with ZERO check runs). The machine-local
-          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
-          # precedence; the job token stays the fallback so a token-less
-          # runner degrades to today's behavior instead of failing.
+          # ARIA-HIGH-208 (was ORPHAN-722) — PR identity. A PR opened with
+          # the job token is authored by github-actions[bot] and GitHub parks
+          # its workflows in action_required (anti-recursion, not a repo
+          # setting): aria-merge-authority, the readiness claim and the merge
+          # runner never start. Every PR this lane opens goes through a
+          # delivery hold (`delivery_credentials`) that mints its own App
+          # installation token where it is consumed and revokes it after;
+          # ARIA_REQUIRE_MODE_A (env above) makes that mint refuse by name
+          # when the App is not configured, instead of falling back.
+          # The ambient GH_TOKEN below authors no PR: it serves the lane's
+          # own gh reads, from the machine PAT (runner .env) when present.
           if [ -n "${ARIA_GH_TOKEN:-}" ]; then
             export GH_TOKEN="$ARIA_GH_TOKEN"
-            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+            echo "ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)"
           else
-            echo "gh identity: job token fallback"
+            echo "ambient gh identity (reads): job token"
           fi
           set -euo pipefail
+          # The App key, from the secret into a private file in RUNNER_TEMP:
+          # outside the workspace every sandbox binds, removed on any exit.
+          # The PEM leaves the environment before any child process starts;
+          # the mint reads the file through ARIA_GH_APP_PRIVATE_KEY_PATH.
+          KEY_FILE="$RUNNER_TEMP/aria-gh-app-private-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          (umask 077 && printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE")
+          unset ARIA_GH_APP_PRIVATE_KEY
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
             # Operator-targeted dispatch: exactly the named request.
             PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \

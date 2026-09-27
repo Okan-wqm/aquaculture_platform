@@ -29,6 +29,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class WithExclusiveLockTests(unittest.TestCase):
@@ -215,7 +216,6 @@ class ImplementationScopeClaimTests(unittest.TestCase):
             release_claim,
         )
         from aria_kernel.ledger import load_declared_jsonl
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
@@ -234,7 +234,7 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         })
         tools = fixture / "store" / "tools"
         ensure_tools_binding(tools, workspace_root=repo)
-        set_profile("strict", operator_approval_ref="test:native-scope-claims", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
 
         from tests._helpers.production_shaped import production_implementation_request
 
@@ -281,7 +281,6 @@ class ImplementationScopeClaimTests(unittest.TestCase):
 
     def _scope_fixture(self) -> tuple[Path, Path]:
         from unittest.mock import patch
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
@@ -300,7 +299,7 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         })
         tools = fixture / "store" / "tools"
         ensure_tools_binding(tools, workspace_root=repo)
-        set_profile("strict", operator_approval_ref="test:scope-lifecycle", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         self._scope_repo = repo
         return repo, tools
 

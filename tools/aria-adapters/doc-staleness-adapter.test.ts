@@ -83,4 +83,70 @@ assert.equal(
   false,
 );
 
+// ARIA-HIGH-212: a missing path is stale only where the doc says it exists.
+// Each false-positive class the operator-feedback ledger labelled on
+// aria/state has one case below; each true-positive shape has one too.
+const roleWorkspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-roles-'));
+mkdirSync(join(roleWorkspace, 'docs/guides'), { recursive: true });
+mkdirSync(join(roleWorkspace, 'apps/farm-service/src'), { recursive: true });
+writeFileSync(join(roleWorkspace, 'apps/farm-service/src/live.service.ts'), 'export {};\n', 'utf8');
+const roleDoc = [
+  '# Guide', // 1
+  '', // 2
+  '`apps/farm-service/src/gone.service.ts` — CI gate scans every entry.', // 3 TP: plain present-tense claim
+  '', // 4
+  '**Dosyalar:**', // 5
+  '- `apps/farm-service/src/api-key.service.ts` — YENİ', // 6 FP: creation marker
+  '- `apps/farm-service/src/erasure.interface.ts` (NEW) -- define the handler', // 7 FP: creation marker
+  '- `apps/farm-service/src/dsr.service.ts` (new — orchestrates Art 15/17)', // 8 FP: creation marker
+  '', // 9
+  'Add one versioned catalog, proposed at', // 10
+  '`apps/farm-service/src/catalog.yaml`, with a strict schema.', // 11 FP: proposal paragraph
+  '', // 12
+  'Önerilen yön, `apps/farm-service/src/aria` altında bir modül', // 13 FP: proposal paragraph
+  'kurmaktır.', // 14
+  '', // 15
+  '- Agent spec: `apps/farm-service/src/cost-metrics.yml` — file does not exist.', // 16 FP: absence asserted
+  'Scan scope: excluding `node_modules`, `apps/farm-service/playwright-report`.', // 17 FP: exclusion
+  '', // 18
+  '- **Files to change:**', // 19
+  '  - `apps/farm-service/src/live.service.ts`', // 20 exists
+  '  - `apps/farm-service/src/module-icon.ts`', // 21 FP: change target, never evidenced
+  '  - `apps/farm-service/src/tenant-config.service.ts`', // 22 TP: evidenced at line 26
+  '', // 23
+  '**Evidence**', // 24
+  '', // 25
+  '- `apps/farm-service/src/tenant-config.service.ts:349-358` — writes no audit row.', // 26 TP: line-pinned evidence
+  '', // 27
+  '**Files:**', // 28
+  '- Create: `apps/farm-service/src/harness-new.sh`', // 29 FP: creation verb
+  '- Modify: `apps/farm-service/src/harness.sh`', // 30 TP: modify asserts existence
+  '', // 31
+  '| Path | Note |', // 32
+  '| `apps/farm-service/src/row-new.ts` | (new) |', // 33 FP: creation marker in its own row
+  '| `apps/farm-service/src/row-old.ts` | wired |', // 34 TP: the neighbouring row is not new
+  '', // 35
+  'Writers: `apps/farm-service/src/{create,update}-x.handler.ts`; FE: `apps/farm-service/src/Page.tsx`.', // 36 TP: marker words inside another span do not count
+  '', // 37
+  '## Files', // 38
+  '', // 39
+  '- `apps/farm-service/src/personas/operator.ts` - Operator persona', // 40 TP: a bare Files heading describes code as it stands
+  '', // 41
+  'Search for `x` in .tsx files returned nothing:', // 42
+  '- `apps/farm-service/src/routes/sensor.routes.ts` -- propagates the header', // 43 TP: prose mentioning files is not a change list
+].join('\n');
+writeFileSync(join(roleWorkspace, 'docs/guides/roles.md'), roleDoc, 'utf8');
+const roleOutput = analyzeDocStaleness({ roots: ['docs'] }, roleWorkspace);
+assert.deepEqual(
+  roleOutput.findings.map((item) => item.line).sort((a, b) => a - b),
+  [3, 22, 26, 30, 34, 36, 40, 43],
+  JSON.stringify(roleOutput.findings),
+);
+assert.deepEqual(roleOutput.metadata.unclaimedRefs, {
+  creation: 5,
+  proposal: 2,
+  absence: 2,
+  change_target: 1,
+});
+
 process.stdout.write('doc-staleness-adapter tests passed\n');

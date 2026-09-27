@@ -1655,6 +1655,17 @@ def alias_factory(root):
                     f"{KERNEL}human_required_adjudication.py",
                     "consumer",
                 ),
+                # ARIA-MEDIUM-225 — the panel independence check binds each
+                # seat through its accepted, sealed response (agent + route)
+                # for the adjudication fold and the convergence drainer; it
+                # decides whether a panel is independent, never whether the
+                # executor's work is accepted.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}independence_check.py",
+                    "consumer",
+                ),
                 (
                     "executor",
                     "agent_invocation_results",

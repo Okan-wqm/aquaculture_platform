@@ -566,5 +566,32 @@ class StateCompactTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+
+class PublishBoundRelationTests(unittest.TestCase):
+    """ARIA-MEDIUM-230 — the numbers the publish bound rests on, in order:
+    compaction triggers well before the per-surface cap, and the cap sits
+    below the host's per-file push limit and at or above the evidence cap
+    the commit gate applies, so the kernel refuses before the remote does
+    and never admits what the evidence gate would refuse."""
+
+    def test_trigger_below_cap_below_the_host_limit(self) -> None:
+        from aria_kernel import autonomy_evidence, state_compact, state_snapshot
+
+        cap = state_snapshot.SNAPSHOT_MAX_SURFACE_BLOB_BYTES
+        self.assertLess(state_compact.COMPACTION_TRIGGER_BYTES, cap)
+        self.assertLessEqual(2 * state_compact.COMPACTION_TRIGGER_BYTES, cap)
+        self.assertLess(cap, state_snapshot.GITHUB_PUSH_FILE_LIMIT_BYTES)
+        self.assertEqual(state_snapshot.GITHUB_PUSH_FILE_LIMIT_BYTES, 100 * 1024 * 1024)
+        self.assertLessEqual(autonomy_evidence._MAX_EVIDENCE_LEDGER_BLOB_BYTES, cap)
+        self.assertEqual(
+            set(state_compact.COMPACTABLE_SURFACES),
+            {"runs", "raw_findings", "beliefs", "learning_events"},
+        )
+
+    def test_the_cycle_no_longer_compacts_behind_a_swallowed_error(self) -> None:
+        from aria_kernel import cycle
+
+        self.assertFalse(hasattr(cycle, "_auto_compact_if_needed"))
+
 if __name__ == "__main__":
     unittest.main()

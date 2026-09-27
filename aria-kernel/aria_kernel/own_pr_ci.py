@@ -47,10 +47,23 @@ def bridge_path(base_dir: str | Path | None = None) -> Path:
 
 
 def is_own_pr_head(head_ref: str) -> bool:
+    """ARIA opened this PR: an ``aria/``/``automation/`` head, or an
+    implementation branch (``command_policy.ARIA_IMPL_BRANCH_FRAGMENT``).
+
+    ARIA-HIGH-222 — the implementation branches are the PRs the merge lane
+    merges, and the prefixes alone never matched them (``aria-impl-<hex>``
+    is not under ``aria/``): the post-merge reconciler recorded no outcome
+    for any ARIA merge, so a merge_intent could never be tied to its merge
+    and self-revert could never see a merge the lane made.
+    """
+    import re
+
+    from .command_policy import ARIA_IMPL_BRANCH_FRAGMENT
+
     head = str(head_ref or "")
     if head in OWN_PR_EXCLUDED_HEADS:
         return False
-    return head.startswith(OWN_PR_HEAD_PREFIXES)
+    return head.startswith(OWN_PR_HEAD_PREFIXES) or re.fullmatch(ARIA_IMPL_BRANCH_FRAGMENT, head) is not None
 
 
 def red_jobs_of(github: dict[str, Any]) -> list[str]:
@@ -110,6 +123,7 @@ def scan_own_prs(
             github=snapshot["github"],
             base_dir=root,
             cycle_id=cycle_id,
+            workspace_root=workspace_root,
         )
         jobs = red_jobs_of(snapshot["github"])
         status = "open" if jobs else "cleared"
@@ -221,6 +235,10 @@ def scan_merged_own_prs(
                 "cycle_id": cycle_id,
                 "pr_number": number,
                 "head_ref": head_ref,
+                # ARIA-HIGH-222 — the head the PR merged at: an ARIA merge
+                # attempt (a published merge_intent) is attributed to the
+                # merge by (PR, head), never by PR number alone.
+                "head_sha": str(pr.get("headRefOid") or ""),
                 "merge_sha": merge_sha,
                 "red_jobs": red_jobs,
                 "pending_jobs": pending_jobs,

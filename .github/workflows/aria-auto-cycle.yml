@@ -80,12 +80,12 @@ on:
         default: '1'
         type: string
       unquarantine_tool_ids:
-        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; requires approval ref)'
+        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; one approval ref per id)'
         required: false
         default: ''
         type: string
       unquarantine_approval_ref:
-        description: 'Operator approval reference for the unquarantine (recorded in governance)'
+        description: 'Comma-separated gh:<owner>/<repo>#<n>/comment/<id> (or /review/<id>) refs, one per tool id in order: operator GitHub acts carrying `aria-kernel operator approval-template --surface tool_unquarantine tool=<id>`'
         required: false
         default: ''
         type: string
@@ -122,6 +122,14 @@ permissions:
   # cycle's pressure instead of a silently blocked PR. Read-only pair.
   checks: read
   pull-requests: read
+  # ARIA-CRITICAL-216 — the operator unquarantine step reads the operator's
+  # approval comment back from GitHub; issue comments need this read.
+  # ARIA-MEDIUM-227 — a self-merge freeze is written mid-cycle and reaches
+  # aria/state only at this job's end publish; the self-revert producer
+  # therefore opens the freeze's issue at once (label `self-merge-freeze`),
+  # and the merge lane reads it as a freeze. Issues only: no code, no refs.
+  # Write covers both; nothing here needs more than issues.
+  issues: write
 
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
@@ -516,24 +524,36 @@ jobs:
       # nightly never touches it. Added because six adapters were quarantined
       # by an environment fault (missing node deps priced as tool guilt) and
       # unquarantine_tool was API-only — no operator-reachable caller.
+      # ARIA-CRITICAL-216 — each ref is an operator's GitHub act approving one
+      # tool, verified by the kernel through the API and spent once, so the
+      # refs pair with the ids one to one.
       - name: Operator unquarantine (dispatch-gated)
         if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.unquarantine_tool_ids != ''
         env:
           TOOL_IDS: ${{ github.event.inputs.unquarantine_tool_ids }}
           APPROVAL_REF: ${{ github.event.inputs.unquarantine_approval_ref }}
           ARIA_TOOLS: ${{ env.ARIA_TOOLS_DIR }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [ -n "${APPROVAL_REF}" ] || { echo '::error::unquarantine requires an approval ref'; exit 1; }
           if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
             echo '::error::tool ids must be comma-separated slugs'; exit 1
           fi
+          GH_REF='gh:[A-Za-z0-9-]+/[A-Za-z0-9._-]+#[0-9]+/(comment|review)/[0-9]+'
+          if ! printf '%s' "${APPROVAL_REF}" | grep -Eq "^${GH_REF}(,${GH_REF})*\$"; then
+            echo '::error::approval refs must be comma-separated gh:<owner>/<repo>#<n>/comment|review/<id>'; exit 1
+          fi
           IFS=',' read -ra IDS <<< "${TOOL_IDS}"
-          for id in "${IDS[@]}"; do
+          IFS=',' read -ra REFS <<< "${APPROVAL_REF}"
+          if [ "${#IDS[@]}" -ne "${#REFS[@]}" ]; then
+            echo '::error::one approval ref per tool id, in the same order'; exit 1
+          fi
+          for i in "${!IDS[@]}"; do
             PYTHONPATH=aria-kernel python3 -m aria_kernel tool unquarantine \
-              --tool-id "${id}" \
+              --tool-id "${IDS[$i]}" \
               --reason "operator dispatch: environment-fault quarantine lifted" \
-              --operator-approval-ref "${APPROVAL_REF}" \
+              --operator-approval-ref "${REFS[$i]}" \
               --root-cause-note "quarantined by missing workspace node deps (ORPHAN-HIGH-607); the tool never executed" \
               --fixture-update-ref "n/a: no fixture change; environment fault" \
               --tools-dir "${ARIA_TOOLS}"
@@ -727,6 +747,13 @@ jobs:
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
           MAX_TURNS_PER_RUN: '12'
+          # ARIA-HIGH-208 — the App a delivery mints its PR credential from.
+          # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
+          # never copies the ambient GH_TOKEN (Mode B) into a PR's author.
+          ARIA_REQUIRE_MODE_A: 'true'
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           # Plan 032 Faz 032a — the dispatcher factories poll for an envelope
@@ -753,21 +780,33 @@ jobs:
           ARIA_PROFILE_APPROVAL_REF: >-
             aria-auto-cycle:ceiling=${{ steps.profile_gate.outputs.ceiling }}:l1-unlock=${{ steps.profile_gate.outputs.l1_valid }}:run=${{ github.run_id }}
         run: |
-          # ORPHAN-722 — PR identity. PRs opened with the job token are
-          # authored by github-actions[bot], and GitHub parks bot-PR
-          # workflows in action_required (anti-recursion, not a repo
-          # setting), so ARIA's own PRs could never go green unattended
-          # (#1266/#1195 sat with ZERO check runs). The machine-local
-          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
-          # precedence; the job token stays the fallback so a token-less
-          # runner degrades to today's behavior instead of failing.
+          # ARIA-HIGH-208 (was ORPHAN-722) — PR identity. A PR opened with
+          # the job token is authored by github-actions[bot] and GitHub parks
+          # its workflows in action_required (anti-recursion, not a repo
+          # setting): aria-merge-authority, the readiness claim and the merge
+          # runner never start. Every PR this lane opens goes through a
+          # delivery hold (`delivery_credentials`) that mints its own App
+          # installation token where it is consumed and revokes it after;
+          # ARIA_REQUIRE_MODE_A (env above) makes that mint refuse by name
+          # when the App is not configured, instead of falling back.
+          # The ambient GH_TOKEN below authors no PR: it serves the lane's
+          # own gh reads, from the machine PAT (runner .env) when present.
           if [ -n "${ARIA_GH_TOKEN:-}" ]; then
             export GH_TOKEN="$ARIA_GH_TOKEN"
-            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+            echo "ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)"
           else
-            echo "gh identity: job token fallback"
+            echo "ambient gh identity (reads): job token"
           fi
           set -euo pipefail
+          # The App key, from the secret into a private file in RUNNER_TEMP:
+          # outside the workspace every sandbox binds, removed on any exit.
+          # The PEM leaves the environment before any child process starts;
+          # the mint reads the file through ARIA_GH_APP_PRIVATE_KEY_PATH.
+          KEY_FILE="$RUNNER_TEMP/aria-gh-app-private-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          (umask 077 && printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE")
+          unset ARIA_GH_APP_PRIVATE_KEY
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
           if ! [[ "$MAX_CYCLES" =~ ^[0-9]{1,2}$ ]]; then
             echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2

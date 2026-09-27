@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `36d835b1942d885d1f600437e04922a49f0643e7301d57079f9387cc2f83b157`
+Registry tip: `35370220a607f6b292f0111ade02201b5b4fd2c8842bbe02aef67fa20f29272f`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -260,29 +260,24 @@ tenants" and sent no audience at all — the one body the route refuses — so n
 ever attempted was delivered, and the 400 went to `console.error`; and the page keyed alignment,
 colour and the read receipt on a `senderType` this service has never written, so its own replies drew
 as the tenant's. Same bucket, same reason: a control that reports something other than what it did.
-
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
 `ADMIN-CRITICAL-156` — every support ticket's comment thread rendered empty and silent: the client
 declared a flat array where the route returns a page, so `.map` ran on the page object and the
 TypeError went to `console.error`. The same commit closes `ADMIN-MEDIUM-114`, which had tracked
 the missing comments DTO. Same bucket, same reason.
-
 `ADMIN-CRITICAL-154` — `MessagingAiPersonasPage` told operators that a hardcoded glossary was the
 tenant's live PLC actuation policy, on the LIFE-SAFETY surface that governs autonomous control of
 physical equipment; admin-api has no route, no NATS call and no reference to `TenantAgentConfig`.
 The claim is removed and the gap stated on the page; BUILDING the read path is `ADMIN-HIGH-155`,
 deliberately not bundled into a page migration because it crosses into ai-service.
-
 `ADMIN-CRITICAL-151` — `MessagingRetentionPage`'s "+ Override" discarded its arguments and closed
 the modal, reporting success for a data-deletion window it never wrote; its Edit could never save
 and its list could never load. Same bucket, same reason.
-
 `ADMIN-CRITICAL-150` — `MessagingAuditPage` could not display a correct row in any state: its
 default read 400'd for the same reason and drew "entries will appear once messaging activity
 begins"; a valid tenant crashed the page on an offset-vs-cursor response mismatch; five row fields
 were invented; and none of the seven action filter values is a member of `ComplianceAction`. Same
 bucket, same reason: the branch fixes it and the close ceremony records the commit.
-
 `ADMIN-CRITICAL-147` — `MessagingCompliancePage` sent both of its reads without the tenant id the
 routes require, so every load 400'd and the page rendered a placeholder reporting **Compliance
 Score 100%**, zero messages under legal hold, and a green tick over "No legal holds", on a
@@ -290,6 +285,10 @@ litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it 
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
+| `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
+| `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
+| `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
+| `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 
 ## Mutation Rules
 
@@ -423,6 +422,13 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   restart replays an entrypoint from one release contract into a container from another. Real open
   work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
+
+- `ARIA-CRITICAL-214`, `ARIA-CRITICAL-215`, `ARIA-CRITICAL-216` (2026-09-26, plan 037 merge-lane
+  review): a rename's source escaped the risk classifier, the L1 scope reached paths no CI gate
+  covers, and operator approval was a free string. Real open work until the plan 037 integration
+  merges (units L and O carry the `Closes:` lines); owner claude (registry owner_user okan),
+  deadline 2026-10-31
+  (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

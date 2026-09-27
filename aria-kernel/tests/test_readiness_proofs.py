@@ -108,6 +108,7 @@ class ReadinessProofProductionTests(unittest.TestCase):
             github=github_snapshot(),
             changed_files=["apps/farm-service/src/app.module.ts"],
             base_dir=self.tools_dir,
+            workspace_root=None,
         )
         # A pre-F5-a row: real ledger append (hash-chained) but WITHOUT the
         # row identity pair — exactly what every historical row looks like.

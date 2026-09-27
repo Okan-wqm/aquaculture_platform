@@ -288,6 +288,24 @@ DEFAULT_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
     "contents": "write",
     "administration": "read",
 })
+# ARIA-HIGH-208 — what aria-merge-runner.yml mints its merge token with: the
+# default set plus the three reads the merge gates make through the GitHub
+# adapter (`auto_merge.GhCliGitHubAdapter`): open issues for the watchdog
+# merge freeze (`watchdog_freeze`), and check runs + commit statuses for the
+# required-checks gate. A
+# token without them reads nothing there, so each gate refused as
+# unreadable. Each is a permission the App must hold (a missing one fails
+# the mint with HTTP 422, by name — docs/runbooks/aria-github-app-setup.md).
+# ARIA-HIGH-218 — and actions:read: the readiness claim's rollback and
+# retention proofs name a published Actions artifact, and the merge gate
+# verifies them by downloading it (`actions_artifacts.fetch_actions_artifact`).
+MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
+    **DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
+    "checks": "read",
+    "statuses": "read",
+    "issues": "read",
+    "actions": "read",
+})
 # A token that may only READ the repository's runner roster
 # (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner
 # preflight mints. A GitHub-hosted job never holds a write scope on the

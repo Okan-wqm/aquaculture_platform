@@ -897,36 +897,16 @@ def run_enterprise_cycle(
         if phase.state_key is not None:
             state[phase.state_key] = context.result(phase.name)
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
-    # ORPHAN-HIGH-798 (auto-trigger half) — if any surface exceeds the
-    # compaction threshold, compact NOW rather than scheduling for a future
-    # cycle: the push that publishes this cycle's state is the one that
-    # dies when a file crosses GitHub's 50MB line. The snapshot already
-    # measures size_bytes per surface (state_snapshot.py:215) but nothing
-    # consumed it — this is the trigger that wiring was designed for.
-    state["state_compaction"] = _auto_compact_if_needed(base_dir)
+    # ARIA-MEDIUM-230 — no compaction here. The cycle-end trigger that lived
+    # here (ORPHAN-HIGH-798) ran only when a cycle reached this line, caught
+    # every failure into a state key nothing read, and resolved a missing
+    # base_dir against the working directory; the nightlies of 2026-09-21
+    # onward died at their time limit before it, and their publishes were
+    # refused on a raw-findings ledger it never bounded. The bound is the
+    # publish preamble's (`state_compact.bound_compactable_surfaces`, run by
+    # `state_store.prepare_publishable_snapshot`), the one step every
+    # publisher runs, and a failure there refuses the publish by name.
     return state
-
-
-def _auto_compact_if_needed(base_dir: str | os.PathLike[str] | None) -> dict[str, Any]:
-    """Run compact_state when any tracked surface exceeds the threshold."""
-    from pathlib import Path as _P
-
-    threshold_bytes = 40 * 1024 * 1024  # 40MB — GitHub warns at 50MB
-    root = _P(base_dir) if base_dir else _P(".")
-    surfaces_to_check = ["runs.jsonl", "raw-findings.jsonl", "memory/beliefs.jsonl", "memory/learning-events.jsonl"]
-    oversized = []
-    for rel in surfaces_to_check:
-        path = root / rel
-        if path.exists() and path.stat().st_size > threshold_bytes:
-            oversized.append(rel)
-    if not oversized:
-        return {"status": "not_needed", "oversized": []}
-    try:
-        from .state_compact import compact_state
-        result = compact_state(base_dir=base_dir, retain_days=7, dry_run=False)
-        return {"status": "compacted", "oversized": oversized, "result": result}
-    except Exception as exc:  # noqa: BLE001 — compaction must not kill the cycle
-        return {"status": "error", "oversized": oversized, "error": str(exc)[:200]}
 
 
 # ---------------------------------------------------------------------
@@ -1129,6 +1109,7 @@ def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
     identity and roots.
     """
     from .change_outcome import evaluate_change_outcomes
+    from .github_adapters import select_issue_writer
     from .self_revert import TRIGGER_CHANGE_OUTCOME, run_self_revert_producer
 
     evaluation = evaluate_change_outcomes(
@@ -1138,12 +1119,19 @@ def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
     )
     # ARIA-HIGH-199 — a `regression` verdict on a change ARIA merged is the
     # second revert trigger, read from the outcome ledger this phase writes.
+    # ARIA-MEDIUM-227 — every freeze it writes is put on GitHub at once
+    # through the issue writer the profile selects.
     evaluation["self_revert"] = run_self_revert_producer(
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
         workspace_root=context.workspace_root,
         reader=None,
         triggers=(TRIGGER_CHANGE_OUTCOME,),
+        issue_writer=select_issue_writer(
+            profile=get_profile(base_dir=context.base_dir),
+            base_dir=context.base_dir,
+            cwd=context.workspace_root,
+        ),
     )
     return evaluation
 
@@ -1446,11 +1434,12 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
     read reports WHY in the phase result — a tokenless night is a visible
     cause, not a quiet zero.
     """
-    from .github_adapters import select_checks_reader
+    from .github_adapters import select_checks_reader, select_issue_writer
     from .own_pr_ci import scan_own_prs
 
+    profile = get_profile(base_dir=context.base_dir)
     reader = select_checks_reader(
-        profile=get_profile(base_dir=context.base_dir),
+        profile=profile,
         cwd=context.workspace_root,
     )
     scan_result = scan_own_prs(
@@ -1471,10 +1460,11 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         reader=reader,
     )
     # ARIA-HIGH-199 — a red that is ARIA's own (an ARIA merge, attributable
-    # because every red job was green on the merge's parent) is no longer
-    # only pressure: self-merge is frozen and the pure revert is opened.
-    # The producer reads the rows the scan above just wrote, with the same
-    # reader, and respects the profile past the freeze.
+    # because every red job was green on main before it) is no longer only
+    # pressure: self-merge is frozen and the pure revert is opened. The
+    # producer reads the rows the scan above just wrote, with the same
+    # reader, and respects the profile past the freeze. ARIA-MEDIUM-227 —
+    # the freeze is put on GitHub at once through the profile's issue writer.
     from .self_revert import TRIGGER_POST_MERGE_CI, run_self_revert_producer
 
     scan_result["self_revert"] = run_self_revert_producer(
@@ -1483,6 +1473,11 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         workspace_root=context.workspace_root,
         reader=reader,
         triggers=(TRIGGER_POST_MERGE_CI,),
+        issue_writer=select_issue_writer(
+            profile=profile,
+            base_dir=context.base_dir,
+            cwd=context.workspace_root,
+        ),
     )
     # ORPHAN-723 — read-only repo PR weather (Dependabot + developer
     # branches included). Observation only; third-party action authority

@@ -39,6 +39,7 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
@@ -587,7 +588,6 @@ class NativeSpecialistPlanBinding(unittest.TestCase):
             verify_invocation_context_binding,
         )
         from aria_kernel.plan_convergence import plan_status
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
         from tests._helpers.production_shaped import production_converged_plan
@@ -608,7 +608,7 @@ class NativeSpecialistPlanBinding(unittest.TestCase):
             source_path: "export const sessionDurationSeconds = 900;\n",
         })
         tools = root / "tools"
-        set_profile("strict", operator_approval_ref="test:native-specialist", base_dir=tools)
+        operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
             tools_dir=tools, workspace_root=repo,

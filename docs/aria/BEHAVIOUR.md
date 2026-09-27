@@ -62,7 +62,8 @@ terminated 2026-08-19 05:39 after two days wedged].**
 hard-fail checks at `pr_manager.py:359` **[measured]**. The merge evaluator distinguishes
 "unreadable" from "clean" at every input and fails closed on each, and since ORPHAN-717 it
 refuses a head SHA carrying zero check runs — the conflicted-PR-reads-as-green hole
-**[measured]**.
+**[measured]**. At merge time `merge_pr_if_ready` runs the pre-merge hard-fail perimeter
+(`GATE_PRE_MERGE`) against the PR head it is about to merge.
 
 ---
 
@@ -70,8 +71,16 @@ refuses a head SHA carrying zero check runs — the conflicted-PR-reads-as-green
 
 These are boundaries, not defects. Each is enforced in code, not by convention.
 
-**It cannot merge its own kernel changes.** M-6.1 forbids self-merge on `aria-kernel/**`;
-promotion there is operator-gated. Product-lane (`apps/**`) autonomy is a separate ladder.
+**It cannot merge anything outside L1, its own kernel changes included.** The risk policy
+(`docs/aria/policy/risk-policy.json`) admits to L1 only documentation outside the code-owned
+paths and new unit-test files, each under its git status; a changed or deleted test is L2,
+and `aria-kernel/**`, `docs/aria/**` and `.github/**` are code-owned L3. A PR outside L1
+opens labelled `aria:human-merge` and the merge lane skips it (M-6.1).
+
+**It cannot grant itself merge authority.** Merging needs a time-limited L1 merge-lane grant
+or a profile holding `pr_merge`, and each is set only through the operator CLI with an
+approval proven by the operator's own GitHub act. ARIA can narrow its authority on its own:
+a self-merge freeze stops the lane at once, and self-revert reverts one of its own merges.
 
 **It cannot write its own source outside a granted set.** `READONLY_PATHS` in
 `implementation_safety` refuses kernel writes; the constitutional-core list (proposal,
@@ -101,17 +110,12 @@ coverage.
 This section is the reason this file exists. Everything below is a module that exists, is
 tested, is referenced in prose — and is not connected to a path that runs.
 
-**Autonomous merge is structurally unreachable — and not only because policy forbids it.**
-The merge-candidate enumerator reads `enterprise/readiness-claims.jsonl`. The only producer
-of that ledger, `produce_readiness_claim` (`readiness_proofs.py:1021`), has **zero
-production callers** **[measured]**. A missing ledger reads as `[]`, so the candidate list
-is always empty. The policy gate and the empty-input gate would each stop a merge; only one
-of them is on purpose.
-
-**The pre-merge hard-fail perimeter is defined and never invoked.** Its checks are
-registered against `GATE_PRE_MERGE`, and the only production call of `run_hard_fail_checks`
-passes `GATE_PRE_PR_OPEN` **[measured]**. What guards ARIA's PRs is the pre-PR-open
-perimeter; the pre-merge one is a declared surface with no caller.
+**Autonomous merge is wired end to end and has never merged anything.**
+`aria-readiness-claim.yml` produces the readiness claim (`aria-kernel readiness produce-claim` →
+`produce_readiness_claim`), `aria-merge-runner.yml` runs `merge_pr_if_ready`, and a merge
+enters the required squash merge queue. Nothing merges until an operator grants the L1 merge
+lane and the lane's autonomy unlock holds. No grant has been recorded, and the eight rows of
+`auto-merge-decisions.jsonl` are all `blocked` (2026-09-04) **[measured]**.
 
 **132 of 205 declared durable state surfaces have never been written once** — and the
 missing set is almost exactly the action-taking half: every `pr-lifecycle` ledger, the whole

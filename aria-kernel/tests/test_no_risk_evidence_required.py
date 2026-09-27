@@ -29,7 +29,20 @@ class NoRiskEvidenceRequiredTests(unittest.TestCase):
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         self.log = self.tmp / "log.txt"
         self.log.write_text("ok\n", encoding="utf-8")
-        self.change_id = "ch-d5"
+        # ARIA-MEDIUM-231 — the gate verifies the runs at the change's
+        # committed tip, so the change is committed at the commit its run
+        # names, as every change that reaches the gate is.
+        from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
+
+        planned = emit_change_planned(
+            plan_id="plan-d5", finding_id="F-d5", intended_affected_files=["docs/runbooks/d5.md"],
+            intended_validation_refs=["nx affected --target=test"], architectural_tier=1, base_dir=self.base,
+        )
+        self.change_id = planned["change_id"]
+        emit_change_committed(
+            change_id=self.change_id, commit_sha="abc1234567890",
+            actual_affected_files=["docs/runbooks/d5.md"], base_dir=self.base,
+        )
 
     def tearDown(self) -> None:
         import shutil

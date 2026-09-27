@@ -18,11 +18,11 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aria_kernel.ledger import append_jsonl as _append_jsonl
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.worker_dispatch_hook import (
     LEASE_TOKEN_ENV_VAR,
     dispatch_one_pending_worker_assignment,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -218,12 +218,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
         ) as mock_verify, patch(
             "aria_kernel.merge_authority.merge_pr_if_ready"
         ) as mock_merge:
-            set_profile(
-                "autonomous",
-                operator_approval_ref="test:worker-merge",
-                base_dir=self.tools_root,
-                set_by="operator",
-            )
+            operator_set_profile("autonomous", base_dir=self.tools_root)
             mock_verify.return_value = {"status": "passed", "failures": []}
             mock_merge.return_value = {"decision": "merged", "eligible": True}
             result = dispatch_one_pending_worker_assignment(

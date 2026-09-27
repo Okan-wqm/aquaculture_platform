@@ -88,6 +88,7 @@ class LatestHeadShaStrictTests(unittest.TestCase):
             github=_make_github(latest_head_sha=head),
             policy=_make_policy(),
             diff_text="diff --git a/apps/x.ts b/apps/x.ts\n+++ b/apps/x.ts\n+const x = 1;\n",
+            workspace_root=None,
         )
         self.assertEqual(
             [r for r in result["reasons"] if "head SHA" in r],
@@ -106,6 +107,7 @@ class LatestHeadShaStrictTests(unittest.TestCase):
             github=_make_github(latest_head_sha=latest),
             policy=_make_policy(),
             diff_text="diff --git a/apps/x.ts b/apps/x.ts\n+++ b/apps/x.ts\n+const x = 1;\n",
+            workspace_root=None,
         )
         self.assertTrue(
             any("head SHA changed" in r for r in result["reasons"]),
@@ -124,6 +126,7 @@ class LatestHeadShaStrictTests(unittest.TestCase):
             github=_make_github(latest_head_sha=None),  # missing field
             policy=_make_policy(),
             diff_text="diff --git a/apps/x.ts b/apps/x.ts\n+++ b/apps/x.ts\n+const x = 1;\n",
+            workspace_root=None,
         )
         self.assertTrue(
             any("latest PR head SHA unavailable" in r for r in result["reasons"]),

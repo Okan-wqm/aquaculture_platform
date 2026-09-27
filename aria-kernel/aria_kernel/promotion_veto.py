@@ -509,7 +509,6 @@ def _activate_panel_approved(
             f"(panel={pending.get('panel_approval_ref')}, cycle {cycle_id})"
         ),
         base_dir=root,
-        operator_approval=False,
         panel_approval_token=token,
         precision=1.0 if readiness["zero_finding_lane"] else readiness["precision"],
         critical_false_positives=readiness["critical_false_positives"],

@@ -40,11 +40,26 @@ def _probe_for(payload, ok=True, reasons=()):
     return probe
 
 
-def _rules(ruleset_ids=(101,), bypass_actors=()):
+# ARIA-HIGH-221 — main requires a squash merge queue (a ruleset rule).
+_SQUASH_QUEUE = {"merge_method": "SQUASH", "ruleset_id": 101, "merge_methods": ["SQUASH"]}
+
+
+def _rules(ruleset_ids=(101,), bypass_actors=(), merge_queue=_SQUASH_QUEUE):
     def rules_probe(*, repo, branch):
-        return list(ruleset_ids), list(bypass_actors)
+        return list(ruleset_ids), list(bypass_actors), (None if merge_queue is None else dict(merge_queue))
 
     return rules_probe
+
+
+def _rules_listing() -> list[dict]:
+    """``rules/branches/main`` as GitHub lists it for the operator's shape."""
+    return [
+        {"type": "pull_request", "ruleset_id": 101},
+        {"type": "merge_queue", "ruleset_id": 101, "parameters": {
+            "merge_method": "SQUASH", "grouping_strategy": "ALLGREEN",
+            "max_entries_to_build": 5, "min_entries_to_merge": 1,
+        }},
+    ]
 
 
 class BranchProtectionProofTests(unittest.TestCase):
@@ -104,6 +119,32 @@ class BranchProtectionProofTests(unittest.TestCase):
             rules_probe=_rules(bypass_actors=({"actor_id": 9, "actor_type": "Team"},)),
         )
         self.assertEqual(report["proof"]["bypass_actors"], [{"actor_id": 9, "actor_type": "Team"}])
+        # ARIA-HIGH-207 — a measured bypass actor is a red proof, named.
+        self.assertFalse(report["proof"]["valid"])
+        self.assertIn("bypass_actors_present", report["proof"]["probe_reasons"])
+        self.assertIn("bypass_actors_present", report["probe_reasons"])
+
+    def test_unmeasured_bypass_actors_make_the_proof_invalid(self) -> None:
+        # ARIA-HIGH-207 — "could not see the field" is not "no bypass actors".
+        def unmeasured(*, repo, branch):
+            return [101], None, dict(_SQUASH_QUEUE)
+
+        report = produce_branch_protection_proof(
+            **self.binding, probe=_probe_for(_strong_payload()), rules_probe=unmeasured,
+        )
+        proof = report["proof"]
+        self.assertFalse(proof["valid"])
+        self.assertIsNone(proof["bypass_actors"])
+        self.assertIn("bypass_actors_unmeasured", proof["probe_reasons"])
+        self.assertIn("bypass_actors_unmeasured", report["probe_reasons"])
+
+    def test_measured_empty_bypass_actors_keep_the_proof_valid(self) -> None:
+        report = produce_branch_protection_proof(
+            **self.binding, probe=_probe_for(_strong_payload()), rules_probe=_rules(bypass_actors=()),
+        )
+        self.assertTrue(report["proof"]["valid"])
+        self.assertEqual(report["proof"]["bypass_actors"], [])
+        self.assertNotIn("bypass_actors_unmeasured", report["probe_reasons"])
 
     def test_probe_without_payload_fails_closed(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "probe_no_payload"):
@@ -177,6 +218,259 @@ class ReviewRequirementsAreMeasuredTests(unittest.TestCase):
             )
 
 
+class BranchRulesProbeTests(unittest.TestCase):
+    """ARIA-HIGH-207 — the gh-api rules probe fails closed on a field it
+    could not measure: GitHub omits ``bypass_actors`` for a token that
+    cannot read it, and an absent or null field must not read as ``[]``."""
+
+    @staticmethod
+    def _run_with(detail: dict):
+        import json
+        import subprocess
+
+        def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
+            path = argv[-1]
+            if path.endswith("/rules/branches/main"):
+                body = _rules_listing()
+            elif path.endswith("/rulesets/101"):
+                body = detail
+            else:
+                return subprocess.CompletedProcess(argv, 1, "", f"unexpected {path}")
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+        return run
+
+    def _probe(self, detail: dict):
+        import subprocess
+        from unittest.mock import patch
+
+        from aria_kernel.readiness_proofs import _probe_branch_rules
+
+        with patch.object(subprocess, "run", self._run_with(detail)):
+            return _probe_branch_rules(repo="okan/aqua", branch="main")
+
+    def test_absent_bypass_actors_are_unmeasured(self) -> None:
+        self.assertEqual(self._probe({"id": 101})[:2], ([101], None))
+
+    def test_null_bypass_actors_are_unmeasured(self) -> None:
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": None})[:2], ([101], None))
+
+    def test_empty_bypass_actors_are_measured_empty(self) -> None:
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": []})[:2], ([101], []))
+
+    def test_listed_bypass_actors_are_returned(self) -> None:
+        actor = {"actor_id": 5, "actor_type": "Integration", "bypass_mode": "always"}
+        self.assertEqual(self._probe({"id": 101, "bypass_actors": [actor]})[:2], ([101], [actor]))
+
+    def test_the_same_listing_measures_the_merge_queue(self) -> None:
+        # ARIA-HIGH-221 — the queue is a ruleset rule on the branch.
+        _ids, _actors, merge_queue = self._probe({"id": 101, "bypass_actors": []})
+        self.assertEqual(merge_queue["merge_method"], "SQUASH")
+        self.assertEqual(merge_queue["ruleset_id"], 101)
+        self.assertEqual(merge_queue["merge_methods"], ["SQUASH"])
+
+    def test_claim_gate_names_unmeasured_bypass_actors(self) -> None:
+        from aria_kernel.enterprise_readiness import _evaluate_branch_protection
+
+        def reasons_for(**overrides) -> list[str]:
+            reasons: list[str] = []
+            _evaluate_branch_protection({"branch_protection_proof": dict(overrides)}, reasons, [])
+            return reasons
+
+        self.assertIn("branch_protection_bypass_actors_unmeasured", reasons_for(bypass_actors=None))
+        self.assertIn("branch_protection_bypass_actors_unmeasured", reasons_for())
+        self.assertIn(
+            "branch_protection_bypass_actors_forbidden",
+            reasons_for(bypass_actors=[{"actor_id": 1}]),
+        )
+        reasons = reasons_for(bypass_actors=[])
+        self.assertNotIn("branch_protection_bypass_actors_unmeasured", reasons)
+        self.assertNotIn("branch_protection_bypass_actors_forbidden", reasons)
+
+
+class OnDemandProtectionProbeTests(unittest.TestCase):
+    """ARIA-HIGH-210 — branch protection is measurable on demand, without a
+    PR: the same measurement the claim producer runs, judged by the same
+    policy the claim gate enforces, recorded in a declared ledger row."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _probe(self, payload=None, rules=None, ok=True, reasons=()):
+        from aria_kernel.readiness_proofs import probe_branch_protection_on_demand
+
+        return probe_branch_protection_on_demand(
+            repo="okan/aqua", branch="main", base_dir=self.tools,
+            probe=_probe_for(payload if payload is not None else _strong_payload(), ok=ok, reasons=reasons),
+            rules_probe=rules or _rules(),
+        )
+
+    def test_strong_protection_is_a_valid_verdict_recorded_in_a_declared_row(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.readiness_proofs import BP_PROBES_LEDGER_PATH, BP_PROBES_SURFACE
+
+        row = self._probe()
+        self.assertIs(row["valid"], True)
+        self.assertEqual(row["reasons"], [])
+        self.assertEqual(row["repo"], "okan/aqua")
+        self.assertEqual(row["branch"], "main")
+        self.assertEqual(row["proof"]["bypass_actors"], [])
+        rows = load_declared_jsonl(self.tools / BP_PROBES_LEDGER_PATH, expected_surface=BP_PROBES_SURFACE)
+        self.assertEqual([r["row_id"] for r in rows], [row["row_id"]])
+        resolved = find_row_by_source_ledger_ref(self.tools, row["proof"]["source_ledger_ref"])
+        self.assertEqual(resolved["payload_hash"], row["proof"]["snapshot_hash"])
+
+    def test_verdict_carries_every_claim_gate_reason(self) -> None:
+        weak = dict(_strong_payload(), required_pull_request_reviews={"required_approving_review_count": 0})
+
+        def unmeasured(*, repo, branch):
+            return [101], None, dict(_SQUASH_QUEUE)
+
+        row = self._probe(payload=weak, rules=unmeasured)
+        self.assertIs(row["valid"], False)
+        for reason in (
+            "bypass_actors_unmeasured",
+            "branch_protection_bypass_actors_unmeasured",
+            "branch_protection_proof_invalid",
+            "branch_protection_code_owner_reviews_required",
+        ):
+            self.assertIn(reason, row["reasons"])
+
+    def test_missing_ruleset_is_named(self) -> None:
+        row = self._probe(rules=_rules(ruleset_ids=()))
+        self.assertIs(row["valid"], False)
+        self.assertIn("branch_protection_ruleset_ids_required", row["reasons"])
+
+    def test_claim_gate_and_probe_share_one_policy(self) -> None:
+        import inspect
+
+        from aria_kernel import enterprise_readiness, readiness_proofs
+
+        self.assertIn(
+            "branch_protection_policy_reasons",
+            inspect.getsource(enterprise_readiness._evaluate_branch_protection),
+        )
+        self.assertIn(
+            "branch_protection_policy_reasons",
+            inspect.getsource(readiness_proofs.probe_branch_protection_on_demand),
+        )
+
+
+class ProbeBranchProtectionCliTests(unittest.TestCase):
+    """ARIA-HIGH-210 — `readiness probe-branch-protection` runs the producer
+    through the existing gh CLI + GH_TOKEN path (faked here)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _fake_gh(protection: dict, ruleset_detail: dict, calls: list):
+        import json
+        import subprocess
+
+        def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
+            calls.append(list(argv))
+            path = argv[-1]
+            if path == "repos/okan/aqua/branches/main/protection":
+                body = protection
+            elif path == "repos/okan/aqua/rules/branches/main":
+                body = _rules_listing()
+            elif path == "repos/okan/aqua/rulesets/101":
+                body = ruleset_detail
+            else:
+                return subprocess.CompletedProcess(argv, 1, "", f"unexpected {path}")
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+        return run
+
+    def _cli(self, protection: dict, ruleset_detail: dict, *, token: str | None = "t0k"):
+        import contextlib
+        import io
+        import json
+        import subprocess
+        from unittest.mock import patch
+
+        from aria_kernel.cli import main as cli_main
+
+        calls: list = []
+        out = io.StringIO()
+        with patch.object(subprocess, "run", self._fake_gh(protection, ruleset_detail, calls)), \
+                patch("aria_kernel.preflight._gh_available", return_value=True), \
+                patch("aria_kernel.preflight._read_gh_token", return_value=token), \
+                contextlib.redirect_stdout(out):
+            code = cli_main([
+                "readiness", "probe-branch-protection",
+                "--tools-dir", str(self.tools), "--repo", "okan/aqua",
+            ])
+        return code, json.loads(out.getvalue()), calls
+
+    @staticmethod
+    def _live_payload() -> dict:
+        # ARIA-HIGH-221 — strict up-to-date is not required (the merge queue
+        # is); the live payload is the operator's shape without it.
+        return _strong_payload()
+
+    def test_valid_protection_exits_zero_and_records_the_row(self) -> None:
+        from aria_kernel.readiness_proofs import BP_PROBES_LEDGER_PATH
+
+        code, verdict, calls = self._cli(self._live_payload(), {"id": 101, "bypass_actors": []})
+        self.assertEqual(code, 0)
+        self.assertIs(verdict["valid"], True)
+        self.assertEqual(verdict["reasons"], [])
+        self.assertEqual(verdict["branch"], "main")
+        self.assertTrue((self.tools / BP_PROBES_LEDGER_PATH).exists())
+        self.assertEqual(
+            [c[-1] for c in calls],
+            [
+                "repos/okan/aqua/branches/main/protection",
+                "repos/okan/aqua/rules/branches/main",
+                "repos/okan/aqua/rulesets/101",
+            ],
+        )
+
+    def test_unmeasured_bypass_actors_exit_nonzero_by_name(self) -> None:
+        code, verdict, _calls = self._cli(self._live_payload(), {"id": 101})
+        self.assertEqual(code, 1)
+        self.assertIs(verdict["valid"], False)
+        self.assertIn("bypass_actors_unmeasured", verdict["reasons"])
+
+    def test_unreachable_github_is_a_named_failure_not_a_verdict(self) -> None:
+        code, verdict, calls = self._cli(_strong_payload(), {"id": 101, "bypass_actors": []}, token=None)
+        self.assertEqual(code, 2)
+        self.assertIs(verdict["valid"], False)
+        self.assertTrue(any("gh_token_absent" in r for r in verdict["reasons"]))
+        self.assertEqual(calls, [])
+
+
+class ReadinessClaimDispatchTests(unittest.TestCase):
+    """ARIA-HIGH-210 — a manual dispatch of the claim lane has no
+    workflow_run; it must fail by name instead of skipping green."""
+
+    def test_dispatch_without_a_workflow_run_fails_by_name(self) -> None:
+        import yaml  # type: ignore[import-untyped]
+
+        repo = Path(__file__).resolve().parents[2]
+        workflow = yaml.safe_load(
+            (repo / ".github" / "workflows" / "aria-readiness-claim.yml").read_text(encoding="utf-8")
+        )
+        steps = {step.get("name"): step for step in workflow["jobs"]["claim"]["steps"]}
+        run = steps["Resolve the PR for the completed run"]["run"]
+        guard = run.index("readiness_claim_requires_workflow_run")
+        self.assertLess(guard, run.index("gh api"))
+        self.assertIn("exit 1", run[guard:run.index("gh api")])
+        self.assertIn("probe-branch-protection", run[guard:run.index("gh api")])
+
+
 class RemoteCasProofTests(unittest.TestCase):
     """F5-d — the lease mechanism's first production caller."""
 
@@ -224,10 +518,12 @@ class RemoteCasProofTests(unittest.TestCase):
 
 
 class RollbackRetentionProofTests(unittest.TestCase):
-    """F5-e — a real git bundle, verified by git, archived byte-identically."""
+    """F5-e — a real git bundle, verified by git, published and proven by reference."""
 
     def setUp(self) -> None:
         import subprocess
+
+        from tests._helpers.published_artifacts import PublishedArtifacts
 
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
@@ -240,6 +536,7 @@ class RollbackRetentionProofTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.name", "T"], cwd=self.repo, check=True)
         subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.repo, check=True)
+        self.artifacts = PublishedArtifacts(repo="okan/aqua")
         self.binding = dict(
             pr_number=77, repo="okan/aqua", target_ref="main",
             head_ref="feat/x", head_sha="a" * 40,
@@ -250,14 +547,27 @@ class RollbackRetentionProofTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_real_bundle_yields_both_proofs_with_equal_digests(self) -> None:
+    def _published(self) -> dict:
+        from aria_kernel.readiness_proofs import build_rollback_bundle
+
+        built = build_rollback_bundle(
+            target_ref="main", head_sha="a" * 40, workspace_root=self.repo,
+            output_dir=Path(self.tmp.name) / "rollback",
+        )
+        artifact_id = self.artifacts.publish_files(Path(built["bundle_path"]))
+        return {"bundle": built, "published": self.artifacts.fetch(repo="okan/aqua", artifact_id=artifact_id)}
+
+    def test_real_bundle_yields_both_proofs_bound_to_the_published_bytes(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
 
-        report = produce_rollback_and_retention_proofs(**self.binding)
+        evidence = self._published()
+        report = produce_rollback_and_retention_proofs(**self.binding, **evidence)
         rollback = report["rollback_proof"]
         retention = report["retention_proof"]
         self.assertTrue(rollback["validated"])
-        self.assertEqual(rollback["source_sha256"], rollback["archive_sha256"])
+        # The source is the bundle member, the archive the artifact's zip.
+        self.assertEqual(rollback["source_sha256"], evidence["bundle"]["bundle_sha256"])
+        self.assertEqual(rollback["archive_sha256"], evidence["published"].zip_sha256)
         self.assertTrue(rollback["source_sha256"].startswith("sha256:"))
         self.assertTrue(retention["validated"])
         self.assertEqual(retention["retention_days"], 30)
@@ -265,20 +575,17 @@ class RollbackRetentionProofTests(unittest.TestCase):
         for proof in (rollback, retention):
             resolved = find_row_by_source_ledger_ref(self.tools, proof["source_ledger_ref"])
             self.assertIsInstance(resolved, dict)
-        # the archived artifact exists and is byte-identical; uris are
-        # RELATIVE to the tools root — exactly what the claim verifier
-        # re-reads (absolute/file:// forms are rejected there)
-        archive = self.tools / report["archive_uri"]
-        source = self.tools / report["bundle_uri"]
-        self.assertEqual(archive.read_bytes(), source.read_bytes())
+        self.assertTrue(report["archive_uri"].startswith("actions-artifact:okan/aqua/"))
+        self.assertTrue(report["bundle_uri"].endswith("#rollback-aaaaaaaaaaaa.bundle"))
 
     def test_missing_target_ref_fails_closed(self) -> None:
-        from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
+        from aria_kernel.readiness_proofs import build_rollback_bundle
 
-        bad = dict(self.binding)
-        bad["target_ref"] = "no-such-branch"
         with self.assertRaisesRegex(GovernanceError, "bundle_create_failed"):
-            produce_rollback_and_retention_proofs(**bad)
+            build_rollback_bundle(
+                target_ref="no-such-branch", head_sha="a" * 40, workspace_root=self.repo,
+                output_dir=Path(self.tmp.name) / "rollback",
+            )
 
     def test_claim_id_is_required(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
@@ -286,13 +593,13 @@ class RollbackRetentionProofTests(unittest.TestCase):
         bad = dict(self.binding)
         bad["readiness_claim_id"] = " "
         with self.assertRaisesRegex(GovernanceError, "claim_id_required"):
-            produce_rollback_and_retention_proofs(**bad)
+            produce_rollback_and_retention_proofs(**bad, **self._published())
 
     def test_retention_days_must_be_positive(self) -> None:
         from aria_kernel.readiness_proofs import produce_rollback_and_retention_proofs
 
         with self.assertRaisesRegex(GovernanceError, "retention_days"):
-            produce_rollback_and_retention_proofs(**self.binding, retention_days=0)
+            produce_rollback_and_retention_proofs(**self.binding, **self._published(), retention_days=0)
 
 
 class TokenProofTests(unittest.TestCase):
@@ -490,6 +797,27 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
             path = evidence / f"{surface}.txt"
             path.write_text(f"clean {surface}\n", encoding="utf-8")
             self.surfaces[surface] = [path]
+        # ARIA-HIGH-218 — the rollback bundle is published as an Actions
+        # artifact and proven by reference; the verifier downloads it.
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        self.artifacts = PublishedArtifacts(repo="okan/aqua")
+        serving = self.artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
+
+    def _rollback(self, head_sha: str) -> dict:
+        from aria_kernel.readiness_proofs import build_rollback_bundle
+
+        built = build_rollback_bundle(
+            target_ref="main", head_sha=head_sha, workspace_root=self.workspace,
+            output_dir=Path(self.tmp.name) / "rollback",
+        )
+        artifact_id = self.artifacts.publish_files(Path(built["bundle_path"]))
+        return {
+            "rollback_bundle": built,
+            "rollback_artifact": self.artifacts.fetch(repo="okan/aqua", artifact_id=artifact_id),
+        }
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -538,11 +866,11 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
             },
             surface_paths=self.surfaces,
             workspace_root=self.workspace,
+            **self._rollback("a" * 40),
             base_dir=self.tools,
             probe=_probe_for(_strong_payload()),
             rules_probe=_rules(),
             mint=lambda **kw: self._Lease(),
-            owner="runner-g",
         )
         self.assertTrue(report["readiness_claim_id"].startswith("claim:77:"))
         claim = report["claim"]
@@ -589,6 +917,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
                 },
                 surface_paths=self.surfaces,
                 workspace_root=self.workspace,
+                **self._rollback("c" * 40),
                 base_dir=self.tools,
                 probe=_probe_for(_strong_payload()),
                 rules_probe=_rules(),
@@ -616,6 +945,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
                 },
                 surface_paths=self.surfaces,
                 workspace_root=self.workspace,
+                **self._rollback("d" * 40),
                 base_dir=self.tools,
                 probe=_probe_for(_strong_payload()),
                 rules_probe=_rules(),

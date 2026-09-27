@@ -13,7 +13,16 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .risk_policy import classify_path
+from .risk_policy import (
+    HUMAN_MERGE_DECISION,
+    HUMAN_MERGE_LABEL,
+    STATUS_UNKNOWN_LANE,
+    ChangeInput,
+    RiskPolicyVerdict,
+    change_entries,
+    classify_path,
+    classify_pr_change,
+)
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -108,6 +117,21 @@ class GitHubAdapter(Protocol):
         ...
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
+        """Merge, or enqueue, the PR at ``expected_head_sha``.
+
+        ARIA-HIGH-221 — main requires a merge queue, so a successful call
+        usually ENQUEUES the PR rather than merging it. The result says
+        which, measured after the call: ``merged`` (the PR is merged at that
+        head) or ``enqueued`` (it is in the merge queue, or armed to enter
+        it, at that head). Neither true is an unconfirmed result, which the
+        merge authority records as a failure, never as a merge.
+        """
+        ...
+
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """ARIA-HIGH-221 — where the PR stands with respect to merging:
+        ``{"state", "head_sha", "in_merge_queue", "auto_merge_enabled",
+        "merge_commit_sha"}``, or ``None`` when nothing was observed."""
         ...
 
 
@@ -124,23 +148,38 @@ def normalize_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def classify_changed_files(
-    changed_files: list[str | dict[str, Any]],
+    changed_files: ChangeInput,
     *,
     policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Path-class risk of a change, from each file's git status.
+
+    ARIA-CRITICAL-215 — ``changed_files`` carries statuses when it is the git
+    read (``ChangePaths``, ``(status, path)`` pairs); a platform file list
+    carries none, and a path only a status could make low-risk is then
+    ``status_unknown``, never low.
+    """
     active_policy = normalize_policy(policy)
-    paths = [_changed_file_path(item) for item in changed_files]
-    paths = [path for path in paths if path]
+    entries = [
+        (status, _changed_file_path(raw)) for status, raw in change_entries(changed_files) if raw
+    ]
+    entries = [(status, path) for status, path in entries if path]
+    paths = [path for _status, path in entries]
     low_risk: list[str] = []
     forbidden: list[str] = []
     unknown: list[str] = []
-    for path in paths:
+    status_unknown: list[str] = []
+    for status, path in entries:
+        lane = classify_path(path, status=status)
         if _matches_any(path, active_policy["hard_forbidden_globs"]):
             forbidden.append(path)
-        elif classify_path(path) == "L1":
+        elif lane == "L1":
             # ARIA-HIGH-187: the ONE low-risk answer is the enterprise
             # policy's L1 lane (CODEOWNERS-aware); no private copy here.
             low_risk.append(path)
+        elif lane == STATUS_UNKNOWN_LANE:
+            status_unknown.append(path)
+            unknown.append(path)
         elif _matches_any(path, active_policy["runtime_forbidden_globs"]):
             forbidden.append(path)
         elif _matches_any(path, active_policy["config_forbidden_globs"]):
@@ -165,14 +204,8 @@ def classify_changed_files(
     try:
         from .risk_policy import classify_change
 
-        verdict = classify_change(paths)
-        enterprise_risk = {
-            "valid": verdict.valid,
-            "lane": verdict.lane,
-            "policy_hash": verdict.policy_hash,
-            "reason_codes": list(verdict.reason_codes),
-            "matched_lanes": list(verdict.matched_lanes),
-        }
+        verdict = classify_change([(status, path) if status else path for status, path in entries])
+        enterprise_risk = _enterprise_risk(verdict)
     except Exception as exc:
         enterprise_risk = {
             "valid": False,
@@ -190,6 +223,17 @@ def classify_changed_files(
         "low_risk_files": low_risk,
         "forbidden_files": forbidden,
         "unknown_files": unknown,
+        "status_unknown_files": status_unknown,
+    }
+
+
+def _enterprise_risk(verdict: RiskPolicyVerdict) -> dict[str, Any]:
+    return {
+        "valid": verdict.valid,
+        "lane": verdict.lane,
+        "policy_hash": verdict.policy_hash,
+        "reason_codes": list(verdict.reason_codes),
+        "matched_lanes": list(verdict.matched_lanes),
     }
 
 
@@ -202,7 +246,16 @@ def evaluate_auto_merge(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
+    """Whether ``pr`` may auto-merge; records the decision.
+
+    ARIA-CRITICAL-215 — path risk is the PR's change as the checkout at
+    ``workspace_root`` holds it, read and classified by the one reader of a
+    PR's lane (``risk_policy.classify_pr_change``) with every file's git
+    status. There is no status-blind reading: a checkout without the PR's
+    commits is refused by name (``risk_change_paths_unavailable``).
+    """
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
     pr_number = pr.get("number")
@@ -217,10 +270,13 @@ def evaluate_auto_merge(
     # Post-fix: empty / missing falls through to the
     # "latest PR head SHA unavailable" reason below; gate blocks.
     latest_head_sha = _first_string(github, "latest_head_sha")
-    changed_files = pr.get("changed_files", pr.get("files", []))
-    if not isinstance(changed_files, list):
-        changed_files = []
-    risk = classify_changed_files(changed_files, policy=active_policy)
+    read = classify_pr_change(pr, workspace_root=workspace_root)
+    risk = {
+        **classify_changed_files(read.change if read.change is not None else [], policy=active_policy),
+        # The PR's lane is the reader's verdict, which also carries the
+        # platform-list cross-check and names an unreadable change.
+        "enterprise_risk": _enterprise_risk(read.verdict),
+    }
 
     # Plan 022 §H-2 — diff content scan. classify_changed_files only
     # looks at path globs; pre-fix a low-risk path (apps/**/*.ts) could
@@ -293,7 +349,8 @@ def evaluate_auto_merge(
         reasons.append(f"diff risk is {risk['risk_class']}")
     enterprise_risk = risk.get("enterprise_risk")
     if not isinstance(enterprise_risk, dict) or enterprise_risk.get("valid") is not True:
-        reasons.append("enterprise risk policy rejected diff")
+        codes = enterprise_risk.get("reason_codes") if isinstance(enterprise_risk, dict) else None
+        reasons.append("enterprise risk policy rejected diff: " + ", ".join(str(code) for code in codes or []))
     elif enterprise_risk.get("lane") != "L1":
         reasons.append(f"enterprise risk lane {enterprise_risk.get('lane')} is not auto-merge eligible")
 
@@ -412,6 +469,60 @@ def change_for_pr(
     return latest_change_id
 
 
+def human_merge_decision(
+    pr_number: int,
+    *,
+    base_dir: str | Path | None = None,
+    live_pr: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """The merge lane's named decision for a PR marked for a person's merge, or None.
+
+    ARIA-HIGH-211 (operator decision 2026-09-26) — a PR whose change is not
+    the merge lane's is opened with ``HUMAN_MERGE_LABEL`` and its
+    ``opened`` row records ``merge_route.human_merge``. Either marks it: the
+    row is ARIA's own record (readable without GitHub), the label is what a
+    person sees and may add to take a PR over. Such a PR is not a merge-lane
+    candidate; the lane names it and moves on instead of evaluating it every
+    run. Removing the label does not make it mergeable: the merge
+    authority's risk decision still classifies the change from git.
+    """
+    marked = False
+    if live_pr is not None:
+        marked = HUMAN_MERGE_LABEL in _label_names(live_pr)
+    if not marked:
+        opened = [
+            row
+            for row in load_declared_jsonl(
+                ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle",
+            )
+            if row.get("pr_number") == pr_number and row.get("event") == "opened"
+        ]
+        route = opened[-1].get("merge_route") if opened else None
+        marked = isinstance(route, dict) and route.get("human_merge") is True
+    if not marked:
+        return None
+    return {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "pr_number": pr_number,
+        "decision": "skipped",
+        "eligible": False,
+        "stage": HUMAN_MERGE_DECISION,
+        "reasons": [HUMAN_MERGE_DECISION],
+    }
+
+
+def _label_names(pr: dict[str, Any]) -> set[str]:
+    labels = pr.get("labels")
+    if not isinstance(labels, list):
+        return set()
+    return {
+        str(label.get("name")) if isinstance(label, dict) else str(label)
+        for label in labels
+        if isinstance(label, (dict, str))
+    }
+
+
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
@@ -451,6 +562,10 @@ def record_pr_lifecycle(
         "change_id": pr.get("change_id"),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
+    # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
+    # merge) is recorded on the row that names the PR; other events carry none.
+    if isinstance(pr.get("merge_route"), dict):
+        row["merge_route"] = dict(pr["merge_route"])
     if base_dir is None:
         return row
     return append_declared_jsonl(
@@ -615,6 +730,7 @@ def _merge_if_green_with_executor(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     if not dry_run:
         raise GovernanceError(
@@ -644,6 +760,7 @@ def _merge_if_green_with_executor(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        workspace_root=workspace_root,
     )
     return decision
 
@@ -657,7 +774,10 @@ def merge_if_green(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    workspace_root: str | Path | None,
 ) -> dict[str, Any]:
+    """Evaluation only (``dry_run``); ``workspace_root`` is the checkout the
+    PR's change is read from (``evaluate_auto_merge``)."""
     return _merge_if_green_with_executor(
         adapter=adapter,
         pr_number=pr_number,
@@ -666,6 +786,7 @@ def merge_if_green(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        workspace_root=workspace_root,
     )
 
 
@@ -692,6 +813,42 @@ def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[
         default={"readable": False, "unresolved_count": None},
     )
     return snapshot
+
+
+def merge_outcome(
+    merge_state: dict[str, Any] | None,
+    *,
+    expected_head_sha: str,
+    method: str,
+) -> dict[str, Any]:
+    """ARIA-HIGH-221 — classify a measured merge state after a merge call.
+
+    ``merged``: the PR is merged and its head is the head the call named.
+    ``enqueued``: it is open at that head and in the merge queue, or armed
+    to enter it. Anything else — no observation, another head, a closed PR —
+    is neither, and the merge authority records it as unconfirmed.
+    """
+    if merge_state is None:
+        return {
+            "merged": False, "enqueued": False, "method": method,
+            "expected_head_sha": expected_head_sha, "observed": None,
+        }
+    at_head = merge_state.get("head_sha") == expected_head_sha
+    pr_state = str(merge_state.get("state") or "")
+    return {
+        "merged": at_head and pr_state == "MERGED",
+        "enqueued": at_head and pr_state == "OPEN" and (
+            merge_state.get("in_merge_queue") is True or merge_state.get("auto_merge_enabled") is True
+        ),
+        "method": method,
+        "expected_head_sha": expected_head_sha,
+        "observed": dict(merge_state),
+    }
+
+
+def _merge_commit_oid(merge_commit: Any) -> str | None:
+    """``mergeCommit`` is ``null`` until the PR merges."""
+    return merge_commit.get("oid") if isinstance(merge_commit, dict) else None
 
 
 class SnapshotGitHubAdapter:
@@ -742,6 +899,14 @@ class SnapshotGitHubAdapter:
             self.payload.get("github", {}).get("open_issues", {"readable": True, "issues": []}),
         )
 
+    def list_open_pull_request_heads(self) -> dict[int, str]:
+        pr = self.payload.get("pr", {})
+        state = str(pr.get("state") or "").upper()
+        head = pr.get("head_sha") or pr.get("headRefOid")
+        if state != "OPEN" or not isinstance(pr.get("number"), int) or not isinstance(head, str):
+            return {}
+        return {pr["number"]: head}
+
     def get_pr_diff(self, number: int) -> str | None:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
         payload. Returns None when the fixture didn't supply a diff so
@@ -756,6 +921,20 @@ class SnapshotGitHubAdapter:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
         self.merge_calls.append(call)
         return {"merged": True, **call}
+
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """The seeded ``github.merge_state``, or the PR's own state."""
+        seeded = self.payload.get("github", {}).get("merge_state")
+        if isinstance(seeded, dict):
+            return deepcopy(seeded)
+        pr = self.get_pr(number)
+        return {
+            "state": str(pr.get("state") or "").upper(),
+            "head_sha": pr.get("head_sha") or pr.get("headRefOid"),
+            "in_merge_queue": False,
+            "auto_merge_enabled": False,
+            "merge_commit_sha": pr.get("merge_commit_sha"),
+        }
 
 
 class GhCliGitHubAdapter:
@@ -806,11 +985,14 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,reviews,reviewDecision",
+                "number,state,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,changedFiles,labels,reviews,reviewDecision,mergeCommit",
             ],
         )
         return {
             "number": payload.get("number"),
+            # ARIA-MEDIUM-226 — OPEN / CLOSED / MERGED: the merge authority
+            # skips a PR that is no longer open before any gate writes a row.
+            "state": payload.get("state"),
             "repository": f"{self.owner}/{self.repo}",
             "repo": f"{self.owner}/{self.repo}",
             "target_ref": payload.get("baseRefName"),
@@ -825,12 +1007,55 @@ class GhCliGitHubAdapter:
             "body": payload.get("body"),
             "url": payload.get("url"),
             "changed_files": payload.get("files", []),
+            # ARIA-CRITICAL-214 — `files` is capped at 100 entries and names
+            # a rename by its target only; `changedFiles` is the uncapped
+            # count the risk decision cross-checks the git change against.
+            "changed_files_count": payload.get("changedFiles"),
+            "labels": payload.get("labels", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
+            "merge_commit_sha": _merge_commit_oid(payload.get("mergeCommit")),
         }
 
     def get_latest_head_sha(self, number: int) -> str | None:
         return self.get_pr(number).get("head_sha")
+
+    _MERGE_STATE_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          state
+          headRefOid
+          isInMergeQueue
+          autoMergeRequest { enabledAt }
+          mergeCommit { oid }
+        }
+      }
+    }
+    """
+
+    def get_merge_state(self, number: int) -> dict[str, Any] | None:
+        """ARIA-HIGH-221 — the PR's merge state, read through GraphQL (the
+        merge-queue fields have no REST or ``gh pr view`` equivalent)."""
+        payload = self._gh_json([
+            "api", "graphql",
+            "-f", f"query={self._MERGE_STATE_QUERY}",
+            "-F", f"owner={self.owner}",
+            "-F", f"repo={self.repo}",
+            "-F", f"number={number}",
+        ])
+        data = payload.get("data")
+        repository = data.get("repository") if isinstance(data, dict) else None
+        pull = repository.get("pullRequest") if isinstance(repository, dict) else None
+        if not isinstance(pull, dict):
+            raise GovernanceError(f"merge_state_unreadable:{number}")
+        return {
+            "state": str(pull.get("state") or "").upper(),
+            "head_sha": pull.get("headRefOid"),
+            "in_merge_queue": pull.get("isInMergeQueue") is True,
+            "auto_merge_enabled": isinstance(pull.get("autoMergeRequest"), dict),
+            "merge_commit_sha": _merge_commit_oid(pull.get("mergeCommit")),
+        }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
         payload = self._gh_api_json(
@@ -843,15 +1068,39 @@ class GhCliGitHubAdapter:
         return {"readable": True, "required_checks": sorted({str(check) for check in checks if check})}
 
     def get_checks(self, head_sha: str) -> dict[str, Any]:
-        runs = self._gh_api_json([f"repos/{self.owner}/{self.repo}/commits/{head_sha}/check-runs"]).get(
-            "check_runs",
-            [],
-        )
-        statuses = self._gh_api_json([f"repos/{self.owner}/{self.repo}/commits/{head_sha}/status"]).get(
-            "statuses",
-            [],
-        )
+        """Every check run and commit status on ``head_sha``, or unreadable.
+
+        ARIA-MEDIUM-226 — both endpoints page (30 per page by default), so
+        the first page alone let a head with more runs than one page look
+        green on the ones it happened to return. Each listing is read at
+        ``per_page=100`` to the end and must add up to the ``total_count``
+        GitHub reports; a short or uncounted listing is unreadable, which
+        the gate refuses, never a partial list it would judge.
+        """
+        base = f"repos/{self.owner}/{self.repo}/commits/{head_sha}"
+        runs, runs_gap = self._listed_to_total(f"{base}/check-runs", "check_runs")
+        statuses, statuses_gap = self._listed_to_total(f"{base}/status", "statuses")
+        gaps = [gap for gap in (runs_gap, statuses_gap) if gap]
+        if gaps:
+            return {"readable": False, "runs": [], "reason": ";".join(gaps)}
         return {"readable": True, "runs": [*runs, *statuses]}
+
+    def _listed_to_total(self, path: str, key: str) -> tuple[list[dict[str, Any]], str | None]:
+        items: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            payload = self._gh_api_json([f"{path}?per_page=100&page={page}"])
+            total = payload.get("total_count")
+            batch = payload.get(key)
+            if not isinstance(total, int) or isinstance(total, bool) or not isinstance(batch, list):
+                return [], f"{key}_total_count_absent"
+            items.extend(item for item in batch if isinstance(item, dict))
+            if len(items) >= total or not batch:
+                break
+            page += 1
+        if len(items) != total:
+            return [], f"{key}_incomplete:{len(items)}/{total}"
+        return items, None
 
     def get_reviews(self, number: int) -> dict[str, Any]:
         return {"readable": True, "items": self.get_pr(number).get("reviews", [])}
@@ -951,7 +1200,15 @@ class GhCliGitHubAdapter:
         )
         if completed.returncode != 0:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")
-        return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
+        # ARIA-HIGH-221 — a zero exit is not a merge. On a branch that
+        # requires a merge queue, `gh pr merge` enqueues the PR (or arms
+        # auto-merge, which enqueues it once checks pass); the queue merges
+        # it later, or removes it. The result is what GitHub reports now.
+        return merge_outcome(
+            self.get_merge_state(number),
+            expected_head_sha=expected_head_sha,
+            method="squash",
+        )
 
     # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
     #
@@ -1010,6 +1267,55 @@ class GhCliGitHubAdapter:
         return self._gh_json_list(
             ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,body"],
         )
+
+    # ----- operator_approval.OperatorActReader (ARIA-CRITICAL-216) -------
+    #
+    # An authority grant is proven by an operator's comment or PR review;
+    # these are the reads that prove it. Each is a GET whose path is built
+    # here from integers, never taken from a caller, so it does not go
+    # through ALLOWED_GH_API_PATHS: that allowlist is also the agents' `gh
+    # api` boundary, and no agent needs to read an operator's approval.
+
+    def get_issue_comment(self, comment_id: int) -> dict[str, Any]:
+        return self._gh_json(["api", f"repos/{self.owner}/{self.repo}/issues/comments/{int(comment_id)}"])
+
+    def get_pull_request_review(self, number: int, review_id: int) -> dict[str, Any]:
+        return self._gh_json(
+            ["api", f"repos/{self.owner}/{self.repo}/pulls/{int(number)}/reviews/{int(review_id)}"]
+        )
+
+    def get_review_last_edited_at(self, node_id: str) -> str | None:
+        """REST reviews carry no edit time; GraphQL's ``lastEditedAt`` does."""
+        payload = self._gh_json([
+            "api",
+            "graphql",
+            "-f",
+            "query=query($id: ID!) { node(id: $id) { ... on PullRequestReview { lastEditedAt } } }",
+            "-f",
+            f"id={node_id}",
+        ])
+        node = (payload.get("data") or {}).get("node")
+        if not isinstance(node, dict):
+            raise GovernanceError(f"pull request review node {node_id!r} unreadable")
+        edited = node.get("lastEditedAt")
+        return edited if isinstance(edited, str) else None
+
+    def list_open_pull_request_heads(self) -> dict[int, str]:
+        """``{number: head sha}`` of EVERY open PR (ARIA-HIGH-222), paged to
+        the end through the REST listing — the merge lane's candidate set
+        must not stop at a page boundary."""
+        path = f"repos/{self.owner}/{self.repo}/pulls?state=open&per_page=100"
+        if is_gh_api_path_forbidden(path):
+            raise GovernanceError(f"forbidden gh api path: {path}")
+        stdout = self._gh_stdout(
+            ["api", "--paginate", path, "--jq", ".[] | [.number, .head.sha] | @tsv"],
+        )
+        heads: dict[int, str] = {}
+        for line in stdout.splitlines():
+            number, _, head_sha = line.partition("\t")
+            if number.strip().isdigit() and head_sha.strip():
+                heads[int(number)] = head_sha.strip()
+        return heads
 
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         if args and is_gh_api_path_forbidden(str(args[0])):

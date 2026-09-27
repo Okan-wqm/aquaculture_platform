@@ -19,6 +19,8 @@ from aria_kernel.rollback_bundle import (
 )
 from aria_kernel.runner_attestation import record_runner_attestation, verify_runner_attestation
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.actions_oidc import ActionsRun
+from tests._helpers.operator_acts import github_operator_acts
 
 
 HEAD_SHA = "a" * 40
@@ -35,7 +37,7 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_risk_policy_classifies_from_policy_hash(self) -> None:
-        l1 = classify_change(["docs/runbooks/example.md"])
+        l1 = classify_change([("M", "docs/runbooks/example.md")])
         self.assertTrue(l1.valid)
         self.assertEqual(l1.lane, "L1")
         self.assertEqual(l1.policy_hash, risk_policy_hash())
@@ -77,6 +79,9 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             assert_autonomy_unlocked(lane="L1", base_dir=self.tools)
 
     def test_policy_approval_requires_two_distinct_actors(self) -> None:
+        # ARIA-CRITICAL-216 — each stage is an operator's GitHub act naming
+        # the PR, the head and the stage; the actor IS the login that posted
+        # it, so separation of duties needs two listed operator accounts.
         common = {
             "approval_id": "approval-1",
             "pr_number": 42,
@@ -84,31 +89,81 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             "policy_hash": risk_policy_hash(),
             "expires_at": "2999-06-21T00:00:00Z",
         }
-        record_policy_approval({**common, "stage": "risk_owner", "actor": "alice"}, base_dir=self.tools)
+
+        def stage(github, name: str, login: str) -> str:
+            return github.approve(
+                "l3_policy_approval", {"pr": "42", "head_sha": HEAD_SHA, "stage": name}, login=login,
+            )
+
+        verify = lambda: verify_policy_approval(  # noqa: E731
+            pr_number=42, head_sha=HEAD_SHA, policy_hash=risk_policy_hash(), base_dir=self.tools,
+        )
+        with github_operator_acts(operators=("Okan-wqm", "second-operator")) as github:
+            row = record_policy_approval(
+                {**common, "stage": "risk_owner", "operator_approval_ref": stage(github, "risk_owner", "Okan-wqm")},
+                base_dir=self.tools,
+            )
+            self.assertEqual(row["actor"], "Okan-wqm")
+            self.assertEqual(row["approval"]["kind"], "gh")
+            with self.assertRaisesRegex(GovernanceError, "missing_required_stages"):
+                verify()
+            record_policy_approval(
+                {**common, "stage": "exception_owner",
+                 "operator_approval_ref": stage(github, "exception_owner", "Okan-wqm")},
+                base_dir=self.tools,
+            )
+            with self.assertRaisesRegex(GovernanceError, "separation_of_duties"):
+                verify()
+            record_policy_approval(
+                {**common, "approval_id": "approval-2", "stage": "exception_owner",
+                 "operator_approval_ref": stage(github, "exception_owner", "second-operator")},
+                base_dir=self.tools,
+            )
+            self.assertTrue(verify()["valid"])
+
+    def test_a_policy_approval_stage_is_an_operator_github_act(self) -> None:
+        common = {
+            "approval_id": "approval-1",
+            "stage": "risk_owner",
+            "pr_number": 42,
+            "head_sha": HEAD_SHA,
+            "policy_hash": risk_policy_hash(),
+            "expires_at": "2999-06-21T00:00:00Z",
+        }
+        with github_operator_acts() as github:
+            with self.assertRaisesRegex(GovernanceError, "operator_approval_ref"):
+                record_policy_approval({**common, "actor": "alice"}, base_dir=self.tools)
+            other_pr = github.approve(
+                "l3_policy_approval", {"pr": "43", "head_sha": HEAD_SHA, "stage": "risk_owner"},
+            )
+            with self.assertRaisesRegex(GovernanceError, "policy_approval_operator_act_unrecorded"):
+                record_policy_approval({**common, "operator_approval_ref": other_pr}, base_dir=self.tools)
+            named_other = github.approve(
+                "l3_policy_approval", {"pr": "42", "head_sha": HEAD_SHA, "stage": "risk_owner"},
+            )
+            with self.assertRaisesRegex(GovernanceError, "policy_approval_actor_is_the_github_login"):
+                record_policy_approval(
+                    {**common, "actor": "alice", "operator_approval_ref": named_other}, base_dir=self.tools,
+                )
+
+    def test_a_stage_row_without_a_github_act_counts_for_nothing(self) -> None:
+        from aria_kernel.ledger import append_declared_jsonl
+
+        for stage, actor in (("risk_owner", "alice"), ("exception_owner", "bob")):
+            append_declared_jsonl(
+                self.tools / "enterprise" / "policy-approvals.jsonl",
+                {
+                    "schema_version": 1, "row_type": "enterprise_policy_approval",
+                    "approval_id": f"legacy-{stage}", "stage": stage, "actor": actor,
+                    "pr_number": 42, "head_sha": HEAD_SHA, "policy_hash": risk_policy_hash(),
+                    "expires_at": "2999-06-21T00:00:00Z", "state": "approved",
+                },
+                expected_surface="enterprise_policy_approvals",
+            )
         with self.assertRaisesRegex(GovernanceError, "missing_required_stages"):
             verify_policy_approval(
-                pr_number=42,
-                head_sha=HEAD_SHA,
-                policy_hash=risk_policy_hash(),
-                base_dir=self.tools,
+                pr_number=42, head_sha=HEAD_SHA, policy_hash=risk_policy_hash(), base_dir=self.tools,
             )
-        record_policy_approval({**common, "stage": "exception_owner", "actor": "alice"}, base_dir=self.tools)
-        with self.assertRaisesRegex(GovernanceError, "separation_of_duties"):
-            verify_policy_approval(
-                pr_number=42,
-                head_sha=HEAD_SHA,
-                policy_hash=risk_policy_hash(),
-                base_dir=self.tools,
-            )
-        record_policy_approval({**common, "approval_id": "approval-2", "stage": "exception_owner", "actor": "bob"}, base_dir=self.tools)
-        self.assertTrue(
-            verify_policy_approval(
-                pr_number=42,
-                head_sha=HEAD_SHA,
-                policy_hash=risk_policy_hash(),
-                base_dir=self.tools,
-            )["valid"]
-        )
 
     def test_runner_and_rollback_proofs_are_ledger_bound(self) -> None:
         common = {
@@ -119,6 +174,10 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             "head_sha": HEAD_SHA,
             "readiness_claim_id": "ready-42",
         }
+        # ARIA-HIGH-220 — verification runs inside the merge-lane job and
+        # accepts only a merge-lane row that job recorded.
+        run = ActionsRun(repository="example/aqua", runner_name="runner-1")
+        self.enterContext(run.active())
         with self.assertRaisesRegex(GovernanceError, "runner_attestation_required"):
             verify_runner_attestation(
                 pr_number=42,
@@ -130,14 +189,18 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
             {
                 **common,
                 "runner_id": "runner-1",
-                "runner_group": "aria-private",
+                "run_id": run.run_id,
+                "run_attempt": run.run_attempt,
+                "runner_group": "github-hosted",
                 "ephemeral_runner": True,
                 "approved_runner_group": True,
-                "sandbox_available": True,
-                "claude_auth": "managed_claude_code_cli",
+                "attestation_lane": "merge",
+                "claude_auth": "not_required",
                 "api_key_auth": False,
-                # ARIA-AUDIT-016: identity claims carry platform evidence.
+                # ARIA-AUDIT-016 / ARIA-HIGH-220: identity claims carry the
+                # verified OIDC identity of the merge lane.
                 "platform_verified": True,
+                "merge_lane_identity": True,
             },
             base_dir=self.tools,
         )

@@ -10,11 +10,13 @@ from unittest.mock import patch
 
 from aria_kernel.auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_green
 from aria_kernel.auto_merge_runners import resolve_readiness_claim_id_from_claims
+from aria_kernel.change_paths import ChangePaths
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.merge_authority import merge_pr_if_ready
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 HEAD_SHA = "a" * 40
 DRIFT_HEAD_SHA = "b" * 40
@@ -30,11 +32,16 @@ def enabled_policy(**overrides):
 def pr(**overrides):
     payload = {
         "number": 42,
+        # ARIA-MEDIUM-226 — the live adapter reports the PR's state; only an
+        # OPEN PR is a merge candidate.
+        "state": "OPEN",
         "repository": "example/aqua",
         "base_branch": "main",
         "head_ref": "feature/docs",
+        "base_sha": "d" * 40,
         "head_sha": "abc1234",
         "changed_files": ["docs/runbooks/auto-merge.md"],
+        "changed_files_count": 1,
         "reviews": [],
         # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
         # default fixture supplies a clean docs-only patch so existing
@@ -68,6 +75,12 @@ def github(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _published_intent(intent):
+    """ARIA-HIGH-222 — the merge lane publishes the merge_intent row before
+    the merge call; these fixtures have no aria/state to publish to."""
+    return {"published": True, "intent": intent["decision"]}
 
 
 class FakeGitHubAdapter:
@@ -124,6 +137,21 @@ class AutoMergeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools_dir)
+        # ARIA-CRITICAL-214/215 — every reader of a PR's lane reads the
+        # change from a git checkout. These snapshot fixtures carry no
+        # repository (the reason the perimeter is stubbed below as well), so
+        # the git read answers with the fixture PR's one docs edit; the
+        # reader itself is pinned in test_risk_change_paths.py and
+        # test_lane_readers_read_git.py.
+        self.workspace = Path(self.tmp.name)
+        change_paths = patch(
+            "aria_kernel.risk_policy.read_change_paths",
+            return_value=ChangePaths(
+                base_rev="d" * 40, head_rev=HEAD_SHA, entries=(("M", "docs/runbooks/auto-merge.md"),),
+            ),
+        )
+        change_paths.start()
+        self.addCleanup(change_paths.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -139,10 +167,9 @@ class AutoMergeTests(unittest.TestCase):
             emit_change_planned,
             emit_change_validated,
         )
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.validation_runs_ledger import record_validation_run
 
-        set_profile("strict", operator_approval_ref="t", base_dir=self.tools_dir)
+        operator_set_profile("strict", base_dir=self.tools_dir)
         planned = emit_change_planned(
             plan_id=f"plan-auto-{pr_number}",
             finding_id=f"F-auto-{pr_number}",
@@ -204,7 +231,6 @@ class AutoMergeTests(unittest.TestCase):
             record_branch_protection_proof,
             record_dlp_proof,
             record_enterprise_readiness_claim,
-            record_remote_cas_proof,
             record_retention_proof,
             record_rollback_proof,
             record_token_proof,
@@ -212,7 +238,8 @@ class AutoMergeTests(unittest.TestCase):
         )
         from aria_kernel.autonomy_unlock import record_acceptance_event
         from aria_kernel.rollback_bundle import record_rollback_bundle, record_rollback_simulation
-        from aria_kernel.runner_attestation import record_runner_attestation
+        from aria_kernel.runner_attestation import MERGE_LANE, probe_runner_attestation
+        from tests._helpers.actions_oidc import ActionsRun
 
         readiness_claim_id = f"ready-{pr_number}"
         repo = "example/aqua"
@@ -259,10 +286,17 @@ class AutoMergeTests(unittest.TestCase):
             return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
         artifact_sha = write_artifact("evidence-bundle.json", '{"ok":true}\n')
-        rollback_source = write_artifact("rollback-source.json", '{"source":true}\n')
-        rollback_archive = write_artifact("rollback-archive.json", '{"archive":true}\n')
-        retention_source = write_artifact("retention-source.json", '{"source":true}\n')
-        retention_archive = write_artifact("retention-archive.json", '{"archive":true}\n')
+        # ARIA-HIGH-218 — the rollback bundle is a published Actions artifact
+        # the merge verifier downloads; this store serves it.
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        artifacts = PublishedArtifacts(repo=repo)
+        bundle_member = f"rollback-{head_sha[:12]}.bundle"
+        rollback_artifact_id = artifacts.publish({bundle_member: b"# v2 git bundle\nfixture\n"})
+        published = artifacts.references(rollback_artifact_id, bundle_member)
+        serving = artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
         artifact_ref = {
             "schema_version": 2,
             "artifact_id": "artifact-1",
@@ -272,15 +306,6 @@ class AutoMergeTests(unittest.TestCase):
             "produced_by_workflow_run_id": "123",
             "source_surface": "github_actions_artifact",
         }
-        cas = {
-            **common,
-            "state": "fresh",
-            "lease_id": f"lease-{pr_number}",
-            "epoch": 1,
-            "expires_at": "2999-06-02T00:00:00Z",
-            "source_ledger_ref": source_ref("cas"),
-        }
-        record_remote_cas_proof(cas, base_dir=self.tools_dir)
         branch = {
             **common,
             "$schema": "aria/branch-protection-proof/v3",
@@ -295,6 +320,9 @@ class AutoMergeTests(unittest.TestCase):
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],
+            # ARIA-HIGH-221 — main requires a squash merge queue.
+            "merge_queue_required": True,
+            "merge_queue_merge_method": "SQUASH",
             "force_push_disabled": True,
             "delete_branch_disabled": True,
             "source_ledger_ref": source_ref("branch"),
@@ -304,21 +332,15 @@ class AutoMergeTests(unittest.TestCase):
             **common,
             "validated": True,
             "rollback_proof_id": f"rollback-{pr_number}",
-            "source_uri": "rollback-source.json",
-            "archive_uri": "rollback-archive.json",
-            "source_sha256": rollback_source,
-            "archive_sha256": rollback_archive,
+            **published,
             "source_ledger_ref": source_ref("rollback"),
         }
         retention = {
             **common,
             "validated": True,
             "retention_proof_id": f"retention-{pr_number}",
-            "source_uri": "retention-source.json",
-            "archive_uri": "retention-archive.json",
-            "source_sha256": retention_source,
-            "archive_sha256": retention_archive,
-            "retention_days": 365,
+            **published,
+            "retention_days": 30,
             "source_ledger_ref": source_ref("retention"),
         }
         workflow_run = {
@@ -393,7 +415,6 @@ class AutoMergeTests(unittest.TestCase):
             "evidence_bundle": {"path": "evidence-bundle.json", "sha256": artifact_sha},
             "workflow_run_ids": [123],
             "artifact_refs": [artifact_ref],
-            "remote_cas_proof": cas,
             "rollback_proof": rollback,
             "retention_proof": retention,
             "waiver_ledger": {"open_expired_waivers": [], "source_ledger_ref": source_ref("waiver")},
@@ -409,27 +430,25 @@ class AutoMergeTests(unittest.TestCase):
                 head_sha=f"{index:040x}"[-40:],
                 base_dir=self.tools_dir,
             )
-        record_runner_attestation(
-            {
-                **common,
-                "runner_id": f"runner-{pr_number}",
-                "runner_group": "aria-private",
-                "ephemeral_runner": True,
-                "approved_runner_group": True,
-                "sandbox_available": True,
-                "claude_auth": "managed_claude_code_cli",
-                "api_key_auth": False,
-                # ARIA-AUDIT-016: identity claims carry platform evidence;
-                # fixtures simulate the Actions OIDC channel being present.
-                "platform_verified": True,
-            },
+        # ARIA-HIGH-220 — the test runs inside the merge-lane job: its
+        # verified OIDC identity is what the merge gate re-measures, and the
+        # attestation row is recorded by that same run.
+        self.enterContext(ActionsRun(repository=repo).active())
+        probe_runner_attestation(
+            pr_number=pr_number,
+            head_sha=head_sha,
+            readiness_claim_id=readiness_claim_id,
+            repo=repo,
+            target_ref=target_ref,
+            head_ref=head_ref,
+            lane=MERGE_LANE,
             base_dir=self.tools_dir,
         )
         record_rollback_bundle(
             {
                 **common,
                 "rollback_bundle_id": f"bundle-{pr_number}",
-                "rollback_plan_sha256": rollback_source,
+                "rollback_plan_sha256": published["source_sha256"],
             },
             base_dir=self.tools_dir,
         )
@@ -445,7 +464,9 @@ class AutoMergeTests(unittest.TestCase):
         return readiness_claim_id
 
     def test_policy_disabled_blocks_even_low_risk_green_pr(self):
-        decision = evaluate_auto_merge(pr=pr(), github=github(), policy={}, base_dir=self.tools_dir)
+        decision = evaluate_auto_merge(
+            pr=pr(), github=github(), policy={}, base_dir=self.tools_dir, workspace_root=self.workspace,
+        )
         self.assertFalse(decision["eligible"])
         self.assertIn("policy disabled", decision["reasons"])
 
@@ -455,24 +476,37 @@ class AutoMergeTests(unittest.TestCase):
             github=github(),
             policy=enabled_policy(),
             base_dir=self.tools_dir,
+            workspace_root=self.workspace,
         )
         self.assertFalse(decision["eligible"])
         self.assertIn("base branch must be main", decision["reasons"])
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(
-            classify_changed_files(["docs/runbooks/auto-merge.md", "tests/e2e/auto-merge.spec.ts"])["risk_class"],
+            classify_changed_files(
+                [("M", "docs/runbooks/auto-merge.md"), ("A", "apps/farm-service/src/auto-merge.spec.ts")],
+            )["risk_class"],
             "low",
         )
-        # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
-        # never low risk.
+        # ARIA-CRITICAL-215: an existing test changed, or a status-blind list,
+        # is never low risk.
         self.assertNotEqual(
-            classify_changed_files(["docs/aria/SPEC.md", "aria-kernel/tests/test_auto_merge.py"])["risk_class"],
+            classify_changed_files([("M", "apps/farm-service/src/auto-merge.spec.ts")])["risk_class"], "low",
+        )
+        self.assertNotEqual(classify_changed_files(["docs/runbooks/auto-merge.md"])["risk_class"], "low")
+        # ARIA-HIGH-187: ARIA's own docs and kernel tests are owner-reviewed,
+        # never low risk; ARIA-CRITICAL-215: nor is a CI gate suite.
+        self.assertNotEqual(
+            classify_changed_files([("M", "docs/aria/SPEC.md"), ("A", "aria-kernel/tests/test_auto_merge.py")])["risk_class"],
+            "low",
+        )
+        self.assertNotEqual(
+            classify_changed_files([("A", "e2e/tests/integration/nats-invariants.spec.ts")])["risk_class"],
             "low",
         )
         self.assertEqual(classify_changed_files(["aria-kernel/aria_kernel/cli.py"])["risk_class"], "forbidden")
         self.assertEqual(
-            classify_changed_files(["docs/runbooks/auto-merge.md", "apps/farm-service/src/app.module.ts"])["risk_class"],
+            classify_changed_files([("M", "docs/runbooks/auto-merge.md"), ("M", "apps/farm-service/src/app.module.ts")])["risk_class"],
             "mixed",
         )
 
@@ -483,12 +517,27 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             cycle_id="cycle-auto",
+            workspace_root=self.workspace,
         )
         self.assertTrue(decision["eligible"])
         self.assertEqual(decision["decision"], "eligible")
         rows = (self.tools_dir / "auto-merge-decisions.jsonl").read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(json.loads(rows[-1])["decision"], "eligible")
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
+
+    def test_a_checkout_without_the_prs_commits_is_refused_by_name(self):
+        # ARIA-CRITICAL-215 — the evaluation reads the change from git; the
+        # platform's status-blind list is never classified in its place.
+        with patch(
+            "aria_kernel.risk_policy.read_change_paths",
+            side_effect=GovernanceError("change_paths_unavailable: git diff failed: bad object"),
+        ):
+            decision = evaluate_auto_merge(
+                pr=pr(), github=github(), policy=enabled_policy(), base_dir=self.tools_dir,
+                workspace_root=self.workspace,
+            )
+        self.assertFalse(decision["eligible"])
+        self.assertIn("enterprise risk policy rejected diff: risk_change_paths_unavailable", decision["reasons"])
 
     def test_required_checks_fail_closed_when_unreadable_empty_missing_or_pending(self):
         cases = [
@@ -514,7 +563,10 @@ class AutoMergeTests(unittest.TestCase):
         for snapshot in cases:
             with self.subTest(snapshot=snapshot):
                 self.assertFalse(
-                    evaluate_auto_merge(pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir)[
+                    evaluate_auto_merge(
+                        pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir,
+                        workspace_root=self.workspace,
+                    )[
                         "eligible"
                     ],
                 )
@@ -529,7 +581,10 @@ class AutoMergeTests(unittest.TestCase):
         for snapshot in cases:
             with self.subTest(snapshot=snapshot):
                 self.assertFalse(
-                    evaluate_auto_merge(pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir)[
+                    evaluate_auto_merge(
+                        pr=pr(), github=snapshot, policy=enabled_policy(), base_dir=self.tools_dir,
+                        workspace_root=self.workspace,
+                    )[
                         "eligible"
                     ],
                 )
@@ -551,8 +606,7 @@ class AutoMergeTests(unittest.TestCase):
         switch is now the operator-controlled profile the authority enforces."""
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-switch", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -573,6 +627,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "merged", result.get("reasons"))
         self.assertNotIn("policy disabled", result.get("reasons") or [])
@@ -587,8 +642,7 @@ class AutoMergeTests(unittest.TestCase):
         # Seed a passing chain so the merge proceeds.
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -610,11 +664,14 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "merged")
         self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": HEAD_SHA}])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
-        self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
+        # ARIA-HIGH-222 — the intent is recorded (and published) before the
+        # merge call, the outcome after it.
+        self.assertEqual([row["decision"] for row in decisions], ["eligible", "merge_intent", "merged"])
 
     @patch(
         "aria_kernel.merge_authority.run_hard_fail_checks",
@@ -623,8 +680,7 @@ class AutoMergeTests(unittest.TestCase):
     def test_failed_merge_does_not_record_merged_lifecycle(self, _perimeter):
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -647,6 +703,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "failed")
         lifecycle_path = self.tools_dir / "pr-lifecycle.jsonl"
@@ -664,8 +721,7 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn("merge_failed", [row.get("incident_event") for row in incidents])
 
     def test_merge_command_not_called_when_checks_are_pending(self):
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
@@ -686,6 +742,7 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "blocked")
         self.assertEqual(adapter.merge_calls, [])
@@ -697,8 +754,7 @@ class AutoMergeTests(unittest.TestCase):
         # the test reaches the head-SHA drift surface as intended.
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
-        from aria_kernel.runtime_profile import set_profile
-        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        operator_set_profile("autonomous", base_dir=self.tools_dir)
         adapter = FakeGitHubAdapter(
             pr(head_sha=HEAD_SHA),
             github(
@@ -719,6 +775,7 @@ class AutoMergeTests(unittest.TestCase):
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
+            intent_publisher=_published_intent,
         )
         self.assertEqual(result["decision"], "blocked")
         joined = " ".join(result["reasons"])
@@ -739,6 +796,7 @@ class AutoMergeTests(unittest.TestCase):
                 policy=enabled_policy(),
                 base_dir=self.tools_dir,
                 dry_run=False,
+                workspace_root=self.workspace,
             )
         self.assertEqual(adapter.merge_calls, [])
 

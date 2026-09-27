@@ -37,6 +37,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from tests._helpers.operator_acts import operator_set_profile
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -156,7 +157,6 @@ class PreflightFailFastTests(unittest.TestCase):
         from aria_kernel.autonomy_orchestrator import (
             run_autonomy_orchestrator,
         )
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import (
             GovernanceError, ensure_tools_dir,
         )
@@ -167,10 +167,7 @@ class PreflightFailFastTests(unittest.TestCase):
         # snapshot matches the kwarg + the action gate permits the
         # post-refusal governance write via bypass_profile_gate=True.
         ensure_tools_dir(base)
-        set_profile(
-            "autonomous", operator_approval_ref="v31e3-test",
-            base_dir=base,
-        )
+        operator_set_profile("autonomous", base_dir=base)
         # Synthetic failing verdict.
         fake_verdict = _preflight_mod.PreflightVerdict(
             valid=False,

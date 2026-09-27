@@ -5,10 +5,11 @@ import hashlib
 import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
-from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -287,12 +288,17 @@ def anchor_group_keys(
     *,
     tool_id: str,
     base_dir: str | Path | None = None,
+    in_scope: Callable[[dict[str, Any]], bool] | None = None,
 ) -> set[tuple[str, str, str]]:
     """Distinct judgments this tool holds ANCHOR-grade consensus on.
 
     Keyed by judgment, not by row: an anchor upgrade appends a new consensus
     row over its own 2-judge predecessor (see generate_ai_consensus), so
     counting rows would count one settled question twice.
+
+    ``in_scope`` (ARIA-MEDIUM-229) narrows the rows to the judgments a
+    caller's scope admits — the promotion gate passes the findings the
+    adapter version in force emits (``tool_health.EmissionScope.covers``).
     """
     return {
         _judgment_key(row)
@@ -300,6 +306,7 @@ def anchor_group_keys(
         if row.get("source_type") == "ai_consensus"
         and is_ground_truth_row(row)
         and _judges_this_tool_s_findings(row)
+        and (in_scope is None or in_scope(row))
     }
 
 
@@ -307,13 +314,16 @@ def operator_group_keys(
     *,
     tool_id: str,
     base_dir: str | Path | None = None,
+    in_scope: Callable[[dict[str, Any]], bool] | None = None,
 ) -> set[tuple[str, str, str]]:
-    """Distinct judgments this tool carries a HUMAN verdict on."""
+    """Distinct judgments this tool carries a HUMAN verdict on (``in_scope``
+    as for :func:`anchor_group_keys`)."""
     return {
         _judgment_key(row)
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
         if (row.get("source_type") or "human") == "human"
         and _judges_this_tool_s_findings(row)
+        and (in_scope is None or in_scope(row))
     }
 
 
@@ -369,6 +379,7 @@ def record_raw_findings_for_run(
     # security signal, not a sampling source — re-flag them as invalid.
     runner_block = run.get("runner") or {}
     has_scope_out = bool(runner_block.get("scope_out_mutations"))
+    rows: list[dict[str, Any]] = []
     for finding_index, finding in enumerate(raw_findings):
         if not isinstance(finding, dict):
             continue
@@ -410,7 +421,10 @@ def record_raw_findings_for_run(
                 "rule": str(finding.get("rule") or ""),
                 "id": str(finding.get("id") or ""),
             }
-        append_jsonl(raw_findings_path(base_dir), row)
+        rows.append(row)
+    # ARIA-HIGH-237 — one run's findings are one batch: the chain is verified
+    # once for the run, not once per finding (see append_jsonl_rows).
+    append_jsonl_rows(raw_findings_path(base_dir), rows)
 
 
 def record_findings_for_run(
@@ -426,20 +440,22 @@ def record_findings_for_run(
     findings = emitted_findings if emitted_findings is not None else run.get("emitted_findings", [])
     if not isinstance(findings, list) or not findings:
         return
+    # E15-a — mint-time service dimension, derived from the paths the
+    # finding itself cites (operator direction: findings organised by
+    # microservice, so per-service audits and service-specific agents
+    # have an axis to stand on).
+    from .service_dimension import finding_dimension_paths, service_dimension
+
+    confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
+    rows: list[dict[str, Any]] = []
+    seeding: list[dict[str, Any]] = []
     for finding in findings:
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
-        suppressed = _confirmed_false_positive_fingerprints(base_dir).get(fingerprint)
-        # E15-a — mint-time service dimension, derived from the paths the
-        # finding itself cites (operator direction: findings organised by
-        # microservice, so per-service audits and service-specific agents
-        # have an axis to stand on).
-        from .service_dimension import finding_dimension_paths, service_dimension
-
+        suppressed = confirmed_false_positives.get(fingerprint)
         dimension = service_dimension(finding_dimension_paths(finding))
-        append_jsonl(
-            findings_path(base_dir),
+        rows.append(
             {
                 "schema_version": 1,
                 "recorded_at": utc_now(),
@@ -455,23 +471,23 @@ def record_findings_for_run(
             },
         )
         # Every LIVE finding also lands in the calibration seeding ledger,
-        # which is the pool the operator labels from. `record_seeding_finding`
+        # which is the pool the operator labels from. `record_seeding_findings`
         # existed with zero production callers, so the pool was permanently
         # empty and the bootstrap's own operator workflow began at a ledger
         # nothing ever filled. Suppressed FPs are excluded — the operator
         # already spoke about those.
         if not suppressed:
-            try:
-                from .calibration_bootstrap import record_seeding_finding
-                record_seeding_finding(
-                    tool_id=str(run["tool_id"]),
-                    finding={**finding, "finding_fingerprint": fingerprint, "run_id": run["run_id"]},
-                    base_dir=base_dir,
-                )
-            except GovernanceError:
-                # Seeding refusal (e.g. duplicate fingerprint) must not cost
-                # the finding record itself.
-                pass
+            seeding.append({**finding, "finding_fingerprint": fingerprint, "run_id": run["run_id"]})
+    # ARIA-HIGH-237 — an ACTIVE adapter's run is one batch per ledger, like
+    # its raw findings: each ledger's chain is verified once for the run.
+    append_jsonl_rows(findings_path(base_dir), rows)
+    try:
+        from .calibration_bootstrap import record_seeding_findings
+
+        record_seeding_findings(tool_id=str(run["tool_id"]), findings=seeding, base_dir=base_dir)
+    except GovernanceError:
+        # Seeding refusal must not cost the finding records themselves.
+        pass
 
 
 def mark_findings_need_revalidation(tool_id: str, base_dir: str | Path | None = None) -> int:
@@ -1692,6 +1708,24 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         append_declared_jsonl(path, payload, expected_surface=surface)
         return
     append_chained_jsonl(path, payload)
+
+
+def append_jsonl_rows(path: Path, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One run's rows for one declared store ledger, appended as one batch.
+
+    ARIA-HIGH-237 — a declared append verifies the ledger's whole hash chain
+    before it writes. A run that recorded its findings one `append_jsonl` at
+    a time paid that verification once per finding: 2.39 s per finding on
+    the nightly's 57.5 MB raw-findings ledger, so a 5,575-finding adapter run
+    outlived the cycle's 14,959 s budget. The batch verifies once and writes
+    every row, or none. Operator-feedback rows are signed one at a time by
+    their own primitive, and an undeclared file has no chain to batch onto,
+    so both are refused here rather than silently written row by row.
+    """
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface is None or surface == "operator_feedback":
+        raise GovernanceError(f"append_jsonl_rows_requires_an_unsigned_declared_surface: {path.name}")
+    return append_declared_jsonl_rows(path, payloads, expected_surface=surface)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:

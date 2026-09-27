@@ -139,9 +139,24 @@ class AnchorPrecisionBlockerTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj2a-")
         self.tools = Path(self._tmp.name) / "aria-tools"
         register_tool(_adapter("jj2-adapter", ["apps/farm-service/src/**/*.ts"]), base_dir=self.tools)
+        self._emitted_by_the_version_in_force()
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
+
+    def _emitted_by_the_version_in_force(self) -> None:
+        """ARIA-MEDIUM-229 — the anchor floor counts judgments of findings the
+        version in force emits: its latest ok run (`run-h`) emitted every
+        finding these tests judge, by the fingerprints they carry."""
+        from aria_kernel.feedback_store import raw_findings_path
+        from aria_kernel.ledger import append_declared_jsonl
+
+        path = raw_findings_path(self.tools)
+        for suffix in [*(str(index) for index in range(ANCHOR_PROMOTION_MIN_JUDGMENTS * 2)), "h"]:
+            append_declared_jsonl(path, {
+                "tool_id": "jj2-adapter", "run_id": "run-h", "finding_id": f"F-{suffix}",
+                "finding_fingerprint": f"fp-{suffix}", "status": "raw",
+            }, expected_surface="raw_findings")
 
     def _readiness(self) -> dict[str, Any]:
         recorded_runs = [_ok_run(f"run-{index}") for index in range(5)] + [_ok_run("run-h")]

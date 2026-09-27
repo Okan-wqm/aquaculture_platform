@@ -27,7 +27,7 @@ def _repo_risk_policy() -> dict:
 class RiskLaneRoutingTests(unittest.TestCase):
     def test_docs_and_tests_classify_l1(self) -> None:
         verdict = classify_change(
-            ["docs/runbooks/example.md", "tests/e2e/example.spec.ts"],
+            [("M", "docs/runbooks/example.md"), ("A", "apps/farm-service/src/example.spec.ts")],
             policy=_repo_risk_policy(),
         )
         self.assertTrue(verdict.valid)
@@ -35,8 +35,9 @@ class RiskLaneRoutingTests(unittest.TestCase):
 
     def test_policy_files_classify_l3_despite_docs_glob(self) -> None:
         # ADR-041 terminology-hazard pin: docs/aria/policy/** must hit the
-        # L3 (control-plane) lane via L3->L2->L1 precedence even though
-        # docs/** is an L1 glob.
+        # L3 (control-plane) lane, which outranks every other lane
+        # (L3->L1->L2 since ARIA-CRITICAL-215), even though docs/ prose is
+        # an L1 glob.
         verdict = classify_change(
             ["docs/aria/policy/risk-policy.json"], policy=_repo_risk_policy(),
         )
@@ -44,7 +45,7 @@ class RiskLaneRoutingTests(unittest.TestCase):
 
     def test_mixed_docs_plus_runtime_blocks(self) -> None:
         verdict = classify_change(
-            ["docs/runbooks/example.md", "apps/farm-service/src/main.ts"],
+            [("M", "docs/runbooks/example.md"), ("M", "apps/farm-service/src/main.ts")],
             policy=_repo_risk_policy(),
         )
         self.assertFalse(verdict.valid)
@@ -82,7 +83,7 @@ class MasterSwitchTests(unittest.TestCase):
         # lane of the enterprise policy is the one answer.
         self.assertNotIn("allowed_low_risk_globs", DEFAULT_POLICY)
         runtime_markers = ("apps/**/src/**", "libs/**/src/**", "web/**/src/**")
-        l1_globs = _repo_risk_policy()["lanes"]["L1"]["globs"]
+        l1_globs = [entry["glob"] for entry in _repo_risk_policy()["lanes"]["L1"]["entries"]]
         for marker in runtime_markers:
             self.assertNotIn(marker, l1_globs)
 

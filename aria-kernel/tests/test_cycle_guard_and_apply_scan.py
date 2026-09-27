@@ -157,5 +157,88 @@ class ApplyScanDiffEndToEndTests(unittest.TestCase):
         self.assertEqual(matches[0].category, "ts_masking")
 
 
+
+class CycleGuardCannotReportAnUnseenBacklogEmpty(unittest.TestCase):
+    """ARIA-MEDIUM-230 — with ARIA_REPO_STATE_ROOT set, the backlog lives in
+    the store; a tools root whose repo_identity.json is unbound or names a
+    checkout that no longer exists made the guard count 0 open findings and
+    advise an EMPTY cycle (exit 2, "caller may skip") over a backlog it never
+    read. Driven through the real CLI, `python -m aria_kernel cycle-guard
+    evaluate`, the command the nightly runs.
+    """
+
+    def setUp(self) -> None:
+        import os
+
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-m230-guard-")
+        base = Path(self._tmp.name)
+        self.store_root = base / "store-repo-state"
+        self.store_root.mkdir()
+        _write_findings_index(self.store_root, ["OPEN", "OPEN", "RESOLVED"])
+        self.tools = base / "aria-tools"
+        ensure_tools_dir(self.tools)
+        self.env = {
+            key: value for key, value in os.environ.items()
+            if key not in {"ARIA_TOOLS_DIR", "ARIA_WORKSPACE_BASE"}
+        }
+        self.env["ARIA_REPO_STATE_ROOT"] = str(self.store_root)
+        self.env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _cli(self, *extra: str):
+        import subprocess
+        import sys
+
+        return subprocess.run(
+            [sys.executable, "-m", "aria_kernel", "cycle-guard", "evaluate",
+             "--cycle-id", "cyc-m230", "--tools-dir", str(self.tools), *extra],
+            capture_output=True, text=True, env=self.env, timeout=120, check=False,
+        )
+
+    def _bind(self, bound_root: str | None) -> None:
+        identity = json.loads((self.tools / "repo_identity.json").read_text(encoding="utf-8"))
+        identity["bound_repo_root"] = bound_root
+        (self.tools / "repo_identity.json").write_text(json.dumps(identity), encoding="utf-8")
+
+    def _assert_refused(self, completed, reason: str) -> None:
+        self.assertEqual(completed.returncode, 3, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["refusal"].startswith(reason), payload)
+        self.assertNotIn("is_empty", payload)
+
+    def test_an_unbound_identity_is_refused_by_name_not_reported_empty(self) -> None:
+        self._bind(None)
+        self._assert_refused(self._cli(), "cycle_guard_repo_identity_unbound")
+
+    def test_a_stale_identity_is_refused_by_name_not_reported_empty(self) -> None:
+        self._bind(str(Path(self._tmp.name) / "checkout-that-moved"))
+        self._assert_refused(self._cli(), "cycle_guard_repo_identity_stale:")
+
+    def test_a_missing_workspace_root_is_refused_by_name(self) -> None:
+        self._bind(None)
+        self._assert_refused(
+            self._cli("--workspace-root", str(Path(self._tmp.name) / "no-such-checkout")),
+            "cycle_guard_workspace_root_missing:",
+        )
+
+    def test_an_unreadable_index_is_refused_by_name(self) -> None:
+        checkout = Path(self._tmp.name) / "checkout"
+        checkout.mkdir()
+        self._bind(str(checkout))
+        (self.store_root / "aria-findings" / "_index.json").write_text("{not json", encoding="utf-8")
+        self._assert_refused(self._cli(), "cycle_guard_index_unreadable:")
+
+    def test_a_bound_identity_reads_the_store_backlog(self) -> None:
+        checkout = Path(self._tmp.name) / "checkout"
+        checkout.mkdir()
+        self._bind(str(checkout))
+        completed = self._cli()
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["open_findings"], 2)
+        self.assertFalse(payload["is_empty"])
+
 if __name__ == "__main__":
     unittest.main()

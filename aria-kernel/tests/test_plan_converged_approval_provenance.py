@@ -49,9 +49,9 @@ from aria_kernel.proposal import (
     list_proposals,
     record_proposal,
 )
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.production_shaped import production_converged_plan
+from tests._helpers.operator_acts import operator_set_profile
 
 
 FIXTURE_FILE = "apps/farm-service/src/farm/services/water-quality.service.ts"
@@ -113,13 +113,7 @@ class PlanConvergedApprovalProvenanceTests(unittest.TestCase):
         # it, and only an operator gesture may widen that ceiling. The
         # fixture declares the grant instead of arranging a world the
         # kernel refuses.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:orphan-critical-727:approval-provenance",
-            base_dir=self.tools,
-            set_by="operator",
-            scheduler_ceiling="strict",
-        )
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         _sp.run(["git", "init", "-q"], cwd=self.repo, check=True)
         _sp.run(["git", "config", "user.email", "t@t.invalid"], cwd=self.repo, check=True)
         _sp.run(["git", "config", "user.name", "t"], cwd=self.repo, check=True)

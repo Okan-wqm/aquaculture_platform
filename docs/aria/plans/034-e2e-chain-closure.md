@@ -14,8 +14,11 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 > kod gerektirmedi (`4a771e78`, ARIA-HIGH-197 yeniden değerlendirildi) — PR 1–11 main'e #1672 ile
 > birleşti (`9175a06b`) · PR 12 ✔ (`5b21442d`, ARIA-HIGH-196) · PR 13 ✔ (`f2911874` ARIA-HIGH-203,
 > `a64c9be5` ARIA-HIGH-201, `b977da29` + `64c5054f` ARIA-HIGH-198; `aria-merge-runner.yml`) · PR 14 ✔
-> (`3103847e` ARIA-HIGH-200, `d046483b` + `63fe606e` ARIA-HIGH-199). Kod tarafı tamam; zincir
-> operatör adımlarını (M1, O1, O1b, O3, O4, O2) bekliyor. **Bulgular:** ARIA-HIGH-097 ve
+> (`3103847e` ARIA-HIGH-200, `d046483b` + `63fe606e` ARIA-HIGH-199). Plan 034'ün kod birimleri
+> tamam; ancak dört bağımsız inceleme merge lane'inin bu hâliyle hiçbir L1 PR'ı merge edemeyeceğini
+> gösterdi. **Operatör adımları ve durum plan 036 (`036-chain-gaps.md`) ve plan 037
+> (`037-merge-lane-review.md`) ile değiştirildi;** bu belgedeki M1, O1, O1b, O3, O4, O2 listesi
+> tarihseldir. **Bulgular:** ARIA-HIGH-097 ve
 > ARIA-HIGH-186…203 —
 > `docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md`, registry
 > `docs/reviews/_registry/findings.jsonl`. **Kanıt tabanı:**

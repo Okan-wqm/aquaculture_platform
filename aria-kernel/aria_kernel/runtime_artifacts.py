@@ -986,11 +986,13 @@ def approve_runtime_v2_promotion(
     # ARIA-AUDIT-015: a non-empty string is a claim, not authority. The
     # reference must resolve against recorded operator action — a
     # governance event, a review anchor, or an operator-injected
-    # acknowledgment variable — or the promotion refuses.
-    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+    # acknowledgment variable — or the promotion refuses. The v2 run-ledger
+    # format changes how runs are stored, not what ARIA may do: a RECORD
+    # surface (ARIA-CRITICAL-216).
+    from .operator_approval import OperatorApprovalUnrecorded, verify_recorded_reference
 
     try:
-        verify_operator_approval_ref(
+        verify_recorded_reference(
             operator_approval_ref, base_dir=root, surface="runtime_v2_promotion",
         )
     except OperatorApprovalUnrecorded as exc:

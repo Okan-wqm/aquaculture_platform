@@ -521,6 +521,28 @@ class StateTransaction:
             held_file_lock_paths=self.paths,
         )
 
+    def append_declared_jsonl_rows(
+        self,
+        path: str | Path,
+        records: list[dict[str, Any]],
+        *,
+        expected_surface: str,
+        bypass_profile_gate: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Append ``records`` as one batch (ARIA-HIGH-237): one chain
+        verification and one write for the lot, chained in order."""
+        resolved = self._canonical_path(path)
+        _assert_declared_surface(
+            resolved,
+            expected_surface=expected_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
+        return _append_rows_locked_body(
+            resolved,
+            records,
+            held_file_lock_paths=self.paths,
+        )
+
     def rewrite_declared_json(
         self,
         path: str | Path,
@@ -1281,7 +1303,33 @@ def _append_jsonl_locked_body(
     *,
     held_file_lock_paths: frozenset[Path] | None = None,
 ) -> dict[str, Any]:
-    record = _stamped_for_surface(path, record)
+    return _append_rows_locked_body(
+        path, [record], held_file_lock_paths=held_file_lock_paths,
+    )[0]
+
+
+def _append_rows_locked_body(
+    path: Path,
+    records: list[dict[str, Any]],
+    *,
+    held_file_lock_paths: frozenset[Path] | None = None,
+) -> list[dict[str, Any]]:
+    """Chain ``records`` onto ``path`` under the held lock — THE append body.
+
+    One row or many, the same steps once: verify the existing chain, heal a
+    torn tail, read the tail hash, chain every record onto the previous one,
+    refuse the whole batch if any row is over the cap, write, fsync, refresh
+    the index. The lock is held throughout, so nothing can change the file
+    between the verification and the last row.
+
+    ARIA-HIGH-237 — the verification reads and re-hashes the ENTIRE chain,
+    so paying it per row made a producer that wrote N rows cost N full-chain
+    verifications: 2.39 s per raw finding on the 57.5 MB raw-findings ledger
+    of 2026-09-26, and a nightly cycle that could never finish.
+    """
+    if not records:
+        return []
+    stamped = [_stamped_for_surface(path, record) for record in records]
     path.parent.mkdir(parents=True, exist_ok=True)
     _verify_existing_declared_chain_before_append(path)
     # After the verifier accepted the file, heal what it accepted AROUND: the
@@ -1294,26 +1342,37 @@ def _append_jsonl_locked_body(
         if rows and rows[-1].get("ledger_hash")
         else None
     )
-    stored = dict(record)
-    stored["previous_ledger_hash"] = previous_hash
-    stored["ledger_hash"] = _record_hash(stored, previous_hash)
-    line = (
-        json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
-    # ARIA-HIGH-034 — refuse BEFORE the fd is opened: the chain tail, the
-    # index and the file are exactly as the verifier accepted them above.
-    # `len(line)` is the same quantity the snapshot reader compares per
-    # line (`verify_jsonl_chunks` measures the terminated raw line).
-    if len(line) > LEDGER_ROW_MAX_BYTES:
-        raise LedgerRowTooLargeError(
-            f"ledger_row_too_large:{path.as_posix()}:"
-            f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
-            "be unpublishable (snapshot line cap); bound the writer's inline "
-            "payload with ledger_inline.spill_oversized_inline"
-        )
+    stored_rows: list[dict[str, Any]] = []
+    lines: list[bytes] = []
+    for record in stamped:
+        stored = dict(record)
+        stored["previous_ledger_hash"] = previous_hash
+        stored["ledger_hash"] = _record_hash(stored, previous_hash)
+        line = (
+            json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+        # ARIA-HIGH-034 — refuse BEFORE the fd is opened: the chain tail, the
+        # index and the file are exactly as the verifier accepted them above.
+        # `len(line)` is the same quantity the snapshot reader compares per
+        # line (`verify_jsonl_chunks` measures the terminated raw line). One
+        # oversized row refuses the batch: nothing of it is written.
+        if len(line) > LEDGER_ROW_MAX_BYTES:
+            raise LedgerRowTooLargeError(
+                f"ledger_row_too_large:{path.as_posix()}:"
+                f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
+                "be unpublishable (snapshot line cap); bound the writer's inline "
+                "payload with ledger_inline.spill_oversized_inline"
+            )
+        stored_rows.append(stored)
+        lines.append(line)
+        previous_hash = stored["ledger_hash"]
+    payload = b"".join(lines)
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
-        os.write(fd, line)
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            view = view[written:]
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -1322,7 +1381,7 @@ def _append_jsonl_locked_body(
         held_file_lock_path=path,
         held_file_lock_paths=held_file_lock_paths,
     )
-    return stored
+    return stored_rows
 
 
 def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -1418,6 +1477,43 @@ def _reraise_enospc_as_environment(exc: OSError) -> None:
             f"intact, the chain refuses to advance on a torn write"
         ) from exc
     raise exc
+
+
+def append_declared_jsonl_rows(
+    path: Path,
+    records: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+    bypass_profile_gate: bool = False,
+) -> list[dict[str, Any]]:
+    """Append several rows to a declared surface as ONE batch (ARIA-HIGH-237).
+
+    The same guarantees as ``append_declared_jsonl`` for every row — the
+    manifest check, the profile gate, the pre-append chain verification, the
+    row cap, the hash chain — paid once for the batch: the chain is verified
+    once under the held lock and every row is chained onto the one before it.
+    A producer that writes a run's worth of rows uses this; calling
+    ``append_declared_jsonl`` in a loop re-verifies the whole ledger per row.
+    """
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=not bypass_profile_gate,
+    )
+    if not records:
+        return []
+    resolved = Path(path).resolve()
+    try:
+        with state_transaction([resolved]) as transaction:
+            return transaction.append_declared_jsonl_rows(
+                resolved,
+                records,
+                expected_surface=expected_surface,
+                bypass_profile_gate=bypass_profile_gate,
+            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
+        raise
 
 
 def append_declared_jsonl(

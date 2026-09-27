@@ -24,7 +24,7 @@ from typing import Any
 from .debt import debts_dir
 from .finding import findings_dir
 from .ledger import load_jsonl
-from .tool_registry import ensure_tools_dir
+from .tool_registry import GovernanceError, ensure_tools_dir
 
 
 # Default threshold below which a pressure record is treated as "noise"
@@ -52,18 +52,38 @@ class CycleEmptiness:
     reason: str
 
 
-def _open_finding_count(repo_root: Path | None) -> int:
-    if repo_root is None:
-        return 0
-    # ARIA-HIGH-191: through the seam the writers use, so a redirected
-    # state store is counted, not the checkout's stale copy.
-    index = findings_dir(repo_root) / "_index.json"
+class CycleGuardRefusal(GovernanceError):
+    """ARIA-MEDIUM-230 — the guard cannot see the backlog it was asked about.
+
+    Every unresolvable input used to read as ZERO: no bound repository, a
+    bound path that no longer exists, an index that would not parse. Zero
+    open findings and zero debts is exactly the verdict that lets a caller
+    skip the cycle, so the guard advised "empty" over a backlog it never
+    read. It refuses by name instead; the CLI prints the refusal and exits
+    3, which is neither "work to do" (0) nor "empty" (2).
+    """
+
+
+def _read_index(index: Path) -> dict[str, Any]:
+    """An index that does not exist is an empty backlog; one that exists and
+    cannot be read is a refusal."""
     if not index.exists():
-        return 0
+        return {}
     try:
         payload = json.loads(index.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CycleGuardRefusal(
+            f"cycle_guard_index_unreadable:{index.as_posix()}:{type(exc).__name__}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise CycleGuardRefusal(f"cycle_guard_index_unreadable:{index.as_posix()}:not_an_object")
+    return payload
+
+
+def _open_finding_count(repo_root: Path) -> int:
+    # ARIA-HIGH-191: through the seam the writers use, so a redirected
+    # state store is counted, not the checkout's stale copy.
+    payload = _read_index(findings_dir(repo_root) / "_index.json")
     rows = payload.get("findings") or []
     # E25-a (ORPHAN-710) — IN_PROGRESS counts as backlog: work someone has
     # started is still unfinished work, and the rhythm gate exists so ARIA
@@ -75,32 +95,43 @@ def _open_finding_count(repo_root: Path | None) -> int:
     )
 
 
-def _open_debt_count(repo_root: Path | None) -> int:
-    if repo_root is None:
-        return 0
-    index = debts_dir(repo_root) / "_index.json"
-    if not index.exists():
-        return 0
-    try:
-        payload = json.loads(index.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
+def _open_debt_count(repo_root: Path) -> int:
+    payload = _read_index(debts_dir(repo_root) / "_index.json")
     rows = payload.get("debts") or []
     return sum(1 for r in rows if isinstance(r, dict) and r.get("current_status") in {"OPEN", "IN_PROGRESS"})
 
 
-def _resolve_repo_root(tools_root: Path) -> Path | None:
+def _resolve_repo_root(tools_root: Path, override: str | Path | None) -> Path:
+    """The checkout the backlog is read through, or a named refusal.
+
+    ``--workspace-root`` when given (it must exist); otherwise the tools
+    root's bound repository, which must be bound and must still exist.
+    Under ``ARIA_REPO_STATE_ROOT`` the findings and debts live in the store
+    and the seam ignores the checkout path — but an unbound or stale
+    identity is still a tools root that cannot say which repository's
+    backlog it holds, and it used to turn into a count of zero.
+    """
+    if override is not None:
+        candidate = Path(override)
+        if not candidate.exists():
+            raise CycleGuardRefusal(f"cycle_guard_workspace_root_missing:{candidate.as_posix()}")
+        return candidate
     identity = tools_root / "repo_identity.json"
     if not identity.exists():
-        return None
+        raise CycleGuardRefusal(f"cycle_guard_repo_identity_missing:{identity.as_posix()}")
     try:
-        bound = json.loads(identity.read_text(encoding="utf-8")).get("bound_repo_root")
-    except (OSError, json.JSONDecodeError):
-        return None
+        payload = json.loads(identity.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CycleGuardRefusal(
+            f"cycle_guard_repo_identity_unreadable:{identity.as_posix()}:{type(exc).__name__}"
+        ) from exc
+    bound = payload.get("bound_repo_root") if isinstance(payload, dict) else None
     if not bound:
-        return None
-    candidate = Path(bound)
-    return candidate if candidate.exists() else None
+        raise CycleGuardRefusal(f"cycle_guard_repo_identity_unbound:{identity.as_posix()}")
+    candidate = Path(str(bound))
+    if not candidate.exists():
+        raise CycleGuardRefusal(f"cycle_guard_repo_identity_stale:{candidate.as_posix()}")
+    return candidate
 
 
 def evaluate_cycle_emptiness(
@@ -121,10 +152,7 @@ def evaluate_cycle_emptiness(
     operator can audit the decision.
     """
     tools_root = ensure_tools_dir(base_dir)
-    repo_root = (
-        Path(repo_root_override) if repo_root_override is not None
-        else _resolve_repo_root(tools_root)
-    )
+    repo_root = _resolve_repo_root(tools_root, repo_root_override)
 
     pressure_path = tools_root / "pressure" / f"{cycle_id}.json"
     pressures: list[dict[str, Any]] = []
@@ -141,8 +169,8 @@ def evaluate_cycle_emptiness(
         if isinstance(p, dict) and isinstance(p.get("score"), (int, float)) and float(p["score"]) >= pressure_threshold
     )
 
-    open_findings = _open_finding_count(repo_root) if repo_root is not None else 0
-    open_debts = _open_debt_count(repo_root) if repo_root is not None else 0
+    open_findings = _open_finding_count(repo_root)
+    open_debts = _open_debt_count(repo_root)
 
     is_empty = above == 0 and open_findings == 0 and open_debts == 0
     if is_empty:

@@ -18,6 +18,7 @@ if str(_KERNEL) not in sys.path:
     sys.path.insert(0, str(_KERNEL))
 
 from aria_kernel import cli  # noqa: E402
+from tests._helpers.operator_acts import github_operator_acts  # noqa: E402
 
 _SHA = "a" * 40
 _PH = "sha256:" + "b" * 64
@@ -63,27 +64,38 @@ class BurnInAcceptCliTests(unittest.TestCase):
 
 
 class PolicyApprovalCliTests(unittest.TestCase):
-    def _record(self, tools, stage, actor, pr="700"):
+    """Each stage is an operator's GitHub act (ARIA-CRITICAL-216); the actor
+    is the login that posted it, so two stages need two operator accounts."""
+
+    def setUp(self) -> None:
+        acts = github_operator_acts(operators=("Okan-wqm", "second-operator"))
+        self.github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
+
+    def _record(self, tools, stage, login, pr="700"):
+        ref = self.github.approve(
+            "l3_policy_approval", {"pr": pr, "head_sha": _SHA, "stage": stage}, login=login,
+        )
         return _run(["--tools-dir", tools, "policy-approval", "record",
-                     "--approval-id", "A1", "--stage", stage, "--actor", actor,
+                     "--approval-id", "A1", "--stage", stage, "--operator-approval-ref", ref,
                      "--pr-number", pr, "--head-sha", _SHA, "--policy-hash", _PH,
                      "--expires-at", _FUTURE])
 
-    def test_two_distinct_actors_verify_valid(self) -> None:
+    def test_two_distinct_operators_verify_valid(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tools = str(Path(td) / "tools")
-            self.assertEqual(self._record(tools, "risk_owner", "alice")[0], 0)
-            self.assertEqual(self._record(tools, "exception_owner", "bob")[0], 0)
+            self.assertEqual(self._record(tools, "risk_owner", "Okan-wqm")[0], 0)
+            self.assertEqual(self._record(tools, "exception_owner", "second-operator")[0], 0)
             rc, out = _run(["--tools-dir", tools, "policy-approval", "verify",
                             "--pr-number", "700", "--head-sha", _SHA, "--policy-hash", _PH])
             self.assertEqual(rc, 0)
             self.assertTrue(out["valid"])
 
-    def test_same_actor_both_stages_fails_separation_of_duties(self) -> None:
+    def test_same_operator_both_stages_fails_separation_of_duties(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tools = str(Path(td) / "tools")
-            self._record(tools, "risk_owner", "alice")
-            self._record(tools, "exception_owner", "alice")
+            self._record(tools, "risk_owner", "Okan-wqm")
+            self._record(tools, "exception_owner", "Okan-wqm")
             rc, out = _run(["--tools-dir", tools, "policy-approval", "verify",
                             "--pr-number", "700", "--head-sha", _SHA, "--policy-hash", _PH])
             self.assertEqual(rc, 2)
@@ -93,17 +105,30 @@ class PolicyApprovalCliTests(unittest.TestCase):
     def test_single_stage_verify_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tools = str(Path(td) / "tools")
-            self._record(tools, "risk_owner", "alice")
+            self._record(tools, "risk_owner", "Okan-wqm")
             rc, out = _run(["--tools-dir", tools, "policy-approval", "verify",
                             "--pr-number", "700", "--head-sha", _SHA, "--policy-hash", _PH])
             self.assertEqual(rc, 2)
             self.assertFalse(out["valid"])
 
+    def test_a_recorded_reference_is_not_a_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tools = str(Path(td) / "tools")
+            rc, out = _run(["--tools-dir", tools, "policy-approval", "record",
+                            "--approval-id", "A1", "--stage", "risk_owner",
+                            "--operator-approval-ref", "gov:anything",
+                            "--pr-number", "700", "--head-sha", _SHA, "--policy-hash", _PH,
+                            "--expires-at", _FUTURE])
+            self.assertEqual(rc, 2)
+            self.assertFalse(out["recorded"])
+            self.assertIn("gh:<owner>/<repo>#<number>", out["error"])
+
     def test_invalid_head_sha_clean_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tools = str(Path(td) / "tools")
             rc, out = _run(["--tools-dir", tools, "policy-approval", "record",
-                            "--approval-id", "A1", "--stage", "risk_owner", "--actor", "x",
+                            "--approval-id", "A1", "--stage", "risk_owner",
+                            "--operator-approval-ref", "gh:Okan-wqm/aquaculture_platform#1/comment/1",
                             "--pr-number", "1", "--head-sha", "short", "--policy-hash", _PH,
                             "--expires-at", _FUTURE])
             self.assertEqual(rc, 2)

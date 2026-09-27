@@ -13,6 +13,14 @@ name: aria-merge-runner
 # It fires after aria-readiness-claim completes, so the claim it consumes was
 # independently produced by another lane at another time.
 #
+# ARIA-HIGH-206 — it also re-evaluates when `CI - Affected` (ci-affected.yml)
+# completes green for a pull request, and hourly. Three of the four required
+# checks come from that heavier workflow and routinely finish AFTER the claim;
+# the required-checks gate then saw them missing and nothing ran the lane
+# again. Re-running is safe by construction: only a PR holding a readiness
+# claim is considered, and the merge carries `--match-head-commit`, so a
+# repeat evaluation merges at most the head that was claimed.
+#
 # THE MERGE CREDENTIAL IS THE GITHUB APP INSTALLATION TOKEN, never
 # GITHUB_TOKEN: a merge made with GITHUB_TOKEN triggers no push workflows on
 # main, which would blind the post-merge monitoring that attributes a red main
@@ -21,8 +29,14 @@ name: aria-merge-runner
 
 on:
   workflow_run:
-    workflows: ['aria-readiness-claim']
+    # 'CI - Affected' is ci-affected.yml's `name:` — workflow_run matches on
+    # it (pinned against that file by test_readiness_claim_lane.py).
+    workflows: ['aria-readiness-claim', 'CI - Affected']
     types: [completed]
+  schedule:
+    # Hourly backstop for a check that turns green with no workflow_run to
+    # announce it (a re-run, an external status). Off the top of the hour.
+    - cron: '47 * * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -37,6 +51,12 @@ permissions:
   # The merge itself uses the App installation token, not this one.
   contents: write
   actions: read
+  # ARIA-HIGH-220 — the job's OIDC token IS the lane's identity: the kernel
+  # requests it, verifies it against GitHub's signing keys, and merges only
+  # when it names this run and this workflow as it is on main
+  # (runner_attestation.measure_merge_lane_identity). Without it the lane
+  # evaluates and merges nothing.
+  id-token: write
 
 concurrency:
   group: aria-merge-runner
@@ -46,9 +66,16 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # A red or cancelled upstream run, and a CI run of a push to main or of
+    # a merge-group build (no PR to merge), start no job.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.name == 'aria-readiness-claim' ||
+        (github.event.workflow_run.name == 'CI - Affected' &&
+         github.event.workflow_run.event == 'pull_request')))
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,6 +88,15 @@ jobs:
           # aria-auto-cycle.yml carries the full account.
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+
+      # ARIA-HIGH-217 — the pre-merge perimeter is evaluated on the PR head:
+      # a worktree of this checkout, with `main` moved to the implementation
+      # base for the span of the evaluation and restored after it. Git will
+      # not move a branch a worktree stands on, so the checkout lets go of
+      # main (merge_lane_workspace.pr_head_workspace refuses by name
+      # otherwise).
+      - name: Detach the checkout from main
+        run: git checkout --quiet --detach
 
       - name: Persist enterprise workflow preflight
         env:
@@ -106,14 +142,30 @@ jobs:
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
-      # The attestation describes THIS host — the one that runs the merge.
-      - name: Probe runner attestation
-        uses: ./.github/actions/probe-runner-attestation
-        with:
-          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
-          lane: merge
+      # ARIA-HIGH-220 — no lane-start attestation step. It recorded a row
+      # for every claim ever made, keyed by (PR, head, claim) alone, which any
+      # later run on any host could present. `merge-lane run` attests each
+      # candidate as it merges it, bound to this run, and the merge
+      # authority re-measures the run's identity at the merge call.
+
+      # ARIA-HIGH-222 — minted BEFORE the merge: every merge's intent is
+      # published to aria/state before its merge call, so the merge step
+      # carries the aria/state credential as well as the publish step. A
+      # lane whose restore did not land has no credential, cannot publish an
+      # intent, and so merges nothing.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
       - name: Run the merge lane
+        id: merge
         env:
           PYTHONPATH: aria-kernel
           # The merge credential is the App installation token; a PAT
@@ -124,6 +176,11 @@ jobs:
           ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
           ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          # The aria/state credential, for the merge intents this step
+          # publishes; git reads it for the store's push only.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
         run: |
           set -euo pipefail
           # ubuntu-latest has no operator home dir; materialize the PEM
@@ -151,11 +208,17 @@ jobs:
           MERGE_TOKEN="$(TOKEN_DIR="$TOKEN_DIR" python3 -c "
           import os
           from pathlib import Path
-          from aria_kernel.gh_token_factory import mint_installation_token
+          from aria_kernel.gh_token_factory import (
+              MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS,
+              mint_installation_token,
+          )
+          # ARIA-HIGH-208 — the merge gates also read issues, check runs
+          # and commit statuses; the factory names that set.
           lease = mint_installation_token(
               cycle_id='merge-runner-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'],
               workspace_root=os.environ['GITHUB_WORKSPACE'],
               token_dir=os.environ['TOKEN_DIR'],
+              permissions=MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS,
           )
           print(Path(lease.token_file).read_text(encoding='utf-8').strip())
           ")"
@@ -163,31 +226,31 @@ jobs:
           # GH_TOKEN reaches the merge command only, never the job env.
           # Both invocations are spelled out so the CLI-contract invariant
           # (test_workflow_kernel_cli_contract) parses each one.
+          # The verdict goes to a file so the candidate count can be read
+          # from it; it is printed whatever the lane's exit status, and the
+          # step then exits with that status.
+          RESULT="$RUNNER_TEMP/aria-merge-lane-result.json"
+          STATUS=0
           if [ -n "$PR_NUMBER" ]; then
             GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
               --pr "$PR_NUMBER" \
               --tools-dir "$ARIA_TOOLS_DIR" \
-              --workspace-root "$GITHUB_WORKSPACE"
+              --workspace-root "$GITHUB_WORKSPACE" > "$RESULT" || STATUS=$?
           else
             GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run \
               --tools-dir "$ARIA_TOOLS_DIR" \
-              --workspace-root "$GITHUB_WORKSPACE"
+              --workspace-root "$GITHUB_WORKSPACE" > "$RESULT" || STATUS=$?
           fi
-
-      # The credential is minted here and consumed by the next step only.
-      - name: Mint the aria/state push credential
-        id: publish_credential
-        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
-        env:
-          PUBLISH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
-          echo "::add-mask::${HEADER}"
-          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+          cat "$RESULT"
+          # ARIA-HIGH-222 — a run with no candidate (no open PR whose head
+          # holds a claim) is a no-op: it recorded nothing worth a publish.
+          # ARIA-HIGH-221 — a merge-queue settlement (an enqueued PR the
+          # queue merged or removed) is recorded work too.
+          echo "candidates=$(jq -r '(.candidates_evaluated // 0) + ((.queue_settled // []) | length)' "$RESULT")" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
 
       - name: Publish ARIA state to the aria/state branch
-        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
+        if: (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true') && steps.merge.outputs.candidates != '0'
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader

@@ -53,6 +53,7 @@ from tests._gh_mock import (
     recorded_calls,
     reset_recorded,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # ORPHAN-CRITICAL-428 — the one product file this fixture's PR claims to
@@ -77,12 +78,7 @@ def _seed_tools() -> Path:
     # path, so the seed bumps the profile to strict (with an explicit
     # test-fixture operator_approval_ref). Profile gate is the safety
     # boundary; the test explicitly opts into the boundary it is testing.
-    set_profile(
-        "strict",
-        operator_approval_ref="test:plan-020-phase-1.B:pr-manager-e2e",
-        base_dir=tools,
-        set_by="operator",
-    )
+    operator_set_profile("strict", base_dir=tools)
     # Plan 023 v3 §P-3 — open_pr_for_action now fails hard when
     # `git rev-parse <branch>` fails. _seed_apply_action uses a fixed
     # `aria/test-proposal` branch; init a real git repo + create the
@@ -398,7 +394,7 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         self.addCleanup(external.cleanup)
         outside = Path(external.name)
         self.tools = outside / "store" / "tools"
-        set_profile("strict", operator_approval_ref="test:stage-inputs", base_dir=self.tools)
+        operator_set_profile("strict", base_dir=self.tools)
         ensure_tools_binding(self.tools, workspace_root=self.repo)
         installed = installed_node_modules("nx", "typescript", "eslint")
         (self.repo / "node_modules").symlink_to(installed, target_is_directory=True)

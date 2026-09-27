@@ -16,15 +16,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class PRChangeIdRequirementTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-d3-"))
         self.base = self.tmp / "aria-tools"
-        set_profile("strict", operator_approval_ref="t", base_dir=self.base)
+        operator_set_profile("strict", base_dir=self.base)
 
     def tearDown(self) -> None:
         import shutil

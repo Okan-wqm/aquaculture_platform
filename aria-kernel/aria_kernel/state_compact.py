@@ -74,6 +74,7 @@ from typing import Any
 
 from .ledger import StateTransaction, load_declared_jsonl, rewrite_declared_jsonl, state_transaction
 from .state_manifest import resolve_surface_path, surface_by_name
+from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 
 # The governance event compaction records, and the field inside it that a
@@ -97,6 +98,20 @@ ATTESTED_BY_COMPACTION = "compaction"
 ATTESTED_BY_BACKFILL = "archive_backfill"
 
 _ARCHIVE_STAMP = re.compile(r"^artifact_index-compact-(\d{8}T\d{6})Z\.jsonl\.gz$")
+
+# ARIA-MEDIUM-230 — the ledgers compaction shrinks, in the order it shrinks
+# them, and the size at which a publish compacts them before it snapshots.
+# Half the publish cap: a compacted ledger is a fraction of its trigger
+# (raw findings collapse to one row per fingerprint — 34,500 rows on the
+# 2026-09-26 tip were 3,253 findings), so there is a whole trigger's worth
+# of cycles between a compaction and the cap.
+COMPACTABLE_SURFACES: tuple[str, ...] = ("runs", "raw_findings", "beliefs", "learning_events")
+COMPACTION_TRIGGER_BYTES = SNAPSHOT_MAX_SURFACE_BLOB_BYTES // 2
+PUBLISH_COMPACTION_RETAIN_DAYS = 7
+
+
+class SurfaceBoundError(RuntimeError):
+    """A compactable ledger is still over the publish cap after compaction."""
 
 
 def compact_state(
@@ -124,12 +139,14 @@ def compact_state(
     cutoff = datetime.now(timezone.utc) - timedelta(days=retain_days)
     results: dict[str, Any] = {"dry_run": dry_run, "cutoff": cutoff.isoformat(), "surfaces": {}}
 
-    for surface_name, compactor in [
-        ("runs", _compact_runs),
-        ("raw_findings", _compact_raw_findings),
-        ("beliefs", _compact_beliefs),
-        ("learning_events", _compact_learning_events),
-    ]:
+    compactors = {
+        "runs": _compact_runs,
+        "raw_findings": _compact_raw_findings,
+        "beliefs": _compact_beliefs,
+        "learning_events": _compact_learning_events,
+    }
+    for surface_name in COMPACTABLE_SURFACES:
+        compactor = compactors[surface_name]
         path = _surface_path(root, surface_name)
         if not path.exists():
             continue
@@ -192,6 +209,61 @@ def compact_state(
             },
         )
     return results
+
+
+def bound_compactable_surfaces(
+    root: str | Path,
+    *,
+    retain_days: int = PUBLISH_COMPACTION_RETAIN_DAYS,
+) -> dict[str, Any]:
+    """ARIA-MEDIUM-230 — compact before a publish, and refuse what stays too big.
+
+    The publish preamble (``state_store.prepare_publishable_snapshot``) calls
+    this before it builds the snapshot, so every publisher — the nightly, the
+    executor lane, the maintenance lane, the contention replay — bounds the
+    ledgers it is about to push. It replaces the cycle-end trigger, which
+    could not bound anything the night it was needed: it ran only when
+    ``run_cycle`` reached its last line (a cycle killed at its time limit
+    never did), it resolved a relative root against the working directory,
+    and it caught every exception into a state key nothing read. The
+    2026-09-21..26 nightlies each restored a 57.5 MB ``raw-findings.jsonl``
+    of 34,500 rows for 3,253 findings, added a cycle's rows, and had the
+    publish refused as ``state_commit_surface_too_large:raw_findings``.
+
+    Any compactable surface over ``COMPACTION_TRIGGER_BYTES`` runs the one
+    canonical compactor over the whole root (its pruning is attested on the
+    governance row the snapshot then carries). A compaction failure
+    propagates — the caller refuses the publish by name. A surface still
+    over ``SNAPSHOT_MAX_SURFACE_BLOB_BYTES`` afterwards raises
+    :class:`SurfaceBoundError` naming it and its size: a publish that
+    cannot be bounded stops here, not at the remote.
+    """
+    root_path = Path(root)
+    sizes = {name: _surface_size(root_path, name) for name in COMPACTABLE_SURFACES}
+    oversized = sorted(name for name, size in sizes.items() if size > COMPACTION_TRIGGER_BYTES)
+    result: dict[str, Any] | None = None
+    if oversized:
+        result = compact_state(base_dir=root_path, retain_days=retain_days, dry_run=False)
+        sizes = {name: _surface_size(root_path, name) for name in COMPACTABLE_SURFACES}
+    over_cap = sorted(name for name, size in sizes.items() if size > SNAPSHOT_MAX_SURFACE_BLOB_BYTES)
+    if over_cap:
+        raise SurfaceBoundError(
+            "compactable_surface_over_publish_cap:"
+            + ",".join(f"{name}={sizes[name]}>{SNAPSHOT_MAX_SURFACE_BLOB_BYTES}" for name in over_cap)
+        )
+    return {
+        "status": "compacted" if oversized else "not_needed",
+        "oversized": oversized,
+        "sizes": sizes,
+        "trigger_bytes": COMPACTION_TRIGGER_BYTES,
+        "cap_bytes": SNAPSHOT_MAX_SURFACE_BLOB_BYTES,
+        "result": result,
+    }
+
+
+def _surface_size(root: Path, surface: str) -> int:
+    path = _surface_path(root, surface)
+    return path.stat().st_size if path.exists() else 0
 
 
 def attested_pruned_paths(
@@ -794,9 +866,13 @@ __all__ = (
     "ATTESTED_ARTIFACTS_KEY",
     "ATTESTED_BY_BACKFILL",
     "ATTESTED_BY_COMPACTION",
+    "COMPACTABLE_SURFACES",
     "COMPACTED_EVENT",
+    "COMPACTION_TRIGGER_BYTES",
     "PRUNED_PATHS_KEY",
+    "SurfaceBoundError",
     "attested_pruned_paths",
+    "bound_compactable_surfaces",
     "compact_state",
     "prune_attested",
 )

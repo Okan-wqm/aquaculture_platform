@@ -22,14 +22,7 @@ import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { AiPrivacyService } from './ai-privacy.service';
 
 /** The AI-egress purpose, for audit-grade denial logging. */
-export type AiEgressPurpose =
-  | 'sentiment'
-  | 'semantic-search'
-  | 'ai-chat'
-  | 'custom-ai-chat'
-  | 'knowledge-extraction'
-  | 'embedding'
-  | 'ai-action';
+export type AiEgressPurpose = 'semantic-search' | 'ai-chat' | 'knowledge-extraction' | 'embedding';
 
 @Injectable()
 export class AiEgressGateService {
@@ -42,11 +35,7 @@ export class AiEgressGateService {
    * AI processing. Consent uncertainty (the privacy check throwing) is
    * treated as denial — fail-closed.
    */
-  async assertAllowed(
-    tenantId: string,
-    userId: string,
-    purpose: AiEgressPurpose,
-  ): Promise<void> {
+  async assertAllowed(tenantId: string, userId: string, purpose: AiEgressPurpose): Promise<void> {
     let allowed: boolean;
     try {
       allowed = await this.privacyService.canAnalyzeMessage(tenantId, userId);
@@ -60,9 +49,7 @@ export class AiEgressGateService {
       throw new ForbiddenException('AI processing consent is required');
     }
     if (!allowed) {
-      this.logger.debug(
-        `AI egress denied: tenant=${tenantId} user=${userId} purpose=${purpose}`,
-      );
+      this.logger.debug(`AI egress denied: tenant=${tenantId} user=${userId} purpose=${purpose}`);
       throw new ForbiddenException('AI processing consent is required');
     }
   }
@@ -72,11 +59,7 @@ export class AiEgressGateService {
    * throw. Encapsulates the fail-closed try/catch so callers stop
    * hand-rolling `.catch(() => false)`.
    */
-  async isAllowed(
-    tenantId: string,
-    userId: string,
-    purpose: AiEgressPurpose,
-  ): Promise<boolean> {
+  async isAllowed(tenantId: string, userId: string, purpose: AiEgressPurpose): Promise<boolean> {
     try {
       await this.assertAllowed(tenantId, userId, purpose);
       return true;

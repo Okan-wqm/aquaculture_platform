@@ -434,5 +434,184 @@ class BindingCarriesTheExcerptsTest(unittest.TestCase):
             )
 
 
+class PlannerSelectedSourceTests(unittest.TestCase):
+    def test_native_pinned_refs_do_not_substitute_the_current_checkout(self) -> None:
+        import os
+        from unittest.mock import patch
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        with TemporaryDirectory(prefix="aria-flow-availability-") as directory:
+            fixture = Path(directory)
+            with patch.dict(os.environ, {
+                "ARIA_REPO_STATE_ROOT": str(fixture / "repo-state"),
+                "ARIA_STATE_STORE_ROOT": str(fixture / "state-store"),
+            }):
+                original = "export const acknowledged = false;\n"
+                repo = make_repo_with_initial_commit(fixture / "source", {"src/ack.ts": original})
+                head = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+                (repo / "src/new.ts").write_text("export const newContract = true;\n")
+                _git(["add", "src/new.ts"], cwd=repo)
+                _git(["commit", "-q", "-m", "fixture: later contract"], cwd=repo)
+                self.assertNotEqual(_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip(), head)
+                (repo / "src/ack.ts").unlink()
+                tools = ensure_tools_binding(fixture / "store/tools", workspace_root=repo)
+                request = ai.create_agent_invocation_request(
+                    target_agent="aria-evidence-judge", role="evidence_judgment",
+                    suggested_prompt="Inspect the explicitly selected source revision.",
+                    must_satisfy=[{"id": "source", "description": "Use the selected revision"}],
+                    allowed_scope=["src/**"], evidence_refs=["src/ack.ts:1", "src/new.ts:1"],
+                    context_repo_root=repo, target_sha=head, base_dir=tools,
+                )
+                available, unavailable = request["evidence_excerpts"]
+                self.assertEqual(available["content"], original)
+                self.assertEqual(available["source_commit_sha"], head)
+                self.assertEqual(available["source_content_hash"],
+                                 "sha256:" + hashlib.sha256(original.encode()).hexdigest())
+                self.assertEqual(unavailable, {"path": "src/new.ts", "skipped": "committed_blob_unavailable"})
+                native = ai.verify_invocation_context_binding(
+                    request_id=request["request_id"], context_hash=request["context_hash"],
+                    prompt_hash=request["prompt_hash"], base_dir=tools)
+                self.assertEqual(native["prompt"]["prompt_text"], ai.render_invocation_prompt(request))
+
+    def test_committed_metadata_and_body_share_the_transport_allowance(self) -> None:
+        from aria_kernel import snapshot as source_owner
+        from aria_kernel import state_store
+        from unittest.mock import patch
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        with TemporaryDirectory(prefix="aria-flow-budget-") as directory:
+            repo = make_repo_with_initial_commit(Path(directory) / "source", {"src/value.ts": "one\n"})
+            head = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+            # The declared wire allowance includes 64 metadata stdout bytes,
+            # 1024 stderr bytes for each child, and one body EOF byte.
+            exact = 64 + 1024 + 4 + 1 + 1024
+            for allowance, expected_status, calls in ((exact, "available", 2), (exact - 1, "unknown", 1)):
+                with self.subTest(allowance=allowance):
+                    # The byte allowance is what is under test; the deadline is
+                    # stated (ARIA-MEDIUM-082: no literal default) and ample.
+                    budget = source_owner._ScopedSourceBudget(deadline_seconds=120.0, byte_limit=allowance)
+                    with patch.object(state_store, "_run_git_bytes_bounded",
+                                      wraps=state_store._run_git_bytes_bounded) as transport:
+                        observation, content = source_owner._read_scoped_committed_file(
+                            repo, "src/value.ts", head, budget=budget)
+                    self.assertEqual(transport.call_count, calls)
+                    self.assertEqual(observation["status"], expected_status)
+                    self.assertEqual(budget.paths_attempted, 1)
+                    self.assertGreaterEqual(budget.remaining_bytes, 0)
+                    self.assertLessEqual(budget.transport_bytes_reserved, allowance)
+                    if expected_status == "available":
+                        self.assertEqual(content, b"one\n")
+                        self.assertEqual(budget.source_bytes_read, 4)
+                        self.assertEqual(budget.remaining_bytes, 0)
+                        self.assertEqual(observation["content_hash"],
+                                         "sha256:" + hashlib.sha256(b"one\n").hexdigest())
+                    else:
+                        self.assertIsNone(content)
+                        self.assertEqual(observation["reason"], "input_total_byte_limit")
+                        self.assertEqual(budget.source_bytes_read, 0)
+
+    def test_native_current_body_excerpts_use_the_selected_committed_flow(self) -> None:
+        import os
+        from unittest.mock import patch
+        from aria_kernel.convergence_drainer import run_convergence_drainer
+        from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.plan_convergence import content_hash, start_plan
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        source_root = Path(__file__).resolve().parents[2]
+        owner = "apps/notification-service/src/notification/services/in-app.service.ts"
+        hook = "web/shell/src/hooks/useNotifications.ts"
+        resolver = "apps/notification-service/src/notification/resolvers/notification.resolver.ts"
+        entity = "apps/notification-service/src/notification/entities/notification-log.entity.ts"
+        inputs = {path: (source_root / path).read_text(encoding="utf-8")
+                  for path in (owner, hook, resolver, entity)}
+        # This is the actual repository's Boolean acknowledgement contract,
+        # copied before any edits. It is not a fake planner or a model result.
+        self.assertEqual(inputs[owner].count("return false;"), 1)
+        line = next(number for number, text in enumerate(inputs[owner].splitlines(), 1)
+                    if "return false;" in text)
+        refs = [f"{owner}:{line}", f"{hook}:145", f"{resolver}:125", f"{entity}:40"]
+        inputs.update({
+            "apps/notification-service/project.json": '{"name":"notification-service"}\n',
+            "web/shell/project.json": '{"name":"shell"}\n',
+            ".claude/agents/notification-expert.md":
+                "---\nname: notification-expert\ndescription: Review notification flow\n---\n"
+                "Owns `apps/notification-service/**` and `web/shell/**`.\n",
+        })
+        with TemporaryDirectory(prefix="aria-flow-source-") as directory:
+            fixture = Path(directory)
+            with patch.dict(os.environ, {
+                "ARIA_REPO_STATE_ROOT": str(fixture / "repo-state"),
+                "ARIA_STATE_STORE_ROOT": str(fixture / "state-store"),
+            }):
+                repo = make_repo_with_initial_commit(fixture / "source", inputs)
+                head = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+                tools = ensure_tools_binding(fixture / "store/tools", workspace_root=repo)
+                context = build_phase_context(cycle_id="cyc-flow-source", workspace_root=repo,
+                                              base_dir=tools, snapshot_mode="committed")
+                discovered = _phase_discovery(context)
+                context.results["discovery"] = discovered
+                mapped = _phase_twin_refresh(context)
+                self.assertTrue(discovered["completion_proof"]["complete"])
+                self.assertEqual(mapped["indexed_sha"], head)
+                owner_fate = next(row for row in discovered["fates"] if row["path"] == owner)
+                self.assertEqual(owner_fate["content_hash"],
+                                 "sha256:" + hashlib.sha256(inputs[owner].encode()).hexdigest())
+                body = {
+                    "schema_version": 1, "title": "Notification acknowledgement",
+                    "summary": "Review acknowledgement behavior across UI and persistence.",
+                    "affected_surfaces": [{"paths": [owner, hook, resolver, entity]}],
+                    "key_changes": ["Preserve the authenticated tenant and user boundaries."],
+                    "validation_commands": [{"cmd": "npx nx test notification-service"}],
+                    "evidence_refs": refs,
+                }
+                start_plan(plan_id="flow-plan", initial_revision_id="flow-plan-r1",
+                           plan_content=body, base_dir=tools)
+                # Ordinary uncommitted work changes the contract while the
+                # current-body request still explicitly selects committed HEAD.
+                (repo / owner).write_text(inputs[owner].replace("return false;", "return true;"),
+                                          encoding="utf-8")
+                self.assertNotEqual((repo / owner).read_text(), inputs[owner])
+                result = run_convergence_drainer(
+                    cycle_id="cyc-flow-source", base_dir=tools, workspace_root=repo,
+                    plan_id="flow-plan", plan_seed=body,
+                    must_satisfy=[{"id": "flow-contract", "kind": "obligation",
+                                   "description": "Verify acknowledgement across the named flow", "source": "test"}],
+                    evidence_refs=refs, allowed_scope=["web/shell/**", "apps/notification-service/**"],
+                    max_rounds=4,
+                )
+                self.assertEqual(result["arbiter_verdict"], "in_progress")
+                requests = load_declared_jsonl(tools / "agent-invocations/requests.jsonl",
+                                               expected_surface="agent_invocation_requests")
+                self.assertEqual(len(requests), 1)
+                request = requests[0]
+                self.assertEqual(request["role"], "challenger_plan")
+                self.assertEqual(request["target_sha"], head)
+                self.assertEqual(request["plan_revision_hash"], content_hash(body))
+                self.assertEqual(request["evidence_refs"], refs)
+                native = ai.verify_invocation_context_binding(
+                    request_id=request["request_id"], context_hash=request["context_hash"],
+                    prompt_hash=request["prompt_hash"], base_dir=tools)
+                prompt = ai.render_invocation_prompt(request)
+                self.assertEqual(native["prompt"]["prompt_text"], prompt)
+                self.assertEqual(native["context"]["budget_audit_hash"], request["budget_audit_hash"])
+                excerpt = next(row for row in request["evidence_excerpts"] if row["path"] == owner)
+                expected = "".join(inputs[owner].splitlines(keepends=True)[line - 41:line + 40])
+                self.assertEqual(excerpt["content"], expected,
+                                 "Selected committed request must not quote a different working contract")
+                self.assertEqual(excerpt["content_hash"],
+                                 "sha256:" + hashlib.sha256(expected.encode()).hexdigest())
+                self.assertIn(expected, prompt)
+                sealed = {name: (tools / f"agent-invocations/{name}.jsonl").read_bytes()
+                          for name in ("requests", "contexts", "prompts")}
+                (repo / owner).unlink()
+                self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), prompt)
+                for name, original in sealed.items():
+                    self.assertEqual((tools / f"agent-invocations/{name}.jsonl").read_bytes(), original)
+
+
 if __name__ == "__main__":
     unittest.main()

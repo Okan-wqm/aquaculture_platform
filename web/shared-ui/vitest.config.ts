@@ -20,6 +20,9 @@ export default defineConfig({
         __dirname,
         '../../libs/aquaculture-engines/src/index.ts',
       ),
+      // `styles/theme.ts` re-exports the palette from the shared lib; resolve it
+      // to source for shared-ui's own vitest (mirrors the vite.config alias).
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../libs/shared-contracts/src'),
     },
   },
   test: {

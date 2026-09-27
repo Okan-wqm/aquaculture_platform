@@ -67,7 +67,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
             role="cross_review",
             suggested_prompt="review this plan",
             must_satisfy=[
-                {"id": "phase4-cross-review", "criterion": "review concludes"},
+                {"id": "phase4-cross-review", "description": "review concludes"},
             ],
             allowed_scope=["aria-kernel/**"],
             convergence_id="C-1",

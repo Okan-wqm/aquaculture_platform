@@ -19,13 +19,13 @@ import {
   ChevronDown,
   ChevronRight,
   Code,
-  Loader2,
   Plus,
   RefreshCw,
   Trash2,
   Zap,
 } from 'lucide-react';
 import { parseStVariables, type ParsedVariable } from '../../utils/st-variable-parser';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 type DetectedVariable = ParsedVariable;
 
@@ -66,7 +66,9 @@ interface VariableSyncPanelProps {
   /** Callback to remove a variable from the backend by id */
   onRemoveVariable: (id: string) => void;
   /** Callback to bulk-sync all variables at once */
-  onSyncAll?: (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => void;
+  onSyncAll?: (
+    variables: { varName: string; dataType: string; initialValue?: string; scope: string }[],
+  ) => void;
   /** Whether an add mutation is currently in progress */
   isAdding?: boolean;
   /** Whether a remove mutation is currently in progress */
@@ -175,15 +177,33 @@ function scopeLabel(scope: string): string {
 
 const StatusBadge: React.FC<{ status: SyncStatus }> = ({ status }) => {
   const config: Record<SyncStatus, { bg: string; text: string; label: string }> = {
-    missing: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Yeni' },
-    orphaned: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Orphaned' },
-    synced: { bg: 'bg-green-50', text: 'text-green-700', label: 'Synced' },
-    changed: { bg: 'bg-orange-50', text: 'text-orange-700', label: 'Changed' },
+    missing: {
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      text: 'text-info-700 dark:text-info-300',
+      label: 'Yeni',
+    },
+    orphaned: {
+      bg: 'bg-warning-50 dark:bg-warning-900/20',
+      text: 'text-warning-700 dark:text-warning-300',
+      label: 'Orphaned',
+    },
+    synced: {
+      bg: 'bg-success-50 dark:bg-success-900/20',
+      text: 'text-success-700 dark:text-success-300',
+      label: 'Synced',
+    },
+    changed: {
+      bg: 'bg-accent-50 dark:bg-accent-900/20',
+      text: 'text-accent-700 dark:text-accent-300',
+      label: 'Changed',
+    },
   };
 
   const { bg, text, label } = config[status];
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${bg} ${text}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${bg} ${text}`}
+    >
       {label}
     </span>
   );
@@ -290,12 +310,10 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
   if (!hasCode) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Code className="h-4 w-4" />
-          <span>
-            Variables will be automatically detected when ST code is written.
-          </span>
+          <span>Variables will be automatically detected when ST code is written.</span>
         </div>
       </div>
     );
@@ -305,8 +323,8 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
   if (detectedVars.length === 0 && parseErrors.length === 0) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Code className="h-4 w-4" />
           <span>
             No variable declarations found in ST code. Define variables by adding a VAR block.
@@ -316,50 +334,158 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
     );
   }
 
+  type ItemRow = (typeof comparison)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => <StatusBadge status={item.status} />,
+    },
+    {
+      key: 'variableName',
+      header: 'Variable Name',
+      render: (_value, item) => {
+        const varName = item.detected?.varName ?? item.registered?.varName ?? '';
+        return <>{varName}</>;
+      },
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, item) => {
+        const dataType = item.detected?.dataType ?? item.registered?.dataType ?? '';
+        return <>{dataType}</>;
+      },
+    },
+    {
+      key: 'baslangic',
+      header: 'Baslangic',
+      render: (_value, item) => {
+        const initialValue = item.detected?.initialValue ?? item.registered?.initialValue ?? '';
+        return <>{initialValue || '-'}</>;
+      },
+    },
+    {
+      key: 'kapsam',
+      header: 'Kapsam',
+      render: (_value, item) => {
+        const scope = item.detected?.scope ?? item.registered?.scope ?? '';
+        return <>{scopeLabel(scope)}</>;
+      },
+    },
+    {
+      key: 'notlar',
+      header: 'Notlar',
+      render: (_value, item) => (
+        <>
+          {item.status === 'missing' && (
+            <span className="text-info-600 dark:text-info-400">In code, not in DB</span>
+          )}
+          {item.status === 'orphaned' && (
+            <span className="text-warning-600 dark:text-warning-400">In DB, not in code</span>
+          )}
+          {item.status === 'changed' && item.changes && (
+            <span className="text-accent-600 dark:text-accent-400">{item.changes.join('; ')}</span>
+          )}
+          {item.status === 'synced' && (
+            <span className="text-success-600 dark:text-success-400">
+              <Check className="h-3 w-3 inline mr-0.5" />
+              Synced
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'islem',
+      header: 'Islem',
+      align: 'right',
+      render: (_value, item) => {
+        const varName = item.detected?.varName ?? item.registered?.varName ?? '';
+        const isItemAdding = addingVarNames.has(varName);
+        const isItemRemoving = item.registered ? removingIds.has(item.registered.id) : false;
+        return (
+          <>
+            {item.status === 'missing' && item.detected && (
+              <Button
+                variant="primary"
+                size="xs"
+                onClick={() => handleAddOne(item.detected!)}
+                disabled={isItemAdding || isAdding}
+              >
+                {isItemAdding ? (
+                  <Spinner size="sm" color="inherit" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                Ekle
+              </Button>
+            )}
+            {item.status === 'orphaned' && item.registered && (
+              <Button
+                variant="warning"
+                size="xs"
+                onClick={() => handleRemoveOne(item.registered!.id)}
+                disabled={isItemRemoving || isRemoving}
+              >
+                {isItemRemoving ? (
+                  <Spinner size="sm" color="inherit" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                Kaldir
+              </Button>
+            )}
+          </>
+        );
+      },
+    },
+  ];
+
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          <ChevronRight className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         )}
-        <Zap className="h-4 w-4 text-indigo-500 flex-shrink-0" />
-        <span className="text-sm font-medium text-gray-700">
+        <Zap className="h-4 w-4 text-primary-500 flex-shrink-0" />
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           Variables Detected from Code
         </span>
 
         {/* Summary badges */}
         <div className="ml-auto flex items-center gap-2">
           {missingCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
               <Plus className="h-3 w-3" />
               {missingCount} new
             </span>
           )}
           {changedCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
               <RefreshCw className="h-3 w-3" />
               {changedCount} changed
             </span>
           )}
           {orphanedCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
               <AlertTriangle className="h-3 w-3" />
               {orphanedCount} orphaned
             </span>
           )}
           {!hasIssues && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
               <Check className="h-3 w-3" />
               In Sync
             </span>
           )}
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {detectedVars.length} variables
           </span>
         </div>
@@ -367,18 +493,20 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
       {/* ── Parse errors ────────────────────────────────────────────────── */}
       {expanded && parseErrors.length > 0 && (
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200">
+        <div className="px-4 py-2 bg-warning-50 dark:bg-warning-900/20 border-b border-warning-200 dark:border-warning-800">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-700">
+            <AlertTriangle className="h-4 w-4 text-warning-500 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-warning-700 dark:text-warning-300">
               <span className="font-medium">Parse warnings:</span>
               <ul className="mt-1 space-y-0.5">
-                {parseErrors.slice(0, 5).map((err: { message: string; line: number; col: number }, i: number) => (
-                  <li key={i}>Line {err.line}: {err.message}</li>
-                ))}
-                {parseErrors.length > 5 && (
-                  <li>...and {parseErrors.length - 5} more warnings</li>
-                )}
+                {parseErrors
+                  .slice(0, 5)
+                  .map((err: { message: string; line: number; col: number }, i: number) => (
+                    <li key={i}>
+                      Line {err.line}: {err.message}
+                    </li>
+                  ))}
+                {parseErrors.length > 5 && <li>...and {parseErrors.length - 5} more warnings</li>}
               </ul>
             </div>
           </div>
@@ -387,43 +515,30 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
       {/* ── Bulk action bar ─────────────────────────────────────────────── */}
       {expanded && hasIssues && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-b border-blue-200">
-          <span className="text-xs text-blue-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-info-50 dark:bg-info-900/20 border-b border-info-200 dark:border-info-800">
+          <span className="text-xs text-info-700 dark:text-info-300">
             {missingCount > 0 && `${missingCount} new`}
             {missingCount > 0 && (changedCount > 0 || orphanedCount > 0) && ', '}
             {changedCount > 0 && `${changedCount} changed`}
             {changedCount > 0 && orphanedCount > 0 && ', '}
-            {orphanedCount > 0 && `${orphanedCount} orphaned`}
-            {' '}variables detected.
+            {orphanedCount > 0 && `${orphanedCount} orphaned`} variables detected.
           </span>
           <div className="ml-auto flex items-center gap-2">
             {missingCount > 0 && !onSyncAll && (
-              <button
-                onClick={handleAddAll}
-                disabled={isAdding}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {isAdding ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Plus className="h-3 w-3" />
-                )}
+              <Button variant="primary" size="xs" onClick={handleAddAll} disabled={isAdding}>
+                {isAdding ? <Spinner size="sm" color="inherit" /> : <Plus className="h-3 w-3" />}
                 Add All
-              </button>
+              </Button>
             )}
             {onSyncAll && (
-              <button
-                onClick={handleSyncAll}
-                disabled={isSyncing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
+              <Button variant="primary" size="xs" onClick={handleSyncAll} disabled={isSyncing}>
                 {isSyncing ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <RefreshCw className="h-3 w-3" />
                 )}
                 Sync All
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -431,9 +546,9 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
       {/* ── Sync result feedback ──────────────────────────────────────── */}
       {expanded && syncResult && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-200">
-          <Check className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-          <span className="text-xs text-green-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-success-50 dark:bg-success-900/20 border-b border-success-200 dark:border-success-800">
+          <Check className="h-3.5 w-3.5 text-success-600 dark:text-success-400 flex-shrink-0" />
+          <span className="text-xs text-success-700 dark:text-success-300">
             Sync complete:
             {syncResult.added > 0 && ` ${syncResult.added} added`}
             {syncResult.updated > 0 && ` ${syncResult.updated} updated`}
@@ -445,123 +560,29 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
       {/* ── Comparison table ────────────────────────────────────────────── */}
       {expanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Durum
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Variable Name
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Tip
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Baslangic
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Kapsam
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Notlar
-                </th>
-                <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Islem
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {comparison.map((item, idx) => {
-                const varName = item.detected?.varName ?? item.registered?.varName ?? '';
-                const dataType = item.detected?.dataType ?? item.registered?.dataType ?? '';
-                const initialValue = item.detected?.initialValue ?? item.registered?.initialValue ?? '';
-                const scope = item.detected?.scope ?? item.registered?.scope ?? '';
-                const isItemAdding = addingVarNames.has(varName);
-                const isItemRemoving = item.registered ? removingIds.has(item.registered.id) : false;
-
-                const rowBg =
-                  item.status === 'missing'
-                    ? 'bg-blue-50/50'
-                    : item.status === 'orphaned'
-                      ? 'bg-amber-50/50'
-                      : item.status === 'changed'
-                        ? 'bg-orange-50/50'
-                        : '';
-
-                return (
-                  <tr key={`${item.status}-${varName}-${idx}`} className={`${rowBg} hover:bg-gray-50`}>
-                    <td className="px-4 py-2">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="px-4 py-2 text-sm font-mono text-gray-900">{varName}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{dataType}</td>
-                    <td className="px-4 py-2 text-sm font-mono text-gray-500">
-                      {initialValue || '-'}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{scopeLabel(scope)}</td>
-                    <td className="px-4 py-2 text-xs text-gray-500">
-                      {item.status === 'missing' && (
-                        <span className="text-blue-600">In code, not in DB</span>
-                      )}
-                      {item.status === 'orphaned' && (
-                        <span className="text-amber-600">In DB, not in code</span>
-                      )}
-                      {item.status === 'changed' && item.changes && (
-                        <span className="text-orange-600">{item.changes.join('; ')}</span>
-                      )}
-                      {item.status === 'synced' && (
-                        <span className="text-green-600">
-                          <Check className="h-3 w-3 inline mr-0.5" />
-                          Synced
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {item.status === 'missing' && item.detected && (
-                        <button
-                          onClick={() => handleAddOne(item.detected!)}
-                          disabled={isItemAdding || isAdding}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isItemAdding ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Plus className="h-3 w-3" />
-                          )}
-                          Ekle
-                        </button>
-                      )}
-                      {item.status === 'orphaned' && item.registered && (
-                        <button
-                          onClick={() => handleRemoveOne(item.registered!.id)}
-                          disabled={isItemRemoving || isRemoving}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isItemRemoving ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                          Kaldir
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {comparison.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">
-                    No variables to compare.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ItemRow>
+          data={comparison}
+          columns={itemRowColumns}
+          keyExtractor={(item, idx) =>
+            String(
+              `${item.status}-${item.detected?.varName ?? item.registered?.varName ?? ''}-${idx}`,
+            )
+          }
+          emptyMessage="No variables to compare."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          rowClassName={(item) =>
+            item.status === 'missing'
+              ? 'bg-info-50/50 dark:bg-info-900/20/50'
+              : item.status === 'orphaned'
+                ? 'bg-warning-50/50 dark:bg-warning-900/20/50'
+                : item.status === 'changed'
+                  ? 'bg-accent-50/50 dark:bg-accent-900/20/50'
+                  : ''
+          }
+        />
       )}
     </div>
   );

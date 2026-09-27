@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-ui';
 import { describe, it, expect } from 'vitest';
 import { evaluate } from '../AnimationEngine';
 import { DEFAULT_ANIMATION_STATE } from '../types';
@@ -155,10 +156,10 @@ describe('AnimationEngine.evaluate', () => {
     ];
 
     const warning = evaluate(rules, { sensor1: 75 });
-    expect(warning.fillColor).toBe('#eab308');
+    expect(warning.fillColor).toBe(colors.warning[500]);
 
     const critical = evaluate(rules, { sensor1: 95 });
-    expect(critical.fillColor).toBe('#ef4444');
+    expect(critical.fillColor).toBe(colors.error[500]);
   });
 
   it('activates blink when rule matches (interval + colors)', () => {

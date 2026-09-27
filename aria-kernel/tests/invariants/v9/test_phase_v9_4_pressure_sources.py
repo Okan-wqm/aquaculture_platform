@@ -117,34 +117,54 @@ class TestV9FFindingScanner(unittest.TestCase):
 
 
 class TestV9OperatorFeedbackSignature(unittest.TestCase):
-    """ai-safety HIGH-010 — operator-feedback signature verification."""
+    """ai-safety HIGH-010 / V9.5 check 12 — operator-feedback signature verification.
 
-    def _write_feedback(self, tmp: str, rows: list[dict]) -> Path:
-        p = Path(tmp) / "aria-tools" / "operator-feedback.jsonl"
-        p.parent.mkdir(parents=True)
-        with p.open("w") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        return p
+    The pre-fix scanner accepted any row whose ``signature`` and
+    ``signature_kid`` were non-empty strings, so these cases used to pass
+    stub signatures through. A row now reaches the synthesizer only when
+    the kernel signed it (``operator_feedback_signature``); a stub is
+    dropped with an ``unsigned_operator_feedback`` governance event.
+    """
+
+    def _tools(self, tmp: str) -> Path:
+        from aria_kernel.tool_registry import ensure_tools_dir
+        return ensure_tools_dir(Path(tmp) / "aria-tools")
+
+    def _write_unsigned(self, tools: Path, rows: list[dict]) -> None:
+        from tests._helpers.declared_fixtures import append_declared_fixture
+        for row in rows:
+            append_declared_fixture(
+                tools / "operator-feedback.jsonl", row, expected_surface="operator_feedback",
+            )
+
+    def _drops(self, tools: Path) -> list[dict]:
+        from aria_kernel.ledger import load_declared_jsonl
+        return [row["details"] for row in load_declared_jsonl(
+            tools / "governance.jsonl", expected_surface="tools_governance",
+        ) if row["kind"] == "unsigned_operator_feedback"]
 
     def test_unsigned_row_dropped(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self._write_feedback(tmp, [
+            tools = self._tools(tmp)
+            self._write_unsigned(tools, [
                 {
                     "id": "OP-001",
                     "status": "unaddressed",
                     "authored_at": "2026-05-18T00:00:00Z",
                     "request": "fix something",
                     "priority": "high",
-                    # NO signature, NO signature_kid → drop
+                    # NO signature, NO signer_kid → drop + governance event
                 },
             ])
             results = _ps.scan_operator_feedback(tmp)
             self.assertEqual(results, [])
+            self.assertEqual([d["id"] for d in self._drops(tools)], ["OP-001"])
 
-    def test_signed_row_accepted(self):
+    def test_stub_signature_is_not_a_signature(self):
+        """The pre-fix acceptance case, inverted: presence is not proof."""
         with tempfile.TemporaryDirectory() as tmp:
-            self._write_feedback(tmp, [
+            tools = self._tools(tmp)
+            self._write_unsigned(tools, [
                 {
                     "id": "OP-002",
                     "status": "unaddressed",
@@ -152,54 +172,65 @@ class TestV9OperatorFeedbackSignature(unittest.TestCase):
                     "request": "valid request",
                     "priority": "high",
                     "signature": "sig-stub-for-test",
-                    "signature_kid": "operator-key-01",
+                    "signer_kid": "operator-key-01",
                 },
             ])
+            self.assertEqual(_ps.scan_operator_feedback(tmp), [])
+            self.assertEqual([d["reason"] for d in self._drops(tools)], ["signature_malformed"])
+
+    def test_signed_row_accepted(self):
+        from aria_kernel.operator_feedback_signature import record_operator_request
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = self._tools(tmp)
+            stored = record_operator_request(
+                request="valid request", priority="high", authored_by="operator",
+                request_id="OP-002", base_dir=tools,
+            )
             results = _ps.scan_operator_feedback(tmp)
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["candidate_id"], "OP-002")
+            self.assertEqual(results[0]["signer_kid"], stored["signer_kid"])
+            self.assertEqual(results[0]["row_ledger_hash"], stored["ledger_hash"])
+            self.assertEqual(self._drops(tools), [])
 
     def test_invented_priority_max_rejected(self):
         """Per arb CRIT-006 — priority MUST be in closed set
         {low, medium, high}; 'max' was a v1 plan invention that
-        could override severity ladder."""
+        could override severity ladder. The recorder refuses it, and a
+        row signed under a leaked key with that priority is still
+        dropped at ingestion."""
+        from aria_kernel.operator_feedback_signature import (
+            record_operator_request, sign_operator_feedback_row,
+        )
+        from aria_kernel.tool_registry import GovernanceError
         with tempfile.TemporaryDirectory() as tmp:
-            self._write_feedback(tmp, [
-                {
-                    "id": "OP-003",
-                    "status": "unaddressed",
-                    "authored_at": "2026-05-18T00:00:00Z",
-                    "request": "evil max",
-                    "priority": "max",  # INVENTED
-                    "signature": "sig",
-                    "signature_kid": "k",
-                },
-            ])
+            tools = self._tools(tmp)
+            with self.assertRaises(GovernanceError):
+                record_operator_request(
+                    request="evil max", priority="max", authored_by="operator", base_dir=tools,
+                )
+            self._write_unsigned(tools, [sign_operator_feedback_row({
+                "id": "OP-003",
+                "status": "unaddressed",
+                "authored_at": "2026-05-18T00:00:00Z",
+                "request": "evil max",
+                "priority": "max",  # INVENTED
+            }, base_dir=tools)])
             results = _ps.scan_operator_feedback(tmp)
             self.assertEqual(results, [])
+            self.assertEqual([d["reason"] for d in self._drops(tools)], ["schema_invalid"])
 
     def test_priority_ordering(self):
+        from aria_kernel.operator_feedback_signature import record_operator_request
         with tempfile.TemporaryDirectory() as tmp:
-            self._write_feedback(tmp, [
-                {
-                    "id": "L1", "status": "unaddressed",
-                    "authored_at": "2026-05-18T00:00:00Z",
-                    "request": "low task", "priority": "low",
-                    "signature": "s", "signature_kid": "k",
-                },
-                {
-                    "id": "H1", "status": "unaddressed",
-                    "authored_at": "2026-05-18T01:00:00Z",
-                    "request": "high task", "priority": "high",
-                    "signature": "s", "signature_kid": "k",
-                },
-                {
-                    "id": "M1", "status": "unaddressed",
-                    "authored_at": "2026-05-18T02:00:00Z",
-                    "request": "medium task", "priority": "medium",
-                    "signature": "s", "signature_kid": "k",
-                },
-            ])
+            tools = self._tools(tmp)
+            for identifier, priority, text in (
+                ("L1", "low", "low task"), ("H1", "high", "high task"), ("M1", "medium", "medium task"),
+            ):
+                record_operator_request(
+                    request=text, priority=priority, authored_by="operator",
+                    request_id=identifier, base_dir=tools,
+                )
             results = _ps.scan_operator_feedback(tmp)
             self.assertEqual([r["candidate_id"] for r in results], ["H1", "M1", "L1"])
 

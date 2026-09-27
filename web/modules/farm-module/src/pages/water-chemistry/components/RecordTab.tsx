@@ -13,13 +13,21 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
-import { useAuth, useTenantScopedStorage } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  useTenantScopedStorage,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Select,
+} from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useEquipmentList } from '../../../hooks/useEquipment';
 import { useCreateWaterQuality, useWaterQualityList } from '../../../hooks/useWaterQuality';
 import type { Equipment } from '../../../hooks/useEquipment';
 import type { System } from '../../../hooks/useSystems';
+import { Clipboard, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -55,18 +63,14 @@ export const RecordTab: React.FC = () => {
   // Using { isActive: true } returns ALL active equipment regardless of status,
   // matching the EquipmentMappingPanel (parameters tab) behavior.
   const equipmentQuery = useEquipmentList(
-    selectedSystemId
-      ? { isActive: true, systemId: selectedSystemId }
-      : { isActive: true },
+    selectedSystemId ? { isActive: true, systemId: selectedSystemId } : { isActive: true },
   );
   const parameterConfigs = useEquipmentParameterConfigs(selectedEquipmentId);
   const createMutation = useCreateWaterQuality();
 
   // Recent entries for selected equipment
   const recentEntriesQuery = useWaterQualityList(
-    selectedEquipmentId
-      ? { tankId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT }
-      : undefined,
+    selectedEquipmentId ? { tankId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT } : undefined,
   );
 
   // ----- Derived data -----
@@ -168,86 +172,111 @@ export const RecordTab: React.FC = () => {
   );
 
   // ----- Render helpers -----
-  const selectedEquipmentName = filteredEquipment.find(
-    (eq) => eq.id === selectedEquipmentId,
-  )?.name;
+  const selectedEquipmentName = filteredEquipment.find((eq) => eq.id === selectedEquipmentId)?.name;
 
   const recentEntries = recentEntriesQuery.data?.items ?? [];
+
+  type EntryRow = (typeof recentEntries)[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, entry) => new Date(entry.measuredAt).toLocaleString(),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, entry) => entry.source,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+              entry.overallStatus === 'OPTIMAL'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                : entry.overallStatus === 'WARNING'
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
+                  : entry.overallStatus === 'CRITICAL'
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
+            {entry.overallStatus}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, entry) => entry.notes || '—',
+    },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Selectors Row */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* System selector (optional) */}
           <div>
             <label
               htmlFor="record-system-select"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               System (optional)
             </label>
-            <select
+            <Select
               id="record-system-select"
+              size="sm"
               value={selectedSystemId ?? ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-            >
-              <option value="">All Systems</option>
-              {systems.map((sys) => (
-                <option key={sys.id} value={sys.id}>
-                  {sys.name} ({sys.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'All Systems' },
+                ...systems.map((sys) => ({ value: sys.id, label: `${sys.name} (${sys.code})` })),
+              ]}
+            />
           </div>
 
           {/* Equipment selector */}
           <div>
             <label
               htmlFor="record-equipment-select"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               Equipment
             </label>
-            <select
+            <Select
               id="record-equipment-select"
+              size="sm"
               value={selectedEquipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-            >
-              <option value="">Select equipment...</option>
-              {sortedEquipment.map((eq) => (
-                <option key={eq.id} value={eq.id}>
-                  {eq.name} ({eq.code})
-                  {eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'Select equipment...' },
+                ...sortedEquipment.map((eq) => ({
+                  value: eq.id,
+                  label: `${eq.name} (${eq.code})${eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}`,
+                })),
+              ]}
+            />
           </div>
         </div>
       </div>
 
       {/* Empty state: no equipment selected */}
       {!selectedEquipmentId && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+          <Clipboard
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+            aria-hidden="true"
+          />
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
             Select equipment to start recording
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Choose a system and equipment above to record water quality measurements.
           </p>
         </div>
@@ -257,24 +286,12 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <svg
-              className="mx-auto h-12 w-12 text-yellow-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-              />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+            <TriangleAlert className="mx-auto h-12 w-12 text-warning-400" aria-hidden="true" />
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               No parameters configured for this equipment
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Go to the Parameters tab to configure and map parameters to{' '}
               <strong>{selectedEquipmentName}</strong>.
             </p>
@@ -283,9 +300,11 @@ export const RecordTab: React.FC = () => {
 
       {/* Loading state */}
       {selectedEquipmentId && parameterConfigs.isLoading && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto" />
-          <p className="mt-2 text-sm text-gray-500">Loading parameter configuration...</p>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+          <Spinner size="lg" block />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Loading parameter configuration...
+          </p>
         </div>
       )}
 
@@ -293,8 +312,8 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) > 0 && (
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Record Measurement — {selectedEquipmentName}
             </h3>
             <DynamicMeasurementForm
@@ -313,8 +332,10 @@ export const RecordTab: React.FC = () => {
               }}
             />
             {createMutation.isSuccess && (
-              <div className="mt-3 rounded-md bg-green-50 p-3">
-                <p className="text-sm text-green-800">Measurement saved successfully.</p>
+              <div className="mt-3 rounded-md bg-success-50 dark:bg-success-900/20 p-3">
+                <p className="text-sm text-success-800 dark:text-success-200">
+                  Measurement saved successfully.
+                </p>
               </div>
             )}
           </div>
@@ -322,54 +343,21 @@ export const RecordTab: React.FC = () => {
 
       {/* Recent Entries Panel */}
       {selectedEquipmentId && recentEntries.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Recent Entries — {selectedEquipmentName}
             </h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Source</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Status</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-500">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {recentEntries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-4 py-2 whitespace-nowrap text-gray-900">
-                      {new Date(entry.measuredAt).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap text-gray-600">
-                      {entry.source}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                          entry.overallStatus === 'OPTIMAL'
-                            ? 'bg-green-100 text-green-800'
-                            : entry.overallStatus === 'WARNING'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : entry.overallStatus === 'CRITICAL'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {entry.overallStatus}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-gray-500 truncate max-w-[200px]">
-                      {entry.notes || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<EntryRow>
+            data={recentEntries}
+            columns={entryRowColumns}
+            keyExtractor={(entry) => entry.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
     </div>

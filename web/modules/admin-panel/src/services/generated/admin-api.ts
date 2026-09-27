@@ -8309,7 +8309,7 @@ export interface components {
             /** @enum {string} */
             priority: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
+            status: "resolved" | "open" | "closed" | "in_progress" | "waiting_customer";
             assignedTo?: string;
             assignedToName?: string;
             tags?: string[];
@@ -8373,7 +8373,7 @@ export interface components {
             /** @enum {string} */
             priority?: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status?: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
+            status?: "resolved" | "open" | "closed" | "in_progress" | "waiting_customer";
             tags?: string[];
             dueAt?: string;
         };
@@ -8383,7 +8383,7 @@ export interface components {
         };
         ChangeStatusDto: {
             /** @enum {string} */
-            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
+            status: "resolved" | "open" | "closed" | "in_progress" | "waiting_customer";
         };
         ChangePriorityDto: {
             /** @enum {string} */

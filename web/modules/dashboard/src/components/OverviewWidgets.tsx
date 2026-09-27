@@ -6,15 +6,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatNumber } from '@aquaculture/shared-ui';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { Card, Badge, chartChrome, colors, formatNumber, Button } from '@aquaculture/shared-ui';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useTodaysTasks,
   useStorageOverview,
@@ -54,11 +47,6 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 };
 
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
-  borderRadius: '8px',
-};
 
 // ============================================================================
 // Skeleton Components
@@ -68,13 +56,13 @@ const WidgetSkeleton: React.FC = () => (
   <Card className="p-4">
     <div className="animate-pulse">
       <div className="flex items-center justify-between mb-4">
-        <div className="h-4 bg-gray-200 rounded w-1/3" />
-        <div className="h-5 bg-gray-200 rounded-full w-16" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+        <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded-full w-16" />
       </div>
       <div className="space-y-3">
-        <div className="h-3 bg-gray-200 rounded w-full" />
-        <div className="h-3 bg-gray-200 rounded w-3/4" />
-        <div className="h-3 bg-gray-200 rounded w-1/2" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
       </div>
     </div>
   </Card>
@@ -83,15 +71,11 @@ const WidgetSkeleton: React.FC = () => (
 const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, onRetry }) => (
   <Card className="p-4">
     <div className="text-center py-4">
-      <h3 className="text-sm font-medium text-gray-500 mb-2">{title}</h3>
-      <p className="text-xs text-red-500 mb-2">Veri yuklenemedi</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-xs text-primary-600 font-medium hover:underline"
-      >
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
+      <p className="text-xs text-error-500 mb-2">Veri yuklenemedi</p>
+      <Button variant="ghost" size="xs" type="button" onClick={onRetry}>
         Tekrar Dene
-      </button>
+      </Button>
     </div>
   </Card>
 );
@@ -99,8 +83,8 @@ const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, 
 const EmptyWidget: React.FC<{ title: string; message: string }> = ({ title, message }) => (
   <Card className="p-4">
     <div className="text-center py-4">
-      <h3 className="text-sm font-medium text-gray-500 mb-2">{title}</h3>
-      <p className="text-xs text-gray-500">{message}</p>
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400">{message}</p>
     </div>
   </Card>
 );
@@ -116,7 +100,12 @@ interface TaskStatsWidgetProps {
   refetch: () => void;
 }
 
-const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isError, refetch }) => {
+const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({
+  stats,
+  isLoading,
+  isError,
+  refetch,
+}) => {
   // Build simple chart data from stats.
   // Hook must run on every render (Rules of Hooks) — placed before the early
   // returns below; guarded against undefined `stats` (loading/empty states).
@@ -141,12 +130,16 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-gray-500">Gorev Ozeti</h3>
-          <p className="text-2xl font-bold text-gray-900">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Gorev Ozeti</h3>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {formatNumber(stats.totalToday)} gorev
           </p>
         </div>
-        <Badge variant={stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'}>
+        <Badge
+          variant={
+            stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'
+          }
+        >
           %{stats.completionRate.toFixed(0)} tamamlandı
         </Badge>
       </div>
@@ -155,13 +148,14 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <XAxis dataKey="day" hide />
           <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
           <Tooltip
-            contentStyle={tooltipStyle}
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 return (
-                  <div className="bg-white shadow-lg rounded-lg px-3 py-2 text-sm">
+                  <div className="bg-white dark:bg-gray-900 shadow-lg rounded-lg px-3 py-2 text-sm">
                     <p className="font-medium">{String(payload[0].payload.day)}</p>
-                    <p className="text-primary-600">{payload[0].value} gorev</p>
+                    <p className="text-primary-600 dark:text-primary-400">
+                      {payload[0].value} gorev
+                    </p>
                   </div>
                 );
               }
@@ -171,10 +165,10 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#0073e6"
+            stroke={colors.primary[500]}
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 4, fill: '#0073e6' }}
+            activeDot={{ r: 4, fill: colors.primary[500] }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -243,15 +237,15 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Su Kalitesi</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Su Kalitesi</h3>
         <Badge variant={warningCount > 0 ? 'warning' : 'success'}>
           {warningCount > 0 ? `${warningCount} Uyari` : 'Normal'}
         </Badge>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {entries.map(([key, value]) => {
           const range = waterQualityRanges[key];
-          const isWarning = range ? (value < range.min || value > range.max) : false;
+          const isWarning = range ? value < range.min || value > range.max : false;
           const progress = range
             ? Math.max(0, Math.min(((value - range.min) / (range.max - range.min)) * 100, 100))
             : 50;
@@ -259,15 +253,19 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
           return (
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">{waterQualityLabels[key] ?? key}</span>
-                <span className={`font-medium ${isWarning ? 'text-yellow-600' : 'text-gray-900'}`}>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {waterQualityLabels[key] ?? key}
+                </span>
+                <span
+                  className={`font-medium ${isWarning ? 'text-warning-600 dark:text-warning-400' : 'text-gray-900 dark:text-gray-100'}`}
+                >
                   {value.toFixed(1)} {waterQualityUnits[key] ?? ''}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                    isWarning ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${progress}%` }}
                 />
@@ -305,15 +303,18 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Aktif Gorevler</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Aktif Gorevler</h3>
         {/* BUG-M3: replaced <span> fake link with an accessible <button> */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           type="button"
-          className="text-xs text-primary-600 font-medium hover:underline"
-          onClick={() => { /* TODO: navigate to /tasks */ }}
+          onClick={() => {
+            /* TODO: navigate to /tasks */
+          }}
         >
           Tumunu Gor
-        </button>
+        </Button>
       </div>
       <div className="space-y-3">
         {displayTasks.map((task) => (
@@ -322,19 +323,25 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
               <div
                 className={`w-2 h-2 rounded-full mr-2 ${
                   task.status === 'COMPLETED'
-                    ? 'bg-green-500'
+                    ? 'bg-success-500'
                     : task.status === 'IN_PROGRESS'
-                    ? 'bg-yellow-500'
-                    : task.status === 'OVERDUE'
-                    ? 'bg-red-500'
-                    : 'bg-gray-300'
+                      ? 'bg-warning-500'
+                      : task.status === 'OVERDUE'
+                        ? 'bg-error-500'
+                        : 'bg-gray-300'
                 }`}
               />
-              <span className={task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-700'}>
+              <span
+                className={
+                  task.status === 'COMPLETED'
+                    ? 'text-gray-500 dark:text-gray-400 line-through'
+                    : 'text-gray-700 dark:text-gray-300'
+                }
+              >
                 {task.title}
               </span>
             </div>
-            <span className="text-gray-500 text-xs">
+            <span className="text-gray-500 dark:text-gray-400 text-xs">
               {task.dueTime ?? task.priority}
             </span>
           </div>
@@ -349,10 +356,12 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
 // ============================================================================
 
 interface StockWidgetProps {
-  overview: {
-    lowStockAlertCount: number;
-    lowStockAlerts: LowStockAlert[];
-  } | undefined;
+  overview:
+    | {
+        lowStockAlertCount: number;
+        lowStockAlerts: LowStockAlert[];
+      }
+    | undefined;
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
@@ -371,32 +380,31 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Stok Durumu</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Stok Durumu</h3>
         <Badge variant={overview.lowStockAlertCount > 0 ? 'error' : 'success'}>
-          {overview.lowStockAlertCount > 0
-            ? `${overview.lowStockAlertCount} Kritik`
-            : 'Normal'}
+          {overview.lowStockAlertCount > 0 ? `${overview.lowStockAlertCount} Kritik` : 'Normal'}
         </Badge>
       </div>
       <div className="space-y-3">
         {displayAlerts.map((stock) => {
-          const percentage = stock.minStock > 0
-            ? (stock.currentQuantity / stock.minStock) * 100
-            : 0;
+          const percentage =
+            stock.minStock > 0 ? (stock.currentQuantity / stock.minStock) * 100 : 0;
           const isLow = percentage < 100;
 
           return (
             <div key={stock.itemId} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">{stock.itemName}</span>
-                <span className={`font-medium ${isLow ? 'text-red-600' : 'text-gray-900'}`}>
+                <span className="text-gray-500 dark:text-gray-400">{stock.itemName}</span>
+                <span
+                  className={`font-medium ${isLow ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
+                >
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isLow ? 'bg-red-500' : percentage < 150 ? 'bg-yellow-500' : 'bg-green-500'
+                    isLow ? 'bg-error-500' : percentage < 150 ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${Math.min(percentage, 100)}%` }}
                 />

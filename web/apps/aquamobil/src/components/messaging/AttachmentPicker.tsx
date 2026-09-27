@@ -1,7 +1,9 @@
 import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
-import { Camera, Image as ImageIcon, FileText, X } from 'lucide-react';
+import { Camera, Image as ImageIcon, FileText } from 'lucide-react';
 import { useRef, useCallback, useEffect, useState, useMemo, type ReactElement, type RefObject } from 'react';
+
+import { BottomSheet } from '@/components/ui/BottomSheet';
 
 // MSG-LOW-051: the picker validates against the SAME shared MIME allowlist SSoT
 // the upload hook and the server enforce — no third hand-maintained list, so
@@ -144,121 +146,73 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
     [onFileSelect, onClose],
   );
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 animate-[fadeIn_200ms_ease-out]"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Sheet */}
-      <div
-        className={clsx(
-          'relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl shadow-elevated pb-safe',
-          'animate-[slideUp_300ms_ease-out]',
-        )}
-      >
-        {/* Handle bar */}
-        <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pb-3">
-          <h3 className="text-base font-bold text-gray-900 dark:text-white">
-            Share
-          </h3>
-          <button
-            onClick={onClose}
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback transition-colors"
-            aria-label="Close"
-          >
-            <X size={20} className="text-gray-500" />
-          </button>
-        </div>
-
-        {/* Option grid */}
-        <div className="grid grid-cols-3 gap-4 px-8 pb-4">
-          {ATTACHMENT_OPTIONS.map((opt) => {
-            const Icon = opt.icon;
-            return (
-              <button
-                key={opt.id}
-                onClick={() => handleOptionPress(opt.id)}
-                className="flex flex-col items-center gap-2 py-3 touch-feedback transition-transform active:scale-95"
+    <BottomSheet isOpen={isOpen} onClose={onClose} title="Share" bodyClassName="px-0 pb-0">
+      {/* Option grid */}
+      <div className="grid grid-cols-3 gap-4 px-8 pb-4">
+        {ATTACHMENT_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => handleOptionPress(opt.id)}
+              className="flex flex-col items-center gap-2 py-3 touch-feedback transition-transform active:scale-95"
+            >
+              <div
+                className={clsx(
+                  'w-16 h-16 rounded-2xl flex items-center justify-center',
+                  opt.color,
+                )}
               >
-                <div
-                  className={clsx(
-                    'w-16 h-16 rounded-2xl flex items-center justify-center',
-                    opt.color,
-                  )}
-                >
-                  <Icon size={28} />
-                </div>
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  {opt.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* MSG-LOW-051: unsupported-type / oversize error surfaced in the same
-            slot, at pick time. */}
-        {pickerError && (
-          <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
-            {pickerError}
-          </p>
-        )}
-
-        {/* File size info */}
-        <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 pb-4">
-          Max file size: {FILE_SIZE_LIMIT_MB}MB
-        </p>
-
-        {/* Hidden file inputs */}
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handleFileChange}
-          className="hidden"
-          aria-hidden="true"
-        />
-        <input
-          ref={galleryInputRef}
-          type="file"
-          accept="image/*,video/*"
-          onChange={handleFileChange}
-          className="hidden"
-          aria-hidden="true"
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx"
-          onChange={handleFileChange}
-          className="hidden"
-          aria-hidden="true"
-        />
+                <Icon size={28} />
+              </div>
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                {opt.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Animation keyframes injected via Tailwind arbitrary */}
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to { transform: translateY(0); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
-    </div>
+      {/* MSG-LOW-051: unsupported-type / oversize error surfaced in the same
+          slot, at pick time. */}
+      {pickerError && (
+        <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
+          {pickerError}
+        </p>
+      )}
+
+      {/* File size info */}
+      <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 pb-4">
+        Max file size: {FILE_SIZE_LIMIT_MB}MB
+      </p>
+
+      {/* Hidden file inputs */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleFileChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.xls,.xlsx"
+        onChange={handleFileChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+    </BottomSheet>
   );
 }

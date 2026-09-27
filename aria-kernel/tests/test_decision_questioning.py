@@ -77,8 +77,11 @@ class DecisionQuestioningTests(unittest.TestCase):
             "summary": "Decision questioning fixture.",
             "key_changes": ["add ledger"],
             "evidence_refs": ["docs/aria/SPEC.md"],
-            "validation_commands": [{"cmd": "python3 -m pytest aria-kernel/tests -q"}],
+            # The plan contract admits the canonical suite and requires the
+            # tier claim of every body that converges through the real gate.
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/decision_questioning.py"]}],
+            "architectural_tier": 2,
         }
 
     def _converge(self, plan_id: str) -> None:

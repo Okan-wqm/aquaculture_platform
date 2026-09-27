@@ -5,6 +5,8 @@ import { ToolRegistryModule } from '../tool-registry.module';
 import { ToolRegistryService } from '../tool-registry.service';
 import { WaterChemistryToolsModule } from '../water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from '../sensor-config/sensor-config-tools.module';
+import { FarmToolsModule } from '../farm/farm-tools.module';
+import { AquacultureMathToolsModule } from '../aquaculture-math/aquaculture-math-tools.module';
 import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
 
 // The executor (provided by ToolRegistryModule) now depends on AuditService,
@@ -36,18 +38,79 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     // sensor-config
     'analyze_sensor_data',
     'suggest_sensor_channels',
+    // aquaculture-math (FARM-LOW-329)
+    'calculate_oxygen_budget',
+    'calculate_carrying_capacity',
+    'calculate_growth_metrics',
+    'predict_feeding_impact',
+    // farm (overview reads + the create_task actuation)
+    'create_task',
+    'get_farm_tanks',
+    'get_farm_batches',
+    'get_farm_water_quality',
+    'get_farm_harvest',
+    'get_farm_feeding',
+    // farm-water-health read surface (FARM-MEDIUM-328, contract farm-ai-queries)
+    'get_tank_water_quality_stats',
+    'get_system_water_quality_stats',
+    'get_water_quality_history',
+    'list_critical_water_quality',
+    'get_water_quality_thresholds',
+    'get_fish_health_stats',
+    'list_health_events',
+    'list_critical_health_events',
+    'list_overdue_health_follow_ups',
+    'list_lice_counts',
+    'list_treatment_applications',
+    'list_welfare_assessments',
+    'check_batch_harvest_eligibility',
+    // farm-production read surface
+    'get_batch_performance',
+    'get_growth_analysis',
+    'list_growth_measurements',
+    'get_mortality_by_cause',
+    'get_transfers_summary',
+    'list_species',
+    'get_tank_capacity',
+    'get_daily_feeding_plan',
+    'get_feeding_summary',
+    'get_site_feed_consumption',
+    'list_feeding_protocols',
+    'list_harvest_plans',
+    'get_harvest_plan_stats',
+    'get_biomass_report',
+    'list_regulatory_reports',
+    'get_finance_summary',
+    'get_finance_batch_totals',
+    // farm-operations read surface
+    'list_equipment',
+    'list_feeder_calibrations',
+    'list_overdue_work_orders',
+    'get_work_order_stats',
+    'list_maintenance_alerts',
+    'list_low_stock_spare_parts',
+    'get_spare_stock_summary',
+    'get_farm_stock_inventory',
+    'list_todays_tasks',
+    'get_task_stats',
+  ];
+
+  /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */
+  const TOOL_MODULES = [
+    WaterChemistryToolsModule,
+    SensorConfigToolsModule,
+    FarmToolsModule,
+    AquacultureMathToolsModule,
   ];
 
   it('registers every @Tool()-decorated provider from the feature modules', async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [
-        ToolRegistryModule,
-        WaterChemistryToolsModule,
-        SensorConfigToolsModule,
-      ],
+      imports: [ToolRegistryModule, ...TOOL_MODULES],
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
+      .overrideProvider('NATS_SERVICE')
+      .useValue({ send: jest.fn() })
       .compile();
 
     // onModuleInit (where discovery runs) fires on init, not on compile.
@@ -65,14 +128,12 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
 
   it('exposes Claude tool definitions for the discovered tools (agent-facing contract)', async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [
-        ToolRegistryModule,
-        WaterChemistryToolsModule,
-        SensorConfigToolsModule,
-      ],
+      imports: [ToolRegistryModule, ...TOOL_MODULES],
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
+      .overrideProvider('NATS_SERVICE')
+      .useValue({ send: jest.fn() })
       .compile();
     await moduleRef.init();
 

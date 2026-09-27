@@ -1,5 +1,22 @@
 import { InputType, Field, ID, ObjectType, Float, Int } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 import {
   ChannelDataType,
@@ -7,124 +24,213 @@ import {
 } from '../../database/entities/sensor-data-channel.entity';
 
 // === Input Types ===
+//
+// IMPORTANT: every input property below carries a class-validator decorator.
+// The global ValidationPipe runs with whitelist + forbidNonWhitelisted, so a
+// property without any validator is treated as unknown and the whole payload
+// is rejected ("property X should not exist"). That is exactly how the channel
+// mutations (createDataChannel / saveDiscoveredChannels / registerSensor
+// .dataChannels) were dead at the boundary until this was fixed.
 
 @InputType()
 export class AlertThresholdValueInput {
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   low?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   high?: number;
 }
 
 @InputType()
 export class AlertThresholdsInput {
   @Field(() => AlertThresholdValueInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdValueInput)
   warning?: AlertThresholdValueInput;
 
   @Field(() => AlertThresholdValueInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdValueInput)
   critical?: AlertThresholdValueInput;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   hysteresis?: number;
 }
 
 @InputType()
 export class ChannelDisplaySettingsInput {
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   color?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   icon?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   widgetType?: string;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   precision?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   showOnDashboard?: boolean;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
+  @IsObject()
   chartConfig?: Record<string, unknown>;
 }
 
 @InputType()
 export class CreateDataChannelInput {
   @Field()
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100) // sensors_data_channels.channel_key varchar(100)
   channelKey!: string;
 
   @Field()
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(200) // display_label varchar(200)
   displayLabel!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field(() => ChannelDataType, { nullable: true, defaultValue: ChannelDataType.NUMBER })
+  @IsOptional()
+  @IsEnum(ChannelDataType)
   dataType?: ChannelDataType;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50) // unit varchar(50)
   unit?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255) // data_path varchar(255)
   dataPath?: string;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   minValue?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   maxValue?: number;
 
   @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
   calibrationEnabled?: boolean;
 
   @Field(() => Float, { nullable: true, defaultValue: 1.0 })
+  @IsOptional()
+  @IsNumber()
   calibrationMultiplier?: number;
 
   @Field(() => Float, { nullable: true, defaultValue: 0.0 })
+  @IsOptional()
+  @IsNumber()
   calibrationOffset?: number;
 
   @Field(() => AlertThresholdsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdsInput)
   alertThresholds?: AlertThresholdsInput;
 
   @Field(() => ChannelDisplaySettingsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ChannelDisplaySettingsInput)
   displaySettings?: ChannelDisplaySettingsInput;
 
   @Field({ nullable: true, defaultValue: true })
+  @IsOptional()
+  @IsBoolean()
   isEnabled?: boolean;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   displayOrder?: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
   sampleValue?: unknown;
 }
 
 @InputType()
 export class UpdateDataChannelInput {
   @Field(() => ID)
+  @IsUUID()
   channelId!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   displayLabel?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   unit?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   dataPath?: string;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   minValue?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   maxValue?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   calibrationEnabled?: boolean;
 
   // SENSOR-HIGH-083: calibrationMultiplier / calibrationOffset are intentionally
@@ -134,54 +240,85 @@ export class UpdateDataChannelInput {
   // The per-channel calibration interval IS channel config and may be set here;
   // it feeds nextCalibrationDue the next time a calibration is recorded.
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   calibrationIntervalDays?: number;
 
   @Field(() => AlertThresholdsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdsInput)
   alertThresholds?: AlertThresholdsInput;
 
   @Field(() => ChannelDisplaySettingsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ChannelDisplaySettingsInput)
   displaySettings?: ChannelDisplaySettingsInput;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   isEnabled?: boolean;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   displayOrder?: number;
 }
 
 @InputType()
 export class DiscoverChannelsInput {
   @Field()
+  @IsNotEmpty()
+  @IsString()
   protocolCode!: string;
 
   @Field(() => GraphQLJSON)
+  @IsObject()
   protocolConfiguration!: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
   sampleData?: unknown;
 
   @Field({ nullable: true, defaultValue: 'json' })
+  @IsOptional()
+  @IsString()
   payloadFormat?: string;
 }
 
 @InputType()
 export class SaveDiscoveredChannelsInput {
   @Field(() => ID)
+  @IsUUID()
   sensorId!: string;
 
   @Field(() => [CreateDataChannelInput])
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => CreateDataChannelInput)
   channels!: CreateDataChannelInput[];
 
   @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
   replaceExisting?: boolean;
 }
 
 @InputType()
 export class ReorderChannelsInput {
   @Field(() => ID)
+  @IsUUID()
   sensorId!: string;
 
   @Field(() => [ID])
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
   channelIds!: string[];
 }
 
@@ -192,9 +329,13 @@ export class ReorderChannelsInput {
 @InputType()
 export class BulkUpdateDataChannelItem {
   @Field(() => ID)
+  @IsUUID()
   channelId!: string;
 
   @Field(() => AlertThresholdsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdsInput)
   alertThresholds?: AlertThresholdsInput;
 }
 
@@ -205,6 +346,11 @@ export class BulkUpdateDataChannelItem {
 @InputType()
 export class BulkUpdateDataChannelsInput {
   @Field(() => [BulkUpdateDataChannelItem])
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => BulkUpdateDataChannelItem)
   updates!: BulkUpdateDataChannelItem[];
 }
 

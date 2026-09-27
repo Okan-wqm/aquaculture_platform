@@ -45,14 +45,12 @@ interface GetWaterQualityOutput {
   category: 'farm_query',
   runtime: 'cloud',
   requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
-  requiresModule: null,
+  requiresModule: 'farm',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   requiresConfirmation: false,
 })
 export class GetFarmWaterQualityTool extends BaseTool<GetWaterQualityInput, GetWaterQualityOutput> {
-  constructor(
-    @Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>,
-  ) {
+  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
     super();
   }
 

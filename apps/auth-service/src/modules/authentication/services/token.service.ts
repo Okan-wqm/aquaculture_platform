@@ -214,10 +214,29 @@ export class TokenService {
   ): Promise<AuthPayload> {
     const mintUnderUserFence = async (manager: EntityManager): Promise<AuthPayload> => {
       // Canonical credential lock order: every RefreshToken INSERT takes the
-      // stable User row first. Snapshot fields are part of the predicate so a
-      // password/role/tenant/deactivation mutation that committed after the
-      // caller authenticated makes this mint fail closed instead of issuing a
-      // token from stale authorization state.
+      // stable User row first. The predicate is the authorization state the
+      // caller authenticated against — role, tenant, active flag and the
+      // database-owned `credentialVersion` — so a password/role/tenant/
+      // deactivation mutation that committed after authentication makes this
+      // mint fail closed instead of issuing a token from stale state.
+      //
+      // WHY `credentialVersion` and not `updatedAt` (ORPHAN-CRITICAL-808):
+      // `@UpdateDateColumn` is written by Postgres (`SET "updatedAt" =
+      // CURRENT_TIMESTAMP`, microsecond precision) and hydrated by the pg
+      // driver into a millisecond JS Date, so an equality predicate on it could
+      // never match — every mint was refused and production issued no refresh
+      // tokens. It was also the wrong signal: the login path writes
+      // lastLoginAt and failedLoginAttempts on this row before minting. The
+      // trigger-maintained integer moves only on credential columns and cannot
+      // lose precision crossing the driver.
+      //
+      // A principal that reaches this point without the anchor was loaded with
+      // a partial select; minting from it would silently disable the fence, so
+      // it is refused rather than tolerated.
+      const credentialVersion: number | undefined = user.credentialVersion;
+      if (typeof credentialVersion !== 'number') {
+        throw new ForbiddenException('Cannot issue a token for an unfenced principal');
+      }
       const lockedPrincipal = await manager.withRepository(this.userRepository).findOne({
         select: { id: true },
         where: {
@@ -225,7 +244,7 @@ export class TokenService {
           role: user.role,
           tenantId: user.tenantId ?? IsNull(),
           isActive: true,
-          ...(user.updatedAt ? { updatedAt: user.updatedAt } : {}),
+          credentialVersion,
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -823,5 +842,45 @@ export class TokenService {
       default:
         return '/';
     }
+  }
+
+  /**
+   * MSGFIX-FAZ2 2.3: resolve a tenant user's authorization capabilities for a
+   * NON-HTTP caller (messaging's AI bridge runs from a JetStream consumer and
+   * holds no JWT). Returns exactly the authorization slice a fresh token mint
+   * would carry — `roles: [user.role]` and the effective resourcePermissions
+   * from the SAME private read path (`getUserResourcePermissions` + entitled
+   * capability intersection) — and nothing else (no PII).
+   *
+   * The lookup is tenant-scoped (`where: { id, tenantId }`): a userId that
+   * exists under another tenant is reported as `found: false`, identical to a
+   * nonexistent one, so the surface cannot become a cross-tenant probe.
+   * Deactivated users resolve `found: true, active: false` — callers must
+   * fail closed on BOTH flags.
+   */
+  async resolveCallerCapabilities(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ found: boolean; active: boolean; roles: string[]; resourcePermissions: string[] }> {
+    const user = await this.userRepository.findOne({
+      select: ['id', 'role', 'tenantId', 'isActive'],
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      return { found: false, active: false, roles: [], resourcePermissions: [] };
+    }
+
+    // PERF-HIGH-001 (a) applies here too: a permission-read failure THROWS
+    // (fail loud) — the caller surfaces it as an authorization failure, never
+    // as "no permissions granted" pretending to be a definitive answer.
+    const resourcePermissions = await this.getUserResourcePermissions(user);
+
+    return {
+      found: true,
+      active: user.isActive === true,
+      roles: [user.role],
+      resourcePermissions,
+    };
   }
 }

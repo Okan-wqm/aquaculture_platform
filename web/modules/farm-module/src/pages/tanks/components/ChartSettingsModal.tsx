@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 import type { ChartVisibility } from './TankChartsSection';
 
@@ -57,7 +57,8 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
   // Local state for edits before applying
   const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(selectedTankIds);
   const [localTimeRange, setLocalTimeRange] = useState<'7d' | '30d' | '90d'>(timeRange);
-  const [localChartVisibility, setLocalChartVisibility] = useState<ChartVisibility>(chartVisibility);
+  const [localChartVisibility, setLocalChartVisibility] =
+    useState<ChartVisibility>(chartVisibility);
 
   // Reset local state when modal opens
   useEffect(() => {
@@ -76,7 +77,7 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
       CAGE: [],
     };
 
-    tanks.forEach(tank => {
+    tanks.forEach((tank) => {
       const category = tank.category.toUpperCase();
       if (groups[category]) {
         groups[category].push(tank);
@@ -95,30 +96,30 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
     if (allSelected) {
       setLocalSelectedIds([]);
     } else {
-      setLocalSelectedIds(tanks.map(t => t.id));
+      setLocalSelectedIds(tanks.map((t) => t.id));
     }
   };
 
   const handleToggleTank = (tankId: string) => {
-    setLocalSelectedIds(prev => {
+    setLocalSelectedIds((prev) => {
       if (prev.includes(tankId)) {
-        return prev.filter(id => id !== tankId);
+        return prev.filter((id) => id !== tankId);
       }
       return [...prev, tankId];
     });
   };
 
   const handleSelectCategory = (category: string, select: boolean) => {
-    const categoryTankIds = groupedTanks[category]?.map(t => t.id) || [];
+    const categoryTankIds = groupedTanks[category]?.map((t) => t.id) || [];
     if (select) {
-      setLocalSelectedIds(prev => [...new Set([...prev, ...categoryTankIds])]);
+      setLocalSelectedIds((prev) => [...new Set([...prev, ...categoryTankIds])]);
     } else {
-      setLocalSelectedIds(prev => prev.filter(id => !categoryTankIds.includes(id)));
+      setLocalSelectedIds((prev) => prev.filter((id) => !categoryTankIds.includes(id)));
     }
   };
 
   const handleToggleChart = (chartKey: keyof ChartVisibility) => {
-    setLocalChartVisibility(prev => ({
+    setLocalChartVisibility((prev) => ({
       ...prev,
       [chartKey]: !prev[chartKey],
     }));
@@ -133,61 +134,66 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
 
   const getCategoryColor = (category: string): string => {
     switch (category) {
-      case 'TANK': return 'text-cyan-600';
-      case 'POND': return 'text-blue-600';
-      case 'CAGE': return 'text-purple-600';
-      default: return 'text-gray-600';
+      case 'TANK':
+        return 'text-info-600 dark:text-info-400';
+      case 'POND':
+        return 'text-info-600 dark:text-info-400';
+      case 'CAGE':
+        return 'text-accent-600 dark:text-accent-400';
+      default:
+        return 'text-gray-600 dark:text-gray-400';
     }
   };
 
   const getCategoryBadgeColor = (category: string): string => {
     switch (category) {
-      case 'TANK': return 'bg-cyan-100 text-cyan-700';
-      case 'POND': return 'bg-blue-100 text-blue-700';
-      case 'CAGE': return 'bg-purple-100 text-purple-700';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'TANK':
+        return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+      case 'POND':
+        return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+      case 'CAGE':
+        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
+      default:
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
     }
   };
 
   // Count visible charts
-  const visiblePieCharts = PIE_CHARTS.filter(c => localChartVisibility[c.key]).length;
-  const visibleLineCharts = LINE_CHARTS.filter(c => localChartVisibility[c.key]).length;
+  const visiblePieCharts = PIE_CHARTS.filter((c) => localChartVisibility[c.key]).length;
+  const visibleLineCharts = LINE_CHARTS.filter((c) => localChartVisibility[c.key]).length;
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Chart Settings"
-      size="lg"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title="Chart Settings" size="lg">
       <div className="space-y-6 max-h-[70vh] overflow-y-auto">
         {/* Chart Visibility Section */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             Visible Charts
           </label>
 
           {/* Pie Charts */}
           <div className="mb-4">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
               Pie Charts ({visiblePieCharts}/8)
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {PIE_CHARTS.map(chart => (
+              {PIE_CHARTS.map((chart) => (
                 <label
                   key={chart.key}
                   className={`
                     flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-sm
-                    ${localChartVisibility[chart.key]
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 hover:border-gray-300 text-gray-600'}
+                    ${
+                      localChartVisibility[chart.key]
+                        ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
+                    }
                   `}
                 >
                   <input
                     type="checkbox"
                     checked={localChartVisibility[chart.key]}
                     onChange={() => handleToggleChart(chart.key)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                   />
                   <span className="truncate">{chart.label}</span>
                 </label>
@@ -197,25 +203,27 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
 
           {/* Line Charts */}
           <div>
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
               Line Charts ({visibleLineCharts}/8)
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {LINE_CHARTS.map(chart => (
+              {LINE_CHARTS.map((chart) => (
                 <label
                   key={chart.key}
                   className={`
                     flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-sm
-                    ${localChartVisibility[chart.key]
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-200 hover:border-gray-300 text-gray-600'}
+                    ${
+                      localChartVisibility[chart.key]
+                        ? 'border-success-500 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
+                    }
                   `}
                 >
                   <input
                     type="checkbox"
                     checked={localChartVisibility[chart.key]}
                     onChange={() => handleToggleChart(chart.key)}
-                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    className="w-4 h-4 text-success-600 border-gray-300 dark:border-gray-600 rounded focus:ring-success-500"
                   />
                   <span className="truncate">{chart.label}</span>
                 </label>
@@ -226,7 +234,7 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
 
         {/* Time Range Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Time Range (for Line Charts)
           </label>
           <div className="flex gap-3">
@@ -234,14 +242,16 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
               { value: '7d', label: 'Last 7 days' },
               { value: '30d', label: 'Last 30 days' },
               { value: '90d', label: 'Last 90 days' },
-            ].map(option => (
+            ].map((option) => (
               <label
                 key={option.value}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors
-                  ${localTimeRange === option.value
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'}
+                  ${
+                    localTimeRange === option.value
+                      ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+                  }
                 `}
               >
                 <input
@@ -261,17 +271,17 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
         {/* Tank Selection */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Tank/Pond/Cage Filter
             </label>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {localSelectedIds.length} of {tanks.length} selected
             </span>
           </div>
 
           {/* Select All */}
-          <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-[250px] overflow-y-auto">
-            <div className="p-3 bg-gray-50 sticky top-0">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-[250px] overflow-y-auto">
+            <div className="p-3 bg-gray-50 dark:bg-gray-800 sticky top-0">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -280,9 +290,9 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
                     if (el) el.indeterminate = someSelected;
                   }}
                   onChange={handleSelectAll}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                 />
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Select All
                 </span>
               </label>
@@ -292,14 +302,17 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
             {Object.entries(groupedTanks).map(([category, categoryTanks]) => {
               if (categoryTanks.length === 0) return null;
 
-              const categorySelected = categoryTanks.filter(t => localSelectedIds.includes(t.id)).length;
+              const categorySelected = categoryTanks.filter((t) =>
+                localSelectedIds.includes(t.id),
+              ).length;
               const allCategorySelected = categorySelected === categoryTanks.length;
-              const someCategorySelected = categorySelected > 0 && categorySelected < categoryTanks.length;
+              const someCategorySelected =
+                categorySelected > 0 && categorySelected < categoryTanks.length;
 
               return (
                 <div key={category}>
                   {/* Category Header */}
-                  <div className="p-3 bg-gray-50 border-t border-gray-200 first:border-t-0">
+                  <div className="p-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 first:border-t-0">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -308,7 +321,7 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
                           if (el) el.indeterminate = someCategorySelected;
                         }}
                         onChange={(e) => handleSelectCategory(category, e.target.checked)}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                       />
                       <span className={`text-sm font-medium ${getCategoryColor(category)}`}>
                         {category}s ({categoryTanks.length})
@@ -317,21 +330,26 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
                   </div>
 
                   {/* Category Items */}
-                  {categoryTanks.map(tank => (
-                    <div key={tank.id} className="p-2 pl-10 hover:bg-gray-50">
+                  {categoryTanks.map((tank) => (
+                    <div
+                      key={tank.id}
+                      className="p-2 pl-10 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
                       <label className="flex items-center gap-3 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={localSelectedIds.includes(tank.id)}
                           onChange={() => handleToggleTank(tank.id)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                               {tank.name}
                             </span>
-                            <span className={`px-1.5 py-0.5 text-xs rounded ${getCategoryBadgeColor(category)}`}>
+                            <span
+                              className={`px-1.5 py-0.5 text-xs rounded ${getCategoryBadgeColor(category)}`}
+                            >
                               {tank.code}
                             </span>
                           </div>
@@ -346,19 +364,13 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 sticky bottom-0 bg-white">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
+        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-900">
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            onClick={handleApply}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-          >
+          </Button>
+          <Button variant="primary" onClick={handleApply}>
             Apply
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

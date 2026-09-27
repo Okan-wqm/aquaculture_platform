@@ -1,4 +1,5 @@
 import React from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 interface IconProps {
   size?: number;
@@ -136,13 +137,13 @@ export const ChillerIcon: React.FC<IconProps> = ({ size = 24, className = '', co
 export const UVSterilizerIcon: React.FC<IconProps> = ({ size = 24, className = '', color = 'currentColor' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} stroke={color} strokeWidth="1.5">
     <rect x="8" y="3" width="8" height="18" rx="2" />
-    <line x1="12" y1="6" x2="12" y2="18" stroke="#9333ea" strokeWidth="2" />
-    <path d="M5 8l2 1" stroke="#9333ea" />
-    <path d="M5 12l2 0" stroke="#9333ea" />
-    <path d="M5 16l2-1" stroke="#9333ea" />
-    <path d="M19 8l-2 1" stroke="#9333ea" />
-    <path d="M19 12l-2 0" stroke="#9333ea" />
-    <path d="M19 16l-2-1" stroke="#9333ea" />
+    <line x1="12" y1="6" x2="12" y2="18" stroke={colors.primary[800]} strokeWidth="2" />
+    <path d="M5 8l2 1" stroke={colors.primary[800]} />
+    <path d="M5 12l2 0" stroke={colors.primary[800]} />
+    <path d="M5 16l2-1" stroke={colors.primary[800]} />
+    <path d="M19 8l-2 1" stroke={colors.primary[800]} />
+    <path d="M19 12l-2 0" stroke={colors.primary[800]} />
+    <path d="M19 16l-2-1" stroke={colors.primary[800]} />
   </svg>
 );
 

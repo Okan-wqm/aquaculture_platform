@@ -21,3 +21,21 @@ docs/reviews/orphan-findings.md merge=union
 # enforced stale-vs-tree by tests/invariants/aria-doc-runtime-ssot.spec.ts
 # and the pre-commit auto-repin hook).
 docs/aria/CURRENT_STATE.md merge=ours
+
+# The finding registry is append-only AND hash-chained, and those two facts
+# together manufacture conflicts that carry no information. A branch appends
+# its findings at the tail; upstream's closure-reconcile lane marks past rows
+# RESOLVED, which forces a rechain of every row after the earliest closure.
+# Git then sees a rewritten hunk ending on the last line and an append
+# beginning on the next one — two adjacent edits, no semantic conflict. On
+# 2026-09-11 that cost the same hand resolution on twenty stacked branches,
+# in the one file where a hand slip is indistinguishable from tampering.
+#
+# `union` cannot do it (it would keep both the pre- and post-closure copies
+# of 895 rows) and `ours` cannot (it would discard upstream's closures), so
+# this one gets a driver that knows the invariant: upstream's prefix, then
+# this branch's tail, rechained and verified — and a refusal, with real
+# conflict markers, for anything the invariant does not make unambiguous
+# (a deleted or reordered row, the same finding decided differently on both
+# sides, a duplicate id). See tools/gates/finding-registry-merge.ts.
+docs/reviews/_registry/findings.jsonl merge=findings-registry

@@ -13,7 +13,7 @@
  */
 
 /** Selectable providers. Extend the union AND LlmProviderFactory together. */
-export type LlmProviderId = 'anthropic' | 'openai';
+export type LlmProviderId = 'anthropic' | 'openai' | 'zai';
 
 /** A tool the model may call — provider-neutral (Anthropic `input_schema`,
  *  OpenAI `parameters` are both projected from `inputSchema`). */
@@ -62,6 +62,14 @@ export interface LlmChatParams {
   maxTokens: number;
   tools: LlmToolDefinition[];
   messages: LlmMessage[];
+  /**
+   * FARM-AI-0.1: optional cancellation signal. The circuit breaker's
+   * slowCallMs only MEASURES latency — it cannot cancel an in-flight call.
+   * Providers that support it (OpenAI SDK accepts AbortSignal via request
+   * options) should observe this; the transport-level timeout (30s, set on
+   * each provider's client) is the hard backstop when signal is absent.
+   */
+  signal?: AbortSignal;
 }
 
 /** Normalized stop reason. Providers map their own vocabulary onto this. */

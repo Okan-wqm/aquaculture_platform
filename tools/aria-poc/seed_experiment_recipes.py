@@ -44,6 +44,7 @@ if str(_REPO_ROOT / "aria-kernel") not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT / "aria-kernel"))
 
 from aria_kernel.experiment import (  # noqa: E402
+    _validated_recipe_input_scope,
     register_experiment,
     register_recipe,
 )
@@ -52,7 +53,7 @@ from aria_kernel.validation import parse_allowed_command  # noqa: E402
 MANIFEST_PATH = Path(__file__).resolve().parent / "experiment-recipes.json"
 
 _RECIPE_FIELDS = frozenset(
-    {"recipe_id", "command", "timeout_ms", "deterministic", "description"},
+    {"recipe_id", "command", "timeout_ms", "deterministic", "description", "input_scope"},
 )
 # X2 (ORPHAN-701) — finding_ref joins the schema: the kernel accepted the
 # binding since E21-c while this frozenset silently rejected it, which is
@@ -104,6 +105,11 @@ def assert_manifest_commands_executable(doc: dict[str, Any]) -> None:
 def seed(
     doc: dict[str, Any], *, base_dir: Path | None, cycle_id: str | None,
 ) -> tuple[list[str], list[str]]:
+    # Direct callers share the optional-descriptor preflight. Other late
+    # writer errors retain the existing separate-append behavior.
+    for recipe in doc.get("recipes") or []:
+        if recipe.get("input_scope") is not None:
+            _validated_recipe_input_scope(recipe["input_scope"])
     recipe_ids: list[str] = []
     experiment_ids: list[str] = []
     for recipe in doc.get("recipes") or []:
@@ -115,6 +121,7 @@ def seed(
             description=recipe.get("description"),
             base_dir=base_dir,
             cycle_id=cycle_id,
+            **({"input_scope": recipe["input_scope"]} if recipe.get("input_scope") is not None else {}),
         )
         recipe_ids.append(str(row["recipe_id"]))
     for definition in doc.get("experiments") or []:

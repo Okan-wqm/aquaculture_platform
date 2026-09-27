@@ -179,7 +179,7 @@ def open_decision_questioning(
             must_satisfy=[
                 {
                     "id": f"question-decision-{plan_id}",
-                    "criterion": (
+                    "description": (
                         "verdict is one of upheld/overturned/insufficient_evidence, "
                         "names which of the three attacks were attempted, and cites "
                         "file:line evidence for any claim that the decision was wrong"

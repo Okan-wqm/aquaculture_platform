@@ -18,6 +18,7 @@
 
 import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -71,8 +72,8 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
   const showLabel = (config.showLabel ?? true) as boolean;
   const showPercentage = (config.showPercentage ?? true) as boolean;
   const barHeight = (config.height ?? 24) as number;
-  const backgroundColor = (config.backgroundColor ?? '#e5e7eb') as string;
-  const fillColor = (config.fillColor ?? '#3b82f6') as string;
+  const backgroundColor = (config.backgroundColor ?? colors.neutral[200]) as string;
+  const fillColor = (config.fillColor ?? colors.info[500]) as string;
   const zones = (config.zones ?? []) as ColorZone[];
   const borderRadius = (config.borderRadius ?? 4) as number;
   const labelPosition = (config.labelPosition ?? 'inside') as LabelPosition;
@@ -118,7 +119,7 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
         <div
           style={{
             fontSize: labelFontSize,
-            color: '#374151',
+            color: colors.neutral[700],
             marginBottom: 4,
             fontWeight: 500,
             display: 'flex',
@@ -128,7 +129,7 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
         >
           <span data-testid="progress-label">{label}</span>
           {showPercentage && (
-            <span style={{ fontSize: labelFontSize - 1, color: '#6b7280' }} data-testid="progress-percent">
+            <span style={{ fontSize: labelFontSize - 1, color: colors.gray[400] }} data-testid="progress-percent">
               {percentText}
             </span>
           )}
@@ -178,7 +179,7 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
               fontSize: labelFontSize,
               fontWeight: 600,
               // Use contrasting text color based on fill percentage
-              color: percent > 50 ? '#ffffff' : '#374151',
+              color: percent > 50 ? colors.white : colors.neutral[700],
               pointerEvents: 'none',
               textShadow: percent > 50 ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
             }}
@@ -194,7 +195,7 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
         <div
           style={{
             fontSize: labelFontSize,
-            color: '#374151',
+            color: colors.neutral[700],
             marginTop: 4,
             fontWeight: 500,
             display: 'flex',
@@ -204,7 +205,7 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
         >
           <span data-testid="progress-label">{label}</span>
           {showPercentage && (
-            <span style={{ fontSize: labelFontSize - 1, color: '#6b7280' }} data-testid="progress-percent">
+            <span style={{ fontSize: labelFontSize - 1, color: colors.gray[400] }} data-testid="progress-percent">
               {percentText}
             </span>
           )}

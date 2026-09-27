@@ -23,6 +23,7 @@
 
 import React, { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import type { RuntimeWidgetProps, PipeConfig, PipeFlowDirection } from '../../../types/scada-runtime.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Style injection (once per document)                                */
@@ -152,7 +153,7 @@ const ImageAnimator = memo<ImageAnimatorProps>(
             href={imageUrl}
             width={imageSize}
             height={imageSize}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
         ))}
       </>
@@ -178,11 +179,11 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
   /* ---- config ---- */
   const pipeConfig = config as unknown as Partial<PipeConfig>;
 
-  const borderColor  = (pipeConfig.borderColor  ?? '#374151') as string;
+  const borderColor  = (pipeConfig.borderColor  ?? colors.neutral[700]) as string;
   const borderWidth  = Number(pipeConfig.borderWidth  ?? 4);
-  const pipeColor    = (pipeConfig.pipeColor    ?? '#6b7280') as string;
+  const pipeColor    = (pipeConfig.pipeColor    ?? colors.gray[400]) as string;
   const pipeWidth    = Number(pipeConfig.pipeWidth    ?? 16);
-  const contentColor = (pipeConfig.contentColor ?? '#06b6d4') as string;
+  const contentColor = (pipeConfig.contentColor ?? colors.primary[400]) as string;
   const contentWidth = Number(pipeConfig.contentWidth ?? 8);
   const contentSpace = Number(pipeConfig.contentSpace ?? 8);
   const speedMs      = Number((config.speedMs ?? 1200) as number);

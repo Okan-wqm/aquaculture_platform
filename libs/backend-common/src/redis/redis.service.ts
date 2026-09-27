@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 
 export interface RedisModuleOptions {
@@ -44,7 +44,10 @@ interface ScopedFetchEntry {
  * Redis Service
  * Provides Redis connection and operations for the platform
  */
-@Injectable()
+// Built by hand (`new RedisService(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;

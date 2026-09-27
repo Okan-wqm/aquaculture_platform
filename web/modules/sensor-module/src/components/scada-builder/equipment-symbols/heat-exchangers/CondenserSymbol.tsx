@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -41,7 +42,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
         <path
           d="M 30 30 L 70 30 L 70 42 L 30 42 L 30 54 L 70 54 L 70 66 L 30 66 L 30 78 L 70 78 L 70 90 L 30 90"
           fill="none"
-          stroke={isRunning ? '#3b82f6' : colors.stroke}
+          stroke={isRunning ? themeColors.info[500] : colors.stroke}
           strokeWidth={1.5}
           opacity={isRunning ? 0.8 : 0.4}
           strokeLinecap="round"
@@ -50,7 +51,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Flow direction indicators on serpentine (running) */}
         {isRunning && (
-          <g fill="#3b82f6" opacity={0.7}>
+          <g fill={themeColors.info[500]} opacity={0.7}>
             {/* Arrow on top pass — right */}
             <polygon points="52,27 58,30 52,33" />
             {/* Arrow on second pass — left */}
@@ -68,7 +69,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Condensation droplets (running state) */}
         {isRunning && (
-          <g fill="#93c5fd" opacity={0.5}>
+          <g fill={themeColors.primary[200]} opacity={0.5}>
             <circle cx={35} cy={36} r={1.5} />
             <circle cx={65} cy={48} r={1.5} />
             <circle cx={40} cy={60} r={1.5} />
@@ -87,7 +88,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="47,8 50,14 53,8" fill="#ef4444" opacity={0.8} />
+          <polygon points="47,8 50,14 53,8" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — liquid-out (bottom) */}
@@ -100,7 +101,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="47,108 50,114 53,108" fill="#3b82f6" opacity={0.8} />
+          <polygon points="47,108 50,114 53,108" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — coolant-in (left) */}
@@ -113,7 +114,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="10,37 16,40 10,43" fill="#3b82f6" opacity={0.8} />
+          <polygon points="10,37 16,40 10,43" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — coolant-out (right) */}
@@ -126,7 +127,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="88,77 94,80 88,83" fill="#60a5fa" opacity={0.8} />
+          <polygon points="88,77 94,80 88,83" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* P&ID label — C */}
@@ -149,7 +150,7 @@ const CondenserSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

@@ -21,7 +21,13 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
-import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
+import {
+  Tenant,
+  CurrentUser,
+  CurrentUserPayload,
+  Roles,
+  Role,
+} from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { Message } from '../../message/entities/message.entity';
@@ -147,10 +153,14 @@ export class AiResolver {
     description: 'List AI personas available for the current tenant',
   })
   @Roles(Role.MODULE_USER)
-  async availableAiPersonas(
-    @Tenant() tenantId: string,
-  ): Promise<AiPersonaType[]> {
-    return this.personasRegistry.getAvailablePersonas(tenantId);
+  async availableAiPersonas(@CurrentUser() user: CurrentUserPayload): Promise<AiPersonaType[]> {
+    // AISAFETY-MEDIUM-024: filtered SERVER-side by the caller's tenant-RBAC
+    // capabilities — the same rule ai-service applies per turn, so the picker
+    // never offers a persona the chat would reject.
+    return this.personasRegistry.getAvailablePersonas({
+      roles: user.roles,
+      resourcePermissions: user.resourcePermissions ?? [],
+    });
   }
 
   /**
@@ -167,11 +177,7 @@ export class AiResolver {
     @Tenant() tenantId: string,
   ): Promise<SentimentTrend[]> {
     return this.queryBus.execute(
-      new GetSentimentTrendsQuery(
-        tenantId,
-        input.channelId ?? null,
-        input.weeks,
-      ),
+      new GetSentimentTrendsQuery(tenantId, input.channelId ?? null, input.weeks),
     );
   }
 

@@ -14,34 +14,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('lucide-react', () => {
-  const icon =
-    (name: string) =>
-    (props: Record<string, unknown>): React.ReactElement => (
-      <span data-testid={`icon-${name}`} {...props} />
-    );
-  const names = [
-    'ArrowLeft',
-    'Zap',
-    'Wifi',
-    'WifiOff',
-    'Loader2',
-    'AlertTriangle',
-    'MapPin',
-    'Clock',
-    'Activity',
-    'Settings',
-    'Power',
-    'PowerOff',
-    'Play',
-    'Square',
-    'AlertOctagon',
-    'RefreshCw',
-    'AlertCircle',
-  ];
-  return Object.fromEntries(names.map((n) => [n, icon(n)]));
-});
-
 const activateDevice = vi.fn();
 const deactivateDevice = vi.fn();
 const refetch = vi.fn();

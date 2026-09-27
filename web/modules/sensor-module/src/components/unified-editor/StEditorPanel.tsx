@@ -16,14 +16,7 @@
  * Resizable height (200px - 60vh), collapse/expand with Ctrl+J.
  */
 
-import React, {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   Play,
@@ -34,18 +27,13 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Loader2,
   Trash2,
   Save,
   AlignLeft,
   Download,
 } from 'lucide-react';
 import { useStEditor, CompileDiagnostic, CompileStatus } from '../../hooks/useStEditor';
-import {
-  ST_LANGUAGE_ID,
-  stLanguageConfig,
-  stTokensProvider,
-} from './st-language-enhanced';
+import { ST_LANGUAGE_ID, stLanguageConfig, stTokensProvider } from './st-language-enhanced';
 import { createStCompletionProvider, setTags } from './StCompletionProvider';
 import { useEditorModeStore } from '../../store/editorModeStore';
 import { useScadaPackageStore } from '../../store/scada';
@@ -55,6 +43,7 @@ import ExportDialog from './json-bundle/ExportDialog';
 import ImportDialog from './json-bundle/ImportDialog';
 import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
 import type { editor as monacoEditor, languages as monacoLanguages } from 'monaco-editor';
+import { Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 /** Diagnostic item returned by validation */
 export interface DiagnosticItem {
@@ -248,7 +237,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   // Ref to keep onSave callback current for Monaco keybinding
   const onSaveRef = useRef(onSave);
-  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   // H32: Store cursor listener disposable for cleanup
   const cursorDisposableRef = useRef<{ dispose(): void } | null>(null);
@@ -420,14 +411,17 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     [updateSource],
   );
 
-  const panelStyle = useMemo(() => (docked ? { height: panelHeight } : undefined), [docked, panelHeight]);
+  const panelStyle = useMemo(
+    () => (docked ? { height: panelHeight } : undefined),
+    [docked, panelHeight],
+  );
 
   // Standalone collapsed state
   if (docked && !isBottomPanelOpen) {
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
-        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 hover:text-gray-200 hover:bg-gray-750 transition-colors"
+        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
       >
         <ChevronUp className="w-3.5 h-3.5" />
         ST Editor (Ctrl+J)
@@ -444,55 +438,58 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
       {docked && (
         <div
           onMouseDown={handleResizeStart}
-          className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
+          className="h-1 bg-gray-700 hover:bg-info-600 cursor-row-resize flex-shrink-0"
         />
       )}
 
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-gray-700 flex-shrink-0 flex-wrap">
         {/* New */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Plus className="w-3.5 h-3.5" />}
           onClick={() => {
             setShowNewInput(true);
             setTimeout(() => newInputRef.current?.focus(), 50);
           }}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="New Program"
         >
-          <Plus className="w-3.5 h-3.5" />
           New
-        </button>
+        </Button>
 
         <div className="w-px h-4 bg-gray-600 mx-1" />
 
         {/* Compile */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => compile()}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Compile (F5)"
         >
           {compileStatus === 'compiling' ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Play className="w-3.5 h-3.5" />
           )}
           Compile
-        </button>
+        </Button>
 
         {/* Validate */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
           onClick={() => {
             if (onValidate) onValidate();
             else validate();
           }}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Validate (F7)"
         >
-          <CheckCircle className="w-3.5 h-3.5" />
           Validate
-        </button>
+        </Button>
 
         {!hideDeploy && (
           <>
@@ -500,15 +497,16 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {/* Deploy — opens the parent-owned deploy flow (UI-004: this
                 button used to render with NO onClick, an inert control). */}
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Upload className="w-3.5 h-3.5" />}
               onClick={onDeploy}
               disabled={!onDeploy}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
               title={onDeploy ? 'Deploy (F9)' : 'Deploy is not available here'}
             >
-              <Upload className="w-3.5 h-3.5" />
               Deploy
-            </button>
+            </Button>
           </>
         )}
 
@@ -517,65 +515,69 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <div className="w-px h-4 bg-gray-600 mx-1" />
 
             {/* Save */}
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />}
               onClick={save}
               disabled={isSaving}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
               title="Save (Ctrl+S)"
             >
-              <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />
               {isSaving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </>
         )}
 
         {/* Format */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<AlignLeft className="w-3.5 h-3.5" />}
           onClick={formatCode}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Format (Shift+Alt+F)"
         >
-          <AlignLeft className="w-3.5 h-3.5" />
           Format
-        </button>
+        </Button>
 
         <div className="w-px h-4 bg-gray-600 mx-1" />
 
         {/* Export JSON */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Download className="w-3.5 h-3.5" />}
           onClick={() => setShowExportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Export JSON Bundle"
         >
-          <Download className="w-3.5 h-3.5" />
           Export
-        </button>
+        </Button>
 
         {/* Import JSON */}
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<Upload className="w-3.5 h-3.5" />}
           onClick={() => setShowImportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Import JSON Bundle"
         >
-          <Upload className="w-3.5 h-3.5" />
           Import
-        </button>
+        </Button>
 
         {/* Spacer */}
         <div className="flex-1" />
 
         {/* Save error — the write is async; this is its observable failure */}
         {saveError && (
-          <span className="text-xs text-red-400 max-w-64 truncate" title={saveError}>
+          <span className="text-xs text-error-400 max-w-64 truncate" title={saveError}>
             {saveError}
           </span>
         )}
 
         {/* Program name + dirty */}
-        <span className="text-xs text-gray-500 flex items-center gap-1">
+        <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
           {activeProgram?.name ?? '(no program)'}
-          {isDirty && <span className="text-yellow-400">*</span>}
+          {isDirty && <span className="text-warning-400">*</span>}
         </span>
 
         {/* Compile status badge */}
@@ -583,13 +585,16 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
         {/* Collapse (docked bottom-panel mode only) */}
         {docked && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Collapse (Ctrl+J)"
             onClick={toggleBottomPanel}
-            className="px-1.5 py-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded"
             title="Collapse (Ctrl+J)"
           >
             <ChevronDown className="w-3.5 h-3.5" />
-          </button>
+          </Button>
         )}
       </div>
 
@@ -598,17 +603,17 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Three-column area */}
         <div className="flex flex-1 min-h-0">
           {/* Left: Program list + Outline */}
-          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-850">
+          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-900">
             {/* Programs section */}
             <div className="flex flex-col flex-shrink-0">
-              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
                 Programs
               </div>
 
               {/* New program input */}
               {showNewInput && (
                 <div className="px-2 pb-1 flex gap-1">
-                  <input
+                  <Input
                     ref={newInputRef}
                     value={newProgramName}
                     onChange={(e) => setNewProgramName(e.target.value)}
@@ -620,14 +625,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                       }
                     }}
                     placeholder="Program name..."
-                    className="flex-1 bg-gray-700 text-xs text-white px-1.5 py-0.5 rounded border border-gray-600 focus:border-cyan-500 outline-hidden"
                   />
-                  <button
-                    onClick={handleCreateProgram}
-                    className="text-xs text-cyan-400 hover:text-cyan-300 px-1"
-                  >
+                  <Button variant="ghost" size="xs" onClick={handleCreateProgram}>
                     OK
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -641,21 +642,23 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                   className={`group flex items-center gap-1 px-2 py-1 text-xs cursor-pointer ${
                     prog.id === activeProgramId
                       ? 'bg-gray-700 text-white'
-                      : 'text-gray-500 hover:bg-gray-800 hover:text-gray-200'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                   }`}
                 >
                   <FileText className="w-3 h-3 flex-shrink-0" />
                   <span className="truncate flex-1">{prog.name}</span>
                   {programs.length > 1 && (
-                    <button
+                    <Button
+                      variant="ghost"
+                      iconOnly
+                      aria-label="Delete"
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteProgram(prog.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400"
                     >
                       <Trash2 className="w-3 h-3" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
@@ -663,7 +666,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {/* Outline section */}
             <div className="flex flex-col flex-1 min-h-0 border-t border-gray-700 mt-1">
-              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
                 Outline
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
@@ -680,7 +683,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           <div className="flex-1 min-w-0">
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 text-sm">
+                <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 dark:text-gray-400 text-sm">
                   Loading editor...
                 </div>
               }
@@ -698,35 +701,32 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           </div>
 
           {/* Right: Compile output */}
-          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
-            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between">
+          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-900">
+            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold flex items-center justify-between">
               <span>Output</span>
               {diagnostics.length > 0 && (
-                <button
-                  onClick={clearMarkers}
-                  className="text-gray-500 hover:text-gray-500 text-[10px]"
-                >
+                <Button variant="ghost" onClick={clearMarkers}>
                   Clear
-                </button>
+                </Button>
               )}
             </div>
 
             {diagnostics.length === 0 && compileStatus === 'idle' && (
-              <div className="px-2 py-4 text-xs text-gray-600 text-center">
+              <div className="px-2 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
                 Press F5 to compile
               </div>
             )}
 
             {diagnostics.length === 0 && compileStatus === 'success' && (
-              <div className="px-2 py-4 text-xs text-green-400 text-center flex flex-col items-center gap-1">
+              <div className="px-2 py-4 text-xs text-success-400 text-center flex flex-col items-center gap-1">
                 <CheckCircle className="w-4 h-4" />
                 Compilation successful
               </div>
             )}
 
             {compileStatus === 'compiling' && (
-              <div className="px-2 py-4 text-xs text-gray-500 text-center flex flex-col items-center gap-1">
-                <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center flex flex-col items-center gap-1">
+                <Spinner size="sm" color="inherit" />
                 Compiling...
               </div>
             )}
@@ -771,38 +771,32 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
 // Sub-components
 
-function CompileStatusBadge({
-  status,
-  count,
-}: {
-  status: CompileStatus;
-  count: number;
-}) {
+function CompileStatusBadge({ status, count }: { status: CompileStatus; count: number }) {
   if (status === 'idle') return null;
   if (status === 'compiling') {
     return (
-      <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
-        <Loader2 className="w-3 h-3 animate-spin" />
+      <span className="text-xs text-warning-400 flex items-center gap-1 ml-2">
+        <Spinner size="sm" color="inherit" />
       </span>
     );
   }
   if (status === 'success' && count === 0) {
     return (
-      <span className="text-xs text-green-400 flex items-center gap-1 ml-2">
+      <span className="text-xs text-success-400 flex items-center gap-1 ml-2">
         <CheckCircle className="w-3 h-3" />
       </span>
     );
   }
   if (status === 'warning') {
     return (
-      <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
+      <span className="text-xs text-warning-400 flex items-center gap-1 ml-2">
         <AlertTriangle className="w-3 h-3" />
         {count}
       </span>
     );
   }
   return (
-    <span className="text-xs text-red-400 flex items-center gap-1 ml-2">
+    <span className="text-xs text-error-400 flex items-center gap-1 ml-2">
       <XCircle className="w-3 h-3" />
       {count}
     </span>
@@ -824,7 +818,9 @@ function DiagnosticItem({
   const isSeverityError = diag.severity === 'error';
 
   return (
-    <button
+    <Button
+      variant="secondary"
+      size="xs"
       onClick={() => {
         const editor = editorRef.current;
         if (editor) {
@@ -833,22 +829,21 @@ function DiagnosticItem({
           editor.focus?.();
         }
       }}
-      className="w-full text-left px-2 py-1 text-xs hover:bg-gray-800 flex items-start gap-1.5 border-b border-gray-800"
     >
       {isSeverityError ? (
-        <XCircle className="w-3 h-3 text-red-400 flex-shrink-0 mt-0.5" />
+        <XCircle className="w-3 h-3 text-error-400 flex-shrink-0 mt-0.5" />
       ) : (
-        <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0 mt-0.5" />
+        <AlertTriangle className="w-3 h-3 text-warning-400 flex-shrink-0 mt-0.5" />
       )}
       <div className="flex-1 min-w-0">
-        <div className={isSeverityError ? 'text-red-300' : 'text-yellow-300'}>
+        <div className={isSeverityError ? 'text-error-300' : 'text-warning-300'}>
           {diag.message}
         </div>
-        <div className="text-gray-500">
+        <div className="text-gray-500 dark:text-gray-400">
           Line {diag.line}, Col {diag.column}
         </div>
       </div>
-    </button>
+    </Button>
   );
 }
 

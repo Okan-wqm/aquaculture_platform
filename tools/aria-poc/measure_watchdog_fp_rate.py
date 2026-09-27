@@ -29,6 +29,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+
+from aria_kernel.finding import findings_dir
+
 
 WATCHDOG_PREFIX = "aria-watchdog:"
 FP_RATE_CEILING = 0.33
@@ -69,8 +74,10 @@ def measure_fp_rate(
         dict with fp_rate (float), total (int), and per-status counts.
         fp_rate = withdrawn / total (0.0 when total=0)
     """
-    findings_dir = workspace_root / "aria-findings"
-    if not findings_dir.is_dir():
+    # ARIA-HIGH-191: the committed findings live where finding.findings_dir
+    # says (ARIA_REPO_STATE_ROOT redirects them into the state store).
+    findings_root = findings_dir(workspace_root)
+    if not findings_root.is_dir():
         # Fail-closed: an absent findings tree cannot evidence a LOW
         # false-positive rate — it evidences nothing. The gate must say
         # so instead of reporting a pristine 0.0.
@@ -99,7 +106,7 @@ def measure_fp_rate(
     unreadable = 0
     unknown_timestamp = 0
 
-    for path in sorted(findings_dir.glob("F-*.json")):
+    for path in sorted(findings_root.glob("F-*.json")):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):

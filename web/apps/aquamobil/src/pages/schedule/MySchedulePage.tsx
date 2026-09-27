@@ -1,9 +1,10 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
+
+import { PageHeader } from '@/components/ui/PageHeader';
 import type { WeeklyPlanEntryType } from '@/generated/graphql';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
@@ -17,7 +18,7 @@ const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 // "Day Off"; a total Record makes a missing entry type a compile error.
 const ENTRY_TYPE_CONFIG: Record<WeeklyPlanEntryType, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {
   WORK: { icon: Clock, label: 'Work', bgColor: 'bg-ocean-50 dark:bg-ocean-900/20', textColor: 'text-ocean-600 dark:text-ocean-400' },
-  OFF: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500' },
+  OFF: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500 dark:text-gray-400' },
   LEAVE: { icon: Palmtree, label: 'Leave', bgColor: 'bg-sea-50 dark:bg-sea-900/20', textColor: 'text-sea-600 dark:text-sea-400' },
   HOLIDAY: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-coral-50 dark:bg-coral-900/20', textColor: 'text-coral-600' },
   TRAINING: { icon: GraduationCap, label: 'Training', bgColor: 'bg-purple-50 dark:bg-purple-900/20', textColor: 'text-purple-600' },
@@ -53,7 +54,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
             {DAY_NAMES_FULL[adjustedIndex]}
           </span>
         </div>
-        <span className="text-xs text-gray-400 font-medium">
+        <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">
           {new Date(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
         </span>
       </div>
@@ -65,10 +66,10 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
             {entry.entryType === 'WORK' && entry.shift ? entry.shift.name : config.label}
           </div>
           {entry.entryType === 'WORK' && startTime && endTime && (
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {startTime.slice(0, 5)} - {endTime.slice(0, 5)}
               {entry.plannedMinutes > 0 && (
-                <span className="ml-2 text-gray-400">({formatMinutesAsHours(entry.plannedMinutes)})</span>
+                <span className="ml-2 text-gray-400 dark:text-gray-500">({formatMinutesAsHours(entry.plannedMinutes)})</span>
               )}
             </div>
           )}
@@ -82,7 +83,6 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
 }
 
 export function MySchedulePage(): JSX.Element {
-  const navigate = useNavigate();
   const [weekOffset, setWeekOffset] = useState(0);
   const { data: plan, isLoading, isError } = useMySchedule(weekOffset);
 
@@ -106,22 +106,16 @@ export function MySchedulePage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Clock size={22} />
-            <h1 className="text-lg font-bold">My Schedule</h1>
-          </div>
-        </div>
+      <PageHeader
+        icon={Clock}
+        title="My Schedule"
+      >
 
         {/* Week navigation */}
         <div className="flex items-center justify-between px-4 pb-4">
           <button
             onClick={() => setWeekOffset((w) => w - 1)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 touch-feedback"
+            className="p-2 rounded-xl bg-white/10 dark:bg-gray-900/10 hover:bg-white/20 dark:hover:bg-gray-800/20 touch-feedback"
           >
             <ChevronLeft size={20} />
           </button>
@@ -133,7 +127,7 @@ export function MySchedulePage(): JSX.Element {
           </div>
           <button
             onClick={() => setWeekOffset((w) => w + 1)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 touch-feedback"
+            className="p-2 rounded-xl bg-white/10 dark:bg-gray-900/10 hover:bg-white/20 dark:hover:bg-gray-800/20 touch-feedback"
           >
             <ChevronRight size={20} />
           </button>
@@ -142,17 +136,17 @@ export function MySchedulePage(): JSX.Element {
         {/* Summary stats */}
         {plan && (
           <div className="grid grid-cols-3 gap-3 px-4 pb-4">
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+            <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
               <div className="text-lg font-bold">{plan.plannedWorkDays}</div>
               <div className="text-ocean-200 text-[10px] font-medium">Work Days</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+            <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
               <div className="text-lg font-bold">{formatMinutesAsHours(plan.plannedTotalMinutes)}</div>
               <div className="text-ocean-200 text-[10px] font-medium">Total Hours</div>
             </div>
             <div className={clsx(
               'rounded-xl p-2.5 text-center backdrop-blur-sm',
-              plan.plannedOvertimeMinutes > 0 ? 'bg-coral-500/30' : 'bg-white/10'
+              plan.plannedOvertimeMinutes > 0 ? 'bg-coral-500/30' : 'bg-white/10 dark:bg-gray-900/10'
             )}>
               <div className="text-lg font-bold">
                 {plan.plannedOvertimeMinutes > 0 ? formatMinutesAsHours(plan.plannedOvertimeMinutes) : '--'}
@@ -171,10 +165,10 @@ export function MySchedulePage(): JSX.Element {
             <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
           </svg>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Content */}
-      <div className="px-4 pt-2 pb-24">
+      <div className="px-4 pt-2">
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -182,13 +176,13 @@ export function MySchedulePage(): JSX.Element {
             ))}
           </div>
         ) : isError ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <Clock size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">Could not load schedule</p>
             <p className="text-sm mt-1">Please try again later</p>
           </div>
         ) : !plan || sortedEntries.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <CalendarOff size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No schedule published</p>
             <p className="text-sm mt-1">Your schedule for this week has not been published yet</p>
@@ -211,7 +205,7 @@ export function MySchedulePage(): JSX.Element {
                   <div key={entry.id} className="flex-1 text-center">
                     <div className={clsx(
                       'text-[10px] font-bold mb-1',
-                      today ? 'text-ocean-600' : 'text-gray-400'
+                      today ? 'text-ocean-600' : 'text-gray-400 dark:text-gray-500'
                     )}>
                       {DAY_NAMES[adjustedIndex]}
                     </div>

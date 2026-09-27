@@ -114,6 +114,18 @@ export const MARINE_PROVIDER_CREDENTIAL_KEYS = {
 
 export const MARINE_PROVIDER_CREDENTIAL_MAX_BUNDLE_BYTES = 8 * 1024;
 
+/**
+ * Per-field UTF-16 length ceilings of the CDSE bundle. One table feeds both the
+ * canonical parser below and every input surface that accepts the fields
+ * separately (the config-service GraphQL mutation the admin panel drives), so
+ * a surface cannot accept a value the trust boundary would then reject.
+ */
+export const MARINE_PROVIDER_CDSE_FIELD_MAX_LENGTH = {
+  clientId: 512,
+  clientSecret: 4096,
+  instanceId: 512,
+} as const;
+
 export interface MarineProviderCdseCredentialBundle {
   clientId: string;
   clientSecret: string;
@@ -145,9 +157,14 @@ export function parseMarineProviderCdseCredentialBundle(
     if (
       !isRecord(parsed) ||
       Object.keys(parsed).some((field) => !MARINE_PROVIDER_CDSE_FIELDS.has(field)) ||
-      !isBoundedString(parsed['clientId'], 1, 512) ||
-      !isBoundedString(parsed['clientSecret'], 1, 4096) ||
-      (parsed['instanceId'] !== undefined && !isBoundedString(parsed['instanceId'], 1, 512))
+      !isBoundedString(parsed['clientId'], 1, MARINE_PROVIDER_CDSE_FIELD_MAX_LENGTH.clientId) ||
+      !isBoundedString(
+        parsed['clientSecret'],
+        1,
+        MARINE_PROVIDER_CDSE_FIELD_MAX_LENGTH.clientSecret,
+      ) ||
+      (parsed['instanceId'] !== undefined &&
+        !isBoundedString(parsed['instanceId'], 1, MARINE_PROVIDER_CDSE_FIELD_MAX_LENGTH.instanceId))
     ) {
       return null;
     }

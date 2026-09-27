@@ -14,14 +14,15 @@
  * - Click-outside to close
  */
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { validateNavigationUrl } from '@aquaculture/shared-ui';
+import { validateNavigationUrl, Popover } from '@aquaculture/shared-ui';
 import {
   useNotifications,
   type InAppNotification,
   type NotificationData,
 } from '@/hooks/useNotifications';
+import { Bell } from 'lucide-react';
 
 // ============================================================================
 // Pagination Constants
@@ -122,23 +123,20 @@ function getNotificationIndicator(data: NotificationData | null): {
   color: string;
   icon: string;
 } {
-  if (!data?.type) return { color: 'bg-blue-500', icon: 'info' };
+  if (!data?.type) return { color: 'bg-info-500', icon: 'info' };
 
   const type = data.type.toLowerCase();
   if (type.includes('alert') || type.includes('sensor'))
-    return { color: 'bg-red-500', icon: 'alert' };
-  if (type.includes('task'))
-    return { color: 'bg-amber-500', icon: 'task' };
+    return { color: 'bg-error-500', icon: 'alert' };
+  if (type.includes('task')) return { color: 'bg-warning-500', icon: 'task' };
   if (type.includes('leave') || type.includes('attendance') || type.includes('hr'))
-    return { color: 'bg-purple-500', icon: 'hr' };
+    return { color: 'bg-accent-500', icon: 'hr' };
   if (type.includes('harvest') || type.includes('feeding') || type.includes('farm'))
-    return { color: 'bg-emerald-500', icon: 'farm' };
-  if (type.includes('billing'))
-    return { color: 'bg-orange-500', icon: 'billing' };
-  if (type.includes('system'))
-    return { color: 'bg-gray-500', icon: 'system' };
+    return { color: 'bg-success-500', icon: 'farm' };
+  if (type.includes('billing')) return { color: 'bg-accent-500', icon: 'billing' };
+  if (type.includes('system')) return { color: 'bg-gray-500', icon: 'system' };
 
-  return { color: 'bg-blue-500', icon: 'info' };
+  return { color: 'bg-info-500', icon: 'info' };
 }
 
 /** Single notification item */
@@ -155,24 +153,28 @@ const NotificationItem: React.FC<{
       onClick={onClick}
       className={`
         w-full text-left px-4 py-3 flex items-start gap-3
-        hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0
+        hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-b border-gray-100 dark:border-gray-700 last:border-b-0
         ${notification.isRead ? 'opacity-70' : ''}
       `}
     >
       {/* Indicator dot */}
       <div className="flex-shrink-0 mt-1">
-        <div className={`w-2.5 h-2.5 rounded-full ${indicator.color} ${notification.isRead ? 'opacity-40' : ''}`} />
+        <div
+          className={`w-2.5 h-2.5 rounded-full ${indicator.color} ${notification.isRead ? 'opacity-40' : ''}`}
+        />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm truncate ${notification.isRead ? 'text-gray-500 font-normal' : 'text-gray-900 font-semibold'}`}>
+        <p
+          className={`text-sm truncate ${notification.isRead ? 'text-gray-500 dark:text-gray-400 font-normal' : 'text-gray-900 dark:text-gray-100 font-semibold'}`}
+        >
           {notification.title}
         </p>
-        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
           {notification.body}
         </p>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
           {formatTimeAgo(notification.createdAt)}
         </p>
       </div>
@@ -180,7 +182,7 @@ const NotificationItem: React.FC<{
       {/* Unread indicator */}
       {!notification.isRead && (
         <div className="flex-shrink-0 mt-2">
-          <div className="w-2 h-2 rounded-full bg-blue-500" />
+          <div className="w-2 h-2 rounded-full bg-info-500" />
         </div>
       )}
     </button>
@@ -190,21 +192,9 @@ const NotificationItem: React.FC<{
 /** Empty state */
 const EmptyState: React.FC = () => (
   <div className="py-12 px-4 text-center">
-    <svg
-      className="w-12 h-12 mx-auto text-gray-300 mb-3"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-      />
-    </svg>
-    <p className="text-sm font-medium text-gray-500">No notifications</p>
-    <p className="text-xs text-gray-400 mt-1">You're all caught up!</p>
+    <Bell className="w-12 h-12 mx-auto text-gray-300 mb-3" aria-hidden="true" />
+    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No notifications</p>
+    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">You're all caught up!</p>
   </div>
 );
 
@@ -213,11 +203,11 @@ const LoadingSkeleton: React.FC = () => (
   <div className="py-2">
     {[1, 2, 3].map((i) => (
       <div key={i} className="px-4 py-3 flex items-start gap-3 animate-pulse">
-        <div className="w-2.5 h-2.5 rounded-full bg-gray-200 mt-1" />
+        <div className="w-2.5 h-2.5 rounded-full bg-gray-200 dark:bg-gray-700 mt-1" />
         <div className="flex-1">
-          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-          <div className="h-3 bg-gray-100 rounded w-full mb-1" />
-          <div className="h-3 bg-gray-100 rounded w-1/4 mt-2" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+          <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-full mb-1" />
+          <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-1/4 mt-2" />
         </div>
       </div>
     ))}
@@ -232,7 +222,6 @@ export const NotificationPanel: React.FC = () => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   const {
     notifications,
@@ -245,37 +234,20 @@ export const NotificationPanel: React.FC = () => {
   } = useNotifications();
 
   // --------------------------------------------------------------------------
-  // Click-outside handler (only active when panel is open)
-  // --------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  // --------------------------------------------------------------------------
   // Toggle panel
   // --------------------------------------------------------------------------
 
-  const handleToggle = useCallback(() => {
-    setIsOpen((prev) => {
-      const opening = !prev;
+  const handleOpenChange = useCallback(
+    (opening: boolean) => {
       // Fetch full list on first open, or re-fetch on subsequent opens
       if (opening) {
         fetchNotifications();
         setHasFetched(true);
       }
-      return opening;
-    });
-  }, [fetchNotifications]);
+      setIsOpen(opening);
+    },
+    [fetchNotifications],
+  );
 
   // --------------------------------------------------------------------------
   // Notification click: mark as read + navigate
@@ -330,40 +302,38 @@ export const NotificationPanel: React.FC = () => {
   }, []);
 
   return (
-    <div className="relative" ref={panelRef}>
-      {/* Bell Button */}
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
-        aria-expanded={isOpen}
-        aria-haspopup="true"
-      >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-          />
-        </svg>
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
-      </button>
-
-      {/* Dropdown Panel */}
+    <Popover
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+      aria-label="Notifications"
+      panelClassName="w-96"
+      trigger={(props) => (
+        <button
+          {...props}
+          type="button"
+          className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
+        >
+          <Bell className="w-6 h-6" aria-hidden="true" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error-500 rounded-full">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
+      )}
+    >
+      {/* Panel content */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 max-h-[32rem] rounded-lg bg-white shadow-xl ring-1 ring-black/5 z-50 flex flex-col overflow-hidden">
+        <div className="max-h-[32rem] flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Notifications
+              </h3>
               {unreadCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
                   {unreadCount} new
                 </span>
               )}
@@ -372,7 +342,7 @@ export const NotificationPanel: React.FC = () => {
               <button
                 type="button"
                 onClick={handleMarkAllRead}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                className="text-xs font-medium text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 transition-colors"
               >
                 Mark all as read
               </button>
@@ -400,7 +370,7 @@ export const NotificationPanel: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleLoadMore}
-                    className="w-full py-2 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-gray-50 transition-colors"
+                    className="w-full py-2 text-xs font-medium text-info-600 hover:text-info-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     Load more ({notifications.length - visibleCount} remaining)
                   </button>
@@ -410,7 +380,7 @@ export const NotificationPanel: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Popover>
   );
 };
 

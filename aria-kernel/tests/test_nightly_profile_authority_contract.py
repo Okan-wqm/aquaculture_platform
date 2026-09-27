@@ -766,9 +766,11 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
         )
         reached_merge_authority: list[int] = []
+        observed_workspace_roots: list[str | None] = []
 
-        def _record_merge_authority(*, adapter, pr_number, base_dir, readiness_claim_id):
+        def _record_merge_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None):
             reached_merge_authority.append(pr_number)
+            observed_workspace_roots.append(workspace_root)
             # `blocked` and not a merge: the gates BELOW this point (profile,
             # risk, unlock ladder, readiness) have their own tests, and this
             # one is about which door the profile opens.
@@ -786,6 +788,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
                 patch("aria_kernel.merge_authority.merge_pr_if_ready", _record_merge_authority):
             result = runner(base_dir=Path(tmp) / "aria-tools", workspace_root=tmp)
         self.assertEqual(reached_merge_authority, [4242])
+        self.assertEqual(observed_workspace_roots, [tmp])
         self.assertFalse(result["dry_run"])
         self.assertEqual(result["merges_completed"], 0)
 

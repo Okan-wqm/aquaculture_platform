@@ -311,6 +311,91 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // `tests/invariants/git-hook-binding.spec.ts` close that, so the next
   // missing trailer is refused at write time rather than discovered here.
   '9fb8efce', // fix(gates): restore the orphaned npm script and make the seam checkable
+  // 2026-09-18 design-system wave 1 (PR: design-system adoption). Both commits
+  // were pushed before their findings existed in the registry — the survey
+  // that produced FE-HIGH-065..079 was written in the same session, after the
+  // code — and the commit-msg hook was not bound in the session that wrote
+  // them. Amending a pushed commit is forbidden (force-push ban), so the two
+  // SHAs are allowlisted here and their findings are registered and named by
+  // the commit that adds this entry. Same route as 5334a47a / 4048a1cf above.
+  'aae401bc', // feat(web): ban browser dialogs; add useConfirm/usePrompt, Drawer, SW update banner (FE-HIGH-068)
+  'a74c6ee3', // feat(web): design-system adoption ratchet; 17 dialogs onto shared Modal (FE-HIGH-065/077, FE-MEDIUM-067)
+  // feat/ai-farm-specialists: its aquamobil AI-identity fix was raised on the
+  // branch as FE-HIGH-066 and named by that commit's trailer; main's
+  // design-system wave allocated FE-HIGH-066 (raw hex colours) before the
+  // branch landed, so the branch row was renumbered when the registry was
+  // re-appended onto main's chain — to FE-HIGH-069, then FE-HIGH-080, then
+  // FE-HIGH-150 as main's design-system and operator-screen reviews took
+  // 069 and 080 in turn (150 sits well past the FE allocator's position on
+  // main). The alias sidecar cannot carry it (FE-HIGH-066 is a LIVE id on
+  // main) and the pushed trailer cannot be amended (force-push ban) — the
+  // identical situation as 5334a47a above.
+  'd6eeb1cf', // fix(aquamobil): restore FAZ 2.4 server-authoritative AI identity (066 -> 150)
+  // 2026-09-19 design rescan wave 30 (PR #1614, FE-MEDIUM-093). Added by
+  // OPERATOR DECISION, not by the author's own judgement, and recorded that
+  // way on purpose — the entry above states why that distinction matters.
+  //
+  // `7bda4ab1` is typed `fix(edge):` and carries no trailer. It is a required
+  // commit: at its parent the branch failed `cargo fmt --check`, because the
+  // `use crate::theme_tokens;` line the wave added to `scada_server.rs` sorts
+  // after `scada_types`, and `mod theme_tokens;` sat above the
+  // `#[cfg(feature = "scada-display")]` its only consumer already carries. It
+  // gates the module and lets rustfmt reorder both. It changes no behaviour,
+  // so `refactor(edge):` — which this gate exempts — was the correct type; the
+  // author wrote `fix(` and pushed before running the trailer gate on the
+  // range.
+  //
+  // Why it cannot be repaired instead of allowlisted: the gate validates
+  // `pull_request.base.sha..head.sha`, so no follow-up commit can satisfy it,
+  // and amending a pushed commit needs a force-push, which CLAUDE.md forbids.
+  // Nor can it legitimately gain a trailer — the only finding it relates to is
+  // FE-MEDIUM-093, which its PR deliberately leaves OPEN, so citing it would
+  // make `finding-registry-closure-drift` wrong on merge.
+  //
+  // The ROOT CAUSE is the same one ORPHAN-HIGH-441 named: a commit-msg hook
+  // that is not bound writes the wrong type unchallenged. `npm run
+  // hooks:install` exists; the author had not run it in this session.
+  '7bda4ab1', // fix(edge): the generated token module follows its feature gate
+  // 2026-09-26 ARIA plan 034 PR 12–14 (PR #1673). The operator decided this
+  // entry (okan, 2026-09-26). The author did not choose it; the
+  // 9fb8efce entry above explains why that difference matters.
+  //
+  // Two `fix(aria):` commits carry `Part of ARIA-HIGH-199` and
+  // `Part of ARIA-HIGH-198` as free text, where a `Closes:` trailer
+  // belongs. Each is the first half of a finding split across two
+  // commits, and the second half closes that finding in the same PR:
+  // `63fe606e` closes ARIA-HIGH-199 and `64c5054f` closes ARIA-HIGH-198.
+  // The finding references exist and the ledger is correct. Only the
+  // trailer shape on the first half is wrong.
+  //
+  // Why this is not fixed another way: the gate validates
+  // `pull_request.base.sha..head.sha`, so a follow-up commit cannot satisfy
+  // it. Amending a pushed commit needs a force-push, which CLAUDE.md
+  // forbids. A `Closes:` on the first half would also have been false,
+  // because neither half closes the finding alone.
+  //
+  // The ROOT CAUSE is the one ORPHAN-HIGH-441 named. The commit-msg hook
+  // was not bound in the worktrees where these commits were written.
+  // `npm run hooks:install` is now run for this checkout.
+  'd046483b', // fix(aria): ARIA reverts its own bad merge, freezing first (Part of ARIA-HIGH-199)
+  'b977da29', // fix(aria): runner identity is measured, and the merge lane attests what it is (Part of ARIA-HIGH-198)
+  // 2026-09-27 SUPER_ADMIN stack, PR #1523. A finding-id COLLISION, not a
+  // missing trailer: `ac780802` carries
+  // `Closes: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#ADMIN-HIGH-135`
+  // for the CreateTenantPage price-sheet finding, minted on that branch on
+  // 2026-09-09. Ten days later main minted the SAME id for an unrelated
+  // finding (the Copernicus credential operator surface, e959f5811) and
+  // merged it. main is immutable, so main keeps ADMIN-HIGH-135 and the
+  // price-sheet finding was re-registered as ADMIN-HIGH-159 (the row's notes
+  // record this); the commit that re-registers it carries the ADMIN-HIGH-159
+  // trailer and is the one `reconcile` will honour. The historical trailer
+  // now cites a review file that is not 135's own, which is exactly what
+  // the review-file binding below rejects — correctly. It cannot close 135
+  // (derivation applies the same binding) and cannot be amended without a
+  // force-push. The root cause is the allocator's per-clone reservation
+  // ledger: two clones can mint the same sequence with no knowledge of each
+  // other, and only the merge driver's duplicate-id refusal caught it.
+  'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
 ]);
 
 interface Commit {

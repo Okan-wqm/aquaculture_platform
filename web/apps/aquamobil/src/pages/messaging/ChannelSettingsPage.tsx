@@ -13,28 +13,33 @@
 
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
-  UserPlus,
+  AlertCircle,
   Bell,
   BellOff,
   BellRing,
+  Brain,
+  Check,
+  ChevronRight,
+  Edit3,
   Image,
   Link,
   LogOut,
-  Trash2,
-  Edit3,
-  ChevronRight,
-  AlertCircle,
-  Brain,
   Sparkles,
+  Trash2,
+  UserPlus,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { IconButton, Switch } from '../../components/ui';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
-import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAiConsent } from '@/hooks/useAiConsent';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelActions } from '@/hooks/useChannelActions';
@@ -83,8 +88,7 @@ export function ChannelSettingsPage(): JSX.Element {
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
 
-  const { channel, isLoading: loading, error: queryError, refetch } =
-    useChannelDetail(channelId);
+  const { channel, isLoading: loading, error: queryError, refetch } = useChannelDetail(channelId);
   const {
     updateNotificationPref,
     leaveChannel,
@@ -100,14 +104,13 @@ export function ChannelSettingsPage(): JSX.Element {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showAddMemberSheet, setShowAddMemberSheet] = useState(false);
   const [addMemberSearch, setAddMemberSearch] = useState('');
+  const closeAddMemberSheet = useCallback(() => {
+    setShowAddMemberSheet(false);
+    setAddMemberSearch('');
+  }, []);
 
   // AI consent hook
-  const {
-    isAiEnabled,
-    hasConsented,
-    toggleConsent,
-    isLoading: aiConsentLoading,
-  } = useAiConsent();
+  const { isAiEnabled, hasConsented, toggleConsent, isLoading: aiConsentLoading } = useAiConsent();
 
   // Determine current user's role in this channel
   const myMembership = useMemo(() => {
@@ -154,7 +157,9 @@ export function ChannelSettingsPage(): JSX.Element {
   }, [archiveChannel, navigate]);
 
   const error = queryError
-    ? (queryError instanceof Error ? queryError.message : 'Failed to load channel')
+    ? queryError instanceof Error
+      ? queryError.message
+      : 'Failed to load channel'
     : null;
 
   /** Add a user to the channel and close the add-member sheet. */
@@ -180,9 +185,7 @@ export function ChannelSettingsPage(): JSX.Element {
     if (!addMemberSearch.trim()) return filtered;
     const query = addMemberSearch.toLowerCase();
     return filtered.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [tenantUsers, activeMembers, addMemberSearch]);
 
@@ -190,21 +193,9 @@ export function ChannelSettingsPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-            >
-              <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-              Channel Info
-            </h1>
-          </div>
-        </div>
+        <PageHeader tone="plain" title="Channel Info" />
         <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+          <Spinner size="lg" />
         </div>
       </div>
     );
@@ -214,19 +205,7 @@ export function ChannelSettingsPage(): JSX.Element {
   if (error || !channel) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-            >
-              <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-              Channel Info
-            </h1>
-          </div>
-        </div>
+        <PageHeader tone="plain" title="Channel Info" />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
@@ -246,19 +225,7 @@ export function ChannelSettingsPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-          >
-            <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-          </button>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-            Channel Info
-          </h1>
-        </div>
-      </div>
+      <PageHeader tone="plain" title="Channel Info" />
 
       {/* Channel avatar + name */}
       <div className="flex flex-col items-center pt-6 pb-4 px-4">
@@ -271,13 +238,14 @@ export function ChannelSettingsPage(): JSX.Element {
 
         <div className="mt-3 text-center">
           <div className="flex items-center justify-center gap-2">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              {displayName}
-            </h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{displayName}</h2>
             {canEdit && channel.type === 'group' && (
-              <button className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback">
-                <Edit3 size={14} className="text-gray-400" />
-              </button>
+              <IconButton
+                aria-label="Rename group"
+                className="rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <Edit3 size={14} className="text-gray-400 dark:text-gray-500" />
+              </IconButton>
             )}
           </div>
           {channel.type === 'group' && (
@@ -335,16 +303,14 @@ export function ChannelSettingsPage(): JSX.Element {
                 return (
                   <button
                     key={option.value}
-                    onClick={() => { void handleNotifChange(option.value); }}
+                    onClick={() => {
+                      void handleNotifChange(option.value);
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800 last:border-0"
                   >
                     <OptIcon
                       size={18}
-                      className={
-                        isSelected
-                          ? 'text-ocean-500'
-                          : 'text-gray-400 dark:text-gray-500'
-                      }
+                      className={isSelected ? 'text-ocean-500' : 'text-gray-400 dark:text-gray-500'}
                     />
                     <div className="flex-1 text-left">
                       <span
@@ -360,18 +326,7 @@ export function ChannelSettingsPage(): JSX.Element {
                     </div>
                     {isSelected && (
                       <div className="w-5 h-5 bg-ocean-500 rounded-full flex items-center justify-center">
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="white"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M20 6 9 17l-5-5" />
-                        </svg>
+                        <Check strokeWidth="3" size={12} aria-hidden="true" />
                       </div>
                     )}
                   </button>
@@ -421,38 +376,26 @@ export function ChannelSettingsPage(): JSX.Element {
                   <Brain size={20} className="text-purple-600" />
                 </div>
                 <div>
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    AI Analysis
-                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white">AI Analysis</span>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {isAiEnabled ? 'Enabled for this tenant' : 'Not enabled for tenant'}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => void toggleConsent()}
+              <Switch
+                label="AI Analysis"
+                hideLabel
+                checked={hasConsented && isAiEnabled}
+                onChange={() => void toggleConsent()}
                 disabled={!isAiEnabled || aiConsentLoading}
-                className={clsx(
-                  'relative w-12 h-7 rounded-full transition-colors duration-200 flex-shrink-0',
-                  hasConsented && isAiEnabled
-                    ? 'bg-purple-500'
-                    : 'bg-gray-200 dark:bg-gray-700',
-                  (!isAiEnabled || aiConsentLoading) && 'opacity-50 cursor-not-allowed',
-                )}
-              >
-                <span
-                  className={clsx(
-                    'absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-sm transition-transform duration-200',
-                    hasConsented && isAiEnabled && 'translate-x-5',
-                  )}
-                />
-              </button>
+                tone="violet"
+              />
             </div>
 
             {/* Consent Status */}
             <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-800">
               <div className="flex items-center gap-2">
-                <Sparkles size={14} className="text-gray-400" />
+                <Sparkles size={14} className="text-gray-400 dark:text-gray-500" />
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   Consent: {hasConsented ? 'Granted' : 'Not granted'}
                 </span>
@@ -464,9 +407,7 @@ export function ChannelSettingsPage(): JSX.Element {
                 never a fabricated verdict (MOB-MEDIUM-003). */}
             {latestSentiment !== null && (
               <div className="px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">
-                  Weekly Sentiment
-                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Weekly Sentiment</span>
                 <SentimentBadge trend={latestSentiment.badge} />
               </div>
             )}
@@ -515,9 +456,7 @@ export function ChannelSettingsPage(): JSX.Element {
             <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
               <LogOut size={20} className="text-red-600" />
             </div>
-            <span className="font-medium text-red-600 dark:text-red-400">
-              Leave Channel
-            </span>
+            <span className="font-medium text-red-600 dark:text-red-400">Leave Channel</span>
           </button>
 
           {isOwner && (
@@ -529,124 +468,87 @@ export function ChannelSettingsPage(): JSX.Element {
               <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
                 <Trash2 size={20} className="text-red-600" />
               </div>
-              <span className="font-medium text-red-600 dark:text-red-400">
-                Delete Channel
-              </span>
+              <span className="font-medium text-red-600 dark:text-red-400">Delete Channel</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Bottom spacer */}
-      <div className="h-24" />
+      {/* Confirmation sheets */}
+      <ConfirmSheet
+        isOpen={showLeaveDialog}
+        title="Leave Channel"
+        message="Are you sure you want to leave this channel? You will no longer receive messages."
+        confirmLabel="Leave"
+        onConfirm={handleLeave}
+        onCancel={() => setShowLeaveDialog(false)}
+      />
 
-      {/* Confirmation dialogs */}
-      {showLeaveDialog && (
-        <ConfirmDialog
-          title="Leave Channel"
-          message="Are you sure you want to leave this channel? You will no longer receive messages."
-          confirmLabel="Leave"
-          confirmColor="bg-red-600"
-          onConfirm={() => { void handleLeave(); }}
-          onCancel={() => setShowLeaveDialog(false)}
-        />
-      )}
+      <ConfirmSheet
+        isOpen={showDeleteDialog}
+        title="Delete Channel"
+        message="This will permanently delete the channel and all its messages for all members. This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteDialog(false)}
+      />
 
-      {showDeleteDialog && (
-        <ConfirmDialog
-          title="Delete Channel"
-          message="This will permanently delete the channel and all its messages for all members. This action cannot be undone."
-          confirmLabel="Delete"
-          confirmColor="bg-red-600"
-          onConfirm={() => { void handleDelete(); }}
-          onCancel={() => setShowDeleteDialog(false)}
-        />
-      )}
-
-      {/* Add Member bottom sheet */}
-      {showAddMemberSheet && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => {
-              setShowAddMemberSheet(false);
-              setAddMemberSearch('');
-            }}
-            aria-hidden="true"
+      {/* Add Member sheet */}
+      <BottomSheet
+        isOpen={showAddMemberSheet}
+        onClose={closeAddMemberSheet}
+        title="Add Member"
+        size="tall"
+        bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-4"
+      >
+        {/* Search input */}
+        <div className="flex-shrink-0 pb-3">
+          <input
+            type="text"
+            value={addMemberSearch}
+            onChange={(e) => setAddMemberSearch(e.target.value)}
+            placeholder="Search by name or email..."
+            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500"
           />
-          <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl shadow-elevated pb-safe max-h-[70vh] flex flex-col">
-            {/* Handle bar */}
-            <div className="flex justify-center pt-3 pb-2 flex-shrink-0">
-              <div className="w-10 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
-            </div>
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 pb-3 flex-shrink-0">
-              <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                Add Member
-              </h3>
-              <button
-                onClick={() => {
-                  setShowAddMemberSheet(false);
-                  setAddMemberSearch('');
-                }}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-                aria-label="Close"
-              >
-                <span className="text-gray-500 text-lg">&times;</span>
-              </button>
-            </div>
-
-            {/* Search input */}
-            <div className="px-5 pb-3 flex-shrink-0">
-              <input
-                type="text"
-                value={addMemberSearch}
-                onChange={(e) => setAddMemberSearch(e.target.value)}
-                placeholder="Search by name or email..."
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500"
-              />
-            </div>
-
-            {/* User list */}
-            <div className="overflow-y-auto flex-1 px-5 pb-4">
-              {availableUsers.length === 0 ? (
-                <p className="text-center text-sm text-gray-400 py-6">
-                  {addMemberSearch ? 'No users match your search' : 'All users are already members'}
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {availableUsers.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => { void handleAddMember(u.id); }}
-                      disabled={actionLoading}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-ocean-100 dark:bg-ocean-900/30 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold text-ocean-600 dark:text-ocean-400">
-                          {u.name.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex-1 text-left min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                          {u.name}
-                        </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-                          {u.email}
-                        </p>
-                      </div>
-                      {u.isOnline && (
-                        <div className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
-      )}
+
+        {/* User list */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {availableUsers.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-6">
+              {addMemberSearch ? 'No users match your search' : 'All users are already members'}
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {availableUsers.map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => {
+                    void handleAddMember(u.id);
+                  }}
+                  disabled={actionLoading}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
+                >
+                  <div className="w-10 h-10 rounded-full bg-ocean-100 dark:bg-ocean-900/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-ocean-600 dark:text-ocean-400">
+                      {u.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {u.name}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{u.email}</p>
+                  </div>
+                  {u.isOnline && (
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </BottomSheet>
     </div>
   );
 }

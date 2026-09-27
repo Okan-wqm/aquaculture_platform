@@ -4,123 +4,30 @@
  */
 
 // ============================================================================
-// Renk Paleti
+// Renk Paleti — theme.css'in TypeScript aynası
 // ============================================================================
 
-export const colors = {
-  // Marka renkleri
-  brand: {
-    50: '#e6f7ff',
-    100: '#bae7ff',
-    200: '#91d5ff',
-    300: '#69c0ff',
-    400: '#40a9ff',
-    500: '#1890ff', // Ana marka rengi
-    600: '#096dd9',
-    700: '#0050b3',
-    800: '#003a8c',
-    900: '#002766',
-  },
+/**
+ * WHY a TypeScript mirror of theme.css: every `bg-primary-*` / `text-error-*`
+ * utility resolves from the `@theme` block, but a CSS class cannot reach a
+ * chart stroke, an SVG fill, a canvas or a default role colour. Those read
+ * this object instead of writing raw hex, and
+ * `tests/invariants/web-theme-token-parity.spec.ts` fails the build when the
+ * two drift, so "using the tokens" can never mean using a second palette.
+ *
+ * WHY the values live in `@aquaculture/shared-contracts`: a NestJS service
+ * cannot import a browser module, so the three HTML e-mail builders each grew
+ * a private palette — the brand blue was `#0066cc` in one and `#3B82F6` in
+ * another (FE-MEDIUM-093). The mirror moved to that zero-dependency lib; both
+ * stacks now read the same bytes and this module re-exports them, so every
+ * `import { colors } from '../styles/theme'` keeps working.
+ */
+import { colors } from '@aquaculture/shared-contracts';
 
-  // Gri tonları
-  // WCAG 2.1 AA: gray.400 bumped from #bfbfbf (1.9:1 on white) to #6b7280
-  // (4.6:1 on white) to meet 4.5:1 minimum for normal text (FE-MEDIUM-024).
-  gray: {
-    50: '#fafafa',
-    100: '#f5f5f5',
-    200: '#e8e8e8',
-    300: '#d9d9d9',
-    400: '#6b7280',
-    500: '#8c8c8c',
-    600: '#595959',
-    700: '#434343',
-    800: '#262626',
-    900: '#1f1f1f',
-  },
+export { colors };
+export type { ColorTokens } from '@aquaculture/shared-contracts';
 
-  // Yeşil - Başarı durumları
-  green: {
-    50: '#f6ffed',
-    100: '#d9f7be',
-    200: '#b7eb8f',
-    300: '#95de64',
-    400: '#73d13d',
-    500: '#52c41a', // Başarı rengi
-    600: '#389e0d',
-    700: '#237804',
-    800: '#135200',
-    900: '#092b00',
-  },
-
-  // Kırmızı - Hata durumları
-  red: {
-    50: '#fff1f0',
-    100: '#ffccc7',
-    200: '#ffa39e',
-    300: '#ff7875',
-    400: '#ff4d4f',
-    500: '#f5222d', // Hata rengi
-    600: '#cf1322',
-    700: '#a8071a',
-    800: '#820014',
-    900: '#5c0011',
-  },
-
-  // Sarı - Uyarı durumları
-  yellow: {
-    50: '#fffbe6',
-    100: '#fff1b8',
-    200: '#ffe58f',
-    300: '#ffd666',
-    400: '#ffc53d',
-    500: '#faad14', // Uyarı rengi
-    600: '#d48806',
-    700: '#ad6800',
-    800: '#874d00',
-    900: '#613400',
-  },
-
-  // Mavi - Bilgi durumları
-  blue: {
-    50: '#e6f7ff',
-    100: '#bae7ff',
-    200: '#91d5ff',
-    300: '#69c0ff',
-    400: '#40a9ff',
-    500: '#1890ff', // Bilgi rengi
-    600: '#096dd9',
-    700: '#0050b3',
-    800: '#003a8c',
-    900: '#002766',
-  },
-
-  // Turkuaz - Su teması için özel
-  aqua: {
-    50: '#e6fffb',
-    100: '#b5f5ec',
-    200: '#87e8de',
-    300: '#5cdbd3',
-    400: '#36cfc9',
-    500: '#13c2c2', // Su rengi
-    600: '#08979c',
-    700: '#006d75',
-    800: '#00474f',
-    900: '#002329',
-  },
-
-  // Semantik renkler
-  semantic: {
-    success: '#52c41a',
-    warning: '#faad14',
-    error: '#f5222d',
-    info: '#1890ff',
-  },
-
-  // Temel renkler
-  white: '#ffffff',
-  black: '#000000',
-  transparent: 'transparent',
-} as const;
+export { chartPalette, chartChrome } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Tipografi
@@ -128,20 +35,21 @@ export const colors = {
 
 export const typography = {
   fontFamily: {
-    sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    mono: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+    sans: 'Inter, system-ui, -apple-system, sans-serif',
+    mono: "'Geist Mono', ui-monospace, Consolas, monospace",
+    display: "'Instrument Serif', ui-serif, Georgia, serif",
   },
 
   fontSize: {
-    xs: '0.75rem',     // 12px
-    sm: '0.875rem',    // 14px
-    base: '1rem',      // 16px
-    lg: '1.125rem',    // 18px
-    xl: '1.25rem',     // 20px
-    '2xl': '1.5rem',   // 24px
+    xs: '0.75rem', // 12px
+    sm: '0.875rem', // 14px
+    base: '1rem', // 16px
+    lg: '1.125rem', // 18px
+    xl: '1.25rem', // 20px
+    '2xl': '1.5rem', // 24px
     '3xl': '1.875rem', // 30px
-    '4xl': '2.25rem',  // 36px
-    '5xl': '3rem',     // 48px
+    '4xl': '2.25rem', // 36px
+    '5xl': '3rem', // 48px
   },
 
   fontWeight: {
@@ -179,28 +87,28 @@ export const typography = {
 
 export const spacing = {
   0: '0',
-  0.5: '0.125rem',  // 2px
-  1: '0.25rem',     // 4px
-  1.5: '0.375rem',  // 6px
-  2: '0.5rem',      // 8px
-  2.5: '0.625rem',  // 10px
-  3: '0.75rem',     // 12px
-  3.5: '0.875rem',  // 14px
-  4: '1rem',        // 16px
-  5: '1.25rem',     // 20px
-  6: '1.5rem',      // 24px
-  7: '1.75rem',     // 28px
-  8: '2rem',        // 32px
-  9: '2.25rem',     // 36px
-  10: '2.5rem',     // 40px
-  11: '2.75rem',    // 44px
-  12: '3rem',       // 48px
-  14: '3.5rem',     // 56px
-  16: '4rem',       // 64px
-  20: '5rem',       // 80px
-  24: '6rem',       // 96px
-  28: '7rem',       // 112px
-  32: '8rem',       // 128px
+  0.5: '0.125rem', // 2px
+  1: '0.25rem', // 4px
+  1.5: '0.375rem', // 6px
+  2: '0.5rem', // 8px
+  2.5: '0.625rem', // 10px
+  3: '0.75rem', // 12px
+  3.5: '0.875rem', // 14px
+  4: '1rem', // 16px
+  5: '1.25rem', // 20px
+  6: '1.5rem', // 24px
+  7: '1.75rem', // 28px
+  8: '2rem', // 32px
+  9: '2.25rem', // 36px
+  10: '2.5rem', // 40px
+  11: '2.75rem', // 44px
+  12: '3rem', // 48px
+  14: '3.5rem', // 56px
+  16: '4rem', // 64px
+  20: '5rem', // 80px
+  24: '6rem', // 96px
+  28: '7rem', // 112px
+  32: '8rem', // 128px
 } as const;
 
 // ============================================================================
@@ -209,13 +117,13 @@ export const spacing = {
 
 export const borderRadius = {
   none: '0',
-  sm: '0.125rem',   // 2px
+  sm: '0.125rem', // 2px
   DEFAULT: '0.25rem', // 4px
-  md: '0.375rem',   // 6px
-  lg: '0.5rem',     // 8px
-  xl: '0.75rem',    // 12px
-  '2xl': '1rem',    // 16px
-  '3xl': '1.5rem',  // 24px
+  md: '0.375rem', // 6px
+  lg: '0.5rem', // 8px
+  xl: '0.75rem', // 12px
+  '2xl': '1rem', // 16px
+  '3xl': '1.5rem', // 24px
   full: '9999px',
 } as const;
 
@@ -299,49 +207,5 @@ export const theme = {
 } as const;
 
 export type Theme = typeof theme;
-
-// ============================================================================
-// Karanlık Tema Renkleri
-// ============================================================================
-
-export const darkColors = {
-  ...colors,
-  // Karanlık tema için ters çevrilmiş gri tonları
-  gray: {
-    50: '#1f1f1f',
-    100: '#262626',
-    200: '#434343',
-    300: '#595959',
-    400: '#8c8c8c',
-    500: '#bfbfbf',
-    600: '#d9d9d9',
-    700: '#e8e8e8',
-    800: '#f5f5f5',
-    900: '#fafafa',
-  },
-} as const;
-
-// ============================================================================
-// CSS Değişkenleri Üreteci
-// ============================================================================
-
-export function generateCSSVariables(isDark = false): string {
-  const colorSet = isDark ? darkColors : colors;
-
-  const cssVars: string[] = [];
-
-  // Renkleri CSS değişkenlerine dönüştür
-  Object.entries(colorSet).forEach(([colorName, colorValues]) => {
-    if (typeof colorValues === 'string') {
-      cssVars.push(`--color-${colorName}: ${colorValues}`);
-    } else {
-      Object.entries(colorValues).forEach(([shade, value]) => {
-        cssVars.push(`--color-${colorName}-${shade}: ${value}`);
-      });
-    }
-  });
-
-  return cssVars.join(';\n');
-}
 
 export default theme;

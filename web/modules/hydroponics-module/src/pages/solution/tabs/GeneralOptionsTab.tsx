@@ -94,7 +94,7 @@ const GeneralOptionsTab: React.FC = () => {
               />
             </div>
           ) : (
-            <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+            <div className="mb-3 px-3 py-2 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-700 dark:text-warning-300">
               Starter stage uses Standard NS formula automatically.
             </div>
           )}
@@ -131,7 +131,7 @@ const GeneralOptionsTab: React.FC = () => {
               of setField with an 'as any' cast. setField on readjustmentSettings was spreading
               undefined when nsType !== 'adjusting', silently producing partial objects. */}
           {visibility.showFirstReadjustment && mode.nsType === 'adjusting' && (
-            <div className="pt-3 border-t border-gray-100">
+            <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
               <Checkbox
                 label="Is this the first readjustment?"
                 checked={settings.readjustmentSettings?.isFirstReadjustment ?? true}
@@ -197,11 +197,13 @@ const GeneralOptionsTab: React.FC = () => {
 
           {/* Closed system extra fields */}
           {visibility.showTargetDrainagePercent && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-gray-700">
               <NumberInput
                 label="Target Drainage %"
                 value={g.serviceDefinition.targetDrainagePercent}
-                onChange={(e) => updateService('targetDrainagePercent', parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateService('targetDrainagePercent', parseFloat(e.target.value) || 0)
+                }
                 unit="%"
                 min={0}
                 max={100}
@@ -210,7 +212,9 @@ const GeneralOptionsTab: React.FC = () => {
                 <NumberInput
                   label="Current Drainage EC"
                   value={g.serviceDefinition.currentDrainageEc}
-                  onChange={(e) => updateService('currentDrainageEc', parseFloat(e.target.value) || 0)}
+                  onChange={(e) =>
+                    updateService('currentDrainageEc', parseFloat(e.target.value) || 0)
+                  }
                   unit="mS/cm"
                   min={0}
                   max={15}
@@ -326,7 +330,7 @@ const GeneralOptionsTab: React.FC = () => {
             purityPercent={g.fertilizerOptions.chloride.purityPercent}
             onPurityChange={(v) => updateFertilizer('chloride', 'purityPercent', v)}
           />
-          <div className="pt-3 border-t border-gray-100 mt-3">
+          <div className="pt-3 border-t border-gray-100 dark:border-gray-700 mt-3">
             <Checkbox
               label="Use Ammonium Nitrate (NH4NO3)"
               checked={g.fertilizerOptions.useAmmoniumNitrate}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -9,13 +10,13 @@ export const AlarmListConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Title</label>
-        <input
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
+        <Input
+          fullWidth
           type="text"
           value={config.title || ''}
           onChange={(e) => onChange({ title: e.target.value })}
           placeholder="Alarm List"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div className="flex items-center gap-2">
@@ -24,9 +25,11 @@ export const AlarmListConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
           id="showActive"
           checked={config.showActive ?? true}
           onChange={(e) => onChange({ showActive: e.target.checked })}
-          className="text-cyan-600 rounded focus:ring-cyan-500"
+          className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
         />
-        <label htmlFor="showActive" className="text-sm text-gray-700">Show active alarms only</label>
+        <label htmlFor="showActive" className="text-sm text-gray-700 dark:text-gray-300">
+          Show active alarms only
+        </label>
       </div>
     </div>
   );

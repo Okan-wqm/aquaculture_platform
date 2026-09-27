@@ -17,9 +17,17 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import {
-  X, Search, ChevronRight, ChevronDown, Package,
-  Plus, Hash, Tag, Layers,
+  X,
+  Search,
+  ChevronRight,
+  ChevronDown,
+  Package,
+  Plus,
+  Hash,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import {
   FUXA_WIDGET_CATALOG,
@@ -65,10 +73,7 @@ function fuzzyMatch(query: string, target: string): boolean {
  * Returns true if the query matches the name, tags, category,
  * subcategory, or description.
  */
-function matchesQuery(
-  entry: FuxaWidgetCatalogEntry,
-  query: string,
-): boolean {
+function matchesQuery(entry: FuxaWidgetCatalogEntry, query: string): boolean {
   if (!query.trim()) return true;
   const q = query.trim();
 
@@ -115,8 +120,8 @@ const CategoryTree: React.FC<{
         onClick={() => onSelectCategory(null, null)}
         className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${
           selectedCategory === null
-            ? 'bg-cyan-50 text-cyan-700 font-semibold'
-            : 'text-gray-600 hover:bg-gray-100'
+            ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
+            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
         }`}
       >
         All Categories
@@ -127,28 +132,29 @@ const CategoryTree: React.FC<{
           <div className="flex items-center">
             {/* Expand/collapse toggle */}
             {cat.children.length > 0 && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => toggle(cat.name)}
-                className="p-0.5 text-gray-400 hover:text-gray-600"
                 aria-label={`Toggle ${cat.name}`}
               >
-                {expanded.has(cat.name)
-                  ? <ChevronDown className="w-3 h-3" />
-                  : <ChevronRight className="w-3 h-3" />
-                }
-              </button>
+                {expanded.has(cat.name) ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+              </Button>
             )}
             {/* Category button */}
             <button
               onClick={() => onSelectCategory(cat.name, null)}
               className={`flex-1 text-left px-2 py-1.5 text-xs rounded transition-colors ${
                 selectedCategory === cat.name && selectedSubcategory === null
-                  ? 'bg-cyan-50 text-cyan-700 font-semibold'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
               {cat.name}
-              <span className="ml-1 text-gray-400">({cat.count})</span>
+              <span className="ml-1 text-gray-400 dark:text-gray-500">({cat.count})</span>
             </button>
           </div>
 
@@ -161,8 +167,8 @@ const CategoryTree: React.FC<{
                   onClick={() => onSelectCategory(cat.name, sub)}
                   className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
                     selectedCategory === cat.name && selectedSubcategory === sub
-                      ? 'bg-cyan-50 text-cyan-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   {sub}
@@ -189,17 +195,19 @@ const WidgetCard: React.FC<{
     onClick={onClick}
     className={`w-full text-left p-3 rounded-lg border transition-all ${
       isSelected
-        ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-400'
-        : 'border-gray-200 bg-white hover:border-cyan-300 hover:bg-gray-50'
+        ? 'border-info-400 bg-info-50 dark:bg-info-900/20 ring-1 ring-info-400'
+        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
     }`}
     data-testid={`fuxa-widget-card-${entry.id}`}
   >
     {/* Placeholder icon area */}
-    <div className="w-full h-16 bg-gray-100 rounded flex items-center justify-center mb-2">
-      <Package className="w-8 h-8 text-gray-400" />
+    <div className="w-full h-16 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center mb-2">
+      <Package className="w-8 h-8 text-gray-400 dark:text-gray-500" />
     </div>
-    <div className="text-xs font-medium text-gray-900 truncate">{entry.name}</div>
-    <div className="text-[10px] text-gray-500 truncate mt-0.5">
+    <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+      {entry.name}
+    </div>
+    <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
       {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
     </div>
   </button>
@@ -214,18 +222,16 @@ const DetailPanel: React.FC<{
   onAdd: () => void;
 }> = ({ entry, onAdd }) => (
   <div
-    className="border-t border-gray-200 bg-gray-50 px-4 py-3"
+    className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3"
     data-testid="fuxa-detail-panel"
   >
     <div className="flex items-start justify-between gap-3">
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-semibold text-gray-900">{entry.name}</h4>
-        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.name}</h4>
+        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <Layers className="w-3 h-3" />
-            {entry.subcategory
-              ? `${entry.category} > ${entry.subcategory}`
-              : entry.category}
+            {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
           </span>
           <span className="flex items-center gap-1">
             <Hash className="w-3 h-3" />
@@ -236,13 +242,13 @@ const DetailPanel: React.FC<{
             Tier {entry.tier}
           </span>
         </div>
-        <p className="text-xs text-gray-600 mt-1.5">{entry.description}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1.5">{entry.description}</p>
         {entry.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {entry.tags.map((t) => (
               <span
                 key={t}
-                className="px-1.5 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded"
+                className="px-1.5 py-0.5 text-[10px] bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
               >
                 {t}
               </span>
@@ -250,14 +256,15 @@ const DetailPanel: React.FC<{
           </div>
         )}
       </div>
-      <button
+      <Button
+        variant="primary"
+        className="flex-shrink-0"
+        leftIcon={<Plus className="w-4 h-4" />}
         onClick={onAdd}
-        className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 transition-colors"
         data-testid="fuxa-add-to-canvas"
       >
-        <Plus className="w-4 h-4" />
         Add to Canvas
-      </button>
+      </Button>
     </div>
   </div>
 );
@@ -277,13 +284,9 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
   const [selectedWidget, setSelectedWidget] = useState<FuxaWidgetCatalogEntry | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
 
   // Build category tree from catalog
-  const categoryTree = useMemo(
-    () => buildCategoryTree(FUXA_WIDGET_CATALOG),
-    [],
-  );
+  const categoryTree = useMemo(() => buildCategoryTree(FUXA_WIDGET_CATALOG), []);
 
   // Filter catalog based on search query and selected category
   const filteredWidgets = useMemo(() => {
@@ -314,17 +317,11 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
     }
   }, [open]);
 
-  // Keyboard handler: Escape closes, Arrow keys navigate
+  // Keyboard handler: Enter adds, Arrow keys navigate (Escape belongs to the Modal)
   useEffect(() => {
     if (!open) return;
 
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-
       // Enter adds the selected widget
       if (e.key === 'Enter' && selectedWidget) {
         e.preventDefault();
@@ -357,21 +354,15 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose, onSelect, selectedWidget, filteredWidgets]);
 
-  const handleCategorySelect = useCallback(
-    (cat: string | null, sub: string | null) => {
-      setSelectedCategory(cat);
-      setSelectedSubcategory(sub);
-      setSelectedWidget(null);
-    },
-    [],
-  );
+  const handleCategorySelect = useCallback((cat: string | null, sub: string | null) => {
+    setSelectedCategory(cat);
+    setSelectedSubcategory(sub);
+    setSelectedWidget(null);
+  }, []);
 
-  const handleWidgetSelect = useCallback(
-    (entry: FuxaWidgetCatalogEntry) => {
-      setSelectedWidget(entry);
-    },
-    [],
-  );
+  const handleWidgetSelect = useCallback((entry: FuxaWidgetCatalogEntry) => {
+    setSelectedWidget(entry);
+  }, []);
 
   const handleAdd = useCallback(() => {
     if (selectedWidget) {
@@ -383,111 +374,90 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={(e) => {
-        // Close when clicking the backdrop
-        if (e.target === e.currentTarget) onClose();
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="FUXA Widget Library"
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      className="h-[640px] max-h-[90vh] flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
+      title={
+        <span className="flex items-center gap-2">
+          <Package className="w-4 h-4 text-info-600 dark:text-info-400" />
+          <span>FUXA Widget Library</span>
+        </span>
+      }
+      description={`${FUXA_WIDGET_CATALOG.length} widgets`}
     >
-      <div
-        ref={modalRef}
-        className="bg-white rounded-xl shadow-2xl flex flex-col"
-        style={{ width: 900, height: 640, maxWidth: '95vw', maxHeight: '90vh' }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-            <Package className="w-4 h-4 text-cyan-600" />
-            FUXA Widget Library
-            <span className="text-xs font-normal text-gray-500">
-              ({FUXA_WIDGET_CATALOG.length} widgets)
-            </span>
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
-            aria-label="Close"
-            data-testid="fuxa-browser-close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+      {/* Search bar */}
+      <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none" />
+          <input
+            ref={searchRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search widgets by name, tag, or category..."
+            className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
+            data-testid="fuxa-search-input"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Close"
+              className="absolute right-3 top-1/2"
+              onClick={() => setSearchQuery('')}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
         </div>
-
-        {/* Search bar */}
-        <div className="px-4 py-2 border-b border-gray-100">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-            <input
-              ref={searchRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search widgets by name, tag, or category..."
-              className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              data-testid="fuxa-search-input"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 text-gray-400"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Body: category tree + widget grid */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Left sidebar: category tree */}
-          <div className="w-48 flex-shrink-0 border-r border-gray-200 overflow-y-auto py-2 px-2">
-            <CategoryTree
-              categories={categoryTree}
-              selectedCategory={selectedCategory}
-              selectedSubcategory={selectedSubcategory}
-              onSelectCategory={handleCategorySelect}
-            />
-          </div>
-
-          {/* Right content: widget grid */}
-          <div className="flex-1 overflow-y-auto p-3">
-            {filteredWidgets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <Package className="w-10 h-10 text-gray-300 mb-2" />
-                <p className="text-sm">No widgets match your search</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Try different keywords or select a different category
-                </p>
-              </div>
-            ) : (
-              <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
-                data-testid="fuxa-widget-grid"
-              >
-                {filteredWidgets.map((entry) => (
-                  <WidgetCard
-                    key={entry.id}
-                    entry={entry}
-                    isSelected={selectedWidget?.id === entry.id}
-                    onClick={() => handleWidgetSelect(entry)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer: selected widget detail panel */}
-        {selectedWidget && (
-          <DetailPanel entry={selectedWidget} onAdd={handleAdd} />
-        )}
       </div>
-    </div>
+
+      {/* Body: category tree + widget grid */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left sidebar: category tree */}
+        <div className="w-48 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-y-auto py-2 px-2">
+          <CategoryTree
+            categories={categoryTree}
+            selectedCategory={selectedCategory}
+            selectedSubcategory={selectedSubcategory}
+            onSelectCategory={handleCategorySelect}
+          />
+        </div>
+
+        {/* Right content: widget grid */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {filteredWidgets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+              <Package className="w-10 h-10 text-gray-300 mb-2" />
+              <p className="text-sm">No widgets match your search</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Try different keywords or select a different category
+              </p>
+            </div>
+          ) : (
+            <div
+              className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]"
+              data-testid="fuxa-widget-grid"
+            >
+              {filteredWidgets.map((entry) => (
+                <WidgetCard
+                  key={entry.id}
+                  entry={entry}
+                  isSelected={selectedWidget?.id === entry.id}
+                  onClick={() => handleWidgetSelect(entry)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer: selected widget detail panel */}
+      {selectedWidget && <DetailPanel entry={selectedWidget} onAdd={handleAdd} />}
+    </Modal>
   );
 };
 

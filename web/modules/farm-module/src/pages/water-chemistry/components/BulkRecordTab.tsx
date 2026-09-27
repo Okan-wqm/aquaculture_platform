@@ -34,14 +34,15 @@
  *    backend (resolver `@Roles`) catches anything that slips past.
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  DynamicParameterFields,
-  collectDynamicValues,
-} from '@aquaculture/farm-shared';
+import { DynamicParameterFields, collectDynamicValues } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 import {
   formatErrorForToast,
   useToast,
+  Button,
+  Input,
+  Select,
+  Textarea,
 } from '@aquaculture/shared-ui';
 
 import { useEquipmentList } from '../../../hooks/useEquipment';
@@ -100,12 +101,7 @@ interface BulkRowEditorProps {
   onRemove: () => void;
 }
 
-const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
-  row,
-  equipment,
-  onChange,
-  onRemove,
-}) => {
+const BulkRowEditor: React.FC<BulkRowEditorProps> = ({ row, equipment, onChange, onRemove }) => {
   const configsQuery = useEquipmentParameterConfigs(row.equipmentId);
   const parameters: ParameterFieldConfig[] = configsQuery.data ?? [];
 
@@ -148,35 +144,38 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
   }, [parameters, row.rawValues]);
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-900 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-gray-900">{equipment.name}</h3>
-          <p className="text-xs text-gray-500">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{equipment.name}</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {equipment.code}
             {equipment.equipmentType?.name && ` · ${equipment.equipmentType.name}`}
             {equipment.department?.name && ` · ${equipment.department.name}`}
           </p>
         </div>
-        <button
+        <Button
+          variant="ghost"
           type="button"
           onClick={onRemove}
-          className="text-red-600 hover:text-red-800 text-sm"
           aria-label={`${equipment.name} ekipmanını gruptan çıkar`}
         >
           Çıkar
-        </button>
+        </Button>
       </div>
 
       {configsQuery.isLoading ? (
-        <p className="text-sm text-gray-500">Parametre yapılandırması yükleniyor…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Parametre yapılandırması yükleniyor…
+        </p>
       ) : configsQuery.isError ? (
-        <p className="text-sm text-red-600">
+        <p className="text-sm text-error-600 dark:text-error-400">
           Parametre yapılandırması yüklenemedi.
         </p>
       ) : parameters.length === 0 ? (
-        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-          Bu ekipmana atanmış parametre yok — Parametreler sekmesinden bir konfigürasyon eşlemesi yapın.
+        <p className="text-sm text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded p-2">
+          Bu ekipmana atanmış parametre yok — Parametreler sekmesinden bir konfigürasyon eşlemesi
+          yapın.
         </p>
       ) : (
         <DynamicParameterFields
@@ -192,25 +191,25 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
       <div>
         <label
           htmlFor={`bulk-notes-${row.idempotencyKey}`}
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           Notlar
         </label>
-        <textarea
+        <Textarea
+          fullWidth
           id={`bulk-notes-${row.idempotencyKey}`}
           value={row.notes}
           onChange={handleNotesChange}
           maxLength={NOTES_MAX}
           rows={2}
-          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
         />
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           {row.notes.length} / {NOTES_MAX}
         </p>
       </div>
 
       {missingRequired.length > 0 && (
-        <p className="text-xs text-red-600">
+        <p className="text-xs text-error-600 dark:text-error-400">
           Eksik zorunlu alan: {missingRequired.join(', ')}
         </p>
       )}
@@ -223,7 +222,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
 // ============================================================================
 
 function toLocalDateTimeInputValue(d: Date): string {
-  // <input type="datetime-local"> uses YYYY-MM-DDTHH:mm in *local* time.
+  // <Input type="datetime-local" /> uses YYYY-MM-DDTHH:mm in *local* time.
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -236,9 +235,7 @@ export const BulkRecordTab: React.FC = () => {
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
 
   const equipmentQuery = useEquipmentList(
-    selectedSystemId
-      ? { isActive: true, systemId: selectedSystemId }
-      : { isActive: true },
+    selectedSystemId ? { isActive: true, systemId: selectedSystemId } : { isActive: true },
   );
   const equipment: readonly Equipment[] = useMemo(
     () => equipmentQuery.data?.items ?? [],
@@ -255,10 +252,7 @@ export const BulkRecordTab: React.FC = () => {
   const [rows, setRows] = useState<BulkRow[]>([]);
 
   // Equipment available for adding (not already in rows)
-  const usedEquipmentIds = useMemo(
-    () => new Set(rows.map((r) => r.equipmentId)),
-    [rows],
-  );
+  const usedEquipmentIds = useMemo(() => new Set(rows.map((r) => r.equipmentId)), [rows]);
   const availableEquipment = useMemo(
     () => equipment.filter((e) => !usedEquipmentIds.has(e.id)),
     [equipment, usedEquipmentIds],
@@ -294,9 +288,7 @@ export const BulkRecordTab: React.FC = () => {
   }, [availableEquipment]);
 
   const handleRowChange = useCallback((equipmentId: string, next: BulkRow) => {
-    setRows((prev) =>
-      prev.map((r) => (r.equipmentId === equipmentId ? next : r)),
-    );
+    setRows((prev) => prev.map((r) => (r.equipmentId === equipmentId ? next : r)));
   }, []);
 
   const handleRowRemove = useCallback((equipmentId: string) => {
@@ -394,97 +386,96 @@ export const BulkRecordTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Shared header */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Sistem (filtre)
-          </label>
-          <select
+          <Select
+            label="Sistem (filtre)"
             value={selectedSystemId ?? ''}
             onChange={(e) => setSelectedSystemId(e.target.value || null)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
-          >
-            <option value="">Tümü</option>
-            {(systemsQuery.data?.items ?? []).map((sys) => (
-              <option key={sys.id} value={sys.id}>
-                {sys.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Ölçüm Tarihi/Saati
-          </label>
-          <input
-            type="datetime-local"
-            value={measuredAtLocal}
-            onChange={(e) => setMeasuredAtLocal(e.target.value)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+            options={[
+              { value: '', label: 'Tümü' },
+              ...(systemsQuery.data?.items ?? []).map((sys) => ({
+                value: sys.id,
+                label: sys.name,
+              })),
+            ]}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Ölçüm Tarihi/Saati
+          </label>
+          <Input
+            fullWidth
+            type="datetime-local"
+            value={measuredAtLocal}
+            onChange={(e) => setMeasuredAtLocal(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Kaynak
           </label>
-          <select
+          <Select
+            fullWidth
+            options={[
+              { value: 'MANUAL', label: 'Manuel' },
+              { value: 'LAB_ANALYSIS', label: 'Laboratuvar' },
+              { value: 'SENSOR_AUTOMATIC', label: 'Sensör (otomatik)' },
+              { value: 'SENSOR_TRIGGERED', label: 'Sensör (tetikli)' },
+              { value: 'CALIBRATION', label: 'Kalibrasyon' },
+            ]}
             value={source}
             onChange={(e) => setSource(e.target.value as MeasurementSource)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
-          >
-            <option value="MANUAL">Manuel</option>
-            <option value="LAB_ANALYSIS">Laboratuvar</option>
-            <option value="SENSOR_AUTOMATIC">Sensör (otomatik)</option>
-            <option value="SENSOR_TRIGGERED">Sensör (tetikli)</option>
-            <option value="CALIBRATION">Kalibrasyon</option>
-          </select>
+          />
         </div>
       </section>
 
       {/* Equipment picker */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[260px]">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Ekipman ekle
-            </label>
-            <select
+            <Select
+              label="Ekipman ekle"
               value=""
               onChange={(e) => handleAddEquipment(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
               disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
-            >
-              <option value="">
-                {availableEquipment.length === 0
-                  ? 'Eklenebilecek ekipman yok'
-                  : 'Bir ekipman seç…'}
-              </option>
-              {availableEquipment.map((eq) => (
-                <option key={eq.id} value={eq.id}>
-                  {eq.name} ({eq.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label:
+                    availableEquipment.length === 0
+                      ? 'Eklenebilecek ekipman yok'
+                      : 'Bir ekipman seç…',
+                },
+                ...availableEquipment.map((eq) => ({
+                  value: eq.id,
+                  label: `${eq.name} (${eq.code})`,
+                })),
+              ]}
+            />
           </div>
           <button
             type="button"
             onClick={handleAddAllVisible}
             disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
-            className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-md disabled:opacity-50"
+            className="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-md disabled:opacity-50"
           >
             Görünür hepsini ekle
           </button>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
             onClick={handleClear}
             disabled={rows.length === 0}
-            className="px-3 py-2 text-sm text-red-700 hover:bg-red-50 border border-red-200 rounded-md disabled:opacity-50"
           >
             Temizle
-          </button>
+          </Button>
         </div>
-        <p className="text-xs text-gray-500">
-          {rows.length} / {MAX_BATCH_SIZE} ekipman seçildi · Tüm satırlar tek transaction'da yazılır.
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {rows.length} / {MAX_BATCH_SIZE} ekipman seçildi · Tüm satırlar tek transaction'da
+          yazılır.
         </p>
       </section>
 
@@ -496,16 +487,16 @@ export const BulkRecordTab: React.FC = () => {
             return (
               <div
                 key={row.equipmentId}
-                className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-sm text-amber-800"
+                className="border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 text-sm text-warning-800 dark:text-warning-200"
               >
                 Ekipman bulunamadı: {row.equipmentId} —{' '}
-                <button
+                <Button
+                  variant="ghost"
                   type="button"
                   onClick={() => handleRowRemove(row.equipmentId)}
-                  className="underline hover:no-underline"
                 >
                   satırı çıkar
-                </button>
+                </Button>
               </div>
             );
           }
@@ -523,16 +514,17 @@ export const BulkRecordTab: React.FC = () => {
 
       {/* Submit */}
       <section className="flex justify-end gap-3 pb-8">
-        <button
+        <Button
+          variant="primary"
+          size="lg"
           type="button"
           onClick={handleSubmit}
           disabled={rows.length === 0 || isSubmitting}
-          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-md text-sm font-medium"
         >
           {isSubmitting
             ? `Kaydediliyor… (${rows.length})`
             : `${rows.length} Ölçümü Tek Transaction'da Gönder`}
-        </button>
+        </Button>
       </section>
     </div>
   );

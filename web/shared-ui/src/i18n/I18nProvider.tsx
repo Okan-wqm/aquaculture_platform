@@ -19,21 +19,34 @@
  * @see FE-HIGH-020, FE-HIGH-021, FE-HIGH-022, FE-HIGH-023
  */
 
-import React, { createContext, useContext, useMemo, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
 import { en, type MessageKey } from './locales/en';
 import { tr } from './locales/tr';
+import {
+  applyDocumentLocale,
+  persistLocale,
+  resolveInitialLocale,
+  type SupportedLocale,
+} from './localePreference';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type SupportedLocale = 'en' | 'tr';
+export type { SupportedLocale } from './localePreference';
 
 export interface I18nContextValue {
   /** Current locale */
   locale: SupportedLocale;
   /** Translate a message key, with optional interpolation variables */
   t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+  /**
+   * Switch the UI language. Persists the device preference and updates
+   * `<html lang>`; the shell also writes the account's `preferredLanguage`
+   * through the settings page so the choice follows the user.
+   */
+  setLocale: (locale: SupportedLocale) => void;
 }
 
 // ============================================================================
@@ -44,6 +57,15 @@ const MESSAGES: Record<SupportedLocale, Record<MessageKey, string>> = {
   en,
   tr,
 };
+
+function interpolate(message: string, vars?: Record<string, string | number>): string {
+  if (!vars) return message;
+  let result = message;
+  for (const [varName, value] of Object.entries(vars)) {
+    result = result.replace(new RegExp(`\\{${varName}\\}`, 'g'), String(value));
+  }
+  return result;
+}
 
 // ============================================================================
 // Context
@@ -56,55 +78,43 @@ const I18nContext = createContext<I18nContextValue | undefined>(undefined);
 // ============================================================================
 
 export interface I18nProviderProps {
-  /** The active locale. Default: auto-detect from navigator or fall back to 'tr'. */
+  /**
+   * Pin the locale (tests, a subtree that must render in one language).
+   * Without it the provider resolves the device preference, then the
+   * browser, then Turkish, and `setLocale` switches it at runtime.
+   */
   locale?: SupportedLocale;
   children: React.ReactNode;
 }
 
-/**
- * Detect the browser's preferred locale, falling back to Turkish.
- */
-function detectLocale(): SupportedLocale {
-  if (typeof navigator === 'undefined') return 'tr';
+export const I18nProvider: React.FC<I18nProviderProps> = ({ locale: pinnedLocale, children }) => {
+  const [chosenLocale, setChosenLocale] = useState<SupportedLocale>(() => pinnedLocale ?? resolveInitialLocale());
+  const locale = pinnedLocale ?? chosenLocale;
+  const messages = MESSAGES[locale];
 
-  const browserLang = navigator.language?.split('-')[0]?.toLowerCase();
-  if (browserLang === 'en') return 'en';
-  return 'tr'; // Default to Turkish for this platform
-}
+  // The document language follows the active locale — assistive technology
+  // and hyphenation read it, and the static `<html lang>` is only the value
+  // before hydration.
+  useEffect(() => {
+    applyDocumentLocale(locale);
+  }, [locale]);
 
-export const I18nProvider: React.FC<I18nProviderProps> = ({
-  locale: localeProp,
-  children,
-}) => {
-  const locale = localeProp ?? detectLocale();
-  const messages = MESSAGES[locale] ?? MESSAGES.tr;
+  const setLocale = useCallback((next: SupportedLocale) => {
+    persistLocale(next);
+    setChosenLocale(next);
+  }, []);
 
   /**
-   * Translation function.
-   * Looks up the key in the current locale's message map.
-   * Supports simple variable interpolation: {variableName}.
-   *
-   * @param key - A typed message key (compile-time checked)
-   * @param vars - Optional interpolation variables
-   * @returns The translated string, or the key itself if not found
+   * Translation function: the current locale's message, or the English one
+   * when the key is missing there, with `{variable}` interpolation.
    */
   const t = useCallback(
-    (key: MessageKey, vars?: Record<string, string | number>): string => {
-      let message = messages[key] ?? en[key] ?? key;
-
-      // Simple interpolation: replace {varName} with the value
-      if (vars) {
-        for (const [varName, value] of Object.entries(vars)) {
-          message = message.replace(new RegExp(`\\{${varName}\\}`, 'g'), String(value));
-        }
-      }
-
-      return message;
-    },
+    (key: MessageKey, vars?: Record<string, string | number>): string =>
+      interpolate(messages[key] ?? en[key] ?? key, vars),
     [messages],
   );
 
-  const value = useMemo<I18nContextValue>(() => ({ locale, t }), [locale, t]);
+  const value = useMemo<I18nContextValue>(() => ({ locale, t, setLocale }), [locale, t, setLocale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 };
@@ -116,8 +126,8 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
 /**
  * Access the i18n context.
  *
- * Falls back to English messages if the provider is not mounted
- * (e.g., in tests or MFE contexts without I18nProvider).
+ * Without a provider (tests, a remote rendered in isolation) it answers in
+ * English from the message map and `setLocale` has nothing to switch.
  *
  * @example
  * const { t, locale } = useI18n();
@@ -128,18 +138,10 @@ export function useI18n(): I18nContextValue {
 
   if (context) return context;
 
-  // Fallback for environments without the provider
   return {
     locale: 'en',
-    t: (key: MessageKey, vars?: Record<string, string | number>): string => {
-      let message: string = en[key] ?? key;
-      if (vars) {
-        for (const [varName, value] of Object.entries(vars)) {
-          message = message.replace(new RegExp(`\\{${varName}\\}`, 'g'), String(value));
-        }
-      }
-      return message;
-    },
+    t: (key: MessageKey, vars?: Record<string, string | number>): string => interpolate(en[key] ?? key, vars),
+    setLocale: () => undefined,
   };
 }
 

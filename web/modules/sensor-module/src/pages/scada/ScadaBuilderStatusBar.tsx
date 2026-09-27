@@ -35,7 +35,7 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
   const alarmWidgets = screens.reduce((sum, s) => sum + s.alarmWidgetCount, 0);
 
   return (
-    <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+    <div className="px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
       <div className="flex items-center gap-4">
         <span>Status: Draft</span>
         <span>v1</span>
@@ -52,17 +52,19 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
       </div>
       <div className="flex items-center gap-3">
         {activeScreenId && (
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
           </span>
         )}
         {mode === 'simulation' && (
-          <span className="flex items-center gap-1 text-cyan-500 font-medium">
+          <span className="flex items-center gap-1 text-info-500 font-medium">
             <Zap className="w-3 h-3" />
             Simulation
           </span>
         )}
-        <span className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-cyan-500 animate-pulse' : 'bg-green-500'}`} />
+        <span
+          className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-info-500 animate-pulse' : 'bg-success-500'}`}
+        />
         <span>{mode === 'simulation' ? 'Simulation Active' : 'Ready'}</span>
       </div>
     </div>

@@ -11,7 +11,7 @@
  * kalan kör noktalar" plan.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   CreateSubEquipmentInput,
@@ -178,8 +178,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
       onSuccess?.();
       onClose();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to save sub-equipment.';
+      const message = error instanceof Error ? error.message : 'Failed to save sub-equipment.';
       toast({ title: 'Error', description: message, variant: 'error' });
     }
   };
@@ -198,161 +197,169 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
     >
       <div className="space-y-6">
         {mode === 'create' && (
-          <div>
-            <label htmlFor="sub-eq-type" className="block text-sm font-medium text-gray-700">
-              Type <span className="text-orange-500">*</span>
-            </label>
-            <select
-              id="sub-eq-type"
-              value={form.subEquipmentTypeId}
-              onChange={(e) => set('subEquipmentTypeId', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            >
-              <option value="">— Choose a type —</option>
-              {subEquipmentTypes.data?.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="sub-eq-type"
+            label="Type"
+            required
+            placeholder="— Choose a type —"
+            value={form.subEquipmentTypeId}
+            onChange={(e) => set('subEquipmentTypeId', e.target.value)}
+            options={(subEquipmentTypes.data ?? []).map((t) => ({
+              value: t.id,
+              label: `${t.name} (${t.code})`,
+            }))}
+          />
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-name" className="block text-sm font-medium text-gray-700">
-              Name <span className="text-orange-500">*</span>
+            <label
+              htmlFor="sub-eq-name"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Name <span className="text-accent-500">*</span>
             </label>
-            <input
+            <Input
+              fullWidth
               id="sub-eq-name"
               type="text"
               maxLength={255}
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="sub-eq-code" className="block text-sm font-medium text-gray-700">
-              Code <span className="text-orange-500">*</span>
+            <label
+              htmlFor="sub-eq-code"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Code <span className="text-accent-500">*</span>
             </label>
-            <input
+            <Input
+              fullWidth
               id="sub-eq-code"
               type="text"
               maxLength={50}
               value={form.code}
               onChange={(e) => set('code', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-manufacturer" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="sub-eq-manufacturer"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Manufacturer
             </label>
-            <input
+            <Input
+              fullWidth
               id="sub-eq-manufacturer"
               type="text"
               maxLength={100}
               value={form.manufacturer}
               onChange={(e) => set('manufacturer', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="sub-eq-model" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="sub-eq-model"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Model
             </label>
-            <input
+            <Input
+              fullWidth
               id="sub-eq-model"
               type="text"
               maxLength={100}
               value={form.model}
               onChange={(e) => set('model', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-serial" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="sub-eq-serial"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Serial number
             </label>
-            <input
+            <Input
+              fullWidth
               id="sub-eq-serial"
               type="text"
               maxLength={100}
               value={form.serialNumber}
               onChange={(e) => set('serialNumber', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
-          <div>
-            <label htmlFor="sub-eq-status" className="block text-sm font-medium text-gray-700">
-              Status
-            </label>
-            <select
-              id="sub-eq-status"
-              value={form.status}
-              onChange={(e) => set('status', e.target.value as EquipmentStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="sub-eq-install" className="block text-sm font-medium text-gray-700">
-            Installation date
-          </label>
-          <input
-            id="sub-eq-install"
-            type="date"
-            value={form.installationDate}
-            onChange={(e) => set('installationDate', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+          <Select
+            id="sub-eq-status"
+            label="Status"
+            value={form.status}
+            onChange={(e) => set('status', e.target.value as EquipmentStatus)}
+            options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
           />
         </div>
 
         <div>
-          <label htmlFor="sub-eq-desc" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="sub-eq-install"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Installation date
+          </label>
+          <Input
+            fullWidth
+            id="sub-eq-install"
+            type="date"
+            value={form.installationDate}
+            onChange={(e) => set('installationDate', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="sub-eq-desc"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Description
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="sub-eq-desc"
             rows={2}
             maxLength={1000}
             value={form.description}
             onChange={(e) => set('description', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 
         <div>
-          <label htmlFor="sub-eq-notes" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="sub-eq-notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Notes
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="sub-eq-notes"
             rows={2}
             maxLength={2000}
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 
         {errors.length > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -368,13 +375,9 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || submitting}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
-            {submitting
-              ? 'Saving…'
-              : mode === 'create'
-                ? 'Create sub-equipment'
-                : 'Save changes'}
+            {submitting ? 'Saving…' : mode === 'create' ? 'Create sub-equipment' : 'Save changes'}
           </Button>
         </div>
       </div>

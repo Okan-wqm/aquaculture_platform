@@ -22,9 +22,12 @@ Invariants:
 * I-V31-D3-04 — record gate uses `_MOCK_MODE_AT_ENTRY is False`
   (NOT `_is_mock_mode()` direct read; the frozen sentinel is the
   V3.1-D2 anchor for ai-safety HIGH-007).
-* I-V31-D3-05 — `_record_claude_cli_usage` reads `signer_key_fp`
-  from `ARIA_CYCLE_SIGNER_KEY_FP` env var with `SHA256:no-key`
-  sentinel default (V3.1-D-1 schema compliance).
+* I-V31-D3-05 — `_record_claude_cli_usage` takes `signer_key_fp` as an
+  explicit argument from the one holder of the identity (the executor's
+  `implementation_identity`, ARIA-HIGH-115) with the `SHA256:no-key`
+  sentinel for a role that holds none (V3.1-D-1 schema compliance). It
+  used to read `ARIA_CYCLE_SIGNER_KEY_FP` from the environment, which
+  nothing exported, so every executor row carried the sentinel.
 * I-V31-D3-06 — behavioral: JSONL without usage block → no
   record_cost_attribution call (silent skip; preserves V8 callers
   whose Codex CLI version emits no usage).
@@ -36,7 +39,6 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import os
 import shutil
 import sys
 import tempfile
@@ -104,7 +106,10 @@ class InvokeClaudeCodeSignatureTests(unittest.TestCase):
 
     def test_i_v31_d3_03_main_callsite_threads_request_envelope_and_tools_dir(self) -> None:
         ci_executor = _load_ci_executor()
-        main_src = inspect.getsource(ci_executor.main)
+        # The entry point is a two-layer function since ARIA-HIGH-095: `main`
+        # holds the ExitStack that releases a held claim on every exit and
+        # `_main` holds the body this invariant reads.
+        main_src = inspect.getsource(ci_executor._main)
         self.assertIn("request_envelope=request_envelope", main_src,
                       "main() does not thread request_envelope to invoke_claude_cli")
         self.assertIn("tools_dir=tools_dir", main_src,
@@ -128,16 +133,27 @@ class FrozenSentinelGateTests(unittest.TestCase):
         self.assertTrue(hasattr(ci_executor, "_MOCK_MODE_AT_ENTRY"))
 
 
-class SignerKeyFpEnvTests(unittest.TestCase):
-    """Plan ARIA-V3.1-D3-05 — signer_key_fp env var threading."""
+class SignerKeyFpThreadingTests(unittest.TestCase):
+    """Plan ARIA-V3.1-D3-05 / ARIA-HIGH-115 — signer_key_fp is passed by its
+    holder, never read from the environment."""
 
-    def test_i_v31_d3_05_signer_key_fp_from_env(self) -> None:
+    def test_i_v31_d3_05_signer_key_fp_is_an_explicit_argument(self) -> None:
         ci_executor = _load_ci_executor()
+        self.assertIn("signer_key_fp", inspect.signature(ci_executor._record_claude_cli_usage).parameters)
+        self.assertIn("signer_key_fp", inspect.signature(ci_executor.invoke_claude_cli).parameters)
         src = inspect.getsource(ci_executor._record_claude_cli_usage)
-        self.assertIn("ARIA_CYCLE_SIGNER_KEY_FP", src,
-                      "_record_claude_cli_usage missing signer_key_fp env read")
-        # Sentinel default for non-autonomous cycles.
+        self.assertNotIn("ARIA_CYCLE_SIGNER_KEY_FP", src,
+                         "the fingerprint has one source, the executor-held identity — not an env var")
+        self.assertNotIn("os.environ", src)
+        # Sentinel for a role that holds no key.
         self.assertIn("SHA256:no-key", src)
+        # The legacy spawn passes what it was handed; the three native
+        # invokers accept the same keyword so the dispatch table stays uniform.
+        self.assertIn("signer_key_fp=signer_key_fp", inspect.getsource(ci_executor.invoke_claude_cli))
+        for invoker in (ci_executor._invoke_native_codex, ci_executor._invoke_native_zai,
+                        ci_executor._invoke_native_claude):
+            self.assertIn("signer_key_fp", inspect.signature(invoker).parameters, invoker.__name__)
+            self.assertIn("signer_key_fp=signer_key_fp", inspect.getsource(invoker), invoker.__name__)
 
 
 class CostRecordBehavioralTests(unittest.TestCase):
@@ -146,14 +162,8 @@ class CostRecordBehavioralTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="v31d3-")).resolve()
         self.base = self.tmp / "aria-tools"
-        # Snapshot env so test mutations don't leak.
-        self._saved_signer = os.environ.get("ARIA_CYCLE_SIGNER_KEY_FP")
 
     def tearDown(self) -> None:
-        if self._saved_signer is None:
-            os.environ.pop("ARIA_CYCLE_SIGNER_KEY_FP", None)
-        else:
-            os.environ["ARIA_CYCLE_SIGNER_KEY_FP"] = self._saved_signer
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_i_v31_d3_06_wrapper_without_usage_skips_record(self) -> None:
@@ -180,7 +190,6 @@ class CostRecordBehavioralTests(unittest.TestCase):
         called with the threaded fields."""
         import json as _json
         ci_executor = _load_ci_executor()
-        os.environ["ARIA_CYCLE_SIGNER_KEY_FP"] = "SHA256:test-fp-123"
         events = [
             {"type": "message", "text": "...", "model": "gpt-5.3-codex"},
             {"type": "turn_completed", "usage": {"input_tokens": 1500, "output_tokens": 750}},
@@ -204,6 +213,7 @@ class CostRecordBehavioralTests(unittest.TestCase):
                 tools_dir=self.base,
                 role="primary_plan",
                 request_id="req-real-1",
+                signer_key_fp="SHA256:test-fp-123",
             )
         self.assertEqual(captured["cycle_id"], "cyc-real-001")
         self.assertEqual(captured["plan_id"], "plan-real-001")

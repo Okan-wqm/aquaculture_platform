@@ -8,6 +8,7 @@ from typing import Any
 from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
 from .agent_routing import ROUTING_TABLE_REL, unowned_projects
+from .candidate_blocks import GENESIS_ADJUDICATION_REQUIRED
 from .fitness import list_fitness_reports
 from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
@@ -111,7 +112,9 @@ def list_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str
 # this token routes to the agent panel via
 # agent_genesis.sweep_candidate_gaps_for_adjudication instead of parking on
 # the operator; the learning hook feeds it, the panel adjudicates it.
-GENESIS_ADJUDICATION_BLOCK_TOKEN = "genesis_adjudication_required"
+# The literal lives in `candidate_blocks` — the vocabulary that also says WHO
+# clears the token — so the producer and the refusal reader cannot drift.
+GENESIS_ADJUDICATION_BLOCK_TOKEN = GENESIS_ADJUDICATION_REQUIRED
 
 # H-3 — evidence paths an unobserved_surface gap cites, and how many file
 # types it names before the payload stops being readable. The cap bounds the

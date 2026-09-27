@@ -29,15 +29,15 @@ const ReadjustmentSettingsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Readjustment Settings</h3>
-        <p className="text-xs text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Readjustment Settings</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Physical system parameters used for readjustment calculations.
         </p>
 
         {/* Timing */}
         <div className="space-y-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Timing</h4>
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Timing</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberInput
               label="Time Applying Current NS (days)"
@@ -57,8 +57,8 @@ const ReadjustmentSettingsTab: React.FC = () => {
         </div>
 
         {/* Fertigation */}
-        <div className="space-y-4 pt-4 border-t border-gray-100 mt-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Fertigation</h4>
+        <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-700 mt-4">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Fertigation</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Fertigation Mode"
@@ -85,8 +85,8 @@ const ReadjustmentSettingsTab: React.FC = () => {
         </div>
 
         {/* Emitters */}
-        <div className="space-y-4 pt-4 border-t border-gray-100 mt-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Emitters</h4>
+        <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-700 mt-4">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Emitters</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberInput
               label="Emitters Per Plant"
@@ -107,8 +107,8 @@ const ReadjustmentSettingsTab: React.FC = () => {
         </div>
 
         {/* Substrate */}
-        <div className="space-y-4 pt-4 border-t border-gray-100 mt-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Substrate</h4>
+        <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-700 mt-4">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Substrate</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Substrate Type"

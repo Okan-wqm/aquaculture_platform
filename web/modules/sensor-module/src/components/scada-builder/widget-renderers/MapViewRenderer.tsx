@@ -10,6 +10,7 @@
 
 import React, { memo, useState, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,9 +32,9 @@ type DeviceStatus = DeviceMarker['status'];
 /* ------------------------------------------------------------------ */
 
 const STATUS_COLORS: Record<DeviceStatus, string> = {
-  online: '#22c55e',
-  offline: '#ef4444',
-  unknown: '#9ca3af',
+  online: themeColors.success[500],
+  offline: themeColors.error[500],
+  unknown: themeColors.neutral[400],
 };
 
 const HEADER_HEIGHT = 24;
@@ -57,8 +58,22 @@ const GridLines: React.FC<{ mapWidth: number; mapHeight: number }> = ({ mapWidth
       const yPos = (mapHeight / GRID_DIVISIONS) * (i + 1);
       return (
         <g key={`grid-${i}`} opacity={0.15}>
-          <line x1={xPos} y1={0} x2={xPos} y2={mapHeight} stroke="#fff" strokeWidth={0.5} />
-          <line x1={0} y1={yPos} x2={mapWidth} y2={yPos} stroke="#fff" strokeWidth={0.5} />
+          <line
+            x1={xPos}
+            y1={0}
+            x2={xPos}
+            y2={mapHeight}
+            stroke={themeColors.white}
+            strokeWidth={0.5}
+          />
+          <line
+            x1={0}
+            y1={yPos}
+            x2={mapWidth}
+            y2={yPos}
+            stroke={themeColors.white}
+            strokeWidth={0.5}
+          />
         </g>
       );
     })}
@@ -70,14 +85,23 @@ GridLines.displayName = 'GridLines';
 const PulseRing: React.FC<{ cx: number; cy: number; color: string }> = ({ cx, cy, color }) => (
   <circle cx={cx} cy={cy} r={12} fill="none" stroke={color} strokeWidth={1.5} opacity={0.3}>
     <animate attributeName="r" from="8" to="16" dur={PULSE_DURATION} repeatCount="indefinite" />
-    <animate attributeName="opacity" from="0.4" to="0" dur={PULSE_DURATION} repeatCount="indefinite" />
+    <animate
+      attributeName="opacity"
+      from="0.4"
+      to="0"
+      dur={PULSE_DURATION}
+      repeatCount="indefinite"
+    />
   </circle>
 );
 
 PulseRing.displayName = 'PulseRing';
 
 const MarkerTooltip: React.FC<{ cx: number; cy: number; r: number; marker: DeviceMarker }> = ({
-  cx, cy, r, marker,
+  cx,
+  cy,
+  r,
+  marker,
 }) => {
   const tooltipX = cx - TOOLTIP_WIDTH / 2;
   const tooltipY = cy - r - TOOLTIP_OFFSET;
@@ -102,7 +126,7 @@ const MarkerTooltip: React.FC<{ cx: number; cy: number; r: number; marker: Devic
         y={textY}
         textAnchor="middle"
         fontSize={9}
-        fill="#fff"
+        fill={themeColors.white}
         fontFamily="sans-serif"
       >
         {tooltipText}
@@ -119,7 +143,7 @@ MarkerTooltip.displayName = 'MarkerTooltip';
 
 const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height }) => {
   const markers = (config.markers ?? []) as DeviceMarker[];
-  const bgColor = (config.bgColor ?? '#0c4a6e') as string;
+  const bgColor = (config.bgColor ?? themeColors.primary[700]) as string;
   const showGrid = (config.showGrid ?? true) as boolean;
   const title = (config.title ?? 'Site Map') as string;
 
@@ -145,7 +169,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
           alignItems: 'center',
           justifyContent: 'center',
           background: 'rgba(0,0,0,0.3)',
-          color: '#fff',
+          color: themeColors.white,
           fontSize: 10,
           fontWeight: 600,
         }}
@@ -171,12 +195,10 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
               key={marker.id}
               onMouseEnter={() => handleMouseEnter(marker.id)}
               onMouseLeave={handleMouseLeave}
-              style={{ cursor: 'pointer' }}
+              className="cursor-pointer"
             >
               {/* Pulse ring for online devices */}
-              {marker.status === 'online' && (
-                <PulseRing cx={cx} cy={cy} color={color} />
-              )}
+              {marker.status === 'online' && <PulseRing cx={cx} cy={cy} color={color} />}
 
               {/* Marker circle */}
               <circle
@@ -184,9 +206,9 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
                 cy={cy}
                 r={r}
                 fill={color}
-                stroke="#fff"
+                stroke={themeColors.white}
                 strokeWidth={2}
-                style={{ transition: 'r 0.15s ease' }}
+                className="transition-[r] duration-150 ease-[ease]"
               />
 
               {/* Label */}
@@ -195,7 +217,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
                 y={cy + r + LABEL_OFFSET}
                 textAnchor="middle"
                 fontSize={9}
-                fill="#fff"
+                fill={themeColors.white}
                 fontFamily="sans-serif"
                 opacity={0.9}
               >
@@ -203,9 +225,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
               </text>
 
               {/* Hover tooltip */}
-              {isHovered && (
-                <MarkerTooltip cx={cx} cy={cy} r={r} marker={marker} />
-              )}
+              {isHovered && <MarkerTooltip cx={cx} cy={cy} r={r} marker={marker} />}
             </g>
           );
         })}
@@ -217,7 +237,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
             y={mapHeight / 2}
             textAnchor="middle"
             fontSize={11}
-            fill="#fff"
+            fill={themeColors.white}
             fontFamily="sans-serif"
             opacity={0.5}
           >

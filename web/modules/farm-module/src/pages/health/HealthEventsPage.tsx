@@ -12,6 +12,8 @@ import {
   Badge,
   Spinner,
   Alert,
+  useConfirm,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import {
   Activity,
@@ -50,17 +52,18 @@ import {
   CreateHealthEventInput,
 } from '../../hooks/useHealthEvents';
 import { isBlockingError } from '../../utils/list-view-state';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const statusColors: Record<HealthEventStatus, string> = {
-  active: 'bg-red-100 text-red-800',
-  monitoring: 'bg-yellow-100 text-yellow-800',
-  resolved: 'bg-green-100 text-green-800',
-  chronic: 'bg-purple-100 text-purple-800',
-  cancelled: 'bg-gray-100 text-gray-800',
+  active: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  monitoring: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  resolved: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  chronic: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<HealthEventStatus, string> = {
@@ -72,10 +75,10 @@ const statusLabels: Record<HealthEventStatus, string> = {
 };
 
 const severityColors: Record<HealthSeverity, string> = {
-  minor: 'bg-blue-100 text-blue-800',
-  moderate: 'bg-yellow-100 text-yellow-800',
-  severe: 'bg-orange-100 text-orange-800',
-  critical: 'bg-red-100 text-red-800',
+  minor: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  moderate: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  severe: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const severityLabels: Record<HealthSeverity, string> = {
@@ -210,12 +213,16 @@ export const HealthEventsPage: React.FC = () => {
   // Treatment modal state
   const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
   const [treatmentData, setTreatmentData] = useState<TreatmentFormData>(defaultTreatmentData);
-  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(null);
+  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Quarantine modal state
   const [isQuarantineModalOpen, setIsQuarantineModalOpen] = useState(false);
   const [quarantineTankId, setQuarantineTankId] = useState('');
-  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(null);
+  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Resolution modal state
   const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
@@ -247,7 +254,7 @@ export const HealthEventsPage: React.FC = () => {
         item.title.toLowerCase().includes(term) ||
         item.description?.toLowerCase().includes(term) ||
         item.diseaseName?.toLowerCase().includes(term) ||
-        item.notes?.toLowerCase().includes(term)
+        item.notes?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -332,8 +339,16 @@ export const HealthEventsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this health event?')) {
+    if (
+      await confirm({
+        title: 'Delete this health event?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -387,7 +402,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndTreatment = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the treatment?')) {
+    if (
+      await confirm({
+        title: 'End the treatment?',
+        confirmText: 'End treatment',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endTreatmentMutation.mutateAsync({ id: event.id });
         refetch();
@@ -424,7 +446,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndQuarantine = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the quarantine?')) {
+    if (
+      await confirm({
+        title: 'End the quarantine?',
+        confirmText: 'End quarantine',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endQuarantineMutation.mutateAsync(event.id);
         refetch();
@@ -526,87 +555,269 @@ export const HealthEventsPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'event',
+      header: 'Event',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</div>
+          {item.diseaseName && (
+            <div className="text-sm text-gray-500 dark:text-gray-400">{item.diseaseName}</div>
+          )}
+          {item.description && (
+            <div className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-xs">
+              {item.description}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, item) => eventTypeLabels[item.eventType],
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, item) => (
+        <Badge className={severityColors[item.severity]}>{severityLabels[item.severity]}</Badge>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, item) => formatDate(item.eventDate),
+    },
+    {
+      key: 'flags',
+      header: 'Flags',
+      render: (_value, item) => (
+        <div className="flex items-center gap-2">
+          {item.isUnderTreatment && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200"
+              title="Under Treatment"
+            >
+              <Pill className="w-3 h-3 mr-1" />
+              Rx
+            </span>
+          )}
+          {item.isQuarantined && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200"
+              title="Quarantined"
+            >
+              <Shield className="w-3 h-3 mr-1" />Q
+            </span>
+          )}
+          {item.labConfirmed && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
+              title="Lab Confirmed"
+            >
+              Lab
+            </span>
+          )}
+          {item.followUpRequired && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200"
+              title="Follow-up Required"
+            >
+              F/U
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <div className="flex items-center justify-end gap-2">
+          {/* Treatment actions */}
+          {item.status !== 'resolved' && item.status !== 'cancelled' && (
+            <>
+              {!item.isUnderTreatment ? (
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Start Treatment"
+                  onClick={() => handleOpenStartTreatment(item)}
+                  title="Start Treatment"
+                >
+                  <Play className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="End Treatment"
+                  onClick={() => handleEndTreatment(item)}
+                  title="End Treatment"
+                >
+                  <Square className="w-4 h-4" />
+                </Button>
+              )}
+
+              {/* Quarantine actions */}
+              {!item.isQuarantined ? (
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Start Quarantine"
+                  onClick={() => handleOpenStartQuarantine(item)}
+                  title="Start Quarantine"
+                >
+                  <Shield className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="End Quarantine"
+                  onClick={() => handleEndQuarantine(item)}
+                  title="End Quarantine"
+                >
+                  <Shield className="w-4 h-4 fill-current" />
+                </Button>
+              )}
+
+              {/* Resolve */}
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Resolve Event"
+                onClick={() => handleOpenResolve(item)}
+                title="Resolve Event"
+              >
+                <CheckCircle className="w-4 h-4" />
+              </Button>
+            </>
+          )}
+
+          {/* Edit */}
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Edit"
+            onClick={() => handleOpenEdit(item)}
+            title="Edit"
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
+
+          {/* Delete */}
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Delete"
+            onClick={() => handleDelete(item.id)}
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Retry', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Retry', onClick: () => refetch() }}>
           Couldn&apos;t refresh health events — showing the last loaded data.
         </Alert>
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Health Events</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Track and manage fish health events, treatments, and quarantine
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Health Event
-        </Button>
-      </div>
+      <PageHeader
+        title="Health Events"
+        description="Track and manage fish health events, treatments, and quarantine"
+        actions={
+          <Button onClick={handleOpenCreate} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            New Health Event
+          </Button>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Activity className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Total Events</div>
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Total Events</div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.total}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Active</div>
-                <div className="text-2xl font-bold text-red-600">{stats.active}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
+                <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+                  {stats.active}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-orange-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Critical</div>
-                <div className="text-2xl font-bold text-orange-600">{stats.critical}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
+                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+                  {stats.critical}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Pill className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Pill className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Under Treatment</div>
-                <div className="text-2xl font-bold text-purple-600">{stats.underTreatment}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Under Treatment</div>
+                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+                  {stats.underTreatment}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Shield className="w-5 h-5 text-yellow-600" />
+              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                <Shield className="w-5 h-5 text-warning-600 dark:text-warning-400" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Quarantined</div>
-                <div className="text-2xl font-bold text-yellow-600">{stats.quarantined}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Quarantined</div>
+                <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                  {stats.quarantined}
+                </div>
               </div>
             </div>
           </Card>
@@ -619,7 +830,7 @@ export const HealthEventsPage: React.FC = () => {
           {/* Search and toggle */}
           <div className="flex items-center gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
               <Input
                 placeholder="Search events..."
                 value={searchTerm}
@@ -635,8 +846,16 @@ export const HealthEventsPage: React.FC = () => {
               <Filter className="w-4 h-4" />
               Filters
             </Button>
-            {(filter.status || filter.severity || filter.eventType || filter.fromDate || filter.toDate) && (
-              <Button variant="secondary" onClick={clearFilters} className="flex items-center gap-2">
+            {(filter.status ||
+              filter.severity ||
+              filter.eventType ||
+              filter.fromDate ||
+              filter.toDate) && (
+              <Button
+                variant="secondary"
+                onClick={clearFilters}
+                className="flex items-center gap-2"
+              >
                 <X className="w-4 h-4" />
                 Clear
               </Button>
@@ -645,7 +864,7 @@ export const HealthEventsPage: React.FC = () => {
 
           {/* Extended filters */}
           {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <Select
                 value={filter.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -680,7 +899,7 @@ export const HealthEventsPage: React.FC = () => {
                 ]}
               />
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="From Date"
@@ -689,7 +908,7 @@ export const HealthEventsPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="To Date"
@@ -709,201 +928,28 @@ export const HealthEventsPage: React.FC = () => {
             <Spinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Event
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Severity
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Flags
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      No health events found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">{item.title}</div>
-                        {item.diseaseName && (
-                          <div className="text-sm text-gray-500">{item.diseaseName}</div>
-                        )}
-                        {item.description && (
-                          <div className="text-xs text-gray-400 truncate max-w-xs">
-                            {item.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {eventTypeLabels[item.eventType]}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={statusColors[item.status]}>
-                          {statusLabels[item.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={severityColors[item.severity]}>
-                          {severityLabels[item.severity]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(item.eventDate)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          {item.isUnderTreatment && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800"
-                              title="Under Treatment"
-                            >
-                              <Pill className="w-3 h-3 mr-1" />
-                              Rx
-                            </span>
-                          )}
-                          {item.isQuarantined && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
-                              title="Quarantined"
-                            >
-                              <Shield className="w-3 h-3 mr-1" />
-                              Q
-                            </span>
-                          )}
-                          {item.labConfirmed && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
-                              title="Lab Confirmed"
-                            >
-                              Lab
-                            </span>
-                          )}
-                          {item.followUpRequired && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800"
-                              title="Follow-up Required"
-                            >
-                              F/U
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          {/* Treatment actions */}
-                          {item.status !== 'resolved' && item.status !== 'cancelled' && (
-                            <>
-                              {!item.isUnderTreatment ? (
-                                <button
-                                  onClick={() => handleOpenStartTreatment(item)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="Start Treatment"
-                                >
-                                  <Play className="w-4 h-4" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleEndTreatment(item)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="End Treatment"
-                                >
-                                  <Square className="w-4 h-4" />
-                                </button>
-                              )}
-
-                              {/* Quarantine actions */}
-                              {!item.isQuarantined ? (
-                                <button
-                                  onClick={() => handleOpenStartQuarantine(item)}
-                                  className="text-yellow-600 hover:text-yellow-900"
-                                  title="Start Quarantine"
-                                >
-                                  <Shield className="w-4 h-4" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleEndQuarantine(item)}
-                                  className="text-yellow-600 hover:text-yellow-900"
-                                  title="End Quarantine"
-                                >
-                                  <Shield className="w-4 h-4 fill-current" />
-                                </button>
-                              )}
-
-                              {/* Resolve */}
-                              <button
-                                onClick={() => handleOpenResolve(item)}
-                                className="text-green-600 hover:text-green-900"
-                                title="Resolve Event"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
-
-                          {/* Edit */}
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={filteredItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No health events found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Pagination info */}
         {data && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Showing {filteredItems.length} of {data.total} events
             </div>
             {data.hasNextPage && (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() =>
-                  setFilter({ ...filter, limit: (filter.limit || 50) + 50 })
-                }
+                onClick={() => setFilter({ ...filter, limit: (filter.limit || 50) + 50 })}
               >
                 Load More
               </Button>
@@ -919,7 +965,7 @@ export const HealthEventsPage: React.FC = () => {
         title={editingId ? 'Edit Health Event' : 'New Health Event'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Batch ID"
               value={formData.batchId}
@@ -944,7 +990,7 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Event Type"
               value={formData.eventType}
@@ -968,7 +1014,7 @@ export const HealthEventsPage: React.FC = () => {
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Event Date"
               type="date"
@@ -983,7 +1029,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, eventTime: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Disease Category"
               value={formData.diseaseCategory}
@@ -1001,7 +1047,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, diseaseName: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Affected Count"
               type="number"
@@ -1026,18 +1072,19 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 id="followUpRequired"
                 checked={formData.followUpRequired}
-                onChange={(e) =>
-                  setFormData({ ...formData, followUpRequired: e.target.checked })
-                }
-                className="rounded border-gray-300"
+                onChange={(e) => setFormData({ ...formData, followUpRequired: e.target.checked })}
+                className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="followUpRequired" className="text-sm text-gray-700">
+              <label
+                htmlFor="followUpRequired"
+                className="text-sm text-gray-700 dark:text-gray-300"
+              >
                 Follow-up Required
               </label>
             </div>
@@ -1054,13 +1101,8 @@ export const HealthEventsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Saving...'
-                : 'Save'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </form>
@@ -1084,7 +1126,7 @@ export const HealthEventsPage: React.FC = () => {
               label,
             }))}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Medication Name"
               value={treatmentData.medicationName}
@@ -1100,7 +1142,7 @@ export const HealthEventsPage: React.FC = () => {
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Dosage"
               type="number"
@@ -1113,38 +1155,30 @@ export const HealthEventsPage: React.FC = () => {
             <Input
               label="Dosage Unit"
               value={treatmentData.dosageUnit}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })}
               placeholder="mg/L, mg/kg, etc."
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Start Date"
               type="date"
               value={treatmentData.startDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, startDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, startDate: e.target.value })}
               required
             />
             <Input
               label="End Date (optional)"
               type="date"
               value={treatmentData.endDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, endDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, endDate: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Frequency"
               value={treatmentData.frequency}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, frequency: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, frequency: e.target.value })}
               placeholder="1x daily, every 12h, etc."
             />
             <Input
@@ -1163,9 +1197,7 @@ export const HealthEventsPage: React.FC = () => {
           <Input
             label="Instructions"
             value={treatmentData.instructions}
-            onChange={(e) =>
-              setTreatmentData({ ...treatmentData, instructions: e.target.value })
-            }
+            onChange={(e) => setTreatmentData({ ...treatmentData, instructions: e.target.value })}
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsTreatmentModalOpen(false)}>

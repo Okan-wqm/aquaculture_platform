@@ -25,6 +25,8 @@ import {
   Modal,
   formatErrorForToast,
   useToast,
+  Input,
+  Textarea,
 } from '@aquaculture/shared-ui';
 
 import { Batch, useUpdateBatch } from '../../../hooks/useBatches';
@@ -43,7 +45,7 @@ const TARGET_FCR_MAX = 5.0;
 
 function toDateInputValue(iso?: string): string {
   if (!iso) return '';
-  // YYYY-MM-DD slice for `<input type="date">`
+  // YYYY-MM-DD slice for `<Input type="date" />`
   return iso.length >= 10 ? iso.slice(0, 10) : '';
 }
 
@@ -104,10 +106,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
     if (targetFCRParsed !== null) {
       if (Number.isNaN(targetFCRParsed)) {
         errs.push('Hedef FCR sayısal bir değer olmalı.');
-      } else if (
-        targetFCRParsed < TARGET_FCR_MIN ||
-        targetFCRParsed > TARGET_FCR_MAX
-      ) {
+      } else if (targetFCRParsed < TARGET_FCR_MIN || targetFCRParsed > TARGET_FCR_MAX) {
         errs.push(
           `Hedef FCR ${TARGET_FCR_MIN.toFixed(1)} ile ${TARGET_FCR_MAX.toFixed(1)} arasında olmalı.`,
         );
@@ -170,8 +169,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           name: trimmedName.length === 0 ? undefined : trimmedName,
         }),
         ...(expectedHarvestDate !== currentExpected && {
-          expectedHarvestDate:
-            expectedHarvestDate.length === 0 ? undefined : expectedHarvestDate,
+          expectedHarvestDate: expectedHarvestDate.length === 0 ? undefined : expectedHarvestDate,
         }),
         ...(targetFCRParsed !== null &&
           targetFCRParsed !== batch.fcr.target && {
@@ -196,32 +194,27 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Parti Bilgilerini Düzenle"
-      size="md"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title="Parti Bilgilerini Düzenle" size="md">
       <div className="space-y-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Parti</p>
-          <p className="font-medium text-gray-900">{batch.batchNumber}</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Parti</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batch.batchNumber}</p>
         </div>
 
         <div>
           <label
             htmlFor="update-batch-name"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             İsim
           </label>
-          <input
+          <Input
+            fullWidth
             id="update-batch-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={NAME_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder="(opsiyonel) parti için anlamlı bir isim"
           />
         </div>
@@ -229,19 +222,19 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
         <div>
           <label
             htmlFor="update-batch-harvest-date"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             Beklenen Hasat Tarihi
           </label>
-          <input
+          <Input
+            fullWidth
             id="update-batch-harvest-date"
             type="date"
             value={expectedHarvestDate}
             onChange={(e) => setExpectedHarvestDate(e.target.value)}
             min={batch.stockedAt.slice(0, 10)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Stok tarihi: {new Date(batch.stockedAt).toLocaleDateString('tr-TR')}
           </p>
         </div>
@@ -249,11 +242,12 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
         <div>
           <label
             htmlFor="update-batch-fcr"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             Hedef FCR
           </label>
-          <input
+          <Input
+            fullWidth
             id="update-batch-fcr"
             type="number"
             step="0.01"
@@ -261,10 +255,9 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             max={TARGET_FCR_MAX}
             value={targetFCRRaw}
             onChange={(e) => setTargetFCRRaw(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder={`${TARGET_FCR_MIN.toFixed(1)} – ${TARGET_FCR_MAX.toFixed(1)}`}
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Mevcut: hedef {batch.fcr.target.toFixed(2)} / gerçek{' '}
             {(batch.fcr.actual ?? 0).toFixed(2)}
           </p>
@@ -273,25 +266,25 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
         <div>
           <label
             htmlFor="update-batch-notes"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             Notlar
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="update-batch-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
             rows={4}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
-          <p className="mt-1 text-xs text-gray-500 text-right">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 text-right">
             {notes.length} / {NOTES_MAX}
           </p>
         </div>
 
         {errors.length > 0 && (
-          <ul className="list-disc list-inside text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+          <ul className="list-disc list-inside text-sm text-error-700 dark:text-error-300 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
             {errors.map((e) => (
               <li key={e}>{e}</li>
             ))}
@@ -299,7 +292,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
         )}
 
         {!hasChanges && errors.length === 0 && (
-          <p className="text-xs text-gray-500 italic">
+          <p className="text-xs text-gray-500 dark:text-gray-400 italic">
             Hiçbir alan değişmedi — kaydetmek için bir alanı düzenleyin.
           </p>
         )}
@@ -313,12 +306,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           >
             İptal
           </Button>
-          <Button
-            type="button"
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
+          <Button type="button" variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
             {updateBatch.isPending ? 'Kaydediliyor…' : 'Kaydet'}
           </Button>
         </div>

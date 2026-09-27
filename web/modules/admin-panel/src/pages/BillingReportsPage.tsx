@@ -46,6 +46,7 @@ import { saveBlob } from '../services/blob-client';
 import { adminKeys, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { formatCurrencyAmount, formatDecimalAmount } from '../utils/money';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 /**
  * One active-subscription probe: the page needs the count, not the rows, and
@@ -152,30 +153,27 @@ const BillingReportsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing Reports</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Platform-level billing totals, all time, compiled from the invoice, subscription and
-            payment aggregates.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            to="/admin/billing"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Back to Billing
-          </Link>
-          <button
-            onClick={exportCsv}
-            disabled={!exportable}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Export CSV
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Billing Reports"
+        description="Platform-level billing totals, all time, compiled from the invoice, subscription and payment aggregates."
+        actions={
+          <div className="flex gap-2">
+            <Link
+              to="/admin/billing"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              Back to Billing
+            </Link>
+            <button
+              onClick={exportCsv}
+              disabled={!exportable}
+              className="rounded-lg bg-info-600 px-4 py-2 text-sm font-medium text-white hover:bg-info-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Export CSV
+            </button>
+          </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={[
@@ -188,13 +186,13 @@ const BillingReportsPage: React.FC = () => {
       />
 
       {invoices && currency === null && Object.keys(invoices.byCurrency).length > 1 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm text-amber-800">
+        <div className="rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-4">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Invoices are raised in {mixedCurrencyLabel(invoices.byCurrency)}. The invoice totals
             below are sums across all of them, so they are not an amount in any one currency and
             are shown as “—”. The per-currency figures are the real ones:
           </p>
-          <ul className="mt-2 space-y-1 text-sm text-amber-900">
+          <ul className="mt-2 space-y-1 text-sm text-warning-800 dark:text-warning-200">
             {Object.entries(invoices.byCurrency)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([code, amount]) => (
@@ -211,10 +209,10 @@ const BillingReportsPage: React.FC = () => {
           {Array.from({ length: 8 }).map((_, index) => (
             <div
               key={index}
-              className="h-28 animate-pulse rounded-xl border border-gray-200 bg-white p-4"
+              className="h-28 animate-pulse rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"
             >
-              <div className="h-4 w-24 rounded bg-gray-200" />
-              <div className="mt-4 h-8 w-32 rounded bg-gray-200" />
+              <div className="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700" />
+              <div className="mt-4 h-8 w-32 rounded bg-gray-200 dark:bg-gray-700" />
             </div>
           ))}
         </div>
@@ -265,10 +263,10 @@ interface ReportCardProps {
 }
 
 const ReportCard: React.FC<ReportCardProps> = ({ label, value, tone = 'default' }) => (
-  <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-    <p className="text-sm text-gray-500">{label}</p>
+  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+    <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
     <p
-      className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900'}`}
+      className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
     >
       {value}
     </p>

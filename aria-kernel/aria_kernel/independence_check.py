@@ -72,6 +72,40 @@ CHALLENGER_ROLE = "challenger_plan"
 CROSS_REVIEW_ROLE = "cross_review"
 
 
+# ARIA-HIGH-193 — the identity the executor claims and submits under
+# (`ci-executor:gha-<GITHUB_RUN_ID>`). It names the PROCESS that carried a
+# seat, not the agent that answered it: every seat drained by one run shares
+# it, so reading it as the principal made 35/35 live panels "not independent".
+EXECUTOR_IDENTITY_PREFIX = "ci-executor:"
+
+
+def is_executor_identity(value: object) -> bool:
+    """True for an executor-shaped identity, which is never a principal."""
+    return str(value or "").startswith(EXECUTOR_IDENTITY_PREFIX)
+
+
+def seat_principal(request_row: dict[str, Any]) -> str | None:
+    """The principal behind one dispatched seat: the agent the kernel minted
+    the request FOR (``target_agent``), or ``None`` when the row cannot name
+    one. The executor invokes exactly that subagent and force-stamps it as
+    ``details.agent_subagent_type``; the claimant is only the carrier."""
+    target = str(request_row.get("target_agent") or "").strip()
+    if not target or is_executor_identity(target):
+        return None
+    return target
+
+
+def response_principal(response: dict[str, Any]) -> str | None:
+    """The principal behind one sealed response: the executor-stamped
+    ``details.agent_subagent_type`` (never the agent's own spelling, never
+    the envelope's executor-shaped ``agent_id``); ``None`` when absent."""
+    details = response.get("details")
+    stamped = str((details or {}).get("agent_subagent_type") or "").strip() if isinstance(details, dict) else ""
+    if not stamped or is_executor_identity(stamped):
+        return None
+    return stamped
+
+
 class IndependenceInputError(ValueError):
     """Raised when a dispatch record cannot support an independence claim.
 
@@ -143,9 +177,14 @@ def verify_principal_disjointness(
 
     ORPHAN-HIGH-421 — generalises the old three-argument claim check. The
     property is pairwise: no two roles may share a ``claim_id`` (the
-    receipt) or an ``agent_id`` (the principal). The principal check is
-    the one that matters and the one that was missing — every claim gets a
-    fresh claim_id, so a single agent could hold every role and pass.
+    receipt) or a principal. The principal check is the one that matters —
+    every claim gets a fresh claim_id, so a single agent could hold every
+    role and pass the receipt check alone.
+
+    ARIA-HIGH-193 — the principal is :func:`seat_principal` of the role's
+    REQUEST row (the agent the kernel minted it for), not the claim's
+    ``agent_id``: that is the executor process that carried the seat, shared
+    by every seat one run drains, so it failed every live panel.
 
     Roles with no ``request_id`` are skipped because nothing was
     dispatched for them; ``min_dispatched`` is the floor that stops that
@@ -161,14 +200,21 @@ def verify_principal_disjointness(
     claims_path = Path(base_dir) / "agent-invocations" / "claims.jsonl"
     if not claims_path.exists():
         return False, ["claims_jsonl_missing"]
-    rows = load_jsonl(claims_path)
+    requests_path = Path(base_dir) / "agent-invocations" / "requests.jsonl"
+    if not requests_path.exists():
+        return False, ["requests_jsonl_missing"]
     by_request: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
+    for row in load_jsonl(claims_path):
         rid = row.get("request_id")
         if rid:
             by_request.setdefault(str(rid), []).append(row)
+    request_rows: dict[str, dict[str, Any]] = {}
+    for row in load_jsonl(requests_path):
+        rid = row.get("request_id")
+        if rid and row.get("target_agent"):
+            request_rows[str(rid)] = row
     claim_ids: dict[str, set[str]] = {}
-    agent_ids: dict[str, set[str]] = {}
+    principals: dict[str, str] = {}
     for dispatch in dispatched:
         rows_for = by_request.get(str(dispatch.request_id), [])
         if not rows_for:
@@ -177,10 +223,15 @@ def verify_principal_disjointness(
         claim_ids[dispatch.role] = {
             str(r.get("claim_id")) for r in rows_for if r.get("claim_id")
         }
-        found_agents = {str(r.get("agent_id")) for r in rows_for if r.get("agent_id")}
-        if not found_agents:
-            reasons.append(f"{dispatch.role}_claim_missing_agent_id")
-        agent_ids[dispatch.role] = found_agents
+        request_row = request_rows.get(str(dispatch.request_id))
+        if request_row is None:
+            reasons.append(f"{dispatch.role}_no_request_row")
+            continue
+        principal = seat_principal(request_row)
+        if principal is None:
+            reasons.append(f"{dispatch.role}_request_names_no_principal")
+            continue
+        principals[dispatch.role] = principal
     if reasons:
         return False, reasons
     # Pair in the caller's order, not alphabetically: the reason strings
@@ -192,11 +243,8 @@ def verify_principal_disjointness(
         for right in roles[i + 1:]:
             if claim_ids[left] & claim_ids[right]:
                 reasons.append(f"{left}_{right}_claim_id_overlap")
-            shared_agents = agent_ids[left] & agent_ids[right]
-            if shared_agents:
-                reasons.append(
-                    f"{left}_{right}_same_agent_id:{','.join(sorted(shared_agents))}"
-                )
+            if principals[left] == principals[right]:
+                reasons.append(f"{left}_{right}_same_principal:{principals[left]}")
     return (len(reasons) == 0), reasons
 
 

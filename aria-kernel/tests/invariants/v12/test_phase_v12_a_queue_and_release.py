@@ -21,7 +21,6 @@ Invariants:
 from __future__ import annotations
 
 import json
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,7 +55,7 @@ def _seed(tools: Path, prompt: str) -> dict:
         target_agent="aria-challenger-planner",
         role="challenger_plan",
         suggested_prompt=prompt,
-        must_satisfy=[{"id": "v12-queue", "criterion": "the queue is read once"}],
+        must_satisfy=[{"id": "v12-queue", "description": "the queue is read once"}],
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-v12",
         base_dir=tools,
@@ -116,12 +115,27 @@ class ReleaseReasonOwnership(unittest.TestCase):
         self.assertFalse(HARNESS_FAULT_RELEASE_REASONS & REQUEST_FAULT_RELEASE_REASONS)
 
     def test_I_V12_RELEASE_02_every_executor_release_site_is_owned(self) -> None:
-        source = _EXECUTOR.read_text(encoding="utf-8")
-        literal = set(re.findall(r'reason="([a-z_]+)"', source))
-        # f-string sites: the static text before the first placeholder is the
-        # prefix the kernel must own (`reason=f"submit_timeout_{N}s"` -> `submit_timeout_`).
-        fstring = set(re.findall(r'reason=f"([a-z_:]+)\{', source))
-        self.assertTrue(fstring, "the executor releases with parameterised reasons; none found")
+        # RELEASE sites only — the `reason=` keyword of a `_release_claim(...)`
+        # call, read by the one shared reading (`tests/_helpers/release_sites`):
+        # a text scan for `reason="..."` once matched the fleet's
+        # `_RuntimeStatusObservation(reason=...)` status words, and a second
+        # private walker refused the admission refusal's record attribute
+        # that the other invariant had been taught (ARIA-HIGH-107). The lease
+        # guard's prefix is a release site in its own module.
+        import sys
+
+        from tests._helpers.release_sites import scan_executor_release_sites
+
+        if str(_EXECUTOR.parent) not in sys.path:
+            sys.path.insert(0, str(_EXECUTOR.parent))
+        from ci_executor_lease import UNCAUGHT_EXIT_RELEASE_PREFIX
+
+        scan = scan_executor_release_sites(_EXECUTOR.read_text(encoding="utf-8"))
+        literal = scan.literal
+        fstring = scan.fstring_prefixes | {UNCAUGHT_EXIT_RELEASE_PREFIX}
+        self.assertTrue(literal, "the executor releases with literal reasons; none found")
+        self.assertTrue(len(fstring) > 1, "the executor releases with parameterised reasons; none found")
+        self.assertGreater(scan.attribute_sites, 0, "the admission refusal releases under its record's reason")
 
         unowned = sorted(
             [r for r in literal if classify_release_reason(r) == "unclassified"]

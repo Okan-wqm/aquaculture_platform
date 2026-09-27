@@ -4,6 +4,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const label = (config.label ?? 'Tank') as string;
@@ -21,9 +22,9 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
   const padTop = 20;
 
   // Color gradient based on level
-  let fillColor = '#3b82f6';
-  if (pct > 0.85) fillColor = '#ef4444';
-  else if (pct > 0.7) fillColor = '#eab308';
+  let fillColor = colors.info[500];
+  if (pct > 0.85) fillColor = colors.error[500];
+  else if (pct > 0.7) fillColor = colors.warning[500];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
@@ -32,10 +33,10 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
       height="100%"
       viewBox={`0 0 100 ${tankH + padTop + 30}`}
       preserveAspectRatio="xMidYMid meet"
-      style={{ display: 'block' }}
+      className="block"
     >
       {/* Label */}
-      <text x={50} y={14} textAnchor="middle" fontSize={10} fill="#6b7280" fontWeight={500}>
+      <text x={50} y={14} textAnchor="middle" fontSize={10} fill={colors.gray[400]} fontWeight={500}>
         {label}
       </text>
 
@@ -46,8 +47,8 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
         width={tankW}
         height={tankH}
         rx={4}
-        fill="#f1f5f9"
-        stroke="#cbd5e1"
+        fill={colors.neutral[100]}
+        stroke={colors.neutral[300]}
         strokeWidth={2}
       />
 
@@ -63,16 +64,16 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
       />
 
       {/* Percentage text */}
-      <text x={50} y={padTop + tankH / 2 + 4} textAnchor="middle" fontSize={16} fontWeight={700} fill="#111827">
+      <text x={50} y={padTop + tankH / 2 + 4} textAnchor="middle" fontSize={16} fontWeight={700} fill={colors.neutral[900]}>
         {Math.round(pct * 100)}
       </text>
-      <text x={50} y={padTop + tankH / 2 + 18} textAnchor="middle" fontSize={10} fill="#6b7280">
+      <text x={50} y={padTop + tankH / 2 + 18} textAnchor="middle" fontSize={10} fill={colors.gray[400]}>
         {unit}
       </text>
 
       {/* Scale marks */}
-      <text x={84} y={padTop + 8} fontSize={8} fill="#9ca3af">{max}</text>
-      <text x={84} y={padTop + tankH} fontSize={8} fill="#9ca3af">{min}</text>
+      <text x={84} y={padTop + 8} fontSize={8} fill={colors.neutral[400]}>{max}</text>
+      <text x={84} y={padTop + tankH} fontSize={8} fill={colors.neutral[400]}>{min}</text>
     </svg>
     </div>
   );

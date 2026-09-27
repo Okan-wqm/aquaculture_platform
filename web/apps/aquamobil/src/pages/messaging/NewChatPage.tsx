@@ -11,10 +11,15 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 
+import {
+  AI_SPECIALTY_CATALOGUE,
+  parseAiPersonaId,
+  type AiPersonaIcon,
+  type AiSpecialtyId,
+} from '@aquaculture/shared-contracts';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Search,
   Users,
   Check,
@@ -27,11 +32,15 @@ import {
   Fish,
   BarChart,
   Cpu,
+  HeartPulse,
+  Wrench,
   Sparkles,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
@@ -46,22 +55,58 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // AI Persona Helpers
 // ---------------------------------------------------------------------------
 
-/** Map persona icon name to Lucide component. */
-const PERSONA_ICONS: Record<string, typeof Bot> = {
+/** Map the catalogue icon vocabulary to Lucide components. */
+const PERSONA_ICONS: Record<AiPersonaIcon, typeof Bot> = {
   bot: Bot,
   droplets: Droplets,
   fish: Fish,
   'bar-chart': BarChart,
   cpu: Cpu,
+  'heart-pulse': HeartPulse,
+  wrench: Wrench,
 };
+
+function isAiPersonaIcon(icon: string): icon is AiPersonaIcon {
+  return icon in PERSONA_ICONS;
+}
+
+/**
+ * The picker groups personas by specialty (general assistants, then each farm
+ * specialist at every tier the user holds). The specialty is read from the id
+ * grammar; an unparseable id (or the `id: null` tenant default) files under
+ * `general`.
+ */
+function specialtyOf(persona: AiPersona): AiSpecialtyId {
+  return (persona.id ? parseAiPersonaId(persona.id)?.specialty : undefined) ?? 'general';
+}
 
 /** Map persona color name to Tailwind gradient classes. */
 const PERSONA_COLORS: Record<string, { border: string; bg: string; text: string }> = {
-  purple: { border: 'border-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
-  cyan: { border: 'border-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400' },
-  blue: { border: 'border-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
-  green: { border: 'border-green-400', bg: 'bg-green-50 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400' },
-  orange: { border: 'border-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400' },
+  purple: {
+    border: 'border-purple-400',
+    bg: 'bg-purple-50 dark:bg-purple-900/30',
+    text: 'text-purple-600 dark:text-purple-400',
+  },
+  cyan: {
+    border: 'border-cyan-400',
+    bg: 'bg-cyan-50 dark:bg-cyan-900/30',
+    text: 'text-cyan-600 dark:text-cyan-400',
+  },
+  blue: {
+    border: 'border-blue-400',
+    bg: 'bg-blue-50 dark:bg-blue-900/30',
+    text: 'text-blue-600 dark:text-blue-400',
+  },
+  green: {
+    border: 'border-green-400',
+    bg: 'bg-green-50 dark:bg-green-900/30',
+    text: 'text-green-600 dark:text-green-400',
+  },
+  orange: {
+    border: 'border-orange-400',
+    bg: 'bg-orange-50 dark:bg-orange-900/30',
+    text: 'text-orange-600 dark:text-orange-400',
+  },
 };
 
 /** A single AI persona card for the persona picker grid. */
@@ -74,7 +119,7 @@ function AiPersonaCard({
   onPress: () => void;
   disabled: boolean;
 }): JSX.Element {
-  const IconComponent = PERSONA_ICONS[persona.icon] ?? Bot;
+  const IconComponent = isAiPersonaIcon(persona.icon) ? PERSONA_ICONS[persona.icon] : Bot;
   const colors = PERSONA_COLORS[persona.color] ?? PERSONA_COLORS['purple'];
 
   return (
@@ -159,9 +204,7 @@ function UserRow({
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
           {user.name}
         </h3>
-        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-          {user.email}
-        </p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{user.email}</p>
       </div>
 
       {/* Selection indicator */}
@@ -169,9 +212,7 @@ function UserRow({
         <div
           className={clsx(
             'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all',
-            isSelected
-              ? 'bg-ocean-500 border-ocean-500'
-              : 'border-gray-300 dark:border-gray-600',
+            isSelected ? 'bg-ocean-500 border-ocean-500' : 'border-gray-300 dark:border-gray-600',
           )}
         >
           {isSelected && <Check size={14} className="text-white" />}
@@ -209,29 +250,31 @@ export function NewChatPage(): JSX.Element {
   const { data: aiPersonas = [] } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'aiPersonas'),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        AVAILABLE_AI_PERSONAS,
-      );
+      const result = await graphqlRequest(AVAILABLE_AI_PERSONAS);
       return result.availableAiPersonas ?? [];
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-    enabled: !!tenantId,
+    enabled: !!tenantId && canUseAi,
   });
 
-  // Tenant-RBAC (Faz 7c): show only personas whose tier the user may drive.
-  // Tier is the persona id prefix ('expert-v1' → 'expert'); an id-less/unknown
-  // persona defaults to the operator tier (the base every granted role has).
-  // Empty when the user lacks ai_assistant:use, so the whole section hides.
-  const visibleAiPersonas = useMemo(() => {
+  /**
+   * Persona groups in catalogue order (general first, then the farm
+   * specialists), each holding the server-offered personas of that specialty
+   * (FE-MEDIUM-065: `availableAiPersonas` is filtered SERVER-side by the
+   * caller's tier × specialty capabilities — the page renders that list as
+   * given). Empty groups are skipped so a user without the farm specialty sees
+   * only the general assistants.
+   */
+  const aiPersonaGroups = useMemo(() => {
     if (!canUseAi) return [];
-    const tierOf = (id: string | null | undefined): string => {
-      const prefix = (id ?? '').split('-')[0];
-      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix)
-        ? prefix
-        : 'operator';
-    };
-    return aiPersonas.filter((p) => hasPermission(`ai_personas:${tierOf(p.id)}`));
-  }, [aiPersonas, canUseAi, hasPermission]);
+    return (Object.keys(AI_SPECIALTY_CATALOGUE) as AiSpecialtyId[])
+      .map((specialty) => ({
+        specialty,
+        title: specialty === 'general' ? 'AI Assistants' : AI_SPECIALTY_CATALOGUE[specialty].name,
+        personas: aiPersonas.filter((p) => specialtyOf(p) === specialty),
+      }))
+      .filter((group) => group.personas.length > 0);
+  }, [aiPersonas, canUseAi]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupMode, setIsGroupMode] = useState(false);
@@ -247,9 +290,7 @@ export function NewChatPage(): JSX.Element {
 
     const query = searchQuery.toLowerCase();
     return available.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [users, searchQuery, currentUser?.id]);
 
@@ -316,10 +357,7 @@ export function NewChatPage(): JSX.Element {
   const handleAiPersonaPress = useCallback(
     async (persona: AiPersona) => {
       try {
-        const channelId = await createAiChannel(
-          persona.id ?? undefined,
-          persona.name,
-        );
+        const channelId = await createAiChannel(persona.id ?? undefined, persona.name);
         if (channelId) {
           navigate(`/messages/ai/${channelId}`, { replace: true });
         }
@@ -331,40 +369,35 @@ export function NewChatPage(): JSX.Element {
   );
 
   const selectedUserNames = useMemo(() => {
-    return users
-      .filter((u) => selectedUserIds.has(u.id))
-      .map((u) => u.name);
+    return users.filter((u) => selectedUserIds.has(u.id)).map((u) => u.name);
   }, [users, selectedUserIds]);
 
   const loading = usersLoading;
   const errorMsg = usersError
-    ? (usersError instanceof Error ? usersError.message : 'Failed to load users')
+    ? usersError instanceof Error
+      ? usersError.message
+      : 'Failed to load users'
     : null;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/messages')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold flex-1">
-            {showGroupNameInput ? 'Name Your Group' : 'New Message'}
-          </h1>
-          {isGroupMode && !showGroupNameInput && (
-            <button
-              onClick={handleToggleGroupMode}
-              className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={showGroupNameInput ? 'Name Your Group' : 'New Message'}
+        back={() => navigate('/messages')}
+        actions={
+          <>
+            {isGroupMode && !showGroupNameInput && (
+              <button
+                onClick={handleToggleGroupMode}
+                className="text-sm font-medium bg-white/20 dark:bg-gray-900/20 px-3 py-1.5 rounded-lg touch-feedback"
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Group name input panel */}
       {showGroupNameInput ? (
@@ -411,12 +444,14 @@ export function NewChatPage(): JSX.Element {
               Back
             </button>
             <button
-              onClick={() => { void handleCreateGroup(); }}
+              onClick={() => {
+                void handleCreateGroup();
+              }}
               disabled={!groupName.trim() || isCreating}
               className="flex-1 py-3.5 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-semibold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all text-sm flex items-center justify-center gap-2"
             >
               {isCreating ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
               ) : (
                 <>
                   <UserPlus size={18} />
@@ -453,25 +488,29 @@ export function NewChatPage(): JSX.Element {
             </div>
           </div>
 
-          {/* AI Assistants section — gated on ai_assistant:use + per-persona ai_personas:<tier> */}
-          {!isGroupMode && visibleAiPersonas.length > 0 && (
-            <div className="px-4 pt-3">
-              <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
-                <Sparkles size={12} />
-                AI Assistants
-              </h2>
-              <div className="grid grid-cols-2 gap-2">
-                {visibleAiPersonas.map((persona) => (
-                  <AiPersonaCard
-                    key={persona.id ?? 'general'}
-                    persona={persona}
-                    onPress={() => { void handleAiPersonaPress(persona); }}
-                    disabled={isCreating}
-                  />
-                ))}
+          {/* AI Assistants — gated on ai_assistant:use; the list itself is
+              server-filtered by tier × specialty capabilities, grouped by specialty. */}
+          {!isGroupMode &&
+            aiPersonaGroups.map((group) => (
+              <div key={group.specialty} className="px-4 pt-3">
+                <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
+                  <Sparkles size={12} />
+                  {group.title}
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {group.personas.map((persona) => (
+                    <AiPersonaCard
+                      key={persona.id ?? 'general'}
+                      persona={persona}
+                      onPress={() => {
+                        void handleAiPersonaPress(persona);
+                      }}
+                      disabled={isCreating}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            ))}
 
           {/* New Group button — gated on the channels:create_group capability */}
           {!isGroupMode && canCreateGroup && (
@@ -484,9 +523,7 @@ export function NewChatPage(): JSX.Element {
                   <Users size={20} className="text-white" />
                 </div>
                 <div className="text-left">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    New Group
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">New Group</h3>
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     Create a group conversation
                   </p>
@@ -531,10 +568,7 @@ export function NewChatPage(): JSX.Element {
               </div>
             ) : errorMsg ? (
               <div className="text-center py-12 px-4">
-                <AlertCircle
-                  size={40}
-                  className="mx-auto mb-3 text-gray-300 opacity-60"
-                />
+                <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
                 <p className="text-sm text-gray-500">{errorMsg}</p>
               </div>
             ) : filteredUsers.length === 0 ? (
@@ -553,14 +587,22 @@ export function NewChatPage(): JSX.Element {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+              <div
+                className={clsx(
+                  'divide-y divide-gray-100 dark:divide-gray-800/50',
+                  isCreating && 'pointer-events-none opacity-60',
+                )}
+                aria-busy={isCreating}
+              >
                 {filteredUsers.map((u) => (
                   <UserRow
                     key={u.id}
                     user={u}
                     isSelected={selectedUserIds.has(u.id)}
                     showCheckbox={isGroupMode}
-                    onPress={() => { void handleUserPress(u.id); }}
+                    onPress={() => {
+                      void handleUserPress(u.id);
+                    }}
                   />
                 ))}
               </div>
@@ -569,20 +611,21 @@ export function NewChatPage(): JSX.Element {
         </>
       )}
 
-      {/* Loading overlay for channel creation */}
+      {/* Creation in flight — announced, not veiled: the list above is inert
+          while it runs and this is a live region. A full-screen veil is
+          invisible to assistive tech and blocks nothing it cannot see. */}
       {isCreating && !showGroupNameInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Creating conversation...
-            </p>
-          </div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-x-4 bottom-nav-gap z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
+        >
+          <Spinner size="md" />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Creating conversation...
+          </p>
         </div>
       )}
-
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

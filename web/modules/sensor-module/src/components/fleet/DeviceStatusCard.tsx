@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   Cpu,
   HardDrive,
@@ -52,22 +53,22 @@ const ProgressBar: React.FC<{
   critical?: number;
 }> = ({ value, label, icon, unit = '%', warning = 70, critical = 90 }) => {
   const getColor = () => {
-    if (value >= critical) return 'bg-red-500';
-    if (value >= warning) return 'bg-yellow-500';
-    return 'bg-green-500';
+    if (value >= critical) return 'bg-error-500';
+    if (value >= warning) return 'bg-warning-500';
+    return 'bg-success-500';
   };
 
   return (
     <div className="flex items-center gap-2">
-      <div className="text-gray-500 w-5">{icon}</div>
+      <div className="text-gray-500 dark:text-gray-400 w-5">{icon}</div>
       <div className="flex-1">
         <div className="flex justify-between text-xs mb-1">
-          <span className="text-gray-500">{label}</span>
-          <span className="text-gray-700 font-medium">
+          <span className="text-gray-500 dark:text-gray-400">{label}</span>
+          <span className="text-gray-700 dark:text-gray-300 font-medium">
             {value !== undefined ? `${value}${unit}` : 'N/A'}
           </span>
         </div>
-        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full ${getColor()} transition-all duration-300`}
             style={{ width: `${Math.min(100, value || 0)}%` }}
@@ -89,11 +90,11 @@ const OnlineIndicator: React.FC<{ isOnline: boolean; connectionQuality?: number 
     return (
       <div className="flex items-center gap-1">
         <div className="relative">
-          <Wifi size={16} className="text-green-500" />
-          <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <Wifi size={16} className="text-success-500" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-success-500 rounded-full animate-pulse" />
         </div>
         {connectionQuality !== undefined && (
-          <span className="text-xs text-gray-500">{connectionQuality}%</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{connectionQuality}%</span>
         )}
       </div>
     );
@@ -101,7 +102,7 @@ const OnlineIndicator: React.FC<{ isOnline: boolean; connectionQuality?: number 
 
   return (
     <div className="flex items-center gap-1">
-      <WifiOff size={16} className="text-gray-500" />
+      <WifiOff size={16} className="text-gray-500 dark:text-gray-400" />
     </div>
   );
 };
@@ -114,11 +115,13 @@ const StateBadge: React.FC<{ state: DeviceLifecycleState }> = ({ state }) => {
   const text = getDeviceStatusText(state);
 
   const colorClasses: Record<string, string> = {
-    green: 'bg-green-100 text-green-800 border-green-200',
-    gray: 'bg-gray-100 text-gray-800 border-gray-200',
-    yellow: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    red: 'bg-red-100 text-red-800 border-red-200',
-    blue: 'bg-blue-100 text-blue-800 border-blue-200',
+    green:
+      'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+    gray: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700',
+    yellow:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800',
+    red: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+    blue: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
   };
 
   return (
@@ -127,12 +130,8 @@ const StateBadge: React.FC<{ state: DeviceLifecycleState }> = ({ state }) => {
         colorClasses[color] || colorClasses.gray
       }`}
     >
-      {state === DeviceLifecycleState.ACTIVE && (
-        <CheckCircle size={10} className="mr-1" />
-      )}
-      {state === DeviceLifecycleState.ERROR && (
-        <AlertTriangle size={10} className="mr-1" />
-      )}
+      {state === DeviceLifecycleState.ACTIVE && <CheckCircle size={10} className="mr-1" />}
+      {state === DeviceLifecycleState.ERROR && <AlertTriangle size={10} className="mr-1" />}
       {state === DeviceLifecycleState.MAINTENANCE && (
         <Settings size={10} className="mr-1 animate-spin-slow" />
       )}
@@ -148,9 +147,9 @@ const HealthIndicator: React.FC<{ device: EdgeDevice }> = ({ device }) => {
   const health = getHealthStatus(device);
 
   const config = {
-    good: { icon: CheckCircle, color: 'text-green-500', label: 'Healthy' },
-    warning: { icon: AlertTriangle, color: 'text-yellow-500', label: 'Warning' },
-    critical: { icon: AlertTriangle, color: 'text-red-500', label: 'Critical' },
+    good: { icon: CheckCircle, color: 'text-success-500', label: 'Healthy' },
+    warning: { icon: AlertTriangle, color: 'text-warning-500', label: 'Warning' },
+    critical: { icon: AlertTriangle, color: 'text-error-500', label: 'Critical' },
   }[health];
 
   const Icon = config.icon;
@@ -176,17 +175,19 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
   if (compact) {
     return (
       <div
-        className="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow cursor-pointer"
+        className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-md transition-shadow cursor-pointer"
         onClick={() => onViewDetail?.(device)}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Server size={20} className="text-gray-500" />
+            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
+              <Server size={20} className="text-gray-500 dark:text-gray-400" />
             </div>
             <div>
-              <div className="font-medium text-gray-900">{device.deviceCode}</div>
-              <div className="text-xs text-gray-500">{device.deviceName}</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">
+                {device.deviceCode}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{device.deviceName}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -199,17 +200,19 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
       {/* Header */}
-      <div className="p-4 border-b border-gray-100">
+      <div className="p-4 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-gradient-to-br from-info-500 to-info-600 rounded-lg flex items-center justify-center">
               <Server size={24} className="text-white" />
             </div>
             <div>
-              <div className="font-semibold text-gray-900">{device.deviceCode}</div>
-              <div className="text-sm text-gray-500">{device.deviceName}</div>
+              <div className="font-semibold text-gray-900 dark:text-gray-100">
+                {device.deviceCode}
+              </div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">{device.deviceName}</div>
             </div>
           </div>
           <OnlineIndicator
@@ -220,7 +223,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
       </div>
 
       {/* Status Row */}
-      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+      <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <StateBadge state={device.lifecycleState} />
           <HealthIndicator device={device} />
@@ -229,34 +232,30 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
 
       {/* Device Info */}
       <div className="p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="text-gray-500">Model:</span>
-            <span className="ml-1 font-medium text-gray-700">
+            <span className="text-gray-500 dark:text-gray-400">Model:</span>
+            <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
               {getDeviceModelText(device.deviceModel)}
             </span>
           </div>
           <div>
-            <span className="text-gray-500">Firmware:</span>
-            <span className="ml-1 font-medium text-gray-700">
+            <span className="text-gray-500 dark:text-gray-400">Firmware:</span>
+            <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
               {device.firmwareVersion || 'N/A'}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 text-xs text-gray-500">
+        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
           <Clock size={12} />
           <span>Last seen: {formatLastSeen(device.lastSeenAt)}</span>
         </div>
 
         {/* Health Metrics */}
         {device.isOnline && (
-          <div className="space-y-2 pt-2 border-t border-gray-100">
-            <ProgressBar
-              value={device.cpuUsage || 0}
-              label="CPU"
-              icon={<Cpu size={14} />}
-            />
+          <div className="space-y-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+            <ProgressBar value={device.cpuUsage || 0} label="CPU" icon={<Cpu size={14} />} />
             <ProgressBar
               value={device.memoryUsage || 0}
               label="Memory"
@@ -269,19 +268,19 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
             />
             {device.temperatureCelsius != null && (
               <div className="flex items-center gap-2">
-                <div className="text-gray-500 w-5">
+                <div className="text-gray-500 dark:text-gray-400 w-5">
                   <Thermometer size={14} />
                 </div>
                 <div className="flex-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">Temperature</span>
+                    <span className="text-gray-500 dark:text-gray-400">Temperature</span>
                     <span
                       className={`font-medium ${
                         device.temperatureCelsius > 70
-                          ? 'text-red-500'
+                          ? 'text-error-500'
                           : device.temperatureCelsius > 55
-                          ? 'text-yellow-500'
-                          : 'text-gray-700'
+                            ? 'text-warning-500'
+                            : 'text-gray-700 dark:text-gray-300'
                       }`}
                     >
                       {device.temperatureCelsius.toFixed(1)}°C
@@ -294,56 +293,66 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
         )}
 
         {/* Stats Summary */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
-            <div className="text-lg font-semibold text-cyan-600">
+            <div className="text-lg font-semibold text-info-600 dark:text-info-400">
               {device.sensorCount ?? 0}
             </div>
-            <div className="text-xs text-gray-500">Sensors</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Sensors</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-semibold text-blue-600">
+            <div className="text-lg font-semibold text-info-600 dark:text-info-400">
               {device.programCount ?? 0}
             </div>
-            <div className="text-xs text-gray-500">Programs</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Programs</div>
           </div>
           <div className="text-center">
             <div
               className={`text-lg font-semibold ${
-                (device.activeAlarmCount ?? 0) > 0 ? 'text-red-500' : 'text-gray-500'
+                (device.activeAlarmCount ?? 0) > 0
+                  ? 'text-error-500'
+                  : 'text-gray-500 dark:text-gray-400'
               }`}
             >
               {device.activeAlarmCount ?? 0}
             </div>
-            <div className="text-xs text-gray-500">Alarms</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Alarms</div>
           </div>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex gap-2">
-        <button
+      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="flex-1 justify-center"
+          leftIcon={<Settings size={14} />}
           onClick={() => onConfigure?.(device)}
-          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
         >
-          <Settings size={14} />
           Configure
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          className="flex-1 justify-center"
+          leftIcon={<Eye size={14} />}
           onClick={() => onViewDetail?.(device)}
-          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
         >
-          <Eye size={14} />
           Detail
-        </button>
+        </Button>
         {device.isOnline && (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
+            iconOnly
+            aria-label="Reboot Device"
+            className="justify-center"
             onClick={() => onReboot?.(device)}
-            className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             title="Reboot Device"
           >
             <RefreshCw size={14} />
-          </button>
+          </Button>
         )}
       </div>
     </div>

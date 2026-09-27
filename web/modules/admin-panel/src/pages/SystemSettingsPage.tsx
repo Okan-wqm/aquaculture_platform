@@ -12,12 +12,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Alert } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Alert, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
-import {
-  usePlatformSettings,
-  useSavePlatformSettings,
-} from '../hooks/usePlatformConfiguration';
+import { usePlatformSettings, useSavePlatformSettings } from '../hooks/usePlatformConfiguration';
 import {
   DEFAULT_PLATFORM_SETTINGS,
   buildBillingWrites,
@@ -33,6 +30,17 @@ import type {
   SecurityConfig,
 } from '../services/api/platform-configuration';
 import { settingsApi } from '../services/adminApi';
+import {
+  Clock,
+  CreditCard,
+  Globe,
+  Mail,
+  RefreshCw,
+  Server as ServerIcon,
+  Settings as SettingsIcon,
+  ShieldCheck,
+} from 'lucide-react';
+import { ProviderCredentialsTab } from '../components/settings/ProviderCredentialsTab';
 
 // ============================================================================
 // Types
@@ -44,7 +52,7 @@ interface SystemInfo {
   database?: Record<string, unknown>;
 }
 
-type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'system';
+type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'providers' | 'system';
 
 // ============================================================================
 // Constants
@@ -56,6 +64,10 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: 'security', label: 'Security', icon: 'shield' },
   { id: 'billing', label: 'Billing', icon: 'credit-card' },
   { id: 'ratelimit', label: 'Rate Limit', icon: 'clock' },
+  // Company marine data provider credential (ADMIN-HIGH-135). Its own
+  // config-service surface, not a `service=platform` key — see
+  // components/settings/ProviderCredentialsTab.tsx.
+  { id: 'providers', label: 'Providers', icon: 'globe' },
   { id: 'system', label: 'System Info', icon: 'server' },
 ];
 
@@ -75,39 +87,18 @@ const CURRENCY_OPTIONS = [
 // Icons
 // ============================================================================
 
-const TabIcon: React.FC<{ name: string; className?: string }> = ({ name, className = 'w-4 h-4' }) => {
+const TabIcon: React.FC<{ name: string; className?: string }> = ({
+  name,
+  className = 'w-4 h-4',
+}) => {
   const icons: Record<string, React.ReactNode> = {
-    cog: (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
-    mail: (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-      </svg>
-    ),
-    shield: (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ),
-    'credit-card': (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-      </svg>
-    ),
-    clock: (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    server: (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-      </svg>
-    ),
+    cog: <SettingsIcon className={className} aria-hidden="true" />,
+    mail: <Mail className={className} aria-hidden="true" />,
+    shield: <ShieldCheck className={className} aria-hidden="true" />,
+    'credit-card': <CreditCard className={className} aria-hidden="true" />,
+    clock: <Clock className={className} aria-hidden="true" />,
+    globe: <Globe className={className} aria-hidden="true" />,
+    server: <ServerIcon className={className} aria-hidden="true" />,
   };
   return <>{icons[name] || null}</>;
 };
@@ -153,9 +144,9 @@ const CheckboxField: React.FC<CheckboxFieldProps> = ({ label, checked, onChange,
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       disabled={disabled}
-      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
     />
-    <span className="text-sm text-gray-700">{label}</span>
+    <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
   </label>
 );
 
@@ -168,8 +159,12 @@ const InfoGrid: React.FC<InfoGridProps> = ({ data, columns = 4 }) => (
   <div className={`grid grid-cols-2 md:grid-cols-${columns} gap-4`}>
     {Object.entries(data).map(([key, value]) => (
       <div key={key}>
-        <p className="text-xs text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
-        <p className="font-medium text-gray-900 text-sm break-all">{String(value)}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+          {key.replace(/([A-Z])/g, ' $1').trim()}
+        </p>
+        <p className="font-medium text-gray-900 dark:text-gray-100 text-sm break-all">
+          {String(value)}
+        </p>
       </div>
     ))}
   </div>
@@ -216,7 +211,14 @@ interface EmailTabProps {
   testing: boolean;
 }
 
-const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, onTest, saving, testing }) => (
+const EmailTab: React.FC<EmailTabProps> = ({
+  config,
+  onChange,
+  onSave,
+  onTest,
+  saving,
+  testing,
+}) => (
   <FormSection title="Email Settings" onSave={onSave} saving={saving}>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Input
@@ -290,7 +292,9 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
         label="Session Timeout (minutes)"
         type="number"
         value={config.sessionTimeoutMinutes}
-        onChange={(e) => onChange({ ...config, sessionTimeoutMinutes: parseInt(e.target.value) || 480 })}
+        onChange={(e) =>
+          onChange({ ...config, sessionTimeoutMinutes: parseInt(e.target.value) || 480 })
+        }
       />
       <Input
         label="Max Login Attempts"
@@ -302,7 +306,9 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
         label="Lockout Duration (minutes)"
         type="number"
         value={config.lockoutDurationMinutes}
-        onChange={(e) => onChange({ ...config, lockoutDurationMinutes: parseInt(e.target.value) || 30 })}
+        onChange={(e) =>
+          onChange({ ...config, lockoutDurationMinutes: parseInt(e.target.value) || 30 })
+        }
       />
       <Input
         label="Min Password Length"
@@ -312,7 +318,7 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
       />
     </div>
     <div className="space-y-3">
-      <p className="text-sm font-medium text-gray-700">Password Requirements</p>
+      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Password Requirements</p>
       <div className="flex flex-wrap gap-4">
         <CheckboxField
           label="Uppercase letter"
@@ -433,7 +439,7 @@ interface SystemInfoTabProps {
 const SystemInfoTab: React.FC<SystemInfoTabProps> = ({ info, onRefresh }) => {
   if (!info) {
     return (
-      <Card className="p-6 text-center text-gray-500">
+      <Card className="p-6 text-center text-gray-500 dark:text-gray-400">
         System information not available
       </Card>
     );
@@ -527,7 +533,7 @@ const SystemSettingsPage: React.FC = () => {
   // Save handlers with feedback
   const saveWithFeedback = async (
     saveFn: () => Promise<unknown>,
-    successMessage: string
+    successMessage: string,
   ): Promise<void> => {
     setError(null);
     setSuccess(null);
@@ -602,7 +608,7 @@ const SystemSettingsPage: React.FC = () => {
   if (isLoading && !settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -610,30 +616,26 @@ const SystemSettingsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">System Settings</h1>
-          <p className="mt-1 text-sm text-gray-500">Platform configuration and settings</p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            refetch();
-          }}
-          disabled={isLoading}
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="System Settings"
+        description="Platform configuration and settings"
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => {
+              refetch();
+            }}
+            disabled={isLoading}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" aria-hidden="true" />
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Alerts */}
       {loadError && (
-        <Alert type="error">
-          Failed to load platform settings: {loadError.message}
-        </Alert>
+        <Alert type="error">Failed to load platform settings: {loadError.message}</Alert>
       )}
       {error && (
         <Alert type="error" dismissible onDismiss={() => setError(null)}>
@@ -647,7 +649,7 @@ const SystemSettingsPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex space-x-4 overflow-x-auto">
           {TABS.map((tab) => (
             <button
@@ -655,8 +657,8 @@ const SystemSettingsPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-info-600 text-info-600 dark:text-info-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               <TabIcon name={tab.icon} className="w-4 h-4 mr-2" />
@@ -670,8 +672,12 @@ const SystemSettingsPage: React.FC = () => {
       <div className="mt-6">
         {activeTab === 'general' && (
           <GeneralTab
-            platformName={settings?.general.platformName ?? DEFAULT_PLATFORM_SETTINGS.general.platformName}
-            platformVersion={settings?.general.platformVersion ?? DEFAULT_PLATFORM_SETTINGS.general.platformVersion}
+            platformName={
+              settings?.general.platformName ?? DEFAULT_PLATFORM_SETTINGS.general.platformName
+            }
+            platformVersion={
+              settings?.general.platformVersion ?? DEFAULT_PLATFORM_SETTINGS.general.platformVersion
+            }
             maintenanceMode={maintenanceMode}
             onMaintenanceChange={setMaintenanceMode}
             onSave={handleSaveGeneral}
@@ -717,11 +723,10 @@ const SystemSettingsPage: React.FC = () => {
           />
         )}
 
+        {activeTab === 'providers' && <ProviderCredentialsTab />}
+
         {activeTab === 'system' && (
-          <SystemInfoTab
-            info={systemInfo}
-            onRefresh={refreshSystemInfo}
-          />
+          <SystemInfoTab info={systemInfo} onRefresh={refreshSystemInfo} />
         )}
       </div>
     </div>

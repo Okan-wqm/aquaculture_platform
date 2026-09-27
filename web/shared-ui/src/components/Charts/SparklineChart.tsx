@@ -1,9 +1,22 @@
 /**
- * Sparkline Chart Component
- * Compact inline chart for use in tables and cards
+ * Sparkline — a trend in a KPI card's corner: no axes, no chrome, drawn by
+ * recharts and painted from the theme (FE-MEDIUM-084: one chart engine).
  */
+import React, { useId, useMemo } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  Line,
+  LineChart,
+  ReferenceDot,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
-import React, { useMemo } from 'react';
+import { colors } from '../../styles/theme';
+import { NoData } from './chartSupport';
 
 export interface SparklineChartProps {
   data: number[];
@@ -14,18 +27,25 @@ export interface SparklineChartProps {
   gradientTo?: string;
   strokeWidth?: number;
   showArea?: boolean;
+  /** Marks the latest value. */
   showDot?: boolean;
+  /** Marks the lowest value in the error colour and the highest in the success colour. */
   showMinMax?: boolean;
   animate?: boolean;
   className?: string;
   variant?: 'line' | 'bar' | 'area';
 }
 
+interface SparkPoint {
+  index: number;
+  value: number;
+}
+
 export const SparklineChart: React.FC<SparklineChartProps> = ({
   data,
   width = 100,
-  height = 32,
-  color = '#3B82F6',
+  height = 30,
+  color = colors.primary[500],
   gradientFrom,
   gradientTo,
   strokeWidth = 1.5,
@@ -36,139 +56,119 @@ export const SparklineChart: React.FC<SparklineChartProps> = ({
   className = '',
   variant = 'area',
 }) => {
-  const gradientId = useMemo(() => `sparkline-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
-
-  const { points, path, areaPath, minIndex, maxIndex, barWidth } = useMemo(() => {
-    if (!data || data.length < 2) {
-      return { points: [], path: '', areaPath: '', minIndex: -1, maxIndex: -1, barWidth: 0 };
+  const gradientId = useId();
+  const points = useMemo<SparkPoint[]>(
+    () => data.map((value, index) => ({ index, value })),
+    [data],
+  );
+  const extremes = useMemo(() => {
+    if (points.length === 0) return null;
+    let min = points[0]!;
+    let max = points[0]!;
+    for (const point of points) {
+      if (point.value < min.value) min = point;
+      if (point.value > max.value) max = point;
     }
+    return { min, max, last: points[points.length - 1]! };
+  }, [points]);
 
-    const padding = 2;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-
-    const bWidth = (width - padding * 2) / data.length - 1;
-
-    const pts = data.map((value, index) => {
-      const x = padding + (index / (data.length - 1)) * (width - padding * 2);
-      const y = padding + (1 - (value - min) / range) * (height - padding * 2);
-      return { x, y, value };
-    });
-
-    const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-    const areaD = [
-      ...pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`),
-      `L ${pts[pts.length - 1].x} ${height - padding}`,
-      `L ${pts[0].x} ${height - padding}`,
-      'Z',
-    ].join(' ');
-
-    const minIdx = data.indexOf(min);
-    const maxIdx = data.indexOf(max);
-
-    return { points: pts, path: pathD, areaPath: areaD, minIndex: minIdx, maxIndex: maxIdx, barWidth: bWidth };
-  }, [data, width, height]);
-
-  if (!data || data.length < 2) {
-    return <div className={className} style={{ width, height }} />;
+  if (points.length === 0 || extremes === null) {
+    return <NoData width={width} height={height} className={className} />;
   }
 
+  const axes = (
+    <>
+      <XAxis dataKey="index" type="number" domain={['dataMin', 'dataMax']} hide />
+      <YAxis domain={['dataMin', 'dataMax']} hide />
+    </>
+  );
+  const marks = (
+    <>
+      {showDot && (
+        <ReferenceDot
+          x={extremes.last.index}
+          y={extremes.last.value}
+          r={3}
+          fill={color}
+          stroke={colors.white}
+          strokeWidth={1.5}
+        />
+      )}
+      {showMinMax && (
+        <>
+          <ReferenceDot
+            x={extremes.min.index}
+            y={extremes.min.value}
+            r={2.5}
+            fill={colors.error[500]}
+            stroke="none"
+          />
+          <ReferenceDot
+            x={extremes.max.index}
+            y={extremes.max.value}
+            r={2.5}
+            fill={colors.success[500]}
+            stroke="none"
+          />
+        </>
+      )}
+    </>
+  );
+  const margin = { top: 4, right: 4, bottom: 4, left: 4 };
+
   if (variant === 'bar') {
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    const padding = 2;
-
     return (
-      <svg width={width} height={height} className={className}>
-        {data.map((value, index) => {
-          const barHeight = ((value - min) / range) * (height - padding * 2);
-          const x = padding + index * (barWidth + 1);
-          const y = height - padding - barHeight;
+      <div className={className} style={{ width, height }}>
+        <BarChart data={points} width={width} height={height} margin={margin} barCategoryGap={1}>
+          {axes}
+          <Bar dataKey="value" fill={color} radius={[1, 1, 0, 0]} isAnimationActive={animate} />
+          {marks}
+        </BarChart>
+      </div>
+    );
+  }
 
-          return (
-            <rect
-              key={index}
-              x={x}
-              y={y}
-              width={barWidth}
-              height={barHeight}
-              fill={color}
-              rx={1}
-              className={animate ? 'transition-all duration-300' : ''}
-            />
-          );
-        })}
-      </svg>
+  if (variant === 'line' || !showArea) {
+    return (
+      <div className={className} style={{ width, height }}>
+        <LineChart data={points} width={width} height={height} margin={margin}>
+          {axes}
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            dot={false}
+            isAnimationActive={animate}
+          />
+          {marks}
+        </LineChart>
+      </div>
     );
   }
 
   return (
-    <svg width={width} height={height} className={`overflow-visible ${className}`}>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={gradientFrom || color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={gradientTo || color} stopOpacity="0.05" />
-        </linearGradient>
-      </defs>
-
-      {/* Area fill */}
-      {showArea && variant === 'area' && (
-        <path
-          d={areaPath}
+    <div className={className} style={{ width, height }}>
+      <AreaChart data={points} width={width} height={height} margin={margin}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={gradientFrom ?? color} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={gradientTo ?? color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        {axes}
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={strokeWidth}
           fill={`url(#${gradientId})`}
-          className={animate ? 'transition-all duration-500' : ''}
+          dot={false}
+          isAnimationActive={animate}
         />
-      )}
-
-      {/* Line */}
-      <path
-        d={path}
-        fill="none"
-        stroke={color}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={animate ? 'transition-all duration-500' : ''}
-      />
-
-      {/* Min/Max dots */}
-      {showMinMax && (
-        <>
-          {minIndex >= 0 && (
-            <circle
-              cx={points[minIndex].x}
-              cy={points[minIndex].y}
-              r={3}
-              fill="#EF4444"
-              className={animate ? 'transition-all duration-300' : ''}
-            />
-          )}
-          {maxIndex >= 0 && (
-            <circle
-              cx={points[maxIndex].x}
-              cy={points[maxIndex].y}
-              r={3}
-              fill="#10B981"
-              className={animate ? 'transition-all duration-300' : ''}
-            />
-          )}
-        </>
-      )}
-
-      {/* End dot */}
-      {showDot && points.length > 0 && (
-        <circle
-          cx={points[points.length - 1].x}
-          cy={points[points.length - 1].y}
-          r={3}
-          fill={color}
-          className={animate ? 'transition-all duration-300' : ''}
-        />
-      )}
-    </svg>
+        {marks}
+      </AreaChart>
+    </div>
   );
 };
 

@@ -35,7 +35,7 @@ import unittest
 
 from . import _helpers  # noqa: F401
 
-from aria_kernel import evidence_validator
+from aria_kernel import evidence_trust
 from aria_kernel.evidence_validator import _AGENT_REF_RE, _parse_agent_ref
 
 
@@ -67,10 +67,9 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
     def test_i_v8_0_redos_02_pathological_input_completes_under_100ms(self):
         """The pre-fix regex burned ~120s of CPU on plan_synthesizer's
         `path:line:content` format. Post-V8.3 fix MUST complete in
-        <100ms on the same input; post-V8.6 fix also ACCEPTS the
-        triplet form as a valid evidence_ref (path + line) and
-        ignores the trailing :content excerpt. Either outcome
-        (matched OR rejected) MUST be linear time."""
+        <100ms on the same input. ARIA-HIGH-195 retired the V8.6 triplet
+        admission (the classifier never accepted it), so the triplet is
+        rejected — in linear time."""
         triplet_inputs = [
             "x" * 30 + ":1:content here",
             "x" * 50 + ":42:content here that goes on",
@@ -85,20 +84,19 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
             "a" * 80 + "::garbage",
         ]
         for inp in triplet_inputs:
-            with self.subTest(inp_len=len(inp), kind="triplet_accepted"):
+            with self.subTest(inp_len=len(inp), kind="triplet_rejected"):
                 signal.signal(signal.SIGALRM, _alarm)
                 signal.setitimer(signal.ITIMER_REAL, 0.5)
                 try:
                     t = time.monotonic()
                     result = _AGENT_REF_RE.match(inp)
                     elapsed = time.monotonic() - t
-                    # V8.6 — path:line:content MUST be accepted; the
-                    # path + line groups carry the canonical pair,
-                    # the trailing :content excerpt is captured and
-                    # discarded by `(?::.*)?`.
-                    self.assertIsNotNone(
+                    # ARIA-HIGH-195 — one grammar, `path[:line]`: the
+                    # triplet is rejected (evidence_trust grades it
+                    # missing too), and the rejection stays linear.
+                    self.assertIsNone(
                         result,
-                        f"path:line:content MUST match after V8.6 regex extension: {inp!r}",
+                        f"path:line:content is outside the one ref grammar: {inp!r}",
                     )
                     self.assertLess(
                         elapsed, 0.1,
@@ -134,16 +132,18 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
         the catastrophic `[^\\s:]*(?:[^\\s:]` overlap AND MUST contain
         the safe `[^\\s:]+` form. Lint-style guard against the
         original accidental complication returning under refactor."""
-        src = inspect.getsource(evidence_validator)
-        # Find the actual assignment line (skip comments)
+        # ARIA-HIGH-195 — the grammar lives in evidence_trust
+        # (EVIDENCE_REF_RE); the validator's _AGENT_REF_RE is that object.
+        self.assertIs(_AGENT_REF_RE, evidence_trust.EVIDENCE_REF_RE)
+        src = inspect.getsource(evidence_trust)
         assign_lines = [
             line for line in src.splitlines()
-            if line.lstrip().startswith("_AGENT_REF_RE")
+            if line.lstrip().startswith("EVIDENCE_REF_RE")
             and "re.compile" in line
         ]
         self.assertEqual(
             len(assign_lines), 1,
-            f"expected exactly 1 _AGENT_REF_RE compile line, found {len(assign_lines)}",
+            f"expected exactly 1 EVIDENCE_REF_RE compile line, found {len(assign_lines)}",
         )
         assign = assign_lines[0]
         # Negative: the dangerous overlap must NOT reappear on the compile line

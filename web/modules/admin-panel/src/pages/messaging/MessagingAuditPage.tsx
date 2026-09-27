@@ -43,7 +43,13 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   messagingApi,
   MESSAGING_COMPLIANCE_ACTIONS,
@@ -55,6 +61,7 @@ import { saveBlob } from '../../services/blob-client';
 import { adminKeys, useAdminQuery } from '../../hooks';
 import { TenantSelect } from '../../components/TenantSelect';
 import { QueryFailureNotice } from '../../components/QueryFailureNotice';
+import { Clipboard } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -85,18 +92,51 @@ const ACTION_PRESENTATION: Record<
   MessagingComplianceAction,
   { readonly label: string; readonly badge: string }
 > = {
-  message_send: { label: 'Message sent', badge: 'bg-blue-100 text-blue-800' },
-  message_edit: { label: 'Message edited', badge: 'bg-yellow-100 text-yellow-800' },
-  message_delete: { label: 'Message deleted', badge: 'bg-red-100 text-red-800' },
-  channel_create: { label: 'Channel created', badge: 'bg-green-100 text-green-800' },
-  channel_archive: { label: 'Channel archived', badge: 'bg-gray-100 text-gray-800' },
-  member_add: { label: 'Member added', badge: 'bg-purple-100 text-purple-800' },
-  member_remove: { label: 'Member removed', badge: 'bg-orange-100 text-orange-800' },
+  message_send: {
+    label: 'Message sent',
+    badge: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  },
+  message_edit: {
+    label: 'Message edited',
+    badge: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  },
+  message_delete: {
+    label: 'Message deleted',
+    badge: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  },
+  channel_create: {
+    label: 'Channel created',
+    badge: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  },
+  channel_archive: {
+    label: 'Channel archived',
+    badge: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  },
+  member_add: {
+    label: 'Member added',
+    badge: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  member_remove: {
+    label: 'Member removed',
+    badge: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  },
   // The four an auditor comes here for. The previous filter offered none.
-  message_export: { label: 'Messages exported', badge: 'bg-indigo-100 text-indigo-800' },
-  data_anonymize: { label: 'Data anonymised', badge: 'bg-pink-100 text-pink-800' },
-  retention_set: { label: 'Retention changed', badge: 'bg-teal-100 text-teal-800' },
-  legal_hold_toggle: { label: 'Legal hold changed', badge: 'bg-red-100 text-red-800' },
+  message_export: {
+    label: 'Messages exported',
+    badge: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  },
+  data_anonymize: {
+    label: 'Data anonymised',
+    badge: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  retention_set: {
+    label: 'Retention changed',
+    badge: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  },
+  legal_hold_toggle: {
+    label: 'Legal hold changed',
+    badge: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  },
 };
 
 /**
@@ -229,43 +269,98 @@ const MessagingAuditPage: React.FC = () => {
     );
   };
 
+  const messagingAuditEntryColumns: DataTableColumn<MessagingAuditEntry>[] = [
+    {
+      key: 'createdAt',
+      header: 'Recorded At',
+      render: (_value, entry) => new Date(entry.createdAt).toLocaleString(),
+    },
+    {
+      key: 'userId',
+      header: 'User',
+      render: (_value, entry) => (
+        <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{entry.userId}</p>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`px-2 py-0.5 text-xs font-semibold rounded-full ${ACTION_PRESENTATION[entry.action].badge}`}
+          >
+            {ACTION_PRESENTATION[entry.action].label}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'resource',
+      header: 'Resource',
+      render: (_value, entry) => (
+        <>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{entry.resourceType}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{entry.resourceId}</p>
+        </>
+      ),
+    },
+    {
+      key: 'details',
+      header: 'Details',
+      // `details` is jsonb: rendered bare it was `[object Object]`, and null
+      // is not "no detail recorded" written as an empty string.
+      render: (_value, entry) => (entry.details === null ? '—' : detailsLine(entry.details)),
+    },
+    {
+      key: 'from',
+      header: 'From',
+      render: (_value, entry) => (
+        <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+          {entry.ipAddress ?? '—'}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Audit Log</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Every recorded messaging operation for one tenant, newest first.
-          </p>
-        </div>
-        <div className="flex items-end gap-3">
-          <div className="w-72">
-            <label htmlFor="audit-tenant" className="block text-xs font-medium text-gray-600 mb-1">
-              Tenant
-            </label>
-            <div id="audit-tenant">
-              <TenantSelect value={tenantId} onChange={selectTenant} />
+      <PageHeader
+        title="Messaging Audit Log"
+        description="Every recorded messaging operation for one tenant, newest first."
+        actions={
+          <div className="flex items-end gap-3">
+            <div className="w-72">
+              <label
+                htmlFor="audit-tenant"
+                className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+              >
+                Tenant
+              </label>
+              <div id="audit-tenant">
+                <TenantSelect value={tenantId} onChange={selectTenant} />
+              </div>
             </div>
+            <Button
+              onClick={exportCsv}
+              variant="secondary"
+              size="sm"
+              disabled={entries.length === 0}
+            >
+              Export this page
+            </Button>
+            <Button
+              onClick={() => void auditQuery.refetch()}
+              disabled={tenantId === null || auditQuery.isFetching}
+              variant="secondary"
+              size="sm"
+            >
+              {auditQuery.isFetching ? 'Loading...' : 'Refresh'}
+            </Button>
           </div>
-          <Button
-            onClick={exportCsv}
-            variant="secondary"
-            size="sm"
-            disabled={entries.length === 0}
-          >
-            Export this page
-          </Button>
-          <Button
-            onClick={() => void auditQuery.refetch()}
-            disabled={tenantId === null || auditQuery.isFetching}
-            variant="secondary"
-            size="sm"
-          >
-            {auditQuery.isFetching ? 'Loading...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={[auditQuery.error]}
@@ -274,9 +369,9 @@ const MessagingAuditPage: React.FC = () => {
       />
 
       {tenantId === null ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-          <p className="text-sm font-medium text-gray-700">Choose a tenant</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-8 text-center">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Choose a tenant</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             The audit log is held per tenant and the route refuses a request without one. No
             table is shown until a tenant is selected — an empty table here would read as an
             absence of activity rather than an absence of a question.
@@ -291,7 +386,7 @@ const MessagingAuditPage: React.FC = () => {
                 <div>
                   <label
                     htmlFor="audit-user"
-                    className="block text-xs font-medium text-gray-500 mb-1"
+                    className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
                   >
                     User ID
                   </label>
@@ -301,13 +396,13 @@ const MessagingAuditPage: React.FC = () => {
                     placeholder="Filter by user..."
                     value={filters.userId}
                     onChange={(e) => applyFilter('userId', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="audit-action"
-                    className="block text-xs font-medium text-gray-500 mb-1"
+                    className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
                   >
                     Action
                   </label>
@@ -317,7 +412,7 @@ const MessagingAuditPage: React.FC = () => {
                     onChange={(e) =>
                       applyFilter('action', e.target.value as MessagingComplianceAction | '')
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
                   >
                     <option value="">All Actions</option>
                     {MESSAGING_COMPLIANCE_ACTIONS.map((action) => (
@@ -330,7 +425,7 @@ const MessagingAuditPage: React.FC = () => {
                 <div>
                   <label
                     htmlFor="audit-from"
-                    className="block text-xs font-medium text-gray-500 mb-1"
+                    className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
                   >
                     Start Date
                   </label>
@@ -339,11 +434,14 @@ const MessagingAuditPage: React.FC = () => {
                     type="date"
                     value={filters.startDate}
                     onChange={(e) => applyFilter('startDate', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
                   />
                 </div>
                 <div>
-                  <label htmlFor="audit-to" className="block text-xs font-medium text-gray-500 mb-1">
+                  <label
+                    htmlFor="audit-to"
+                    className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
+                  >
                     End Date
                   </label>
                   <input
@@ -351,14 +449,14 @@ const MessagingAuditPage: React.FC = () => {
                     type="date"
                     value={filters.endDate}
                     onChange={(e) => applyFilter('endDate', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
                   />
                 </div>
               </div>
               <div className="mt-3 flex justify-end">
                 <button
                   onClick={resetFilters}
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 font-medium"
                 >
                   Reset Filters
                 </button>
@@ -369,90 +467,43 @@ const MessagingAuditPage: React.FC = () => {
           {/* Table */}
           <Card>
             <div className="overflow-x-auto">
-              {auditQuery.isPending ? (
-                <div className="flex items-center justify-center py-16">
-                  <p className="text-sm text-gray-400">Loading audit entries...</p>
-                </div>
-              ) : auditQuery.isError ? (
+              {auditQuery.isError ? (
                 // The banner above carries the reason. Nothing is drawn here:
                 // an empty table on an audit trail asserts that nothing
                 // happened.
                 null
-              ) : entries.length === 0 ? (
+              ) : !auditQuery.isPending && entries.length === 0 ? (
                 <div className="flex items-center justify-center py-16">
                   <div className="text-center">
-                    <p className="text-sm text-gray-500">
+                    <Clipboard className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       No audit entries match these filters.
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                       The read succeeded and returned nothing.
                     </p>
                   </div>
                 </div>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Recorded At
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        User
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Action
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Resource
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Details
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        From
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {entries.map((entry) => (
-                      <tr key={entry.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                          {new Date(entry.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 font-mono">
-                          {entry.userId}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-0.5 text-xs font-semibold rounded-full ${ACTION_PRESENTATION[entry.action].badge}`}
-                          >
-                            {ACTION_PRESENTATION[entry.action].label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          <p>{entry.resourceType}</p>
-                          <p className="text-xs text-gray-400 font-mono">{entry.resourceId}</p>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
-                          {/* `details` is jsonb: rendered bare it was
-                              `[object Object]`, and null is not "no detail
-                              recorded" written as an empty string. */}
-                          {entry.details === null ? '—' : detailsLine(entry.details)}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-500 font-mono">
-                          {entry.ipAddress ?? '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable<MessagingAuditEntry>
+                  data={entries}
+                  columns={messagingAuditEntryColumns}
+                  keyExtractor={(entry) => entry.id}
+                  loading={auditQuery.isPending}
+                  loadingMessage="Loading audit entries..."
+                  emptyMessage="No audit entries"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  className="shadow-none rounded-none"
+                />
               )}
             </div>
 
             {/* Pagination — cursor, because that is what the route offers */}
             {page && entries.length > 0 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Page {cursorTrail.length} · showing {entries.length} of {page.totalCount}{' '}
                   matching {page.totalCount === 1 ? 'entry' : 'entries'}
                 </p>
@@ -460,7 +511,7 @@ const MessagingAuditPage: React.FC = () => {
                   <button
                     onClick={() => setCursorTrail((trail) => trail.slice(0, -1))}
                     disabled={cursorTrail.length <= 1}
-                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous
                   </button>
@@ -471,7 +522,7 @@ const MessagingAuditPage: React.FC = () => {
                       )
                     }
                     disabled={!page.hasMore || page.cursor === null}
-                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                   </button>

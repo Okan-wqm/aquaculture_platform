@@ -25,6 +25,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ConfirmProvider } from '@aquaculture/shared-ui';
 
 import AnnouncementsPage from '../AnnouncementsPage';
 import { supportApi } from '../../services/adminApi';
@@ -112,7 +113,9 @@ function renderPage(): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <AnnouncementsPage />
+      <ConfirmProvider>
+        <AnnouncementsPage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
 }
@@ -178,14 +181,17 @@ describe('AnnouncementsPage', () => {
   });
 
   it('asks before deleting, and does not delete when refused', async () => {
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false));
     renderPage();
+    const user = userEvent.setup();
 
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: 'Delete Scheduled maintenance' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Scheduled maintenance' }));
 
-    expect(window.confirm).toHaveBeenCalled();
+    // The design-system confirm dialog, not the browser's (`no-alert`).
+    expect(
+      await screen.findByRole('heading', { name: 'Delete "Scheduled maintenance"?' }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
     expect(remove).not.toHaveBeenCalled();
   });
 

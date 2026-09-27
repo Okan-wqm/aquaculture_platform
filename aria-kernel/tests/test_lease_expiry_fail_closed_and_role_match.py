@@ -78,7 +78,7 @@ def _request(role: str, request_id: str = "REQ-1") -> dict:
     return {
         "request_id": request_id,
         "role": role,
-        "must_satisfy": [{"id": "c-1", "criterion": "ok"}],
+        "must_satisfy": [{"id": "c-1", "description": "ok"}],
         "allowed_scope": ["**"],
     }
 

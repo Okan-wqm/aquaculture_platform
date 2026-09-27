@@ -322,7 +322,7 @@ export function MessageInput({
               className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback transition-colors"
               aria-label="Cancel reply"
             >
-              <X size={18} className="text-gray-400" />
+              <X size={18} className="text-gray-400 dark:text-gray-500" />
             </button>
           )}
         </div>
@@ -380,7 +380,7 @@ export function MessageInput({
             <span
               className={clsx(
                 'absolute bottom-1.5 right-3 text-[10px] font-semibold tabular-nums',
-                charCount >= maxLength ? 'text-red-500' : 'text-gray-400',
+                charCount >= maxLength ? 'text-red-500' : 'text-gray-400 dark:text-gray-500',
               )}
             >
               {charCount}/{maxLength}

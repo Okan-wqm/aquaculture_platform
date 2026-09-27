@@ -45,7 +45,7 @@ class AnchorSweepTests(unittest.TestCase):
             target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="judge F-1",
-            must_satisfy=[{"id": "verdict", "criterion": "verdict"}],
+            must_satisfy=[{"id": "verdict", "description": "verdict"}],
             allowed_scope=["**"],
             finding_id="F-1",
             finding_fingerprint="fp-F-1",

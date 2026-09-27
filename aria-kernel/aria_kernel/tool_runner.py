@@ -18,7 +18,8 @@ from .ledger_inline import (
     spill_oversized_inline,
 )
 from .runtime_profile import enforce_profile_for_write
-from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
+from .canonical_path import lexical_repo_path
+from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
 from .artifact_safety import scrub_text
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
@@ -523,7 +524,7 @@ def _normalized_git_status_raw(stdout: bytes) -> tuple[str, ...]:
         path = entry[3:] if len(entry) > 3 else entry
         if status.startswith("R") or status.startswith("C"):
             skip_next = True
-        normalized = normalize_path(path)
+        normalized = lexical_repo_path(path)
         if normalized and not ignored_dirty_path(normalized):
             paths.append(f"{status} {normalized}")
     return tuple(sorted(paths))
@@ -579,7 +580,7 @@ def _normalized_git_status(stdout: bytes, tool: dict[str, Any] | None = None) ->
         path = entry[3:] if len(entry) > 3 else entry
         if status.startswith("R") or status.startswith("C"):
             skip_next = True
-        normalized = normalize_path(path)
+        normalized = lexical_repo_path(path)
         if normalized and not ignored_dirty_path(normalized) and _mutation_path_in_tool_scope(tool, normalized):
             paths.append(f"{status} {normalized}")
     return tuple(sorted(paths))

@@ -25,7 +25,27 @@ import {
 // ARCH-NOTE: Always use SupplierType enum, never hardcode string values. GraphQL enums are case-sensitive.
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import {
+  Box,
+  ChartColumn,
+  ChevronDown,
+  CircleX,
+  Monitor,
+  Plus,
+  Search as SearchIcon,
+  Sun,
+  SwatchBook,
+  X,
+} from 'lucide-react';
 
 // Predefined species tags
 const PREDEFINED_TAGS = [
@@ -116,23 +136,19 @@ const CollapsibleSection: React.FC<{
   onToggle: () => void;
   children: React.ReactNode;
 }> = ({ title, isOpen, onToggle, children }) => (
-  <div className="border border-gray-200 rounded-lg mb-4">
+  <div className="border border-gray-200 dark:border-gray-700 rounded-lg mb-4">
     <button
       type="button"
       onClick={onToggle}
-      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-t-lg"
+      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
     >
-      <span className="font-medium text-gray-700">{title}</span>
-      <svg
-        className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
+      <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
+      <ChevronDown
+        className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
+        aria-hidden="true"
+      />
     </button>
-    {isOpen && <div className="p-4 border-t border-gray-200">{children}</div>}
+    {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
 );
 
@@ -339,8 +355,16 @@ export const SpeciesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this species?')) {
+    if (
+      await confirm({
+        title: 'Delete this species?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       setDeleteError(null);
       try {
         await deleteSpeciesMutation.mutateAsync(id);
@@ -414,89 +438,66 @@ export const SpeciesTab: React.FC = () => {
               placeholder="Search species..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <SearchIcon
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {Object.entries(speciesCategoryLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...Object.entries(speciesCategoryLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <Select
+            aria-label="Water type filter"
+            fullWidth={false}
             value={selectedWaterType}
             onChange={(e) => setSelectedWaterType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Water Types</option>
-            {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Water Types' },
+              ...Object.entries(speciesWaterTypeLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Statuses</option>
-            {Object.entries(speciesStatusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Statuses' },
+              ...Object.entries(speciesStatusLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
+        <Button variant="primary" onClick={openAddModal}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Add Species
-        </button>
+        </Button>
       </div>
 
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load species. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load species. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
@@ -505,7 +506,7 @@ export const SpeciesTab: React.FC = () => {
           now request an explicit page (SPECIES_LIST_LIMIT); when MORE exist, disclose
           it instead of silently truncating. */}
       {!isLoading && !error && speciesData?.hasNextPage && (
-        <div className="mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        <div className="mb-6 px-4 py-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-800 dark:text-warning-200">
           Showing the first {SPECIES_LIST_LIMIT} species; this catalog has more.
         </div>
       )}
@@ -516,34 +517,40 @@ export const SpeciesTab: React.FC = () => {
           {filteredSpecies.map((species) => (
             <div
               key={species.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{species.commonName}</h3>
-                    <p className="text-sm text-gray-500 italic">{species.scientificName}</p>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                      {species.commonName}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      {species.scientificName}
+                    </p>
                     {species.localName && (
-                      <p className="text-sm text-gray-400">({species.localName})</p>
+                      <p className="text-sm text-gray-400 dark:text-gray-500">
+                        ({species.localName})
+                      </p>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                       Code: {species.code}
                       {species.officialCode ? ` · Artskode: ${species.officialCode}` : ''}
                     </p>
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesCategoryLabels[species.category] || species.category}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesWaterTypeLabels[species.waterType] || species.waterType}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesStatusLabels[species.status] || species.status}
                     </span>
@@ -558,8 +565,8 @@ export const SpeciesTab: React.FC = () => {
                         key={tag}
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           PREDEFINED_TAGS.includes(tag)
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-green-50 text-green-700 border border-green-200'
+                            ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800'
+                            : 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                         }`}
                       >
                         {tag}
@@ -570,26 +577,14 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Optimal Conditions Summary */}
                 {species.optimalConditions && (
-                  <div className="space-y-2 text-sm text-gray-600 border-t border-gray-100 pt-3 mt-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-3 mt-3">
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                       Optimal Conditions
                     </p>
 
                     {species.optimalConditions.temperature && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-orange-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                          />
-                        </svg>
+                        <ChartColumn className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
                         <span>
                           Temp: {species.optimalConditions.temperature.min}-
                           {species.optimalConditions.temperature.max}°C
@@ -599,19 +594,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.ph && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-purple-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
-                          />
-                        </svg>
+                        <SwatchBook className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
                         <span>
                           pH: {species.optimalConditions.ph.min}-{species.optimalConditions.ph.max}
                         </span>
@@ -620,38 +603,14 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.dissolvedOxygen && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-blue-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                          />
-                        </svg>
+                        <Box className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
                         <span>O2: min {species.optimalConditions.dissolvedOxygen.min} mg/L</span>
                       </div>
                     )}
 
                     {species.optimalConditions.co2 && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-green-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                          />
-                        </svg>
+                        <Monitor className="w-4 h-4 mr-2 text-success-500" aria-hidden="true" />
                         <span>
                           CO2: {species.optimalConditions.co2.min}-
                           {species.optimalConditions.co2.max} mg/L
@@ -661,19 +620,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.lightRegime && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-yellow-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
-                          />
-                        </svg>
+                        <Sun className="w-4 h-4 mr-2 text-warning-500" aria-hidden="true" />
                         <span>
                           Light: {species.optimalConditions.lightRegime.lightHours}h / Dark:{' '}
                           {species.optimalConditions.lightRegime.darkHours}h
@@ -685,29 +632,25 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Description */}
                 {species.description && (
-                  <p className="text-sm text-gray-500 mt-3 line-clamp-2">{species.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">
+                    {species.description}
+                  </p>
                 )}
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-between items-center">
-                <span className="text-xs text-gray-500">
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg flex justify-between items-center">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {species.family && species.genus
                     ? `${species.family} / ${species.genus}`
                     : species.family || species.genus || ''}
                 </span>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEdit(species)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
+                  <Button variant="ghost" onClick={() => handleEdit(species)}>
                     Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(species.id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleDelete(species.id)}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -717,57 +660,29 @@ export const SpeciesTab: React.FC = () => {
 
       {/* Delete Error */}
       {deleteError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md">
           <div className="flex items-center justify-between">
             <div className="flex">
-              <svg
-                className="h-5 w-5 text-red-400 mr-2 flex-shrink-0"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <p className="text-sm text-red-700">{deleteError}</p>
+              <CircleX className="h-5 w-5 text-error-400 mr-2 flex-shrink-0" aria-hidden="true" />
+              <p className="text-sm text-error-700 dark:text-error-300">{deleteError}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDeleteError(null)}
-              className="text-red-400 hover:text-red-600"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
+            <Button variant="ghost" type="button" onClick={() => setDeleteError(null)}>
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </div>
         </div>
       )}
 
       {/* Empty State */}
       {!isLoading && !error && filteredSpecies.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No species found</h3>
-          <p className="mt-1 text-sm text-gray-500">Add your first species to get started.</p>
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <Box className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No species found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Add your first species to get started.
+          </p>
         </div>
       )}
 
@@ -781,20 +696,13 @@ export const SpeciesTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             {formError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md">
                 <div className="flex">
-                  <svg
-                    className="h-5 w-5 text-red-400 mr-2 flex-shrink-0"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <p className="text-sm text-red-700">{formError}</p>
+                  <CircleX
+                    className="h-5 w-5 text-error-400 mr-2 flex-shrink-0"
+                    aria-hidden="true"
+                  />
+                  <p className="text-sm text-error-700 dark:text-error-300">{formError}</p>
                 </div>
               </div>
             )}
@@ -805,10 +713,13 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.basic}
               onToggle={() => toggleSection('basic')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Common Name *</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Common Name *
+                  </label>
+                  <Input
+                    fullWidth
                     type="text"
                     required
                     value={formData.commonName}
@@ -816,14 +727,14 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, commonName: e.target.value }))
                     }
                     placeholder="e.g., European Seabass"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Scientific Name *
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="text"
                     required
                     value={formData.scientificName}
@@ -831,14 +742,17 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
                     }
                     placeholder="e.g., Dicentrarchus labrax"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 italic"
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Code *</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Code *
+                  </label>
+                  <Input
+                    className="uppercase"
+                    fullWidth
                     type="text"
                     required
                     value={formData.code}
@@ -846,14 +760,15 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                     }
                     placeholder="e.g., SEABASS"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
                   </label>
-                  <input
+                  <Input
+                    className="uppercase"
+                    fullWidth
                     type="text"
                     value={formData.officialCode}
                     onChange={(e) =>
@@ -864,35 +779,38 @@ export const SpeciesTab: React.FC = () => {
                     }
                     placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)"
                     maxLength={16}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Required for Norwegian regulatory reports — submissions fail closed without it.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Local Name</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Local Name
+                  </label>
+                  <Input
+                    fullWidth
                     type="text"
                     value={formData.localName}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, localName: e.target.value }))
                     }
                     placeholder="e.g., Levrek"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <textarea
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Description
+                </label>
+                <Textarea
+                  fullWidth
                   value={formData.description}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, description: e.target.value }))
                   }
                   rows={2}
                   placeholder="Brief description of the species..."
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </CollapsibleSection>
@@ -904,7 +822,7 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('tags')}
             >
               <div>
-                <p className="text-sm text-gray-500 mb-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                   Select tags to categorize this species for filtering and reporting
                 </p>
 
@@ -917,8 +835,8 @@ export const SpeciesTab: React.FC = () => {
                       onClick={() => handleTagToggle(tag)}
                       className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                         formData.tags.includes(tag)
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          ? 'bg-info-500 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                       }`}
                     >
                       {tag}
@@ -928,7 +846,7 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Custom Tag Input */}
                 <div className="flex gap-2">
-                  <input
+                  <Input
                     type="text"
                     value={formData.customTag}
                     onChange={(e) =>
@@ -936,13 +854,12 @@ export const SpeciesTab: React.FC = () => {
                     }
                     onKeyDown={handleCustomTagKeyDown}
                     placeholder="Add custom tag..."
-                    className="flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                   <button
                     type="button"
                     onClick={handleAddCustomTag}
                     disabled={!formData.customTag.trim()}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Add
                   </button>
@@ -951,23 +868,24 @@ export const SpeciesTab: React.FC = () => {
                 {/* Selected Custom Tags (non-predefined) */}
                 {formData.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).length > 0 && (
                   <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">Custom tags:</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Custom tags:</p>
                     <div className="flex flex-wrap gap-2">
                       {formData.tags
                         .filter((t) => !PREDEFINED_TAGS.includes(t))
                         .map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-700"
+                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                           >
                             {tag}
-                            <button
+                            <Button
+                              variant="ghost"
+                              className="ml-2"
                               type="button"
                               onClick={() => handleTagToggle(tag)}
-                              className="ml-2 text-green-500 hover:text-green-700"
                             >
                               ×
-                            </button>
+                            </Button>
                           </span>
                         ))}
                     </div>
@@ -975,7 +893,7 @@ export const SpeciesTab: React.FC = () => {
                 )}
 
                 {formData.tags.length > 0 && (
-                  <p className="mt-3 text-xs text-gray-500">
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                     {formData.tags.length} tag(s) selected
                   </p>
                 )}
@@ -988,69 +906,63 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.classification}
               onToggle={() => toggleSection('classification')}
             >
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Category *</label>
-                  <select
-                    required
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        category: e.target.value as SpeciesCategory,
-                      }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select Category</option>
-                    {Object.entries(speciesCategoryLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Water Type *</label>
-                  <select
-                    required
-                    value={formData.waterType}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        waterType: e.target.value as SpeciesWaterType,
-                      }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select Water Type</option>
-                    {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select
+                  label="Category"
+                  required
+                  placeholder="Select Category"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      category: e.target.value as SpeciesCategory,
+                    }))
+                  }
+                  options={Object.entries(speciesCategoryLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
+                <Select
+                  label="Water Type"
+                  required
+                  placeholder="Select Water Type"
+                  value={formData.waterType}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      waterType: e.target.value as SpeciesWaterType,
+                    }))
+                  }
+                  options={Object.entries(speciesWaterTypeLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Family</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Family
+                  </label>
+                  <Input
+                    fullWidth
                     type="text"
                     value={formData.family}
                     onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
                     placeholder="e.g., Moronidae"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Genus</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Genus
+                  </label>
+                  <Input
+                    fullWidth
                     type="text"
                     value={formData.genus}
                     onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
                     placeholder="e.g., Dicentrarchus"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1062,24 +974,16 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.supplier}
               onToggle={() => toggleSection('supplier')}
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                <select
-                  value={formData.supplierId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select Supplier (Optional)</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500">
-                  Optional: Select the primary supplier for fry/eggs of this species
-                </p>
-              </div>
+              <Select
+                label="Supplier"
+                value={formData.supplierId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
+                helperText="Optional: Select the primary supplier for fry/eggs of this species"
+                options={[
+                  { value: '', label: 'Select Supplier (Optional)' },
+                  ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+                ]}
+              />
             </CollapsibleSection>
 
             {/* Section 4: Optimal Conditions */}
@@ -1090,13 +994,14 @@ export const SpeciesTab: React.FC = () => {
             >
               {/* Temperature */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Temperature (°C)
                 </label>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       value={formData.tempMin}
@@ -1107,12 +1012,12 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="18"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       value={formData.tempMax}
@@ -1123,12 +1028,14 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="28"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Optimal</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Optimal
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       value={formData.tempOptimal}
@@ -1139,7 +1046,6 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="24"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1147,11 +1053,14 @@ export const SpeciesTab: React.FC = () => {
 
               {/* pH */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">pH</label>
-                <div className="grid grid-cols-2 gap-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  pH
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1164,12 +1073,12 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1182,7 +1091,6 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="8.5"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1190,13 +1098,14 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Dissolved Oxygen */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Dissolved Oxygen (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1208,12 +1117,14 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="5.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Optimal</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Optimal
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1225,7 +1136,6 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1233,13 +1143,16 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Ammonia */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Ammonia (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Max Tolerable</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Max Tolerable
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.01"
                       min="0"
@@ -1251,7 +1164,6 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="0.02"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1259,11 +1171,14 @@ export const SpeciesTab: React.FC = () => {
 
               {/* CO2 */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">CO2 (mg/L)</label>
-                <div className="grid grid-cols-2 gap-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CO2 (mg/L)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1275,12 +1190,12 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.1"
                       min="0"
@@ -1292,7 +1207,6 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="20"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1300,13 +1214,16 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Light Regime */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Light Regime (hours/day)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Light Hours</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Light Hours
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.5"
                       min="0"
@@ -1318,12 +1235,14 @@ export const SpeciesTab: React.FC = () => {
                         setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
                       }}
                       placeholder="14"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Dark Hours</label>
-                    <input
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Dark Hours
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       step="0.5"
                       min="0"
@@ -1335,11 +1254,12 @@ export const SpeciesTab: React.FC = () => {
                         setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
                       }}
                       placeholder="10"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">Light + Dark hours should equal 24</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Light + Dark hours should equal 24
+                </p>
               </div>
             </CollapsibleSection>
 
@@ -1350,12 +1270,12 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('feeds')}
             >
               <div>
-                <p className="text-sm text-gray-500 mb-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                   Select feeds that are suitable for this species
                 </p>
-                <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md p-2">
+                <div className="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
                   {feeds.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">
+                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
                       No feeds available. Add feeds in the Feeds tab first.
                     </p>
                   ) : (
@@ -1363,23 +1283,27 @@ export const SpeciesTab: React.FC = () => {
                       {feeds.map((feed) => (
                         <label
                           key={feed.id}
-                          className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer"
+                          className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer"
                         >
                           <input
                             type="checkbox"
                             checked={formData.feedIds.includes(feed.id)}
                             onChange={() => handleFeedToggle(feed.id)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                           />
-                          <span className="ml-3 text-sm text-gray-700">{feed.name}</span>
-                          <span className="ml-2 text-xs text-gray-400">({feed.code})</span>
+                          <span className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                            {feed.name}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                            ({feed.code})
+                          </span>
                         </label>
                       ))}
                     </div>
                   )}
                 </div>
                 {formData.feedIds.length > 0 && (
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {formData.feedIds.length} feed(s) selected
                   </p>
                 )}
@@ -1392,73 +1316,56 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.status}
               onToggle={() => toggleSection('status')}
             >
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {Object.entries(speciesStatusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
+                  }
+                  options={Object.entries(speciesStatusLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
-                <textarea
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Notes
+                </label>
+                <Textarea
+                  fullWidth
                   value={formData.notes}
                   onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                   rows={3}
                   placeholder="Additional notes about this species..."
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </CollapsibleSection>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
-            <button
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
               type="submit"
               disabled={createSpecies.isPending || updateSpecies.isPending}
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
             >
               {(createSpecies.isPending || updateSpecies.isPending) && (
-                <svg
-                  className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
+                <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
               {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

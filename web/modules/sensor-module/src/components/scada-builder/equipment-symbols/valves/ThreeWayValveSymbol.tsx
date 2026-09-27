@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const ThreeWayValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -25,13 +26,13 @@ const ThreeWayValveSymbol: React.FC<EquipmentSymbolProps> = ({
     >
       <g transform={`rotate(${rotation || 0} 50 50)`}>
         {/* Pipe stub — left inlet */}
-        <line x1={0} y1={50} x2={22} y2={50} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
+        <line x1={0} y1={50} x2={22} y2={50} stroke={chartChrome.axis} strokeWidth={3} strokeLinecap="round" />
 
         {/* Pipe stub — right outlet */}
-        <line x1={78} y1={50} x2={100} y2={50} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
+        <line x1={78} y1={50} x2={100} y2={50} stroke={chartChrome.axis} strokeWidth={3} strokeLinecap="round" />
 
         {/* Pipe stub — bottom outlet */}
-        <line x1={50} y1={78} x2={50} y2={100} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
+        <line x1={50} y1={78} x2={50} y2={100} stroke={chartChrome.axis} strokeWidth={3} strokeLinecap="round" />
 
         {/* Bowtie body — left triangle */}
         <path
@@ -74,7 +75,7 @@ const ThreeWayValveSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {label && (
-          <text x={50} y={96} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="sans-serif">
+          <text x={50} y={96} textAnchor="middle" fontSize={8} fill={themeColors.neutral[700]} fontFamily="sans-serif">
             {label}
           </text>
         )}

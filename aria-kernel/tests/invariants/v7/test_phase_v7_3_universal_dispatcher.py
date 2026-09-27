@@ -67,13 +67,10 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
         from aria_kernel.dispatcher_factory import (
             SUPPORTED_ROLES as KERNEL_ROLES,
         )
-        ci_path = _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
-        spec = importlib.util.spec_from_file_location(
-            "_ci_exec_under_test", ci_path,
-        )
-        ci_mod = importlib.util.module_from_spec(spec)
+        from tests._helpers.executor_module import load_ci_executor
+
         try:
-            spec.loader.exec_module(ci_mod)
+            ci_mod = load_ci_executor("_ci_exec_under_test")
         except Exception as exc:
             self.fail(
                 f"Plan ARIA-V7 §2g v2 — tools/aria-poc/ci_executor.py "

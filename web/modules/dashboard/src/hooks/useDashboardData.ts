@@ -13,8 +13,8 @@
  *   - criticalWaterQuality (farm-service WaterQualityResolver)
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { graphqlClient, useAuth, createTenantQueryKey, useFeedbackMutation } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -898,7 +898,8 @@ export function useAcknowledgeAlert() {
   const queryClient = useQueryClient();
   const { tenantId } = useAuth();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Alert acknowledged' },
     mutationFn: async (alertId: string) => {
       return graphqlClient.request<{
         acknowledgeAlert: { id: string; acknowledged: boolean };
@@ -922,7 +923,8 @@ export function useResolveAlert() {
   const queryClient = useQueryClient();
   const { tenantId } = useAuth();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Alert resolved' },
     mutationFn: async (alertId: string) => {
       return graphqlClient.request<{
         resolveAlert: { id: string; resolved: boolean };

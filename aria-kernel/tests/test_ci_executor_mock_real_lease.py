@@ -112,8 +112,8 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
                 agent_id="ci-executor:gha-12345",
                 role="evidence_judgment",
                 must_satisfy=[
-                    {"id": "c-1", "criterion": "first"},
-                    {"id": "c-2", "criterion": "second"},
+                    {"id": "c-1", "description": "first"},
+                    {"id": "c-2", "description": "second"},
                 ],
             )
             envelope = json.loads(out.read_text(encoding="utf-8"))

@@ -2,7 +2,7 @@
  * Admin Panel Module Root
  *
  * Super Admin Panel for managing tenants, users, billing, support, and system settings.
- * NOT: AdminLayout Shell'de kullanılıyor, burada sadece sayfa route'ları tanımlı.
+ * The layout (header, sidebar) is the shell's MainLayout; only the page routes live here.
  *
  * All page imports use React.lazy for code splitting — each page chunk is loaded
  * on demand so the initial bundle stays small.

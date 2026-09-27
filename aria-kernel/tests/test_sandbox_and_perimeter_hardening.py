@@ -32,6 +32,7 @@ commands gets worked around, which is a slower way of having no denylist.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -44,6 +45,7 @@ if str(_KERNEL_ROOT) not in sys.path:
 from aria_kernel import implementation_safety as impl  # noqa: E402
 from aria_kernel.implementation_safety import (  # noqa: E402
     BashDenylistHit,
+    CANONICAL_VALIDATION_COMMANDS,
     DENIED_BASH_COMMANDS,
     READONLY_PATHS,
     HardFailContext,
@@ -133,7 +135,12 @@ class ProbeMirrorsWrapper(unittest.TestCase):
         workspace_binds = {
             str((_REPO_ROOT / ro).resolve()) for ro in READONLY_PATHS
         }
-        system_only = binds(wrapper) - workspace_binds
+        # ARIA-HIGH-123 — binds DERIVED from the workspace (the dependency
+        # tree a nested worktree resolves; the checkout's git dirs when a
+        # containment is given) are not system binds: the probe builds its
+        # own throwaway checkout and derives its own.
+        derived = binds(impl._dependency_tree_binds(_REPO_ROOT.resolve()))
+        system_only = binds(wrapper) - workspace_binds - derived
         missing = system_only - binds(probe)
         self.assertEqual(
             missing,
@@ -154,6 +161,27 @@ class ProbeMirrorsWrapper(unittest.TestCase):
                     Path(_system_ro_binds()[i + 1]).exists(),
                     msg=f"{_system_ro_binds()[i + 1]} does not exist on this host",
                 )
+
+    def test_the_kernels_own_interpreter_is_bound_when_it_lives_outside_the_system_roots(self) -> None:
+        """ARIA-MEDIUM-134 — a toolcache / venv / pyenv interpreter is not
+        under /usr, and every program the sandbox runs by it (hook client,
+        MCP relay, a fixture CLI's shebang) dies `execvp` inside unless its
+        prefix is bound. The distribution's interpreter adds nothing."""
+        with tempfile.TemporaryDirectory(prefix="aria-toolcache-") as prefix:
+            self.assertEqual(
+                impl._interpreter_ro_binds(prefix),
+                ["--ro-bind", str(Path(prefix).resolve()), str(Path(prefix).resolve())],
+            )
+        self.assertEqual(impl._interpreter_ro_binds("/usr"), [])
+        self.assertEqual(impl._interpreter_ro_binds("/usr/local"), [])
+        self.assertEqual(impl._interpreter_ro_binds("/nonexistent-prefix"), [])
+        # The wrapper and the probe read the same list, so the bind reaches both.
+        import sys
+
+        expected = impl._interpreter_ro_binds(sys.base_prefix)
+        for token in expected:
+            self.assertIn(token, _system_ro_binds())
+            self.assertIn(token, _bwrap_probe_argv())
 
     def test_a_missing_system_root_drops_out_of_both_sides_together(self) -> None:
         with unittest.mock.patch.object(
@@ -251,8 +279,14 @@ class ForcePushInBashArgv(unittest.TestCase):
 
         self.assertTrue(denied("git push origin aria-impl-abc123 -f"))
         self.assertTrue(denied("git push origin aria-impl-abc123 -fu"))
+        # The short-form rule itself does not overreach: the plain push
+        # escapes IT (ARIA-HIGH-124 refuses every push by a rule of its own,
+        # `kernel_authority:git_push_any`, which is not this rule).
+        from aria_kernel.command_policy import DENY_RULES
+
+        short_form = next(rule for rule in DENY_RULES if rule.name == "git_push_short_force")
+        self.assertIsNone(short_form.regex.search("git push origin aria-impl-abc123"))
         for safe in (
-            "git push origin aria-impl-abc123",
             "git log -n 5",
             "git diff --unified=0",
             "prettier --write report-f.md",
@@ -323,9 +357,13 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         )
 
     def test_ordinary_allowed_commands_are_untouched(self) -> None:
+        # ARIA-HIGH-124 — the push is no longer an ordinary allowed
+        # command: the executor pushes after the run, and the policy refuses
+        # every `git push` inside by name.
+        with self.assertRaises(BashDenylistHit):
+            verify_bash_command_allowed(["git", "push", "origin", "aria-impl-abc123"], cwd=_REPO_ROOT)
         for argv in (
             ["git", "status"],
-            ["git", "push", "origin", "aria-impl-abc123"],
             ["git", "diff", "--unified=0"],
             ["git", "log", "-n", "5"],
             ["nx", "affected", "--target=test"],
@@ -405,26 +443,28 @@ class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):
                 )
 
     def test_echoing_the_canonical_commands_is_not_running_them(self) -> None:
-        """One entry that merely MENTIONS all three cleared the gate, because
-        the check was a substring test over the concatenated entries."""
+        """One entry that merely MENTIONS the whole suite cleared the gate,
+        because the check was a substring test over the concatenated entries."""
         self.assertFalse(
             _check_test_gate_canonical_suite(
                 HardFailContext(validation_commands=(
-                    "echo 'nx affected --target=test nx affected --target=lint "
-                    "npm run type-check'",
+                    "echo '" + " ".join(CANONICAL_VALIDATION_COMMANDS) + "'",
                 )),
             ).passed,
         )
 
     def test_a_real_declaration_and_a_narrowed_suite_both_pass(self) -> None:
-        """Narrowing a suite is legitimate; replacing it with prose is not."""
+        """Narrowing a suite is legitimate; replacing it with prose is not.
+
+        The suites are built from ``CANONICAL_VALIDATION_COMMANDS`` rather
+        than retyped: this test hardcoded the three-command suite and went
+        red the day the tuple grew (ARIA-HIGH-104 (2)), which is a test
+        pinning a copy of the contract instead of the contract.
+        """
+        first, *rest = CANONICAL_VALIDATION_COMMANDS
         for commands in (
-            ("nx affected --target=test", "nx affected --target=lint", "npm run type-check"),
-            (
-                "nx affected --target=test --projects=farm-service",
-                "nx affected --target=lint",
-                "npm run type-check",
-            ),
+            tuple(CANONICAL_VALIDATION_COMMANDS),
+            (f"{first} --projects=farm-service", *rest),
         ):
             with self.subTest(commands=commands):
                 self.assertTrue(

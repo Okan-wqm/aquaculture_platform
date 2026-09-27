@@ -283,6 +283,25 @@ export class User {
   @Column({ type: 'int', default: 0 })
   failedLoginAttempts!: number;
 
+  /**
+   * Authorization-state version, advanced by the database.
+   *
+   * WHY: token issuance must prove that the credentials it authenticated
+   * against are still the credentials on the row. A modification timestamp
+   * cannot carry that proof — it moves on every bookkeeping write (lastLoginAt,
+   * failedLoginAttempts) and loses its microseconds crossing the pg driver, so
+   * an equality predicate on it never matched and every login was refused.
+   *
+   * WHAT: `trg_users_bump_credential_version` (migration 1819200000000, AddUserCredentialVersion)
+   * increments this only when `password`, `role`, `tenantId` or `isActive`
+   * changes and otherwise pins it to the previous value. `update: false` keeps
+   * TypeORM from ever writing it, so the value loaded at authentication time
+   * survives the login path's own `save()` as the issuance-fence anchor.
+   */
+  @HideField()
+  @Column({ type: 'int', default: 1, update: false })
+  credentialVersion!: number;
+
   // ORPHAN-MEDIUM-320: exposed to GraphQL so tenant-admin user management
   // can SHOW the lock state and offer the unlock action. Non-sensitive: a
   // future instant, visible only through the already-role-guarded tenant

@@ -41,17 +41,19 @@ EXPECTED_LOCATIONS: tuple[tuple[str, Path], ...] = (
     ("aria-challenger-planner.md", AGENTS_DIR / "aria-challenger-planner.md"),
 )
 
-# Plan 023 §A model/effort tiering, as amended by the operator tier ladder.
-# These three files no longer share a model, which is why EXPECTED_MODEL is a
-# per-file map rather than one assertion applied to all of them: the two
-# planners run the PLANNING tier (fable, falling back to opus), while
-# aria-prompt-writer is in WRITE_TIER_AGENTS and runs the IMPLEMENTATION tier
-# (opus, falling back to sonnet). Effort is uniform at max (ultracode).
+# Plan 023 §A model/effort tiering, as amended by the operator decision of
+# 2026-09-12 ("sadece opus"): every selection is opus — the planners' former
+# fable tier and the in-vendor credit rungs (fable → opus, opus → sonnet) are
+# gone, and an exhausted provider is requeued under its cooldown rather than
+# retried on a weaker tier (tests/invariants/test_fable_is_selected_by_nothing
+# pins the selection side). EXPECTED_MODEL stays a per-file map so a future
+# per-file tier decision is one edit here, not a rewrite of the assertion.
+# Effort is uniform at max (ultracode).
 # SSoT: aria-kernel/aria_kernel/agent_runtime_profile.py.
 EXPECTED_MODEL: dict[str, str] = {
     "aria-prompt-writer.md": "opus",
-    "aria-primary-planner.md": "fable",
-    "aria-challenger-planner.md": "fable",
+    "aria-primary-planner.md": "opus",
+    "aria-challenger-planner.md": "opus",
 }
 EXPECTED_EFFORT: dict[str, str] = {
     "aria-prompt-writer.md": "max",

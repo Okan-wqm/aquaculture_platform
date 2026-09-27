@@ -1,6 +1,7 @@
 /**
  * Dashboard Widget Types
  */
+import { colors } from '@aquaculture/shared-ui';
 
 export type WidgetType =
   | 'gauge'
@@ -38,15 +39,15 @@ export const SENSOR_METRICS: {
   unit: string;
   color: string;
 }[] = [
-  { value: 'temperature', label: 'Temperature', unit: '°C', color: '#EF4444' },
-  { value: 'ph', label: 'pH', unit: 'pH', color: '#8B5CF6' },
-  { value: 'dissolvedOxygen', label: 'Dissolved Oxygen', unit: 'mg/L', color: '#0EA5E9' },
-  { value: 'salinity', label: 'Salinity', unit: 'ppt', color: '#10B981' },
-  { value: 'ammonia', label: 'Ammonia', unit: 'mg/L', color: '#F59E0B' },
-  { value: 'nitrite', label: 'Nitrite', unit: 'mg/L', color: '#EC4899' },
-  { value: 'nitrate', label: 'Nitrate', unit: 'mg/L', color: '#6366F1' },
-  { value: 'turbidity', label: 'Turbidity', unit: 'NTU', color: '#78716C' },
-  { value: 'waterLevel', label: 'Water Level', unit: 'm', color: '#14B8A6' },
+  { value: 'temperature', label: 'Temperature', unit: '°C', color: colors.error[500] },
+  { value: 'ph', label: 'pH', unit: 'pH', color: colors.primary[700] },
+  { value: 'dissolvedOxygen', label: 'Dissolved Oxygen', unit: 'mg/L', color: colors.primary[400] },
+  { value: 'salinity', label: 'Salinity', unit: 'ppt', color: colors.success[500] },
+  { value: 'ammonia', label: 'Ammonia', unit: 'mg/L', color: colors.warning[500] },
+  { value: 'nitrite', label: 'Nitrite', unit: 'mg/L', color: colors.accent[500] },
+  { value: 'nitrate', label: 'Nitrate', unit: 'mg/L', color: colors.primary[500] },
+  { value: 'turbidity', label: 'Turbidity', unit: 'NTU', color: colors.gray[400] },
+  { value: 'waterLevel', label: 'Water Level', unit: 'm', color: colors.secondary[600] },
 ];
 
 export interface GridPosition {

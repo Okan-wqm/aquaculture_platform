@@ -18,14 +18,13 @@ import {
   Modal,
   Button,
   useToast,
+  useConfirm,
   parseGraphQLError,
+  Select,
+  Textarea,
 } from '@aquaculture/shared-ui';
 
-import {
-  ActiveTreatmentInfo,
-  BatchCloseReason,
-  useCloseBatch,
-} from '../../../hooks/useBatches';
+import { ActiveTreatmentInfo, BatchCloseReason, useCloseBatch } from '../../../hooks/useBatches';
 
 interface CloseBatchModalProps {
   isOpen: boolean;
@@ -67,9 +66,7 @@ function parseWithdrawalBlock(error: unknown): WithdrawalBlock | null {
   const parsed = parseGraphQLError(error);
   if (parsed.code !== 'BATCH_WITHDRAWAL_BLOCKED') return null;
   const treatments =
-    (parsed.extensions?.activeTreatments as
-      | ActiveTreatmentInfo[]
-      | undefined) ?? [];
+    (parsed.extensions?.activeTreatments as ActiveTreatmentInfo[] | undefined) ?? [];
   return {
     treatments,
     message: parsed.message,
@@ -89,6 +86,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
   const [blocker, setBlocker] = useState<WithdrawalBlock | null>(null);
 
   const closeBatch = useCloseBatch();
+  const confirm = useConfirm();
   const { toast } = useToast();
 
   const errors = useMemo(() => {
@@ -113,6 +111,18 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
 
   const handleSubmit = async () => {
     if (!isValid) return;
+    // FE-HIGH-086: closing a batch ends its production record for good; the
+    // form collects the reason, this asks for the decision.
+    if (
+      !(await confirm({
+        title: `Close batch ${batchNumber}?`,
+        message: 'A closed batch cannot be reopened.',
+        confirmText: 'Close batch',
+        cancelText: 'Keep open',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await closeBatch.mutateAsync({
         id: batchId,
@@ -135,8 +145,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
         setAcknowledge(false);
         return;
       }
-      const message =
-        error instanceof Error ? error.message : 'Failed to close batch.';
+      const message = error instanceof Error ? error.message : 'Failed to close batch.';
       toast({ title: 'Error', description: message, variant: 'error' });
     }
   };
@@ -149,64 +158,58 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Close Batch" size="md">
       <div className="space-y-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-500">Batch</p>
-          <p className="font-medium text-gray-900">{batchNumber}</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label htmlFor="close-reason" className="block text-sm font-medium text-gray-700">
-              Close reason <span className="text-orange-500">*</span>
-            </label>
-            <select
-              id="close-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value as BatchCloseReason)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            >
-              {REASON_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="close-reason"
+            label="Close reason"
+            required
+            value={reason}
+            onChange={(e) => setReason(e.target.value as BatchCloseReason)}
+            options={REASON_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
 
           <div>
-            <label htmlFor="close-notes" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="close-notes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Notes (optional)
             </label>
-            <textarea
+            <Textarea
+              fullWidth
               id="close-notes"
               rows={3}
               maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               placeholder="Contextual notes (written to the audit log)"
             />
           </div>
         </div>
 
         {blocker && (
-          <div className="border border-red-300 bg-red-50 rounded-lg p-4 space-y-3">
+          <div className="border border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20 rounded-lg p-4 space-y-3">
             <div>
-              <h4 className="text-sm font-semibold text-red-900">
+              <h4 className="text-sm font-semibold text-error-900 dark:text-error-100">
                 Active medicine-withdrawal treatments block this close
               </h4>
-              <p className="text-sm text-red-700 mt-1">{blocker.message}</p>
+              <p className="text-sm text-error-700 dark:text-error-300 mt-1">{blocker.message}</p>
             </div>
 
             <ul className="space-y-2">
               {blocker.treatments.map((t) => (
                 <li
                   key={t.eventCode}
-                  className="text-sm text-red-800 bg-white border border-red-200 rounded p-2"
+                  className="text-sm text-error-800 bg-white dark:bg-gray-900 border border-error-200 rounded p-2"
                 >
-                  <div className="font-mono text-xs text-red-500">{t.eventCode}</div>
+                  <div className="font-mono text-xs text-error-500">{t.eventCode}</div>
                   <div className="font-medium">{t.productName}</div>
-                  <div className="text-xs text-red-600">
+                  <div className="text-xs text-error-600 dark:text-error-400">
                     Earliest harvest: {t.earliestHarvestDate} ({t.daysRemaining} day(s) left)
                   </div>
                 </li>
@@ -218,20 +221,20 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
                 type="checkbox"
                 checked={acknowledge}
                 onChange={(e) => setAcknowledge(e.target.checked)}
-                className="mt-0.5 rounded border-red-400 text-red-600 focus:ring-red-500"
+                className="mt-0.5 rounded border-error-400 text-error-600 dark:text-error-400 focus:ring-error-500"
               />
-              <span className="text-sm text-red-900">
-                I acknowledge that closing this batch while a withdrawal period is
-                still active breaches food-safety policy. Override will be written
-                to the audit log with my user ID.
+              <span className="text-sm text-error-900 dark:text-error-100">
+                I acknowledge that closing this batch while a withdrawal period is still active
+                breaches food-safety policy. Override will be written to the audit log with my user
+                ID.
               </span>
             </label>
           </div>
         )}
 
         {errors.length > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -249,8 +252,8 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             disabled={!isValid || closeBatch.isPending}
             className={
               blocker && acknowledge
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-orange-600 hover:bg-orange-700'
+                ? 'bg-error-600 hover:bg-error-700'
+                : 'bg-accent-600 hover:bg-accent-700'
             }
           >
             {closeBatch.isPending

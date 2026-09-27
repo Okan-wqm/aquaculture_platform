@@ -925,6 +925,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1061,6 +1071,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1100,6 +1120,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -1573,6 +1603,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1701,6 +1741,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -2491,7 +2541,18 @@
     "/settings/email-templates": {
       "get": {
         "operationId": "EmailTemplateController_getAllTemplates",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -2552,6 +2613,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2607,6 +2678,16 @@
             "required": true,
             "in": "path",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -4383,6 +4464,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4793,6 +4884,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5024,7 +5125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/PaymentStatsResponseDto"
                 }
               }
             }
@@ -5092,6 +5193,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -5352,6 +5463,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6689,6 +6810,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8426,7 +8557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageThread"
+                  "$ref": "#/components/schemas/CreatedMessageThreadDto"
                 }
               }
             }
@@ -8624,10 +8755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Message"
-                  }
+                  "$ref": "#/components/schemas/SupportMessagePageDto"
                 }
               }
             }
@@ -8715,7 +8843,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkMessageResultDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8729,7 +8864,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingStatsResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8743,7 +8885,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8790,7 +8939,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementPageDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8833,7 +8989,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementStatsResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -9062,7 +9225,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAcknowledgmentStatusDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -9235,6 +9405,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9286,7 +9466,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/TicketStatsResponseDto"
                 }
               }
             }
@@ -9855,7 +10035,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCommentPageDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -11126,6 +11313,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11476,6 +11673,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -12867,6 +13074,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12904,6 +13121,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -14382,6 +14609,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -14897,6 +15134,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15251,7 +15498,18 @@
     "/messaging/compliance/stats": {
       "get": {
         "operationId": "MessagingAdminController_getComplianceStats",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15273,7 +15531,18 @@
     "/messaging/compliance/legal-holds": {
       "get": {
         "operationId": "MessagingAdminController_getLegalHolds",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15336,6 +15605,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15359,7 +15638,18 @@
     "/messaging/retention/policies": {
       "get": {
         "operationId": "MessagingAdminController_getRetentionPolicies",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15423,7 +15713,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/MessagingMonitoringStatsDto"
                 }
               }
             }
@@ -15494,6 +15784,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15524,7 +15824,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/MessagingTenantsOverviewDto"
                 }
               }
             }
@@ -15551,18 +15851,18 @@
           }
         },
         "responses": {
-          "202": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/TenantDataExportResultDto"
                 }
               }
             }
           }
         },
-        "summary": "Trigger tenant data export",
+        "summary": "Export a tenant's messaging data",
         "tags": [
           "Messaging Admin"
         ]
@@ -15571,7 +15871,18 @@
     "/messaging/personas": {
       "get": {
         "operationId": "MessagingAdminController_getPersonas",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15580,7 +15891,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/AiPersonaDto"
                   }
                 }
               }
@@ -21109,6 +21420,119 @@
           "reason"
         ]
       },
+      "PaymentStatsWindowDto": {
+        "type": "object",
+        "properties": {
+          "totalPayments": {
+            "type": "number",
+            "description": "Every payment row in the window, whatever its status."
+          },
+          "succeeded": {
+            "type": "number",
+            "description": "Payments that captured."
+          },
+          "failed": {
+            "type": "number",
+            "description": "Payments that attempted capture and did not get it."
+          },
+          "refunded": {
+            "type": "number",
+            "description": "Payments fully or partially refunded."
+          },
+          "pending": {
+            "type": "number",
+            "description": "In flight: pending plus processing."
+          },
+          "successRate": {
+            "type": "number",
+            "description": "succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down."
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Sum of every row amount in the window."
+          },
+          "succeededAmount": {
+            "type": "number",
+            "description": "Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference \"Net Revenue\"."
+          },
+          "refundedAmount": {
+            "type": "number",
+            "description": "Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself."
+          }
+        },
+        "required": [
+          "totalPayments",
+          "succeeded",
+          "failed",
+          "refunded",
+          "pending",
+          "successRate",
+          "totalAmount",
+          "succeededAmount",
+          "refundedAmount"
+        ]
+      },
+      "PaymentStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "totalPayments": {
+            "type": "number",
+            "description": "Every payment row in the window, whatever its status."
+          },
+          "succeeded": {
+            "type": "number",
+            "description": "Payments that captured."
+          },
+          "failed": {
+            "type": "number",
+            "description": "Payments that attempted capture and did not get it."
+          },
+          "refunded": {
+            "type": "number",
+            "description": "Payments fully or partially refunded."
+          },
+          "pending": {
+            "type": "number",
+            "description": "In flight: pending plus processing."
+          },
+          "successRate": {
+            "type": "number",
+            "description": "succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down."
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Sum of every row amount in the window."
+          },
+          "succeededAmount": {
+            "type": "number",
+            "description": "Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference \"Net Revenue\"."
+          },
+          "refundedAmount": {
+            "type": "number",
+            "description": "Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself."
+          },
+          "last30Days": {
+            "description": "The trailing 30 days. The dashboard shows this window: an all-time rate on a long-lived tenant is dominated by history and stops moving when something breaks today.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentStatsWindowDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "totalPayments",
+          "succeeded",
+          "failed",
+          "refunded",
+          "pending",
+          "successRate",
+          "totalAmount",
+          "succeededAmount",
+          "refundedAmount",
+          "last30Days"
+        ]
+      },
       "RecordPaymentDto": {
         "type": "object",
         "properties": {
@@ -22093,9 +22517,6 @@
           },
           "content": {
             "type": "string"
-          },
-          "senderName": {
-            "type": "string"
           }
         },
         "required": [
@@ -22103,13 +22524,221 @@
           "content"
         ]
       },
+      "CreatedMessageThreadDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "lastMessageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "unreadAdminCount": {
+            "type": "number"
+          },
+          "unreadTenantCount": {
+            "type": "number"
+          },
+          "isArchived": {
+            "type": "boolean"
+          },
+          "isClosed": {
+            "type": "boolean"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "subject",
+          "messageCount",
+          "unreadAdminCount",
+          "unreadTenantCount",
+          "isArchived",
+          "isClosed",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "MessageAttachmentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "number",
+            "description": "Size in bytes."
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "uploadedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fileName",
+          "fileSize",
+          "mimeType",
+          "url",
+          "uploadedAt"
+        ]
+      },
+      "SupportMessageResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderType": {
+            "enum": [
+              "admin",
+              "tenant_admin",
+              "system"
+            ],
+            "type": "string",
+            "description": "The platform side is 'admin'. There is no 'super_admin' — the panel's union invented it, and every test against it was false."
+          },
+          "senderName": {
+            "type": "string",
+            "description": "Display name captured when the message was written, derived from the authenticated sender. ABSENT when unknown — the column is nullable and `JSON.stringify` omits undefined."
+          },
+          "content": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "sent",
+              "delivered",
+              "read",
+              "failed"
+            ],
+            "type": "string",
+            "description": "'failed' is a real state; a client that omits it draws a failure as an unread send."
+          },
+          "isInternal": {
+            "type": "boolean",
+            "description": "Internal notes are not shown to the tenant."
+          },
+          "attachments": {
+            "description": "Absent when the message carries no attachments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachmentResponseDto"
+            }
+          },
+          "emailSent": {
+            "type": "boolean",
+            "description": "Whether the message was emailed to the tenant."
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the counterparty read it. Absent while unread."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "senderId",
+          "senderType",
+          "content",
+          "status",
+          "isInternal",
+          "emailSent",
+          "createdAt"
+        ]
+      },
+      "SupportMessagePageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportMessageResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
       "AddMessageDto": {
         "type": "object",
         "properties": {
           "content": {
-            "type": "string"
-          },
-          "senderName": {
             "type": "string"
           },
           "isInternal": {
@@ -22126,31 +22755,135 @@
           "content"
         ]
       },
+      "BulkMessageAudienceDto": {
+        "type": "object",
+        "properties": {
+          "tenantIds": {
+            "description": "Send only to these tenants. Omit for every tenant matching the other clauses.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "excludeTenantIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "plans": {
+            "description": "Narrow to these plan codes.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "includeInactive": {
+            "type": "boolean",
+            "description": "Suspended and trial-expired tenants are excluded unless this is true."
+          }
+        }
+      },
       "BulkMessageDto": {
         "type": "object",
         "properties": {
+          "targetCriteria": {
+            "$ref": "#/components/schemas/BulkMessageAudienceDto"
+          },
           "subject": {
             "type": "string"
           },
           "content": {
             "type": "string"
           },
-          "targetCriteria": {
-            "type": "object"
-          },
-          "tenantIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "sendEmail": {
             "type": "boolean"
           }
         },
         "required": [
+          "targetCriteria",
           "subject",
           "content"
+        ]
+      },
+      "BulkMessageResultDto": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "number",
+            "description": "Tenants whose thread was created."
+          },
+          "failed": {
+            "type": "number",
+            "description": "Tenants whose thread FAILED. A non-zero value is a partial send."
+          },
+          "threadIds": {
+            "description": "The threads that were created.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "sent",
+          "failed",
+          "threadIds"
+        ]
+      },
+      "MessagingStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "totalThreads": {
+            "type": "number",
+            "description": "Threads that are not archived."
+          },
+          "activeThreads": {
+            "type": "number"
+          },
+          "closedThreads": {
+            "type": "number"
+          },
+          "totalMessages": {
+            "type": "number",
+            "description": "Every message row, archived threads included."
+          },
+          "unreadMessages": {
+            "type": "number",
+            "description": "Messages awaiting an admin, summed over unarchived threads."
+          },
+          "avgResponseTimeMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes between a tenant message and the admin reply that followed it, over the pairs that EXIST. null when no admin has ever answered — not 0, which reads as an instant reply."
+          }
+        },
+        "required": [
+          "totalThreads",
+          "activeThreads",
+          "closedThreads",
+          "totalMessages",
+          "unreadMessages",
+          "avgResponseTimeMinutes"
+        ]
+      },
+      "UnreadCountResponseDto": {
+        "type": "object",
+        "properties": {
+          "unreadCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "unreadCount"
         ]
       },
       "Announcement": {
@@ -22217,12 +22950,6 @@
             "type": "object",
             "additionalProperties": true
           },
-          "acknowledgments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AnnouncementAcknowledgment"
-            }
-          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -22242,52 +22969,124 @@
           "requiresAcknowledgment",
           "viewCount",
           "acknowledgmentCount",
-          "acknowledgments",
           "createdAt",
           "updatedAt"
         ]
       },
-      "AnnouncementAcknowledgment": {
+      "AnnouncementPageDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Announcement"
+            }
           },
-          "announcementId": {
-            "type": "string"
+          "total": {
+            "type": "number"
           },
-          "tenantId": {
-            "type": "string"
+          "page": {
+            "type": "number"
           },
-          "userId": {
-            "type": "string"
+          "limit": {
+            "type": "number"
           },
-          "userName": {
-            "type": "string"
+          "totalPages": {
+            "type": "number"
           },
-          "viewedAt": {
-            "format": "date-time",
-            "type": "string"
+          "hasNextPage": {
+            "type": "boolean"
           },
-          "acknowledgedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "announcement": {
-            "$ref": "#/components/schemas/Announcement"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "id",
-          "announcementId",
-          "tenantId",
-          "userId",
-          "announcement",
-          "createdAt"
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
+      "AnnouncementStatsByTypeDto": {
+        "type": "object",
+        "properties": {
+          "info": {
+            "type": "number",
+            "description": "Announcements of type `info`, in any status."
+          },
+          "warning": {
+            "type": "number",
+            "description": "Announcements of type `warning`, in any status."
+          },
+          "critical": {
+            "type": "number",
+            "description": "Announcements of type `critical`, in any status."
+          },
+          "maintenance": {
+            "type": "number",
+            "description": "Announcements of type `maintenance`, in any status."
+          }
+        },
+        "required": [
+          "info",
+          "warning",
+          "critical",
+          "maintenance"
+        ]
+      },
+      "AnnouncementStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Every announcement row, in any status. Counted over the whole table — not over the page the list endpoint returned, which is capped."
+          },
+          "published": {
+            "type": "number",
+            "description": "Announcements currently published."
+          },
+          "scheduled": {
+            "type": "number",
+            "description": "Announcements with a future publish time."
+          },
+          "draft": {
+            "type": "number",
+            "description": "Announcements never published."
+          },
+          "expired": {
+            "type": "number",
+            "description": "Announcements past their expiry."
+          },
+          "totalViews": {
+            "type": "number",
+            "description": "Sum of `viewCount` over every announcement."
+          },
+          "totalAcknowledgments": {
+            "type": "number",
+            "description": "Sum of `acknowledgmentCount` over every announcement."
+          },
+          "byType": {
+            "description": "One count per announcement type. The four keys are always present.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnnouncementStatsByTypeDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "total",
+          "published",
+          "scheduled",
+          "draft",
+          "expired",
+          "totalViews",
+          "totalAcknowledgments",
+          "byType"
         ]
       },
       "CreateAnnouncementDto": {
@@ -22366,6 +23165,70 @@
           }
         }
       },
+      "AnnouncementAcknowledgment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "announcementId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "viewedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "acknowledgedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "announcementId",
+          "tenantId",
+          "userId",
+          "createdAt"
+        ]
+      },
+      "AnnouncementAcknowledgmentStatusDto": {
+        "type": "object",
+        "properties": {
+          "totalViews": {
+            "type": "number",
+            "description": "The announcement's own view counter."
+          },
+          "totalAcknowledgments": {
+            "type": "number",
+            "description": "The announcement's own acknowledgment counter."
+          },
+          "acknowledgments": {
+            "description": "Every view or acknowledgment recorded against this announcement, newest first. An empty array means nobody has seen it — which is why a failed read must never be rendered as one.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementAcknowledgment"
+            }
+          }
+        },
+        "required": [
+          "totalViews",
+          "totalAcknowledgments",
+          "acknowledgments"
+        ]
+      },
       "AcknowledgeDto": {
         "type": "object",
         "properties": {
@@ -22384,6 +23247,61 @@
         "required": [
           "userId",
           "userName"
+        ]
+      },
+      "TicketStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Every ticket row, in any status."
+          },
+          "open": {
+            "type": "number"
+          },
+          "inProgress": {
+            "type": "number"
+          },
+          "waitingCustomer": {
+            "type": "number"
+          },
+          "resolved": {
+            "type": "number"
+          },
+          "closed": {
+            "type": "number"
+          },
+          "avgFirstResponseMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes to first response, over tickets that HAVE one. null when no ticket has been responded to — not 0, which reads as instant."
+          },
+          "avgResolutionMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes to resolution, over RESOLVED tickets. null when nothing has been resolved."
+          },
+          "slaBreachCount": {
+            "type": "number",
+            "description": "Tickets whose SLA is marked breached."
+          },
+          "avgSatisfactionRating": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean satisfaction rating over tickets that were RATED. null when none were — not 0, which reads as universal dissatisfaction."
+          }
+        },
+        "required": [
+          "total",
+          "open",
+          "inProgress",
+          "waitingCustomer",
+          "resolved",
+          "closed",
+          "avgFirstResponseMinutes",
+          "avgResolutionMinutes",
+          "slaBreachCount",
+          "avgSatisfactionRating"
         ]
       },
       "SupportTicket": {
@@ -22494,12 +23412,6 @@
             "type": "object",
             "additionalProperties": true
           },
-          "comments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TicketComment"
-            }
-          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -22521,67 +23433,8 @@
           "status",
           "slaBreached",
           "satisfactionRating",
-          "comments",
           "createdAt",
           "updatedAt"
-        ]
-      },
-      "TicketComment": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "ticketId": {
-            "type": "string"
-          },
-          "authorId": {
-            "type": "string"
-          },
-          "authorType": {
-            "enum": [
-              "system",
-              "admin",
-              "tenant_user"
-            ],
-            "type": "string"
-          },
-          "authorName": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
-          "isInternal": {
-            "type": "boolean"
-          },
-          "attachments": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "emailSent": {
-            "type": "boolean"
-          },
-          "ticket": {
-            "$ref": "#/components/schemas/SupportTicket"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "ticketId",
-          "authorId",
-          "authorType",
-          "content",
-          "isInternal",
-          "emailSent",
-          "ticket",
-          "createdAt"
         ]
       },
       "CreateTicketDto": {
@@ -22733,6 +23586,135 @@
           "priority"
         ]
       },
+      "TicketAttachmentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "number"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "uploadedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fileName",
+          "fileSize",
+          "mimeType",
+          "url",
+          "uploadedAt"
+        ]
+      },
+      "TicketCommentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ticketId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorType": {
+            "enum": [
+              "admin",
+              "tenant_user",
+              "system"
+            ],
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string",
+            "description": "Display name captured when the comment was written. ABSENT from the payload when unknown — the column is nullable and `JSON.stringify` omits undefined, so a client must treat the key as optional rather than expecting null."
+          },
+          "content": {
+            "type": "string"
+          },
+          "isInternal": {
+            "type": "boolean",
+            "description": "Internal notes are not shown to the tenant."
+          },
+          "attachments": {
+            "description": "Absent when the comment carries no attachments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAttachmentResponseDto"
+            }
+          },
+          "emailSent": {
+            "type": "boolean",
+            "description": "Whether the comment was emailed to the tenant."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "ticketId",
+          "authorId",
+          "authorType",
+          "content",
+          "isInternal",
+          "emailSent",
+          "createdAt"
+        ]
+      },
+      "TicketCommentPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketCommentResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
       "AddCommentDto": {
         "type": "object",
         "properties": {
@@ -22754,6 +23736,60 @@
         },
         "required": [
           "content"
+        ]
+      },
+      "TicketComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ticketId": {
+            "type": "string"
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "authorType": {
+            "enum": [
+              "system",
+              "admin",
+              "tenant_user"
+            ],
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "isInternal": {
+            "type": "boolean"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "emailSent": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ticketId",
+          "authorId",
+          "authorType",
+          "content",
+          "isInternal",
+          "emailSent",
+          "createdAt"
         ]
       },
       "SatisfactionRatingDto": {
@@ -26616,12 +27652,145 @@
           },
           "retentionDays": {
             "type": "number",
-            "minimum": 1,
+            "minimum": -1,
             "maximum": 3650
           }
         },
         "required": [
           "retentionDays"
+        ]
+      },
+      "MessagingMonitoringTotalsDto": {
+        "type": "object",
+        "properties": {
+          "totalMessages": {
+            "type": "number",
+            "description": "Messages of any age, across every tenant."
+          },
+          "messages24h": {
+            "type": "number"
+          },
+          "messages7d": {
+            "type": "number"
+          },
+          "activeChannels": {
+            "type": "number",
+            "description": "Non-archived channels across every tenant."
+          },
+          "tenantCount": {
+            "type": "number",
+            "description": "Tenants with messages or active channels."
+          }
+        },
+        "required": [
+          "totalMessages",
+          "messages24h",
+          "messages7d",
+          "activeChannels",
+          "tenantCount"
+        ]
+      },
+      "TenantMessagingOverviewRowDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageCount24h": {
+            "type": "number",
+            "description": "Messages created in the last 24 hours."
+          },
+          "messageCount7d": {
+            "type": "number",
+            "description": "Messages created in the last 7 days."
+          },
+          "totalMessages": {
+            "type": "number",
+            "description": "Messages of any age."
+          },
+          "activeChannels": {
+            "type": "number",
+            "description": "Channels that are not archived."
+          }
+        },
+        "required": [
+          "tenantId",
+          "messageCount24h",
+          "messageCount7d",
+          "totalMessages",
+          "activeChannels"
+        ]
+      },
+      "MessagingOutboxHealthDto": {
+        "type": "object",
+        "properties": {
+          "pendingCount": {
+            "type": "number",
+            "description": "Events enqueued but not yet published, and not dead-lettered."
+          },
+          "failedCount": {
+            "type": "number",
+            "description": "Dead-lettered events that exhausted their retries. These are NOT retried automatically."
+          },
+          "oldestPendingAgeSeconds": {
+            "type": "number",
+            "nullable": true,
+            "description": "Age in seconds of the oldest pending event; null when nothing is pending. Null is not zero — a dashboard must not render it as an age."
+          }
+        },
+        "required": [
+          "pendingCount",
+          "failedCount",
+          "oldestPendingAgeSeconds"
+        ]
+      },
+      "MessagingMonitoringStatsDto": {
+        "type": "object",
+        "properties": {
+          "totals": {
+            "$ref": "#/components/schemas/MessagingMonitoringTotalsDto"
+          },
+          "perTenant": {
+            "description": "Per-tenant breakdown, sorted by 24h message volume descending.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantMessagingOverviewRowDto"
+            }
+          },
+          "outbox": {
+            "$ref": "#/components/schemas/MessagingOutboxHealthDto"
+          },
+          "generatedAt": {
+            "type": "string",
+            "description": "When messaging-service computed the aggregate. It caches for 60 seconds, so this is the age of the numbers, not of the request."
+          }
+        },
+        "required": [
+          "totals",
+          "perTenant",
+          "outbox",
+          "generatedAt"
+        ]
+      },
+      "MessagingTenantsOverviewDto": {
+        "type": "object",
+        "properties": {
+          "tenants": {
+            "description": "Per-tenant rows, sorted by 24h message volume descending.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantMessagingOverviewRowDto"
+            }
+          },
+          "generatedAt": {
+            "type": "string",
+            "description": "When messaging-service computed the aggregate."
+          }
+        },
+        "required": [
+          "tenants",
+          "generatedAt"
         ]
       },
       "TriggerExportDto": {
@@ -26640,6 +27809,90 @@
             ]
           }
         }
+      },
+      "TenantDataExportResultDto": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identifies this export in the audit log."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always 'completed': the export is performed synchronously, inside the request."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "json"
+            ]
+          },
+          "recordCount": {
+            "type": "number",
+            "description": "Rows in the export."
+          },
+          "data": {
+            "type": "string",
+            "description": "The export itself, serialised as JSON or CSV. This is the file — there is no second endpoint to fetch it from, and nothing stores it server-side."
+          },
+          "isUnderLegalHold": {
+            "type": "boolean",
+            "description": "Whether the tenant is under an effective legal hold. The export still runs; the flag records that the data is preserved for a matter."
+          },
+          "exportedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "format",
+          "recordCount",
+          "data",
+          "isUnderLegalHold",
+          "exportedAt"
+        ]
+      },
+      "AiPersonaDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Persona id in ai-service. `null` is the general AI assistant."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "description": "Lucide icon name, for rendering only."
+          },
+          "color": {
+            "type": "string",
+            "description": "Theme colour key, for rendering only."
+          },
+          "capabilities": {
+            "description": "Capability labels describing what the persona can do. These are DESCRIPTIONS, not grants: what the AI may actually actuate is decided by TenantAgentConfig.actuationPolicy, which this response does not carry.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "icon",
+          "color",
+          "capabilities"
+        ]
       },
       "ForgotPasswordDto": {
         "type": "object",

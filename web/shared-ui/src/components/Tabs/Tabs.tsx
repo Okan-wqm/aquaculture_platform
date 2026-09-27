@@ -78,9 +78,12 @@ export function Tabs<Id extends string = string>({
   const stripRef = useRef<HTMLDivElement>(null);
   const classes = variant === 'pill' ? pillClasses : lineClasses;
 
-  const focusTab = useCallback((id: Id) => {
-    stripRef.current?.querySelector<HTMLElement>(`#${CSS.escape(tabId(tabsId, id))}`)?.focus();
-  }, [tabsId]);
+  const focusTab = useCallback(
+    (id: Id) => {
+      stripRef.current?.querySelector<HTMLElement>(`#${CSS.escape(tabId(tabsId, id))}`)?.focus();
+    },
+    [tabsId],
+  );
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -161,10 +164,22 @@ export interface TabPanelProps {
 }
 
 /** The content a tab controls. Renders only for the selected tab, named by it. */
-export const TabPanel: React.FC<TabPanelProps> = ({ tabsId, value, selected, children, className = '' }) => {
+export const TabPanel: React.FC<TabPanelProps> = ({
+  tabsId,
+  value,
+  selected,
+  children,
+  className = '',
+}) => {
   if (value !== selected) return null;
   return (
-    <div role="tabpanel" id={panelId(tabsId, value)} aria-labelledby={tabId(tabsId, value)} tabIndex={0} className={className}>
+    <div
+      role="tabpanel"
+      id={panelId(tabsId, value)}
+      aria-labelledby={tabId(tabsId, value)}
+      tabIndex={0}
+      className={className}
+    >
       {children}
     </div>
   );

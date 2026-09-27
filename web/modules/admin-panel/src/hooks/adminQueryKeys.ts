@@ -25,6 +25,21 @@ export const adminKeys = {
     detail: (id: string) =>
       [...adminKeys.announcements.all(), 'detail', id] as const,
     stats: () => [...adminKeys.announcements.all(), 'stats'] as const,
+    acknowledgments: (id: string) =>
+      [...adminKeys.announcements.all(), 'acknowledgments', id] as const,
+  },
+
+  // ── Support tickets ──
+  tickets: {
+    all: () => [...adminKeys.all, 'tickets'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...adminKeys.tickets.all(), 'list', filters] as const,
+    stats: () => [...adminKeys.tickets.all(), 'stats'] as const,
+    /** The assignable support team — a read no ticket write invalidates. */
+    team: () => [...adminKeys.tickets.all(), 'team'] as const,
+    /** One ticket's comment thread, keyed by ticket. */
+    comments: (ticketId: string) =>
+      [...adminKeys.tickets.all(), 'comments', ticketId] as const,
   },
 
   // ── Messaging / Support Threads ──
@@ -34,17 +49,39 @@ export const adminKeys = {
       [...adminKeys.messaging.all(), 'threads', filters] as const,
     thread: (id: string) =>
       [...adminKeys.messaging.all(), 'thread', id] as const,
-    messages: (threadId: string) =>
+    // Keyed by PAGE as well as thread: the route is paginated and defaults to
+    // 50, so two pages of one thread are different reads and must not share a
+    // cache entry (ADMIN-CRITICAL-157).
+    messages: (threadId: string, page: number) =>
+      [...adminKeys.messaging.all(), 'messages', threadId, page] as const,
+    /** Every page of one thread, for invalidating after a reply. */
+    threadMessages: (threadId: string) =>
       [...adminKeys.messaging.all(), 'messages', threadId] as const,
     stats: () => [...adminKeys.messaging.all(), 'stats'] as const,
-    retention: () => [...adminKeys.messaging.all(), 'retention'] as const,
+    // Per tenant: the retention route refuses a request without a tenant id,
+    // and a key without one would show one tenant's deletion windows under
+    // another tenant's view (ADMIN-CRITICAL-151).
+    retention: (tenantId: string) =>
+      [...adminKeys.messaging.all(), 'retention', tenantId] as const,
     compliance: () => [...adminKeys.messaging.all(), 'compliance'] as const,
-    complianceStats: () => [...adminKeys.messaging.compliance(), 'stats'] as const,
-    legalHolds: () => [...adminKeys.messaging.compliance(), 'legal-holds'] as const,
+    // Both are PER TENANT — the routes reject a request without a tenant id,
+    // and a key without one would serve one tenant's legal holds under
+    // another tenant's view (ADMIN-CRITICAL-147).
+    complianceStats: (tenantId: string) =>
+      [...adminKeys.messaging.compliance(), 'stats', tenantId] as const,
+    legalHolds: (tenantId: string) =>
+      [...adminKeys.messaging.compliance(), 'legal-holds', tenantId] as const,
     monitoring: () => [...adminKeys.messaging.all(), 'monitoring'] as const,
-    audit: () => [...adminKeys.messaging.all(), 'audit'] as const,
+    // Keyed by the request, cursor included: the audit route is
+    // cursor-paginated, so two pages of the same filters are different reads
+    // and must not share a cache entry (ADMIN-CRITICAL-150).
+    audit: (request?: Record<string, unknown>) =>
+      [...adminKeys.messaging.all(), 'audit', request] as const,
     tenants: () => [...adminKeys.messaging.all(), 'tenants'] as const,
-    personas: () => [...adminKeys.messaging.all(), 'personas'] as const,
+    // Per tenant: the personas route requires a tenant id and the registry
+    // answers per tenant (ADMIN-CRITICAL-154).
+    personas: (tenantId: string) =>
+      [...adminKeys.messaging.all(), 'personas', tenantId] as const,
   },
 
   // ── Tenants ──
@@ -113,7 +150,54 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'billing'] as const,
     invoices: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'invoices', filters] as const,
-    plans: () => [...adminKeys.billing.all(), 'plans'] as const,
+    plans: (includeInactive = false) =>
+      [...adminKeys.billing.all(), 'plans', includeInactive] as const,
+    /** The module price sheet the tenant-creation wizard prices a selection from. */
+    modulePricing: () => [...adminKeys.billing.all(), 'module-pricing'] as const,
+    /**
+     * The billing overview's five composed stat reads, under one key: the page
+     * renders them as a single answer, so a partially-refreshed set would put
+     * one endpoint's number beside another's staleness under one heading.
+     */
+    dashboardMetrics: () => [...adminKeys.billing.all(), 'dashboard-metrics'] as const,
+    /** The revenue series. Range AND granularity belong in the key. */
+    revenueTrend: (range: string, granularity: string) =>
+      [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /**
+     * The metered-usage dashboard's four reads. Usage drives invoices, so each
+     * carries its own discriminators: a trend for one period must not overwrite
+     * another's, nor a top-tenants list for one meter another meter's.
+     */
+    usageSummary: (period: string) => [...adminKeys.billing.all(), 'usage-summary', period] as const,
+    usageTenants: (params?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'usage-tenants', params] as const,
+    usageTrends: (period: string, numPeriods: number) =>
+      [...adminKeys.billing.all(), 'usage-trends', period, numPeriods] as const,
+    usageTopTenants: (meterType: string, period: string) =>
+      [...adminKeys.billing.all(), 'usage-top-tenants', meterType, period] as const,
+    /** The custom-plan approval queue, per filter and page. */
+    customPlans: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'custom-plans', filters] as const,
+    /** Discount codes, per listing filter. */
+    discountCodes: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'discount-codes', filters] as const,
+    /** The discount aggregate. */
+    discountStats: () => [...adminKeys.billing.all(), 'discount-stats'] as const,
+    /** The subscription list, per filter and page. */
+    subscriptions: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'subscriptions', filters] as const,
+    /** The subscription aggregate — the server's, not derived from the page. */
+    subscriptionStats: () => [...adminKeys.billing.all(), 'subscription-stats'] as const,
+    /** The payment list, per filter. */
+    payments: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'payments', filters] as const,
+    /** The platform-wide payment aggregate — NOT derived from the page above. */
+    paymentStats: () => [...adminKeys.billing.all(), 'payment-stats'] as const,
+    /** The five money totals above the invoice table. */
+    invoiceStats: () => [...adminKeys.billing.all(), 'invoice-stats'] as const,
+    /** The newest invoices behind the "Recent Transactions" feed. */
+    recentInvoices: (limit: number) =>
+      [...adminKeys.billing.all(), 'recent-invoices', limit] as const,
   },
 
   // ── Onboarding (support) ──

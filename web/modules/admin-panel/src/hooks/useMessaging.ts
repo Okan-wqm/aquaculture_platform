@@ -23,11 +23,11 @@ import {
 } from '../graphql/messaging-operations';
 import type {
   GraphQLSupportThread,
-  SupportMessage,
+  GraphQLSupportMessage,
   ThreadStatus,
-  MessageSenderType,
-  MessageStatus as MsgStatus,
-  SupportMessageAttachment,
+  GraphQLMessageSenderType,
+  GraphQLMessageStatus,
+  GraphQLMessageAttachment,
 } from '../services/types/support';
 
 // ============================================================================
@@ -73,18 +73,26 @@ interface GqlMessageItem {
   id: string;
   threadId: string;
   senderId: string;
-  senderType: MessageSenderType;
+  senderType: GraphQLMessageSenderType;
   senderName: string;
   content: string;
-  status: MsgStatus;
+  status: GraphQLMessageStatus;
   isInternal: boolean;
-  attachments: SupportMessageAttachment[] | null;
+  attachments: GraphQLMessageAttachment[] | null;
   readAt: string | null;
   createdAt: string;
 }
 
-/** Messaging statistics */
-export interface MessagingStats {
+/**
+ * The GraphQL stack's messaging rollup.
+ *
+ * `Gql`-prefixed because `services/types/support.ts` now sources the REST
+ * rollup of the same name from the contract, and the two are different
+ * aggregates over different tables — admin-api's `avgResponseTimeMinutes` is
+ * NULLABLE (null when no admin has ever answered), this one is not
+ * (ADMIN-CRITICAL-157). Same rename reason as `GqlAnnouncementStats`.
+ */
+export interface GqlMessagingStats {
   totalThreads: number;
   activeThreads: number;
   closedThreads: number;
@@ -183,7 +191,7 @@ export function useAdminThread(threadId: string | null) {
  */
 export function useMessagingStats() {
   const result = useGraphQLQuery<
-    { supportMessagingStats: MessagingStats }
+    { supportMessagingStats: GqlMessagingStats }
   >('AdminMessagingStats', ADMIN_GET_MESSAGING_STATS, {
     enabled: true,
   });
@@ -222,7 +230,7 @@ export function useCreateThread() {
  */
 export function useSendMessage() {
   const { mutate, isLoading, error, data } = useGraphQLMutation<
-    { sendSupportMessage: SupportMessage },
+    { sendSupportMessage: GraphQLSupportMessage },
     { input: SupportSendMessageInput }
   >(ADMIN_SEND_MESSAGE);
 
@@ -324,8 +332,8 @@ export async function fetchThreadMessages(threadId: string): Promise<GqlMessageI
 /**
  * Imperative helper for fetching messaging stats.
  */
-export async function fetchMessagingStats(): Promise<MessagingStats | null> {
-  const result = await graphqlClient.request<{ supportMessagingStats: MessagingStats }>(
+export async function fetchMessagingStats(): Promise<GqlMessagingStats | null> {
+  const result = await graphqlClient.request<{ supportMessagingStats: GqlMessagingStats }>(
     ADMIN_GET_MESSAGING_STATS,
   );
   return result?.supportMessagingStats ?? null;

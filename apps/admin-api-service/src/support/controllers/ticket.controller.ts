@@ -4,6 +4,7 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
+import { TicketCommentPageDto, TicketStatsResponseDto } from './dto/ticket-response.dto';
 import {
   AddCommentDto,
   AssignTicketDto,
@@ -82,7 +83,7 @@ export class TicketController {
   }
 
   @Get('stats')
-  async getStats() {
+  async getStats(): Promise<TicketStatsResponseDto> {
     return this.ticketService.getTicketStats();
   }
 
@@ -253,7 +254,7 @@ export class TicketController {
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
     @Query() pagination?: PaginationQueryDto,
-  ) {
+  ): Promise<TicketCommentPageDto> {
     return this.ticketService.getComments(id, {
       includeInternal: includeInternal !== 'false',
       page: pagination?.page,

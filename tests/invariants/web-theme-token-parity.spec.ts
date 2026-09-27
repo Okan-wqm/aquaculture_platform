@@ -95,13 +95,19 @@ describe('INVARIANT (FE-HIGH-066): TypeScript colour tokens mirror theme.css', (
     // green and slate scales under the names tenant-* and dark-*): a fourth visual
     // language, invisible to `colors` and to this parity check. A package that
     // needs a scale uses the design system's; a new scale is added to theme.css.
-    const entries = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', 'web/*.css', 'web/**/*.css'], {
-      encoding: 'utf8',
-    })
+    const entries = execFileSync(
+      'git',
+      ['-C', REPO_ROOT, 'ls-files', '--', 'web/*.css', 'web/**/*.css'],
+      {
+        encoding: 'utf8',
+      },
+    )
       .split('\n')
       .filter((file) => file && !file.includes('/node_modules/') && file !== THEME_CSS);
     expect(entries.length).toBeGreaterThan(5);
-    const offenders = entries.filter((file) => /@theme\b/.test(readFileSync(resolve(REPO_ROOT, file), 'utf8')));
+    const offenders = entries.filter((file) =>
+      /@theme\b/.test(readFileSync(resolve(REPO_ROOT, file), 'utf8')),
+    );
     expect(offenders).toEqual([]);
   });
 });
@@ -125,14 +131,67 @@ describe('INVARIANT (FE-HIGH-066): TypeScript colour tokens mirror theme.css', (
  */
 describe('INVARIANT (FE-HIGH-073): colour utilities only name scales and steps a palette defines', () => {
   const TAILWIND_PALETTE = new Set([
-    'slate', 'gray', 'zinc', 'neutral', 'stone', 'red', 'orange', 'amber', 'yellow', 'lime', 'green',
-    'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose',
+    'slate',
+    'gray',
+    'zinc',
+    'neutral',
+    'stone',
+    'red',
+    'orange',
+    'amber',
+    'yellow',
+    'lime',
+    'green',
+    'emerald',
+    'teal',
+    'cyan',
+    'sky',
+    'blue',
+    'indigo',
+    'violet',
+    'purple',
+    'fuchsia',
+    'pink',
+    'rose',
   ]);
-  const TAILWIND_STEPS = new Set(['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950']);
+  const TAILWIND_STEPS = new Set([
+    '50',
+    '100',
+    '200',
+    '300',
+    '400',
+    '500',
+    '600',
+    '700',
+    '800',
+    '900',
+    '950',
+  ]);
   /** `<prefix>-<word>-<digits>` shapes that are not colours: opacity, spacing, gradient angles, sides. */
   const NOT_A_COLOUR = new Set([
-    'opacity', 'spacing', 'offset', 'linear', 'radial', 'conic', 'inset',
-    't', 'r', 'b', 'l', 'x', 'y', 's', 'e', 'tl', 'tr', 'br', 'bl', 'ss', 'se', 'es', 'ee',
+    'opacity',
+    'spacing',
+    'offset',
+    'linear',
+    'radial',
+    'conic',
+    'inset',
+    't',
+    'r',
+    'b',
+    'l',
+    'x',
+    'y',
+    's',
+    'e',
+    'tl',
+    'tr',
+    'br',
+    'bl',
+    'ss',
+    'se',
+    'es',
+    'ee',
   ]);
   const COLOUR_UTILITY =
     /(?<![\w-])(?:[a-z-]+:)*!?(?:bg|text|border|ring|divide|from|to|via|placeholder|outline|shadow|fill|stroke|accent|caret|decoration|ring-offset|border-[trblxyse]|border-[st][se])-([a-z]+)-(\d+)(?:\/\d+)?(?![\w-])/g;
@@ -168,9 +227,13 @@ describe('INVARIANT (FE-HIGH-073): colour utilities only name scales and steps a
   });
 
   it('no source file under web/ uses a colour utility that would compile to nothing', () => {
-    const files = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', 'web/*.ts', 'web/**/*.ts', 'web/*.tsx', 'web/**/*.tsx'], {
-      encoding: 'utf8',
-    })
+    const files = execFileSync(
+      'git',
+      ['-C', REPO_ROOT, 'ls-files', '--', 'web/*.ts', 'web/**/*.ts', 'web/*.tsx', 'web/**/*.tsx'],
+      {
+        encoding: 'utf8',
+      },
+    )
       .split('\n')
       .filter(
         (file) =>
@@ -186,7 +249,9 @@ describe('INVARIANT (FE-HIGH-073): colour utilities only name scales and steps a
       const source = readFileSync(resolve(REPO_ROOT, file), 'utf8');
       for (const [utility, scale, step] of source.matchAll(COLOUR_UTILITY)) {
         if (scale === undefined || step === undefined || NOT_A_COLOUR.has(scale)) continue;
-        const known = (TAILWIND_PALETTE.has(scale) && TAILWIND_STEPS.has(step)) || (palette.get(scale)?.has(step) ?? false);
+        const known =
+          (TAILWIND_PALETTE.has(scale) && TAILWIND_STEPS.has(step)) ||
+          (palette.get(scale)?.has(step) ?? false);
         if (!known) dead.push(`${file}: ${utility}`);
       }
     }
@@ -222,7 +287,8 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
   }
   function tokenIn(block: string): string {
     const match = /--color-gray-400:\s*(#[0-9a-fA-F]{6})\s*;/.exec(block);
-    if (match?.[1] === undefined) throw new Error('theme.css does not assign --color-gray-400 here');
+    if (match?.[1] === undefined)
+      throw new Error('theme.css does not assign --color-gray-400 here');
     return match[1];
   }
 
@@ -232,7 +298,8 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
 
   it("the [data-theme='dark'] assignment reads on gray-800", () => {
     const override = /\[data-theme='dark'\]\s*\{[^}]*\}/.exec(THEME_SOURCE)?.[0];
-    if (override === undefined) throw new Error("theme.css has no [data-theme='dark'] override block");
+    if (override === undefined)
+      throw new Error("theme.css has no [data-theme='dark'] override block");
     expect(contrast(tokenIn(override), DARK_SURFACE)).toBeGreaterThanOrEqual(4.5);
   });
 });

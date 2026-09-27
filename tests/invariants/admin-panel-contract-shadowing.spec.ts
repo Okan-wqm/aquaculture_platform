@@ -66,16 +66,21 @@ const GENERATED = join(REPO_ROOT, PANEL, 'services/generated/admin-api.ts');
 /**
  * Hand-declared shapes allowed by name, each under a tracked finding. Removing
  * an entry is how the finding closes; adding one needs a finding of its own.
+ *
+ * EMPTY, as of ADMIN-CRITICAL-156. The one entry was
+ * `support.ts:TicketComment` under ADMIN-MEDIUM-114: the contract OVERSTATED
+ * that shape — `TicketController.getComments` declared no return type, so the
+ * plugin emitted the ENTITY and the schema required `ticket: SupportTicket`, a
+ * property `findAndCount` never loads — so aliasing would have demanded a
+ * field that does not arrive. It closed the way the docblock says: the
+ * endpoint got an explicit `TicketCommentPageDto`, the relation got
+ * `@ApiHideProperty`, and the panel now aliases the contract.
+ *
+ * The test below still runs over this map, so it stays honest when empty:
+ * nothing is asserted, and the moment an entry is added it must match a real
+ * shadow.
  */
-const TRACKED_SHADOWS: Readonly<Record<string, string>> = {
-  // The contract OVERSTATES this one — the inverse of every other case.
-  // `TicketController.getComments` declares no return type, so the swagger
-  // plugin emitted the entity and the schema requires `ticket: SupportTicket`.
-  // The service's `findAndCount` loads no relations, so that property is never
-  // in the response, and aliasing would demand a field that does not arrive.
-  // Closing it means an explicit `TicketCommentDto` on the endpoint.
-  'support.ts:TicketComment': 'ADMIN-MEDIUM-114',
-};
+const TRACKED_SHADOWS: Readonly<Record<string, string>> = {};
 
 /** Every schema name the generated contract carries. */
 function contractSchemaNames(): Set<string> {
@@ -169,10 +174,12 @@ describe('INVARIANT: the admin panel sources its types from the generated contra
     expect(offenders).toEqual([]);
   });
 
-  it('still sees the tracked shadow, rather than having stopped matching it', () => {
+  it('still sees every tracked shadow, rather than having stopped matching it', () => {
     // An allowlist entry that no longer matches would make this gate pass on a
-    // file it believes it is holding, and ADMIN-MEDIUM-114 would look closed
-    // without anyone closing it.
+    // file it believes it is holding, and the finding behind it would look
+    // closed without anyone closing it. That is exactly how ADMIN-MEDIUM-114's
+    // entry left: the shadow went, so the entry had to.
+    expect(Object.keys(TRACKED_SHADOWS).length).toBeGreaterThanOrEqual(0);
     for (const [key, findingId] of Object.entries(TRACKED_SHADOWS)) {
       const [file, name] = key.split(':');
       if (file === undefined || name === undefined) {

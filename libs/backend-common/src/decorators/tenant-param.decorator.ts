@@ -32,7 +32,7 @@
  * `@Query('tenantId')` / DTO `tenantId` alternatives on the admin surface.
  */
 import { applyDecorators, createParamDecorator, type ExecutionContext } from '@nestjs/common';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, ApiQuery } from '@nestjs/swagger';
 import { Allow } from 'class-validator';
 
 import {
@@ -94,16 +94,56 @@ const RawTenantParam = createParamDecorator(
 export const TenantParam = (
   source: TenantParamSource,
   options: TenantParamOptions = {},
-): ParameterDecorator =>
-  RawTenantParam(
-    {
-      source,
-      key: options.key ?? 'tenantId',
-      optional: options.optional ?? false,
-      allow: options.allow,
-    },
+): ParameterDecorator => {
+  const key = options.key ?? 'tenantId';
+  const optional = options.optional ?? false;
+  const extractAndVerify = RawTenantParam(
+    { source, key, optional, allow: options.allow },
     VerifiedTenantPipe,
   );
+
+  // A `param`-sourced id is already in the contract: the route path carries
+  // `:tenantId`, and the swagger plugin derives a path parameter from the
+  // template. A `body`-sourced one is declared by {@link TenantIdCarrier} on
+  // the DTO. A QUERY-sourced one was in neither.
+  if (source !== 'query') return extractAndVerify;
+
+  /**
+   * ADMIN-HIGH-149: contribute the query parameter to the OpenAPI document.
+   *
+   * The `@nestjs/swagger` plugin reads `@Query()` and nothing else, so every
+   * `@TenantParam('query')` route documented NO tenant parameter — while
+   * `VerifiedTenantPipe` rejected any request that omitted it with
+   * `BadRequestException('tenantId is required')`. A generated client had no
+   * way to know the one parameter it had to send, and the admin panel proved
+   * the consequence twice: `MessagingCompliancePage` (ADMIN-CRITICAL-147) and
+   * `MessagingAuditPage` (ADMIN-CRITICAL-150) each shipped calls that could
+   * only ever 400, and each rendered a placeholder in place of the answer.
+   *
+   * Declaring it here rather than at the call sites is the point: it holds for
+   * all 132 of them and for every route added after this.
+   *
+   * A parameter decorator cannot be composed with a method decorator through
+   * `applyDecorators`, so `ApiQuery` is applied to the owning method directly
+   * — the documented way to have a parameter decorator contribute route-level
+   * metadata.
+   */
+  return (target: object, propertyKey: string | symbol | undefined, parameterIndex: number) => {
+    extractAndVerify(target, propertyKey, parameterIndex);
+    if (propertyKey === undefined) return;
+    const descriptor = Object.getOwnPropertyDescriptor(target, propertyKey);
+    if (!descriptor) return;
+    ApiQuery({
+      name: key,
+      required: !optional,
+      type: String,
+      format: 'uuid',
+      description:
+        'Tenant id. Resolved and verified against `auth.tenants` before the handler runs' +
+        (optional ? '; omit to act across tenants.' : '; the request is refused without it.'),
+    })(target, propertyKey, descriptor);
+  };
+};
 
 /**
  * Whitelists the body key `@TenantParam('body')` reads, without making it

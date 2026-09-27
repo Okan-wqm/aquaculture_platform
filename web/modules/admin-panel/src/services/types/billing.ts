@@ -230,25 +230,17 @@ export interface InvoiceOverview {
 }
 
 /** One payment-statistics window (all-time, or the trailing 30 days). */
-export interface PaymentStatsWindow {
-  totalPayments: number;
-  succeeded: number;
-  failed: number;
-  refunded: number;
-  pending: number;
-  /**
-   * succeeded + refund states over TERMINAL attempts (0..1; 0 when there were
-   * none). Pending/processing are in flight and cancelled never attempted
-   * capture, so neither is in the denominator.
-   */
-  successRate: number;
-  totalAmount: number;
-}
+/**
+ * The payment aggregate, derived from the contract rather than restated beside
+ * it. It used to be a hand-written interface here because the endpoint returned
+ * an interface server-side and the generated artifact therefore described it as
+ * a bare `{"type": "object"}` — nothing for a client type to derive from. The
+ * response is a class DTO now, so this is an alias (CONTRACT-CRITICAL-003).
+ */
+export type PaymentStatsWindow = ApiSchema<'PaymentStatsWindowDto'>;
 
 /** GET /billing/payments/stats — all-time plus the trailing-30-day window. */
-export interface PaymentStats extends PaymentStatsWindow {
-  last30Days: PaymentStatsWindow;
-}
+export type PaymentStats = ApiSchema<'PaymentStatsResponseDto'>;
 
 export interface InvoiceStats {
   totalInvoices: number;

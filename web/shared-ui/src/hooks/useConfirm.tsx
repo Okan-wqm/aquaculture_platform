@@ -105,7 +105,10 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
         {options.message !== undefined && (
           <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">{options.message}</div>
         )}
-        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label
+          htmlFor={inputId}
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
           {options.label ?? options.title}
         </label>
         <input

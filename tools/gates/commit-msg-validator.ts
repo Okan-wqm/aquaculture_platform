@@ -379,6 +379,23 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // `npm run hooks:install` is now run for this checkout.
   'd046483b', // fix(aria): ARIA reverts its own bad merge, freezing first (Part of ARIA-HIGH-199)
   'b977da29', // fix(aria): runner identity is measured, and the merge lane attests what it is (Part of ARIA-HIGH-198)
+  // 2026-09-27 SUPER_ADMIN stack, PR #1523. A finding-id COLLISION, not a
+  // missing trailer: `ac780802` carries
+  // `Closes: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#ADMIN-HIGH-135`
+  // for the CreateTenantPage price-sheet finding, minted on that branch on
+  // 2026-09-09. Ten days later main minted the SAME id for an unrelated
+  // finding (the Copernicus credential operator surface, e959f5811) and
+  // merged it. main is immutable, so main keeps ADMIN-HIGH-135 and the
+  // price-sheet finding was re-registered as ADMIN-HIGH-159 (the row's notes
+  // record this); the commit that re-registers it carries the ADMIN-HIGH-159
+  // trailer and is the one `reconcile` will honour. The historical trailer
+  // now cites a review file that is not 135's own, which is exactly what
+  // the review-file binding below rejects — correctly. It cannot close 135
+  // (derivation applies the same binding) and cannot be amended without a
+  // force-push. The root cause is the allocator's per-clone reservation
+  // ledger: two clones can mint the same sequence with no knowledge of each
+  // other, and only the merge driver's duplicate-id refusal caught it.
+  'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
 ]);
 
 interface Commit {

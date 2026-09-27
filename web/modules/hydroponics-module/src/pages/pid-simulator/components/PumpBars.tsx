@@ -47,7 +47,9 @@ const PumpBar: React.FC<{
 
 const PumpBars: React.FC<PumpBarsProps> = ({ acidPump, basePump, nutPump, dilPump }) => (
   <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Pumps</h4>
+    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+      Pumps
+    </h4>
     <div className="space-y-1.5">
       <PumpBar label="ACID" value={acidPump} color={colors.error[500]} bgColor={colors.error[50]} />
       <PumpBar

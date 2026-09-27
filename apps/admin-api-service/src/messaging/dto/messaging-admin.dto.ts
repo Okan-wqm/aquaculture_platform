@@ -18,6 +18,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  NotEquals,
   ValidateIf,
 } from 'class-validator';
 
@@ -48,8 +49,18 @@ export class UpdateRetentionPolicyDto {
   @IsUUID('4')
   channelId?: string | null;
 
-  /** One day to ten years: a retention window is a compliance decision, not a free integer. */
-  @IsInt() @Min(1) @Max(3650) retentionDays!: number;
+  /**
+   * The retention window in days: `-1` for indefinite, otherwise one day to
+   * ten years. A retention window is a compliance decision, not a free
+   * integer — hence the ceiling — but `@Min(1)` made INDEFINITE unreachable
+   * (ADMIN-CRITICAL-151). `RetentionPolicy.retentionDays` documents `-1` as
+   * indefinite and `executeRetentionCleanup` skips those policies
+   * (`retention-policy.service.ts:221`), so the state exists, the nightly job
+   * honours it, and only this validator stood between an operator and setting
+   * it. `@NotEquals(0)` keeps the one meaningless value out: zero days would
+   * ask the cleanup to delete everything the moment it runs.
+   */
+  @IsInt() @Min(-1) @NotEquals(0) @Max(3650) retentionDays!: number;
 }
 
 export class TriggerExportDto {

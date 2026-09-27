@@ -11,15 +11,7 @@
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
 import { clsx } from 'clsx';
-import {
-  Check,
-  Package,
-  AlertCircle,
-  Hand,
-  Settings,
-  Radio,
-  Thermometer,
-} from 'lucide-react';
+import { Check, Package, AlertCircle, Hand, Settings, Radio, Thermometer } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -229,11 +221,7 @@ export function RecordFeedingPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        tone="green"
-        icon={Package}
-        title={t('feeding.title')}
-      />
+      <PageHeader tone="green" icon={Package} title={t('feeding.title')} />
 
       {/* FE-MEDIUM-054: dürüst kaynak bandı — plan şifreli offline cache'ten
           geliyorsa işçiye söyle. */}
@@ -258,7 +246,12 @@ export function RecordFeedingPage(): JSX.Element {
         <>
           <SectionTitle>{t('feeding.selectUnit')}</SectionTitle>
           <div className="px-4">
-            <Select label={t('feeding.selectUnit')} hideLabel value={selectedUnitId} onChange={handleUnitChange}>
+            <Select
+              label={t('feeding.selectUnit')}
+              hideLabel
+              value={selectedUnitId}
+              onChange={handleUnitChange}
+            >
               <option value="">{t('feeding.selectUnitPlaceholder')}</option>
               {plans.map((plan) => (
                 <option key={plan.unitId} value={plan.unitId}>
@@ -428,7 +421,9 @@ export function RecordFeedingPage(): JSX.Element {
                 }}
                 className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
               />
-              <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">kg</p>
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">
+                kg
+              </p>
               <p className="text-center text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {t('feeding.pour.remaining', {
                   kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
@@ -483,7 +478,11 @@ export function RecordFeedingPage(): JSX.Element {
                   >
                     <Icon
                       size={24}
-                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}
+                      className={
+                        feedingMethod === m.value
+                          ? 'text-green-600'
+                          : 'text-gray-400 dark:text-gray-500'
+                      }
                     />
                     <span className="text-xs font-semibold mt-1.5">{t(m.labelKey)}</span>
                   </button>

@@ -4,7 +4,7 @@
  * Admin panel for managing subscription plans and pricing.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   Button,
@@ -16,6 +16,8 @@ import {
   PageHeader,
 } from '@aquaculture/shared-ui';
 import { billingApi, PlanCyclePrice, PlanDefinition } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { formatCurrencyAmount } from '../utils/money';
 import { Check, Info as InfoIcon, X } from 'lucide-react';
 
@@ -52,37 +54,33 @@ const CYCLE_LABELS: Readonly<Record<PlanCyclePrice['billingCycle'], string>> = {
 
 const PlanManagementPage: React.FC = () => {
   const confirm = useConfirm();
-  const [plans, setPlans] = useState<PlanDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanDefinition | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  useEffect(() => {
-    loadPlans();
-  }, []);
+  /**
+   * The plan catalogue.
+   *
+   * The read caught its error, wrote `console.error`, and set "Failed to load
+   * plans. Please try again." — while the deprecate handler one function below
+   * surfaced `(err as Error).message`, the real one. Two standards of honesty
+   * on one page; this raises the lower one rather than lowering the higher.
+   */
+  const plansQuery = useAdminQuery<PlanDefinition[]>(adminKeys.billing.plans(true), ({ signal }) =>
+    billingApi.getPlans(true, signal),
+  );
+  const plans: PlanDefinition[] = plansQuery.data ?? [];
+  const loading = plansQuery.isPending;
 
-  const loadPlans = async () => {
-    setLoading(true);
-    try {
-      const data = await billingApi.getPlans(true);
-      setPlans(data);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to load plans:', err);
-      setPlans([]);
-      setError('Failed to load plans. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const deprecateMutation = useAdminMutation((planId: string) => billingApi.deprecatePlan(planId), {
+    invalidateKeys: [adminKeys.billing.plans(true)],
+  });
 
   const closeDetails = (): void => {
     setShowDetails(false);
     setSelectedPlan(null);
   };
 
-  const handleDeprecatePlan = async (planId: string) => {
+  const handleDeprecatePlan = async (planId: string): Promise<void> => {
     if (
       !(await confirm({
         title: 'Deprecate this plan?',
@@ -93,13 +91,7 @@ const PlanManagementPage: React.FC = () => {
       }))
     )
       return;
-
-    try {
-      await billingApi.deprecatePlan(planId);
-      loadPlans();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    deprecateMutation.mutate(planId);
   };
 
   // Keyed by the CONTRACT's tier union rather than the local enum: the plan
@@ -120,19 +112,18 @@ const PlanManagementPage: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 text-error-700 dark:text-error-300">
-        {error}
-        <Button onClick={loadPlans} className="ml-4">
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {/*
+        Both errors, verbatim. Inline rather than a full-page takeover: a
+        deprecate that the server refused is a message about that action, not a
+        reason to remove the catalogue the operator is reading.
+      */}
+      <QueryFailureNotice
+        errors={[plansQuery.error, deprecateMutation.error]}
+        hasContent={plans.length > 0}
+        onRetry={() => void plansQuery.refetch()}
+      />
       {/* Page Header */}
       <PageHeader
         title="Plan Management"

@@ -9,6 +9,9 @@ import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
+import type { InvoiceStats } from '../services/types/billing';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { saveBlob } from '../services/blob-client';
 import { Search as SearchIcon } from 'lucide-react';
 
@@ -39,13 +42,25 @@ interface Invoice {
   createdAt: string;
 }
 
-interface InvoiceStats {
-  totalInvoices: number;
-  totalAmount: number;
-  totalPaid: number;
-  totalPending: number;
-  totalOverdue: number;
-}
+/**
+ * Every state `billing.invoices.status` can hold, plus "all".
+ *
+ * The row used to offer five — all, paid, pending, overdue, void — so an
+ * operator could not filter for a `draft`, a `sent` invoice, a `partially_paid`
+ * one or a `refunded` one at all. Those rows were reachable only by scrolling
+ * an unfiltered list. The vocabulary is the server's; this is that list.
+ */
+const INVOICE_FILTERS = [
+  'all',
+  'draft',
+  'pending',
+  'sent',
+  'paid',
+  'partially_paid',
+  'overdue',
+  'void',
+  'refunded',
+] as const;
 
 const formatCurrency = (amount: number, currency = 'USD'): string => {
   return new Intl.NumberFormat('en-US', {
@@ -68,16 +83,6 @@ const InvoicesPage: React.FC = () => {
   const invoiceListRoute = '/admin/billing/invoices';
   const invoiceCreateRoute = '/admin/billing/invoices/new';
   const initialParams = new URLSearchParams(location.search);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [stats, setStats] = useState<InvoiceStats>({
-    totalInvoices: 0,
-    totalAmount: 0,
-    totalPaid: 0,
-    totalPending: 0,
-    totalOverdue: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState(initialParams.get('search') ?? '');
   const [statusFilter, setStatusFilter] = useState<string>(initialParams.get('status') ?? 'all');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -104,18 +109,22 @@ const InvoicesPage: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchInvoices = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const data = await billingApi.getInvoices({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        search: searchTerm || undefined,
-        limit: 100,
-      });
-
-      const mappedInvoices: Invoice[] = (data.invoices || []).map((inv: InvoiceOverview) => ({
+  /**
+   * The invoice list, per filter. Both discriminators are in the key, so a
+   * filtered list cannot overwrite the unfiltered one in a single cache entry.
+   */
+  const invoicesQuery = useAdminQuery<Invoice[]>(
+    adminKeys.billing.invoices({ status: statusFilter, search: searchTerm }),
+    async ({ signal }) => {
+      const data = await billingApi.getInvoices(
+        {
+          status: statusFilter !== 'all' ? statusFilter : undefined,
+          search: searchTerm || undefined,
+          limit: 100,
+        },
+        signal,
+      );
+      return (data.invoices ?? []).map((inv: InvoiceOverview) => ({
         ...inv,
         amount: typeof inv.amount === 'string' ? parseFloat(inv.amount) : inv.amount,
         amountPaid:
@@ -123,34 +132,28 @@ const InvoicesPage: React.FC = () => {
         amountDue: typeof inv.amountDue === 'string' ? parseFloat(inv.amountDue) : inv.amountDue,
         status: inv.status as Invoice['status'],
       }));
-      setInvoices(mappedInvoices);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setInvoices([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, searchTerm]);
+    },
+  );
+  const invoices: Invoice[] = invoicesQuery.data ?? [];
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await billingApi.getInvoiceStats();
-      setStats({
-        totalInvoices: data.totalInvoices || 0,
-        totalAmount: data.totalAmount || 0,
-        totalPaid: data.totalPaid || 0,
-        totalPending: data.totalPending || 0,
-        totalOverdue: data.totalOverdue || 0,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load invoice stats');
-    }
-  }, []);
+  /**
+   * The five money totals above the table.
+   *
+   * They used to live in a `useState` seeded with five zeros, so until billing
+   * answered — and forever if it never did — the page asserted $0 owed, $0
+   * overdue, 0 invoices. "Overdue: $0" is a specific and reassuring claim, and
+   * the page had no basis for it. Absent is now absent: the cards render an em
+   * dash and the failed read is named.
+   */
+  const statsQuery = useAdminQuery<InvoiceStats>(adminKeys.billing.invoiceStats(), ({ signal }) =>
+    billingApi.getInvoiceStats(signal),
+  );
+  const stats = statsQuery.data;
 
-  useEffect(() => {
-    void fetchInvoices();
-    void fetchStats();
-  }, [fetchInvoices, fetchStats]);
+  const reload = useCallback((): void => {
+    void invoicesQuery.refetch();
+    void statsQuery.refetch();
+  }, [invoicesQuery, statsQuery]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -228,7 +231,7 @@ const InvoicesPage: React.FC = () => {
       setShowMarkPaidModal(false);
       setMarkPaidAmount('');
       setSelectedInvoice(null);
-      await Promise.all([fetchInvoices(), fetchStats()]);
+      reload();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to mark invoice as paid', 'error');
     } finally {
@@ -250,7 +253,7 @@ const InvoicesPage: React.FC = () => {
       setShowVoidModal(false);
       setVoidReason('');
       setSelectedInvoice(null);
-      await Promise.all([fetchInvoices(), fetchStats()]);
+      reload();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to void invoice', 'error');
     } finally {
@@ -267,9 +270,9 @@ const InvoicesPage: React.FC = () => {
       await billingApi.createInvoice(data);
       showToast('Invoice created successfully', 'success');
       closeCreateInvoice();
-      await Promise.all([fetchInvoices(), fetchStats()]);
+      reload();
     },
-    [closeCreateInvoice, fetchInvoices, fetchStats],
+    [closeCreateInvoice, reload],
   );
 
   /**
@@ -518,50 +521,41 @@ const InvoicesPage: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Invoices</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-            {stats.totalInvoices}
+            {stats ? stats.totalInvoices.toLocaleString() : '—'}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Amount</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-            {formatCurrency(stats.totalAmount)}
+            {stats ? formatCurrency(stats.totalAmount) : '—'}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Paid</p>
           <p className="text-2xl font-bold text-success-600 dark:text-success-400 mt-1">
-            {formatCurrency(stats.totalPaid)}
+            {stats ? formatCurrency(stats.totalPaid) : '—'}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
           <p className="text-2xl font-bold text-warning-600 dark:text-warning-400 mt-1">
-            {formatCurrency(stats.totalPending)}
+            {stats ? formatCurrency(stats.totalPending) : '—'}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Overdue</p>
           <p className="text-2xl font-bold text-error-600 dark:text-error-400 mt-1">
-            {formatCurrency(stats.totalOverdue)}
+            {stats ? formatCurrency(stats.totalOverdue) : '—'}
           </p>
         </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
-          <p className="text-error-700 dark:text-error-300">{error}</p>
-          <button
-            onClick={() => {
-              void fetchInvoices();
-              void fetchStats();
-            }}
-            className="mt-2 text-error-600 dark:text-error-400 hover:text-error-800 dark:hover:text-error-200 text-sm font-medium"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {/* Whichever of the two reads failed, named. */}
+      <QueryFailureNotice
+        errors={[invoicesQuery.error, statsQuery.error]}
+        hasContent={invoices.length > 0}
+        onRetry={reload}
+      />
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
@@ -582,7 +576,7 @@ const InvoicesPage: React.FC = () => {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {['all', 'paid', 'pending', 'overdue', 'void'].map((status) => (
+            {INVOICE_FILTERS.map((status) => (
               <button
                 key={status}
                 onClick={() => handleStatusFilterChange(status)}
@@ -604,7 +598,7 @@ const InvoicesPage: React.FC = () => {
         data={invoices}
         columns={invoiceColumns}
         keyExtractor={(invoice) => invoice.id}
-        loading={loading}
+        loading={invoicesQuery.isPending}
         loadingMessage="Loading invoices..."
         emptyMessage="No invoices found"
         searchable={false}

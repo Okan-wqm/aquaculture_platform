@@ -58,7 +58,12 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
       if (planLevel !== undefined) {
         const maxFarms = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxFarms;
         if (maxFarms !== -1) {
-          const currentFarms = await siteRepository.count({ where: { tenantId } });
+          // 2026-09-21: soft-delete satırları kotaya girmemeli — canlıda 2
+          // aktif siteye rağmen silinmiş 1 site yüzünden "Plan limit reached"
+          // hatası alınıyordu (kullanıcı site üretemiyordu).
+          const currentFarms = await siteRepository.count({
+            where: { tenantId, isDeleted: false },
+          });
           assertWithinQuota('farms', currentFarms, maxFarms);
         }
       }
@@ -93,8 +98,10 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
         city: input.address?.city,
         country: input.country ?? input.address?.country,
         region: input.region,
-        // Boş bırakılan zon 'UTC' ile DOLDURULMAZ: NULL "tenant'tan devral"
-        // demektir (W5). Sitesine özel zon veren tesisler kolonu açıkça yazar.
+        // Boş zon = NULL = "tenant'tan devral" (W5 + 1809200000000
+        // MakeSiteTimezoneInheritable migrasyonu kolonu nullable yapar).
+        // Canlıda migrasyon henüz uygulanmadıysa kolon NOT NULL kalır ve create
+        // ham DB hatası verir — migrasyonun çalışması deploy'un parçasıdır.
         timezone: input.timezone || null,
         status: input.status || SiteStatus.ACTIVE,
         settings: input.settings,

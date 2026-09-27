@@ -31,6 +31,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -327,6 +328,13 @@ export class AppModule implements NestModule {
       .apply(
         // SEC-CRITICAL-002 sweep — strip forged internal headers.
         StripInternalHeadersMiddleware,
+        // Parse the gateway-minted, HMAC-bound verified user assertion into
+        // req.user. Without this every user-context resolver on this subgraph
+        // (unreadNotificationCount, myNotifications, …) 401s with
+        // "No verified user reached the tenant guard" — the shell then
+        // misreads the UNAUTHENTICATED poll failure as a dead session and
+        // starts refresh storms / zombie sessions (2026-09-21 live incident).
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

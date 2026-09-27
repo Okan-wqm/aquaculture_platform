@@ -42247,6 +42247,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/graphql/date-time.scalar.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/graphql/decimal.scalar.spec.ts",
       "prettier_managed": true
     },
@@ -54625,6 +54631,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useLocalConfirm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/useMaintenance.ts",
       "prettier_managed": true
     },
@@ -56264,6 +56276,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/utils/command-envelope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/utils/graphql-enum.ts",
       "prettier_managed": true
     },
     {

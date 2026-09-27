@@ -17,7 +17,6 @@ import { useSupplierList } from '../../../hooks/useSuppliers';
 import {
   FormField,
   Modal,
-  useConfirm,
   useToast,
   DataTable,
   type DataTableColumn,
@@ -27,6 +26,7 @@ import {
   Select,
   Textarea,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import { Box as BoxIcon, ChevronDown, Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
@@ -228,7 +228,7 @@ export const ConsumablesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
     if (
@@ -791,6 +791,7 @@ export const ConsumablesTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

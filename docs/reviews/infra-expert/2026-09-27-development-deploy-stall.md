@@ -83,3 +83,48 @@ read the file, so on a busy runner it could read before the rename landed.
 **Fix.** The test waits, within the same budget, for the observable it asserts:
 the persisted snapshot carrying the migrated tenant's override. Production code
 is unchanged.
+
+## INFRA-MEDIUM-190: the preserved-infrastructure refusal names no cause
+
+With INFRA-HIGH-189 landed, run 36352814820 (9125ae99d) passed the capacity
+preflight and then stopped at the next gate:
+
+```text
+=== Proving preserved migration infrastructure is healthy ===
+::error::Preserved infrastructure container aqua-postgres is not healthy (running=true health=unhealthy)
+```
+
+That is the whole diagnosis the runner receives. Run 35613325790 (2026-09-21)
+failed at the same step with the same line. The deploy runner cannot reach the
+host, so a refusal that prints only the verdict leaves the cause unknowable from
+CI.
+
+**Fix.** When a preserved dependency is refused, `report_preserved_container_health`
+prints the container's configured healthcheck command and the probe results
+Docker retains (the last five): exit code, time, and the JSON-quoted output, one
+line each. The probes emit fixed messages, paths and counts, never credential
+values. The function uses only read-only `docker inspect`. It was exercised
+against a live Docker engine: a container whose probe fails, one with no
+healthcheck, and one that does not exist. `tests/invariants/development-deploy-policy.spec.ts`
+pins the report, and it fails with the call removed.
+
+## INFRA-HIGH-191: the development PostgreSQL is unhealthy (open; operator)
+
+The refusal above is correct: db-migrate must not run against an unhealthy
+database. The production-shaped healthcheck
+(`postgres-walg-healthcheck.sh`) fails when PostgreSQL is not ready, when the
+WAL-G runtime secrets are invalid, when the newest archive attempt failed, when
+a WAL segment has waited longer than the upload budget, or when `pg_wal` is 90%
+full. The first deploy after the fix above will print which one.
+
+A second, independent signal points the same way. Database WAL Archive Freshness
+has failed on every run since at least 2026-09-26, before reaching the host:
+
+```text
+FATAL: protected SSH fingerprint did not match exactly one advertised ED25519 host key.
+```
+
+The `production-backup` environment's `DROPLET_SSH_FINGERPRINT` no longer
+matches the host key, so no workflow currently observes archive health either.
+Re-pinning it, and repairing whichever check the diagnostic names, are operator
+actions on the host. This finding stays open for them.

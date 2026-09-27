@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Textarea } from '@aquaculture/shared-ui';
 import { CheckCircle2, XCircle, Tag } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../../hooks/useDeviceTags';
 import { FunctionReference } from './FunctionReference';
@@ -158,7 +159,9 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
   return (
     <div className="space-y-1.5">
       <div className="relative">
-        <textarea
+        <Textarea
+          className="font-mono resize-y"
+          fullWidth
           ref={textareaRef}
           data-testid="expression-textarea"
           value={expression}
@@ -168,7 +171,6 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
           placeholder={placeholder}
           rows={3}
           spellCheck={false}
-          className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg resize-y focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
         <div className="absolute top-2 right-2">
           <FunctionReference />
@@ -177,7 +179,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
         {autocompleteOpen && filteredTags.length > 0 && (
           <div
             data-testid="tag-autocomplete-dropdown"
-            className="absolute z-50 mt-0.5 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto"
+            className="absolute z-50 mt-0.5 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto"
           >
             {filteredTags.map((tag, idx) => (
               <button
@@ -185,12 +187,18 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
                 type="button"
                 onClick={() => insertTag(tag.name)}
                 className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                  idx === autocompleteIndex ? 'bg-cyan-50 text-cyan-700' : 'hover:bg-gray-50'
+                  idx === autocompleteIndex
+                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
-                <Tag className="w-3 h-3 text-gray-400 shrink-0" />
+                <Tag className="w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span className="font-mono font-medium truncate">{tag.name}</span>
-                {tag.unit && <span className="text-xs text-gray-400 ml-auto">{tag.unit}</span>}
+                {tag.unit && (
+                  <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                    {tag.unit}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -201,7 +209,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
         <div
           data-testid="expression-validation"
           className={`flex items-center gap-1.5 text-xs ${
-            validation.valid ? 'text-green-600' : 'text-red-500'
+            validation.valid ? 'text-success-600 dark:text-success-400' : 'text-error-500'
           }`}
         >
           {validation.valid ? (
@@ -214,7 +222,9 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
               <XCircle className="w-3.5 h-3.5" data-testid="validation-invalid" />
               <span>{validation.error}</span>
               {validation.position !== undefined && (
-                <span className="text-gray-400 ml-1">(pos {validation.position})</span>
+                <span className="text-gray-400 dark:text-gray-500 ml-1">
+                  (pos {validation.position})
+                </span>
               )}
             </>
           )}
@@ -224,9 +234,9 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
       {livePreview !== null && validation?.valid && (
         <div
           data-testid="expression-preview"
-          className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 rounded px-2 py-1"
+          className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded px-2 py-1"
         >
-          <span className="text-gray-400">Result:</span>
+          <span className="text-gray-400 dark:text-gray-500">Result:</span>
           <span className="font-mono font-semibold">{livePreview}</span>
         </div>
       )}
@@ -236,7 +246,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
           {dependencies.map((dep) => (
             <span
               key={dep}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-cyan-50 text-cyan-700 border border-cyan-200 rounded"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800 rounded"
             >
               <Tag className="w-2.5 h-2.5" />
               {dep}

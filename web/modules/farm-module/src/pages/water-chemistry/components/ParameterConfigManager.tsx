@@ -6,7 +6,16 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  chartChrome,
+  colors,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -27,6 +36,7 @@ import { isBlockingError } from '../../../utils/list-view-state';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { ConfigFormModal, ConfigFormData, EMPTY_FORM } from './ConfigFormModal';
 import { EquipmentMappingPanel } from './EquipmentMappingPanel';
+import { LayoutTemplate, Link, Plus, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -46,40 +56,24 @@ const DeleteConfirmDialog: React.FC<{
 }> = ({ config, onConfirm, onCancel, isDeleting }) => (
   <Modal isOpen onClose={onCancel} size="sm" showCloseButton={false}>
     <div className="flex items-start">
-      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-        <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-error-100 dark:bg-error-900/40 sm:mx-0 sm:h-10 sm:w-10">
+        <TriangleAlert className="h-6 w-6 text-error-600 dark:text-error-400" aria-hidden="true" />
       </div>
       <div className="ml-4">
-        <h3 className="text-lg font-medium text-gray-900">Delete Parameter</h3>
-        <p className="mt-2 text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Delete Parameter</h3>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Are you sure you want to delete <strong>&quot;{config.name}&quot;</strong> ({config.code}
           )? This action cannot be undone.
         </p>
       </div>
     </div>
     <div className="mt-5 flex justify-end space-x-3">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-      >
+      <Button variant="secondary" type="button" onClick={onCancel}>
         Cancel
-      </button>
-      <button
-        type="button"
-        disabled={isDeleting}
-        onClick={onConfirm}
-        className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
-      >
+      </Button>
+      <Button variant="danger" type="button" disabled={isDeleting} onClick={onConfirm}>
         {isDeleting ? 'Deleting...' : 'Delete'}
-      </button>
+      </Button>
     </div>
   </Modal>
 );
@@ -103,7 +97,7 @@ function buildFormData(config: ParameterConfig | null): ConfigFormData {
     warningMax: config.warningMax != null ? String(config.warningMax) : '',
     criticalMin: config.criticalMin != null ? String(config.criticalMin) : '',
     criticalMax: config.criticalMax != null ? String(config.criticalMax) : '',
-    chartColor: config.chartColor || '#3B82F6',
+    chartColor: config.chartColor || colors.info[500],
     chartAxisGroup: config.chartAxisGroup || 'left',
     isVisible: config.isVisible,
     isRequired: config.isRequired,
@@ -246,7 +240,7 @@ export const ParameterConfigManager: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -256,24 +250,166 @@ export const ParameterConfigManager: React.FC = () => {
   // list and surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, (configs?.length ?? 0) > 0)) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load parameter configs: {(error as Error).message}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <p className="text-error-800 dark:text-error-200">
+          Failed to load parameter configs: {(error as Error).message}
+        </p>
       </div>
     );
   }
+
+  type ConfigRow = (typeof sortedConfigs)[number];
+  const configRowColumns: DataTableColumn<ConfigRow>[] = [
+    {
+      key: 'order',
+      header: 'Order',
+      render: (_value, config) => config.displayOrder ?? '-',
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, config) => config.name,
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, config) => config.code,
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, config) => config.unit,
+    },
+    {
+      key: 'group',
+      header: 'Group',
+      render: (_value, config) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGroupColor(config.group)}`}
+          >
+            {getGroupLabel(config.group)}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'optimalRange',
+      header: 'Optimal Range',
+      render: (_value, config) => (
+        <>
+          {config.optimalMin != null && config.optimalMax != null
+            ? `${config.optimalMin} - ${config.optimalMax}`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'criticalRange',
+      header: 'Critical Range',
+      render: (_value, config) => (
+        <>
+          {config.criticalMin != null && config.criticalMax != null
+            ? `${config.criticalMin} - ${config.criticalMax}`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'equipment',
+      header: 'Equipment',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          <button
+            onClick={() => setEquipmentMappingTarget(config)}
+            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 hover:bg-info-100 dark:hover:bg-info-900/50 focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-1"
+            title="Map Equipment"
+          >
+            <Link className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+            {equipmentCountMap.get(config.id) ?? 0}
+          </button>
+        </>
+      ),
+    },
+    {
+      key: 'color',
+      header: 'Color',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          {config.chartColor ? (
+            <div
+              className="inline-block w-6 h-6 rounded border border-gray-300 dark:border-gray-600"
+              style={{ backgroundColor: config.chartColor }}
+              title={config.chartColor}
+            />
+          ) : (
+            <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'active',
+      header: 'Active',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          <button
+            onClick={() => handleToggleActive(config)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+              config.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
+            }`}
+            role="switch"
+            aria-checked={config.isActive}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
+                config.isActive ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, config) => (
+        <>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setEditingConfig(config);
+              setModalMode('edit');
+            }}
+          >
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(config)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
       {/* Non-blocking refresh error — keeps the last-loaded configs visible. */}
       {error && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh parameter configs — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -283,206 +419,46 @@ export const ParameterConfigManager: React.FC = () => {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <select
+          <Select
+            aria-label="Group filter"
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value as ParameterGroup | '')}
-            className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="">All Groups</option>
-            {GROUP_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            fullWidth={false}
+            options={[
+              { value: '', label: 'All Groups' },
+              ...GROUP_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+            ]}
+          />
         </div>
         <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setShowTemplatePicker(true)}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
-              />
-            </svg>
+          <Button variant="secondary" onClick={() => setShowTemplatePicker(true)}>
+            <LayoutTemplate className="w-4 h-4 mr-2" aria-hidden="true" />
             Apply Template
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => {
               setEditingConfig(null);
               setModalMode('create');
             }}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
+            <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
             Add Parameter
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Parameter Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Order
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Unit
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Group
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Optimal Range
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Critical Range
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Equipment
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Color
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Active
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {sortedConfigs.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
-                    No parameter configurations found. Click &quot;Add Parameter&quot; or
-                    &quot;Apply Template&quot; to get started.
-                  </td>
-                </tr>
-              )}
-              {sortedConfigs.map((config) => (
-                <tr key={config.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.displayOrder ?? '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {config.name}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
-                    {config.code}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.unit}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGroupColor(config.group)}`}
-                    >
-                      {getGroupLabel(config.group)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.optimalMin != null && config.optimalMax != null
-                      ? `${config.optimalMin} - ${config.optimalMax}`
-                      : '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.criticalMin != null && config.criticalMax != null
-                      ? `${config.criticalMin} - ${config.criticalMax}`
-                      : '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    <button
-                      onClick={() => setEquipmentMappingTarget(config)}
-                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-                      title="Map Equipment"
-                    >
-                      <svg
-                        className="w-3.5 h-3.5 mr-1"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                        />
-                      </svg>
-                      {equipmentCountMap.get(config.id) ?? 0}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    {config.chartColor ? (
-                      <div
-                        className="inline-block w-6 h-6 rounded border border-gray-300"
-                        style={{ backgroundColor: config.chartColor }}
-                        title={config.chartColor}
-                      />
-                    ) : (
-                      <span className="text-xs text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    <button
-                      onClick={() => handleToggleActive(config)}
-                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                        config.isActive ? 'bg-blue-600' : 'bg-gray-200'
-                      }`}
-                      role="switch"
-                      aria-checked={config.isActive}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          config.isActive ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm space-x-2">
-                    <button
-                      onClick={() => {
-                        setEditingConfig(config);
-                        setModalMode('edit');
-                      }}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(config)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+        <DataTable<ConfigRow>
+          data={sortedConfigs}
+          columns={configRowColumns}
+          keyExtractor={(config) => config.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* Modals */}

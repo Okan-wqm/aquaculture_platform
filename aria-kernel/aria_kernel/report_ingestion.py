@@ -51,9 +51,14 @@ def report_ingestion_scan(
     # Operator-opt-in tolerant mode preserves the legacy
     # ``malformed_count`` reporting for known-imperfect upstream
     # exports (e.g. partial third-party scan dumps).
-    rows, malformed = _read_registry(registry, strict=strict_registry)
-    if len(rows) > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
+    # ARIA-HIGH-192 — the guard bounds the WORK one call may do, not the size
+    # of the registry it caches. The first call only baselines (ingests 0)
+    # and every later call ingests at most ``backfill_limit``; guarding on
+    # ``len(rows)`` refused the learning hook on every cycle once the
+    # registry passed 500 rows, so no Lane-A/B finding ever reached ARIA.
+    if backfill_limit > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
         raise ValueError("large_backfill_requires_confirm_large_backfill_and_acknowledge")
+    rows, malformed = _read_registry(registry, strict=strict_registry)
 
     cache_missing = not cache_path.exists()
     previously_baselined = _has_report_baseline(paths)

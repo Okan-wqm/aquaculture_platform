@@ -100,7 +100,11 @@ function refExists(repo: string, ref: string): boolean {
 export function resolveAffectedRange(args: Arguments): AffectedRange {
   requireCommit(args.repo, args.headSha, 'head SHA');
 
-  if (args.eventName === 'pull_request') {
+  // A merge-queue group (`merge_group`) is a pull request's changes on top of
+  // the queue's base: the event carries `merge_group.base_sha`, and the
+  // affected range is the same shape as a pull request's (ARIA merge-queue
+  // readiness, 2026-09-21).
+  if (args.eventName === 'pull_request' || args.eventName === 'merge_group') {
     requireCommit(args.repo, args.prBaseSha, 'pull request base SHA');
     if (!isAncestor(args.repo, args.prBaseSha, args.headSha)) {
       throw new Error('pull request base SHA is not an ancestor of the requested head SHA');
@@ -110,7 +114,7 @@ export function resolveAffectedRange(args: Arguments): AffectedRange {
       baseSha: args.prBaseSha,
       headSha: args.headSha,
       fullValidation: false,
-      reason: 'pull-request-base',
+      reason: args.eventName === 'merge_group' ? 'merge-group-base' : 'pull-request-base',
     };
   }
 

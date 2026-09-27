@@ -8,6 +8,9 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
+
+import { DEFAULT_ROLE_COLOR } from '../../lib/constants';
 import { Shield, Edit, Trash2, Users, Star } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
 
@@ -46,7 +49,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-      style={{ backgroundColor: role.color || '#6366F1' }}
+      style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" aria-hidden="true" />
       {role.name}
@@ -77,13 +80,9 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  * />
  * ```
  */
-export const RoleCard: React.FC<RoleCardProps> = ({
-  role,
-  onEdit,
-  onDelete,
-}) => {
+export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) => {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-lg transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 hover:shadow-lg transition-shadow">
       {/* Role Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -92,20 +91,17 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             style={{ backgroundColor: `${role.color}20` }}
             aria-hidden="true"
           >
-            <Shield
-              className="w-5 h-5"
-              style={{ color: role.color || '#6366F1' }}
-            />
+            <Shield className="w-5 h-5" style={{ color: role.color || DEFAULT_ROLE_COLOR }} />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{role.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{role.name}</h3>
             {role.isSystem && (
-              <span className="text-xs text-amber-600 font-medium">
+              <span className="text-xs text-warning-600 dark:text-warning-400 font-medium">
                 System Role
               </span>
             )}
             {role.isDefault && !role.isSystem && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+              <span className="text-xs text-success-600 dark:text-success-400 font-medium flex items-center gap-1">
                 <Star className="w-3 h-3" aria-hidden="true" />
                 Default
               </span>
@@ -117,24 +113,28 @@ export const RoleCard: React.FC<RoleCardProps> = ({
         {(onEdit || onDelete) && (
           <div className="flex items-center gap-1">
             {onEdit && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
                 onClick={() => onEdit(role)}
-                className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                 title="Edit role"
                 aria-label={`Edit ${role.name} role`}
               >
                 <Edit className="w-4 h-4" />
-              </button>
+              </Button>
             )}
             {onDelete && !role.isSystem && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
                 onClick={() => onDelete(role)}
-                className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Delete role"
                 aria-label={`Delete ${role.name} role`}
               >
                 <Trash2 className="w-4 h-4" />
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -142,18 +142,18 @@ export const RoleCard: React.FC<RoleCardProps> = ({
 
       {/* Description */}
       {role.description && (
-        <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-2">
           {role.description}
         </p>
       )}
 
       {/* Stats */}
-      <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+      <div className="flex items-center gap-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
           <Users className="w-4 h-4" aria-hidden="true" />
           <span>{role.userCount} users</span>
         </div>
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
           <Shield className="w-4 h-4" aria-hidden="true" />
           <span>Level {role.level}</span>
         </div>

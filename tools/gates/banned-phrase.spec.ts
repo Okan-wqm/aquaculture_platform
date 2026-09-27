@@ -19,7 +19,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { execFileSync, ExecFileSyncOptions } from 'node:child_process';
+import { execFileSync, ExecFileSyncOptions, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -146,5 +146,141 @@ void test('PostgreSQL constraint timing syntax is accepted while ordinary prose 
     assert.match(proseResult.stderr, /Banned-phrase violations detected/);
   } finally {
     removeFixtureTree(fixtureDir);
+  }
+});
+
+// ---------------------------------------------------------
+// (d) Staged mode inside a merge scans only the merge's own lines
+// ---------------------------------------------------------
+
+/**
+ * A throwaway repository with two branches: `main` carries a file whose
+ * comment holds a banned phrase; `feature` diverged before that file existed.
+ * Merging `main` into `feature` stages main's file untouched.
+ */
+function runFixtureGit(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', [...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      HOME: root,
+      LC_ALL: 'C',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      // gc.auto / maintenance.auto off: `git commit` otherwise daemonises a gc
+      // that keeps writing under .git while the fixture is being removed
+      // (INFRA-HIGH-172).
+      GIT_CONFIG_COUNT: '4',
+      GIT_CONFIG_KEY_0: 'gc.auto',
+      GIT_CONFIG_VALUE_0: '0',
+      GIT_CONFIG_KEY_1: 'maintenance.auto',
+      GIT_CONFIG_VALUE_1: 'false',
+      GIT_CONFIG_KEY_2: 'user.name',
+      GIT_CONFIG_VALUE_2: 'Aqua Test',
+      GIT_CONFIG_KEY_3: 'user.email',
+      GIT_CONFIG_VALUE_3: 'aqua-test@example.invalid',
+    },
+  });
+  if (result.status !== 0) {
+    throw new Error(`fixture git ${args.join(' ')} failed: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+/**
+ * Run the scanner inside a fixture repository. Git exports GIT_INDEX_FILE /
+ * GIT_DIR / GIT_PREFIX to hooks, so under the pre-commit hook the scanner's
+ * own git calls would otherwise read the OUTER repository's index instead of
+ * the fixture's; every GIT_* variable is dropped for the child.
+ */
+function runScannerIn(cwd: string, args: readonly string[]): RunResult {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value;
+  }
+  const opts: ExecFileSyncOptions = {
+    cwd,
+    encoding: 'utf8',
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  };
+  try {
+    const stdout = execFileSync('npx', ['tsx', SCANNER, ...args], opts) as string;
+    return { exitCode: 0, stdout, stderr: '' };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: Buffer | string; stderr?: Buffer | string };
+    return {
+      exitCode: typeof e.status === 'number' ? e.status : 1,
+      stdout: typeof e.stdout === 'string' ? e.stdout : (e.stdout?.toString() ?? ''),
+      stderr: typeof e.stderr === 'string' ? e.stderr : (e.stderr?.toString() ?? ''),
+    };
+  }
+}
+
+function createMergeFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), 'aqua-banned-phrase-merge-'));
+  runFixtureGit(root, ['init', '--quiet', '--initial-branch=main']);
+  writeFileSync(join(root, 'base.ts'), 'export const base = 1;\n', 'utf8');
+  runFixtureGit(root, ['add', '--all']);
+  runFixtureGit(root, ['commit', '--quiet', '-m', 'base']);
+  runFixtureGit(root, ['checkout', '--quiet', '-b', 'feature']);
+  writeFileSync(join(root, 'feature.ts'), 'export const feature = 2;\n', 'utf8');
+  runFixtureGit(root, ['add', '--all']);
+  runFixtureGit(root, ['commit', '--quiet', '-m', 'feature']);
+  runFixtureGit(root, ['checkout', '--quiet', 'main']);
+  writeFileSync(
+    join(root, 'inherited.ts'),
+    // The phrase is assembled from fragments so this spec's own source does
+    // not trip the gate it tests.
+    [
+      'export interface Draft {',
+      `  id: string; // ${['tempo', 'rary'].join('')} ID for local management`,
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  runFixtureGit(root, ['add', '--all']);
+  runFixtureGit(root, ['commit', '--quiet', '-m', 'main carries a banned phrase']);
+  runFixtureGit(root, ['checkout', '--quiet', 'feature']);
+  runFixtureGit(root, ['merge', '--no-ff', '--no-commit', '--quiet', 'main']);
+  return root;
+}
+
+void test('staged mode mid-merge does not charge the merge with a phrase the other branch already carried', () => {
+  const root = createMergeFixture();
+  try {
+    // Sanity: the whole-file rule would have refused this merge.
+    const wholeFile = runScannerIn(root, ['--mode=file', join(root, 'inherited.ts')]);
+    assert.strictEqual(wholeFile.exitCode, 1, 'fixture must carry a banned phrase on main');
+
+    const result = runScannerIn(root, ['--mode=staged']);
+    assert.strictEqual(
+      result.exitCode,
+      0,
+      `a file taken wholesale from the other parent is that parent's debt; got exit ${result.exitCode}\n${result.stderr}`,
+    );
+  } finally {
+    removeFixtureTree(root);
+  }
+});
+
+void test('staged mode mid-merge still refuses a banned phrase the merge itself introduces', () => {
+  const root = createMergeFixture();
+  try {
+    writeFileSync(
+      join(root, 'feature.ts'),
+      `export const feature = 2; // ${['inte', 'rim'].join('')} value\n`,
+      'utf8',
+    );
+    runFixtureGit(root, ['add', 'feature.ts']);
+
+    const result = runScannerIn(root, ['--mode=staged']);
+    assert.strictEqual(result.exitCode, 1, "a line new to both parents is the merge's own");
+    assert.match(result.stderr, new RegExp(`feature\\.ts:1:\\d+\\s+"${['inte', 'rim'].join('')}"`));
+    assert.doesNotMatch(result.stderr, /inherited\.ts/);
+  } finally {
+    removeFixtureTree(root);
   }
 });

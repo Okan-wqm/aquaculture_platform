@@ -10,12 +10,21 @@ const CTX: ToolExecutionContext = {
   userRoles: ['operator'],
   correlationId: 'corr-1',
   persona: 'operator',
+  personaTier: 'operator',
+  offeredToolNames: [],
   actuationPolicy: 'allowed',
 };
 
 const READING = {
-  id: 'm1', tankId: 't1', pondId: null, measuredAt: '2026-07-06T06:00:00.000Z',
-  temperature: 18.5, dissolvedOxygen: 7.2, pH: 7.8, ammonia: null, nitrite: null,
+  id: 'm1',
+  tankId: 't1',
+  pondId: null,
+  measuredAt: '2026-07-06T06:00:00.000Z',
+  temperature: 18.5,
+  dissolvedOxygen: 7.2,
+  pH: 7.8,
+  ammonia: null,
+  nitrite: null,
 };
 
 describe('GetFarmWaterQualityTool', () => {

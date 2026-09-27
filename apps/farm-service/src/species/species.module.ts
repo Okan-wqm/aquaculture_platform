@@ -29,20 +29,13 @@ import { SpeciesResolver } from './resolvers/species.resolver';
 import { SpeciesSeederService } from './services/species-seeder.service';
 
 import { RestoreModule } from '../common/services/restore.module';
+import { SpeciesAiQueryResponder } from './responders/species-ai-query.responder';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Species, Batch]),
-    RestoreModule,
-  ],
-  providers: [
-    ...SpeciesHandlers,
-    SpeciesResolver,
-    SpeciesSeederService,
-  ],
-  exports: [
-    TypeOrmModule,
-    SpeciesSeederService,
-  ],
+  imports: [TypeOrmModule.forFeature([Species, Batch]), RestoreModule],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [SpeciesAiQueryResponder],
+  providers: [...SpeciesHandlers, SpeciesResolver, SpeciesSeederService],
+  exports: [TypeOrmModule, SpeciesSeederService],
 })
 export class SpeciesModule {}

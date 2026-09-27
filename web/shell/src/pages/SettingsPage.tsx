@@ -17,6 +17,14 @@ import {
   Modal,
   useToast,
   graphqlClient,
+  Spinner,
+  PageHeader,
+  Tabs,
+  TabPanel,
+  SUPPORTED_LOCALES,
+  type SupportedLocale,
+  useI18n,
+  formatErrorForToast,
 } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -44,6 +52,17 @@ import {
 } from '../utils/theme';
 
 import ConsentSettingsPage from './ConsentSettingsPage';
+import {
+  Bell,
+  Fingerprint,
+  Key,
+  Languages,
+  Lock,
+  ShieldCheck,
+  SlidersHorizontal,
+  SwatchBook,
+  User as UserIcon,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -83,38 +102,22 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   {
     id: 'profile',
     label: 'Profile',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-      </svg>
-    ),
+    icon: <UserIcon className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />,
   },
   {
     id: 'security',
     label: 'Security',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-      </svg>
-    ),
+    icon: <ShieldCheck className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />,
   },
   {
     id: 'preferences',
     label: 'Preferences',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-      </svg>
-    ),
+    icon: <SlidersHorizontal className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />,
   },
   {
     id: 'privacy',
     label: 'Privacy',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-      </svg>
-    ),
+    icon: <ShieldCheck className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />,
   },
 ];
 
@@ -123,7 +126,11 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 // ============================================================================
 
 interface TabProps {
-  showToast: (options: { title: string; description?: string; variant?: 'success' | 'error' | 'warning' | 'info' }) => void;
+  showToast: (options: {
+    title: string;
+    description?: string;
+    variant?: 'success' | 'error' | 'warning' | 'info';
+  }) => void;
 }
 
 // ============================================================================
@@ -186,7 +193,11 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
 
         await refreshAuth();
         setSuccessMessage('Profile updated successfully.');
-        showToast({ title: 'Profile Updated', description: 'Your profile has been saved.', variant: 'success' });
+        showToast({
+          title: 'Profile Updated',
+          description: 'Your profile has been saved.',
+          variant: 'success',
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to update profile';
         setErrors({ submit: message });
@@ -194,7 +205,7 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
         setIsSubmitting(false);
       }
     },
-    [formData, refreshAuth, showToast]
+    [formData, refreshAuth, showToast],
   );
 
   return (
@@ -202,18 +213,20 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
       {/* Avatar Section */}
       <Card>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Picture</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+            Profile Picture
+          </h3>
           <div className="flex items-center gap-6">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-info-500 to-info-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
               {(user?.firstName?.[0] || user?.email?.[0] || '?').toUpperCase()}
             </div>
             <div>
-              <p className="text-sm text-gray-600 mb-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                 {user?.firstName && user?.lastName
                   ? `${user.firstName} ${user.lastName}`
                   : user?.email}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 Avatar changes will be available in a future update.
               </p>
             </div>
@@ -223,10 +236,15 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
 
       {/* Profile Form */}
       <Card>
-        <form onSubmit={(event) => {
-          void handleSubmit(event);
-        }} className="p-6 space-y-5">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Personal Information</h3>
+        <form
+          onSubmit={(event) => {
+            void handleSubmit(event);
+          }}
+          className="p-6 space-y-5"
+        >
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            Personal Information
+          </h3>
 
           {successMessage && (
             <Alert type="success" dismissible onDismiss={() => setSuccessMessage('')}>
@@ -235,7 +253,11 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
           )}
 
           {errors.submit && (
-            <Alert type="error" dismissible onDismiss={() => setErrors((prev) => ({ ...prev, submit: '' }))}>
+            <Alert
+              type="error"
+              dismissible
+              onDismiss={() => setErrors((prev) => ({ ...prev, submit: '' }))}
+            >
               {errors.submit}
             </Alert>
           )}
@@ -425,7 +447,11 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 
         setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         setPasswordSuccess('Password changed successfully.');
-        showToast({ title: 'Password Changed', description: 'Your password has been updated.', variant: 'success' });
+        showToast({
+          title: 'Password Changed',
+          description: 'Your password has been updated.',
+          variant: 'success',
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to change password';
         setPasswordErrors({ submit: message });
@@ -433,7 +459,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsChangingPassword(false);
       }
     },
-    [passwordForm, showToast]
+    [passwordForm, showToast],
   );
 
   // ── MFA Setup ───────────────────────────────────────────────────────────
@@ -448,7 +474,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       }>(MY_SECURITY_SETTINGS);
       const latestSettings = settingsResponse?.mySecuritySettings;
       if (!latestSettings?.mfaAvailable) {
-        const reason = latestSettings?.mfaUnavailableReason || 'Two-factor authentication is unavailable.';
+        const reason =
+          latestSettings?.mfaUnavailableReason || 'Two-factor authentication is unavailable.';
         setSecuritySettings({
           mfaEnabled: latestSettings?.mfaEnabled ?? false,
           mfaAvailable: false,
@@ -513,7 +540,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsSettingUpMfa(false);
       }
     },
-    [mfaSetupCode, mfaSetupData, refreshAuth, refreshSecuritySettings, showToast]
+    [mfaSetupCode, mfaSetupData, refreshAuth, refreshSecuritySettings, showToast],
   );
 
   const handleCancelMfaSetup = useCallback(() => {
@@ -566,7 +593,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsDisablingMfa(false);
       }
     },
-    [disableMfaForm, refreshAuth, refreshSecuritySettings, showToast]
+    [disableMfaForm, refreshAuth, refreshSecuritySettings, showToast],
   );
 
   // ── Regenerate Recovery Codes ───────────────────────────────────────────
@@ -612,7 +639,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsRegenerating(false);
       }
     },
-    [regenCode, showToast]
+    [regenCode, showToast],
   );
 
   // ── WebAuthn Remove ─────────────────────────────────────────────────────
@@ -622,31 +649,44 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       try {
         await graphqlClient.request(REMOVE_WEBAUTHN_CREDENTIAL, { credentialId });
         setWebAuthnCredentials((prev) => prev.filter((c) => c.credentialId !== credentialId));
-        showToast({ title: 'Credential Removed', description: 'Biometric credential has been removed.', variant: 'success' });
+        showToast({
+          title: 'Credential Removed',
+          description: 'Biometric credential has been removed.',
+          variant: 'success',
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to remove credential';
         setWebAuthnError(message);
       }
     },
-    [showToast]
+    [showToast],
   );
 
   return (
     <div className="space-y-6">
       {/* Change Password */}
       <Card>
-        <form onSubmit={(event) => {
-          void handlePasswordSubmit(event);
-        }} className="p-6 space-y-5">
+        <form
+          onSubmit={(event) => {
+            void handlePasswordSubmit(event);
+          }}
+          className="p-6 space-y-5"
+        >
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-              </svg>
+            <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <Key
+                className="w-5 h-5 text-info-600 dark:text-info-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
-              <p className="text-sm text-gray-500">Update your password to keep your account secure</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Change Password
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Update your password to keep your account secure
+              </p>
             </div>
           </div>
 
@@ -657,7 +697,11 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           )}
 
           {passwordErrors.submit && (
-            <Alert type="error" dismissible onDismiss={() => setPasswordErrors((prev) => ({ ...prev, submit: '' }))}>
+            <Alert
+              type="error"
+              dismissible
+              onDismiss={() => setPasswordErrors((prev) => ({ ...prev, submit: '' }))}
+            >
               {passwordErrors.submit}
             </Alert>
           )}
@@ -713,23 +757,29 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                </svg>
+              <div className="w-10 h-10 bg-success-100 dark:bg-success-900/40 rounded-lg flex items-center justify-center">
+                <Lock
+                  className="w-5 h-5 text-success-600 dark:text-success-400"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Two-Factor Authentication</h3>
-                <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Two-Factor Authentication
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Add an extra layer of security to your account
+                </p>
               </div>
             </div>
             <span
               className={`px-3 py-1 rounded-full text-xs font-medium ${
                 mfaEnabled && mfaAvailable
-                  ? 'bg-green-100 text-green-800'
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                   : mfaEnabled && !mfaAvailable
-                    ? 'bg-red-100 text-red-800'
-                  : 'bg-gray-100 text-gray-600'
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }`}
             >
               {mfaEnabled ? (mfaAvailable ? 'Enabled' : 'Unavailable') : 'Disabled'}
@@ -744,7 +794,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 
           {!mfaAvailable && (
             <Alert type="warning">
-              {securitySettings.mfaUnavailableReason || 'Two-factor authentication is unavailable in this environment.'}
+              {securitySettings.mfaUnavailableReason ||
+                'Two-factor authentication is unavailable in this environment.'}
             </Alert>
           )}
 
@@ -756,9 +807,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 
           {!mfaEnabled ? (
             <div className="mt-4">
-              <p className="text-sm text-gray-600 mb-4">
-                Use an authenticator app (like Google Authenticator, Authy, or 1Password) to generate
-                one-time verification codes for additional security.
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Use an authenticator app (like Google Authenticator, Authy, or 1Password) to
+                generate one-time verification codes for additional security.
               </p>
               <Button
                 onClick={() => {
@@ -796,14 +847,20 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-4.596a18.666 18.666 0 01-2.485 5.33" />
-              </svg>
+            <div className="w-10 h-10 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
+              <Fingerprint
+                className="w-5 h-5 text-accent-600 dark:text-accent-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Biometric / Passkey Credentials</h3>
-              <p className="text-sm text-gray-500">Manage your registered biometric login devices</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Biometric / Passkey Credentials
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Manage your registered biometric login devices
+              </p>
             </div>
           </div>
 
@@ -814,11 +871,15 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           )}
 
           {isLoadingCredentials ? (
-            <div className="py-8 text-center text-sm text-gray-500">Loading credentials...</div>
+            <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              Loading credentials...
+            </div>
           ) : webAuthnCredentials.length === 0 ? (
             <div className="py-6 text-center">
-              <p className="text-sm text-gray-500 mb-2">No biometric credentials registered.</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                No biometric credentials registered.
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 You can register biometric login from a supported browser and device.
               </p>
             </div>
@@ -827,19 +888,24 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               {webAuthnCredentials.map((credential) => (
                 <div
                   key={credential.credentialId}
-                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200"
+                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-4.596a18.666 18.666 0 01-2.485 5.33" />
-                      </svg>
+                    <div className="w-8 h-8 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
+                      <Fingerprint
+                        className="w-4 h-4 text-accent-600 dark:text-accent-400"
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{credential.deviceName || 'Unnamed Device'}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {credential.deviceName || 'Unnamed Device'}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         Registered {new Date(credential.createdAt).toLocaleDateString()}
-                        {credential.lastUsedAt && ` · Last used ${new Date(credential.lastUsedAt).toLocaleDateString()}`}
+                        {credential.lastUsedAt &&
+                          ` · Last used ${new Date(credential.lastUsedAt).toLocaleDateString()}`}
                       </p>
                     </div>
                   </div>
@@ -848,7 +914,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                     onClick={() => {
                       void handleRemoveWebAuthn(credential.credentialId);
                     }}
-                    className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
+                    className="text-error-500 hover:text-error-700 dark:hover:text-error-200 text-sm font-medium transition-colors"
                   >
                     Remove
                   </button>
@@ -866,23 +932,26 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Set Up Two-Factor Authentication"
         size="md"
       >
-        <form onSubmit={(event) => {
-          void handleVerifyMfaSetup(event);
-        }} className="space-y-5">
+        <form
+          onSubmit={(event) => {
+            void handleVerifyMfaSetup(event);
+          }}
+          className="space-y-5"
+        >
           {mfaSetupData && (
             <>
               <div className="text-center">
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Scan this QR code with your authenticator app, then enter the 6-digit code below.
                 </p>
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
                   <QrCode value={mfaSetupData.qrCodeUri} className="mx-auto w-48 h-48" />
                 </div>
                 <details className="text-left">
-                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                  <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-100">
                     Can&apos;t scan? Enter this key manually
                   </summary>
-                  <code className="block mt-2 p-2 bg-gray-100 rounded text-xs font-mono text-gray-800 break-all select-all">
+                  <code className="block mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-800 dark:text-gray-200 break-all select-all">
                     {mfaSetupData.secret}
                   </code>
                 </details>
@@ -932,14 +1001,17 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       >
         <div className="space-y-4">
           <Alert type="warning">
-            Save these recovery codes in a safe place. Each code can only be used once.
-            If you lose access to your authenticator app, you can use these codes to log in.
+            Save these recovery codes in a safe place. Each code can only be used once. If you lose
+            access to your authenticator app, you can use these codes to log in.
           </Alert>
 
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="grid grid-cols-2 gap-2">
+          <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {recoveryCodes.map((code, index) => (
-                <code key={index} className="text-sm font-mono text-gray-800 p-1 select-all">
+                <code
+                  key={index}
+                  className="text-sm font-mono text-gray-800 dark:text-gray-200 p-1 select-all"
+                >
                   {code}
                 </code>
               ))}
@@ -951,15 +1023,17 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               type="button"
               onClick={() => {
                 void navigator.clipboard.writeText(recoveryCodes.join('\n'));
-                showToast({ title: 'Copied', description: 'Recovery codes copied to clipboard.', variant: 'info' });
+                showToast({
+                  title: 'Copied',
+                  description: 'Recovery codes copied to clipboard.',
+                  variant: 'info',
+                });
               }}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 font-medium"
             >
               Copy All
             </button>
-            <Button onClick={() => setShowRecoveryCodes(false)}>
-              Done
-            </Button>
+            <Button onClick={() => setShowRecoveryCodes(false)}>Done</Button>
           </div>
         </div>
       </Modal>
@@ -975,9 +1049,12 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Disable Two-Factor Authentication"
         size="sm"
       >
-        <form onSubmit={(event) => {
-          void handleDisableMfa(event);
-        }} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            void handleDisableMfa(event);
+          }}
+          className="space-y-4"
+        >
           <Alert type="warning">
             Disabling MFA will make your account less secure. You will need your password and a
             current TOTP code to proceed.
@@ -1048,11 +1125,15 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Regenerate Recovery Codes"
         size="sm"
       >
-        <form onSubmit={(event) => {
-          void handleRegenerateRecoveryCodes(event);
-        }} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            void handleRegenerateRecoveryCodes(event);
+          }}
+          className="space-y-4"
+        >
           <Alert type="warning">
-            Regenerating recovery codes will invalidate all existing codes. Enter a TOTP code to confirm.
+            Regenerating recovery codes will invalidate all existing codes. Enter a TOTP code to
+            confirm.
           </Alert>
 
           {regenError && (
@@ -1104,7 +1185,12 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 // ============================================================================
 
 const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => getStoredThemePreference());
+  const { locale, setLocale, t } = useI18n();
+  const { refreshAuth } = useAuthContext();
+  const [languageSaving, setLanguageSaving] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getStoredThemePreference(),
+  );
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
     resolveThemePreference(getStoredThemePreference()),
   );
@@ -1129,15 +1215,46 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
     );
   }, [themePreference]);
 
+  /**
+   * The language follows the user (FE-HIGH-089): applied to this session at
+   * once, then saved on the account so the next device opens in it too.
+   */
+  const updateLanguage = async (code: SupportedLocale): Promise<void> => {
+    setLocale(code);
+    setLanguageSaving(true);
+    try {
+      await graphqlClient.request(UPDATE_MY_PROFILE, { input: { preferredLanguage: code } });
+      await refreshAuth();
+      showToast({
+        title: t('settings.language.saved'),
+        description: t('settings.language.savedDescription'),
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({
+        title: t('settings.language.failed'),
+        description: formatErrorForToast(err),
+        variant: 'error',
+      });
+    } finally {
+      setLanguageSaving(false);
+    }
+  };
+
   const updateThemePreference = (preference: ThemePreference): void => {
     setThemePreference(preference);
     setResolvedTheme(persistThemePreference(preference));
-    showToast({ title: 'Saved', description: 'Appearance preference updated.', variant: 'success' });
+    showToast({
+      title: 'Saved',
+      description: 'Appearance preference updated.',
+      variant: 'success',
+    });
   };
 
   // Load notification preferences on mount
   useEffect(() => {
-    graphqlClient.request<{ getMyNotificationPreferences: typeof notifPrefs }>(GET_MY_NOTIFICATION_PREFERENCES)
+    graphqlClient
+      .request<{ getMyNotificationPreferences: typeof notifPrefs }>(GET_MY_NOTIFICATION_PREFERENCES)
       .then((data) => {
         const p = data.getMyNotificationPreferences;
         setNotifPrefs({
@@ -1158,7 +1275,10 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       .finally(() => setNotifLoading(false));
   }, []);
 
-  const updatePref = <K extends keyof typeof notifPrefs>(key: K, value: (typeof notifPrefs)[K]): void => {
+  const updatePref = <K extends keyof typeof notifPrefs>(
+    key: K,
+    value: (typeof notifPrefs)[K],
+  ): void => {
     setNotifPrefs((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -1178,7 +1298,11 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
           systemNotifications: notifPrefs.systemNotifications,
         },
       });
-      showToast({ title: 'Saved', description: 'Notification preferences updated.', variant: 'success' });
+      showToast({
+        title: 'Saved',
+        description: 'Notification preferences updated.',
+        variant: 'success',
+      });
     } catch (err) {
       showToast({
         title: 'Error',
@@ -1190,21 +1314,26 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
     }
   };
 
-  const NotifToggle: React.FC<{ enabled: boolean; onChange: (v: boolean) => void; label: string; desc: string }> = ({ enabled, onChange, label, desc }) => (
+  const NotifToggle: React.FC<{
+    enabled: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+    desc: string;
+  }> = ({ enabled, onChange, label, desc }) => (
     <div className="flex items-center justify-between py-3">
       <div>
-        <p className="text-sm font-medium text-gray-900">{label}</p>
-        <p className="text-xs text-gray-500">{desc}</p>
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
       </div>
       <button
         type="button"
         onClick={() => onChange(!enabled)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          enabled ? 'bg-blue-600' : 'bg-gray-300'
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+          enabled ? 'bg-info-600' : 'bg-gray-300'
         }`}
       >
         <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
             enabled ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
@@ -1218,18 +1347,22 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z" />
-              </svg>
+            <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
+              <SwatchBook
+                className="w-5 h-5 text-primary-600 dark:text-primary-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Appearance</h3>
-              <p className="text-sm text-gray-500">Customize the look and feel of the application</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Appearance</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Customize the look and feel of the application
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 max-w-md">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-md">
             {[
               { id: 'light', label: 'Light' },
               { id: 'dark', label: 'Dark' },
@@ -1241,8 +1374,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                 onClick={() => updateThemePreference(theme.id as ThemePreference)}
                 className={`p-3 rounded-lg border-2 text-center text-sm font-medium transition-all ${
                   themePreference === theme.id
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
                 aria-pressed={themePreference === theme.id}
               >
@@ -1250,48 +1383,58 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
             Current theme: {resolvedTheme === 'dark' ? 'Dark' : 'Light'}
           </p>
         </div>
       </Card>
 
-      {/* Language */}
+      {/* Language — applied now, saved on the account, followed on every device (FE-HIGH-089) */}
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 01-3.827-5.802" />
-              </svg>
+            <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <Languages
+                className="w-5 h-5 text-info-600 dark:text-info-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Language</h3>
-              <p className="text-sm text-gray-500">Choose your preferred language</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                {t('settings.language.title')}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('settings.language.description')}
+              </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 max-w-md">
-            {[
-              { code: 'tr', label: 'Turkish', flag: 'TR' },
-              { code: 'en', label: 'English', flag: 'EN' },
-            ].map((lang) => (
+          <div
+            className="flex flex-wrap gap-3 max-w-md"
+            role="group"
+            aria-label={t('settings.language.title')}
+          >
+            {SUPPORTED_LOCALES.map((code) => (
               <button
-                key={lang.code}
+                key={code}
                 type="button"
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                  lang.code === 'tr'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 opacity-50 cursor-not-allowed'
+                onClick={() => void updateLanguage(code)}
+                disabled={languageSaving}
+                aria-pressed={locale === code}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all disabled:opacity-60 ${
+                  locale === code
+                    ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
-                disabled={lang.code !== 'tr'}
               >
-                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 rounded">{lang.flag}</span>
-                {lang.label}
+                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded uppercase">
+                  {code}
+                </span>
+                {t(`language.${code}`)}
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">Multi-language support coming soon.</p>
         </div>
       </Card>
 
@@ -1299,75 +1442,134 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-              </svg>
+            <div className="w-10 h-10 bg-warning-100 dark:bg-warning-900/40 rounded-lg flex items-center justify-center">
+              <Bell
+                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
-              <p className="text-sm text-gray-500">Manage how you receive notifications</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Notifications
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Manage how you receive notifications
+              </p>
             </div>
           </div>
 
           {notifLoading ? (
             <div className="flex items-center justify-center py-6">
-              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <Spinner size="md" />
             </div>
           ) : (
             <>
               {/* Channel toggles */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Channels</p>
-                <div className="divide-y divide-gray-100">
-                  <NotifToggle enabled={notifPrefs.emailEnabled} onChange={(v) => updatePref('emailEnabled', v)} label="Email Notifications" desc="Receive notifications via email" />
-                  <NotifToggle enabled={notifPrefs.smsEnabled} onChange={(v) => updatePref('smsEnabled', v)} label="SMS Notifications" desc="Receive critical alerts via text message" />
-                  <NotifToggle enabled={notifPrefs.pushEnabled} onChange={(v) => updatePref('pushEnabled', v)} label="Push Notifications" desc="Push notifications on your devices" />
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                  Channels
+                </p>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  <NotifToggle
+                    enabled={notifPrefs.emailEnabled}
+                    onChange={(v) => updatePref('emailEnabled', v)}
+                    label="Email Notifications"
+                    desc="Receive notifications via email"
+                  />
+                  <NotifToggle
+                    enabled={notifPrefs.smsEnabled}
+                    onChange={(v) => updatePref('smsEnabled', v)}
+                    label="SMS Notifications"
+                    desc="Receive critical alerts via text message"
+                  />
+                  <NotifToggle
+                    enabled={notifPrefs.pushEnabled}
+                    onChange={(v) => updatePref('pushEnabled', v)}
+                    label="Push Notifications"
+                    desc="Push notifications on your devices"
+                  />
                 </div>
               </div>
 
               {/* Category toggles */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Categories</p>
-                <div className="divide-y divide-gray-100">
-                  <NotifToggle enabled={notifPrefs.alertNotifications} onChange={(v) => updatePref('alertNotifications', v)} label="Sensor Alerts" desc="Sensor threshold breaches and critical alerts" />
-                  <NotifToggle enabled={notifPrefs.taskNotifications} onChange={(v) => updatePref('taskNotifications', v)} label="Task Notifications" desc="Task assignments, updates, and reminders" />
-                  <NotifToggle enabled={notifPrefs.systemNotifications} onChange={(v) => updatePref('systemNotifications', v)} label="System Notifications" desc="System updates, maintenance, and reports" />
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                  Categories
+                </p>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  <NotifToggle
+                    enabled={notifPrefs.alertNotifications}
+                    onChange={(v) => updatePref('alertNotifications', v)}
+                    label="Sensor Alerts"
+                    desc="Sensor threshold breaches and critical alerts"
+                  />
+                  <NotifToggle
+                    enabled={notifPrefs.taskNotifications}
+                    onChange={(v) => updatePref('taskNotifications', v)}
+                    label="Task Notifications"
+                    desc="Task assignments, updates, and reminders"
+                  />
+                  <NotifToggle
+                    enabled={notifPrefs.systemNotifications}
+                    onChange={(v) => updatePref('systemNotifications', v)}
+                    label="System Notifications"
+                    desc="System updates, maintenance, and reports"
+                  />
                 </div>
               </div>
 
               {/* Quiet hours */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quiet Hours</p>
-                <p className="text-xs text-gray-500 mb-3">Suppress non-critical notifications during specified hours.</p>
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Quiet Hours
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Suppress non-critical notifications during specified hours.
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label htmlFor="quiet-hours-start" className="block text-xs font-medium text-gray-600 mb-1">Start</label>
+                    <label
+                      htmlFor="quiet-hours-start"
+                      className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+                    >
+                      Start
+                    </label>
                     <input
                       id="quiet-hours-start"
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label htmlFor="quiet-hours-end" className="block text-xs font-medium text-gray-600 mb-1">End</label>
+                    <label
+                      htmlFor="quiet-hours-end"
+                      className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+                    >
+                      End
+                    </label>
                     <input
                       id="quiet-hours-end"
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label htmlFor="quiet-hours-timezone" className="block text-xs font-medium text-gray-600 mb-1">Timezone</label>
+                    <label
+                      htmlFor="quiet-hours-timezone"
+                      className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+                    >
+                      Timezone
+                    </label>
                     <select
                       id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
                     >
                       <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
                       <option value="UTC">UTC</option>
@@ -1434,43 +1636,41 @@ const SettingsPage: React.FC = () => {
         navigate(`/settings/${tab}`, { replace: true });
       }
     },
-    [navigate]
+    [navigate],
   );
 
   return (
     <div className="max-w-4xl mx-auto">
       {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500">Manage your account settings and preferences</p>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Manage your account settings and preferences"
+        className="mb-8"
+      />
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-1 -mb-px">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <Tabs
+        items={TABS}
+        value={activeTab}
+        onChange={handleTabChange}
+        tabsId="settings"
+        aria-label="Settings sections"
+        className="mb-6"
+      />
 
       {/* Tab Content */}
-      {activeTab === 'profile' && <ProfileTab showToast={toast} />}
-      {activeTab === 'security' && <SecurityTab showToast={toast} />}
-      {activeTab === 'preferences' && <PreferencesTab showToast={toast} />}
-      {activeTab === 'privacy' && <ConsentSettingsPage />}
+      <TabPanel tabsId="settings" value="profile" selected={activeTab}>
+        <ProfileTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="security" selected={activeTab}>
+        <SecurityTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="preferences" selected={activeTab}>
+        <PreferencesTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="privacy" selected={activeTab}>
+        <ConsentSettingsPage />
+      </TabPanel>
     </div>
   );
 };

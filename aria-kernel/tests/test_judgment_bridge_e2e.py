@@ -122,7 +122,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             role=role,
             suggested_prompt=f"validate F-001 for {target_agent}",
             must_satisfy=[
-                {"id": "F-001-validity", "criterion": "F-001 evidence is sufficient"},
+                {"id": "F-001-validity", "description": "F-001 evidence is sufficient"},
             ],
             allowed_scope=["**"],
             convergence_id="conv-c5c6-001",

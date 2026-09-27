@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 
 /**
@@ -113,7 +113,10 @@ const CONDITIONAL_DEL_LUA = `
   end
 `;
 
-@Injectable()
+// Built by hand (`new LeaderElectionService(...)` inside a useFactory): the constructor takes
+// an options object Nest has no token for, so this is not a Nest-instantiable
+// class and carries no @Injectable() — tests/invariants/
+// nest-injected-type-only-import.spec.ts bans the decorator on that shape.
 export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(LeaderElectionService.name);
   private readonly podId: string;
@@ -129,8 +132,7 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
     private readonly redis: Redis,
     options: LeaderElectionOptions = {},
   ) {
-    this.podId =
-      options.podId ?? process.env['HOSTNAME'] ?? `pid-${process.pid}`;
+    this.podId = options.podId ?? process.env['HOSTNAME'] ?? `pid-${process.pid}`;
     this.leaseKey = options.leaseKey ?? 'orchestrator:leader-lease';
     this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
     this.renewIntervalMs = options.renewIntervalMs ?? 10_000;
@@ -168,9 +170,7 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
           this.logger.log(`Leader ${this.podId} released lease on shutdown.`);
         }
       } catch (err) {
-        this.logger.warn(
-          `Failed to release leader lease on shutdown: ${(err as Error).message}`,
-        );
+        this.logger.warn(`Failed to release leader lease on shutdown: ${(err as Error).message}`);
       }
       this.leaderState = false;
     }
@@ -250,29 +250,19 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
       const currentOwner = await this.redis.get(this.leaseKey);
       if (currentOwner === this.podId) {
         // Re-extend our own lease (XX = only set if key exists).
-        await this.redis.set(
-          this.leaseKey,
-          this.podId,
-          'PX',
-          this.leaseDurationMs,
-          'XX',
-        );
+        await this.redis.set(this.leaseKey, this.podId, 'PX', this.leaseDurationMs, 'XX');
         this.leaderState = true;
         return;
       }
 
       // Someone else holds it.
       if (this.leaderState) {
-        this.logger.warn(
-          `Pod ${this.podId} lost lease to ${currentOwner}. Stepping down.`,
-        );
+        this.logger.warn(`Pod ${this.podId} lost lease to ${currentOwner}. Stepping down.`);
       }
       this.leaderState = false;
     } catch (err) {
       if (this.leaderState) {
-        this.logger.warn(
-          `tryAcquire Redis error: ${(err as Error).message}. Stepping down.`,
-        );
+        this.logger.warn(`tryAcquire Redis error: ${(err as Error).message}. Stepping down.`);
       }
       this.leaderState = false;
     }

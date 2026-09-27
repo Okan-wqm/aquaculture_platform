@@ -21,7 +21,7 @@ describe('Checkbox surface="glass"', () => {
   it('default surface unchanged (no-breakage)', () => {
     render(<Checkbox label="Beni hatırla" />);
     const box = screen.getByRole('checkbox');
-    expect(box.className).toContain('text-blue-600');
+    expect(box.className).toContain('text-primary-600');
     expect(box.className).toContain('border-gray-300');
     expect(box.className).not.toContain('--surface');
   });

@@ -167,6 +167,19 @@ def render_subject_list(subjects: list[str], indent: str) -> str:
     return f"{indent}{inner}"
 
 
+# INFRA-HIGH-188: the reply leg of every request/reply. A requester's inbox is
+# `_INBOX<ITS CN>.<nuid>` (scoped subscribe grant, INFRA-HIGH-179/187); the
+# responder holds no publish grant for another identity's inbox root, so its
+# reply was refused (`Publish Violation … "_INBOXGATEWAY_SERVICE.…"`) and the
+# caller timed out. `allow_responses` is the broker's own answer: a user may
+# publish to the reply subject of a request it actually received — and to
+# nothing else — for a bounded number of messages within a window. Uniform for
+# every identity, so it is a generator constant, not a services.yaml field.
+# `max` covers the NestJS reply protocol (one packet per emission plus the
+# terminal `isDisposed`); `expires` bounds a handler that never answers.
+ALLOW_RESPONSES = '{ max: 64, expires: "5m" }'
+
+
 def render_user_entry(svc: dict[str, Any]) -> str:
     """
     Render a single NATS authorization users[] entry — cert-only (no password).
@@ -197,6 +210,7 @@ def render_user_entry(svc: dict[str, Any]) -> str:
         f"{subscribe}\n"
         f"          ]\n"
         f"        }}\n"
+        f"        allow_responses: {ALLOW_RESPONSES}\n"
         f"      }}\n"
         f"    }}"
     )

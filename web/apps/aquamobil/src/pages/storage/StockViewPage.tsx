@@ -8,23 +8,24 @@
  *
  * Data is cached in IndexedDB for offline viewing so field workers can check
  * stock even without connectivity (common in cold stores and remote sites).
- * Pull-to-refresh re-fetches from the server when online.
+ * The layout's pull-to-refresh re-fetches from the server when online; the
+ * header button does the same on demand.
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Package,
   AlertCircle,
-  Loader2,
   RefreshCw,
   MapPin,
 } from 'lucide-react';
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { JSX } from 'react';
-import { useNavigate } from 'react-router-dom';
 
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -99,17 +100,12 @@ function formatExpiryDate(dateStr: string): string {
 // ============================================================================
 
 export function StockViewPage(): JSX.Element {
-  const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline } = useOfflineQueue();
   const queryClient = useQueryClient();
 
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Pull-to-refresh touch tracking
-  const touchStartY = useRef(0);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // ---- Data fetching -------------------------------------------------------
 
@@ -170,7 +166,7 @@ export function StockViewPage(): JSX.Element {
     [locations, selectedLocationId],
   );
 
-  // ---- Pull-to-refresh handler ---------------------------------------------
+  // ---- Manual refresh --------------------------------------------------------
 
   const handleRefresh = useCallback(async () => {
     if (!selectedLocationId || isRefreshing || !isOnline) return;
@@ -184,51 +180,30 @@ export function StockViewPage(): JSX.Element {
     }
   }, [selectedLocationId, isRefreshing, isOnline, refetchStock, queryClient, tenantId]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
-    // Trigger refresh if user pulls down from top of list
-    if (deltaY > 80 && scrollTop <= 0) {
-      // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
-      // refetch's own error state, so the promise is intentionally not awaited.
-      void handleRefresh();
-    }
-  }, [handleRefresh]);
-
   // ---- Render --------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-cyan-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5 flex-1">
-            <Package size={22} />
-            <div>
-              <h1 className="text-lg font-bold">View Stock</h1>
-              <p className="text-xs text-white/80">
-                {selectedLocation ? selectedLocation.name : 'Select a location'}
-              </p>
-            </div>
-          </div>
-          {selectedLocationId && isOnline && (
-            <button
-              onClick={() => { void handleRefresh(); }}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
-            >
-              <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        tone="cyan"
+        icon={Package}
+        title="View Stock"
+        subtitle={selectedLocation ? selectedLocation.name : 'Select a location'}
+        actions={
+          <>
+            {selectedLocationId && isOnline && (
+              <button
+                onClick={() => { void handleRefresh(); }}
+                disabled={isRefreshing}
+                className="p-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback"
+              >
+                <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Location Selector */}
       <div className="px-4 pt-4">
@@ -240,14 +215,14 @@ export function StockViewPage(): JSX.Element {
             group's purpose. */}
         <p
           id="stock-location-selector-label"
-          className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2"
+          className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2"
         >
           Storage Location
         </p>
         {locationsLoading ? (
           <div className="flex items-center gap-2 py-3">
-            <Loader2 size={16} className="animate-spin text-cyan-600" />
-            <span className="text-sm text-gray-500">Loading locations...</span>
+            <Spinner size="sm" />
+            <span className="text-sm text-gray-500 dark:text-gray-400">Loading locations...</span>
           </div>
         ) : (
           <div
@@ -275,47 +250,29 @@ export function StockViewPage(): JSX.Element {
       </div>
 
       {/* Stock List */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 px-4 pt-4 overflow-y-auto"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
+      <div className="flex-1 px-4 pt-4">
         {!selectedLocationId && (
-          <div className="text-center py-16 text-gray-400">
-            <MapPin size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Select a location</p>
-            <p className="text-sm mt-1">Choose a storage location above to view stock</p>
-          </div>
+          <EmptyState icon={MapPin} title="Select a location" description="Choose a storage location above to view stock" className="py-16" />
         )}
 
         {selectedLocationId && stockLoading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 size={28} className="animate-spin text-cyan-600" />
-            <span className="ml-2 text-gray-500 text-sm">Loading stock...</span>
+            <Spinner size="lg" />
+            <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading stock...</span>
           </div>
         )}
 
         {selectedLocationId && !stockLoading && stock.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
-            <Package size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No stock at this location</p>
-            {!isOnline && (
-              <p className="text-sm mt-1">You are offline -- showing cached data</p>
-            )}
-          </div>
+          <EmptyState
+            icon={Package}
+            title="No stock at this location"
+            description={!isOnline ? 'You are offline -- showing cached data' : undefined}
+            className="py-16"
+          />
         )}
 
         {selectedLocationId && !stockLoading && stock.length > 0 && (
           <>
-            {/* Pull-to-refresh indicator */}
-            {isRefreshing && (
-              <div className="flex items-center justify-center py-2 mb-2">
-                <Loader2 size={16} className="animate-spin text-cyan-600" />
-                <span className="ml-2 text-xs text-gray-500">Refreshing...</span>
-              </div>
-            )}
-
             {/* Offline data age indicator */}
             {!isOnline && (
               <div className="mb-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2.5 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
@@ -347,7 +304,7 @@ export function StockViewPage(): JSX.Element {
                         <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                           {item.quantity}
                         </span>
-                        <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">{item.unit}</span>
                       </div>
                     </div>
 
@@ -379,8 +336,6 @@ export function StockViewPage(): JSX.Element {
         )}
       </div>
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

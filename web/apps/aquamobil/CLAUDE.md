@@ -2,7 +2,7 @@
 
 > Root rules in `/CLAUDE.md` apply; `web/CLAUDE.md` (Module Federation) does NOT — aquamobil is a STANDALONE Vite app, not a federated remote. This file is its authority.
 
-Field-worker mobile data-entry PWA. `base: '/mobile/'`, own toolchain + standalone lockfile + own `node_modules`, dev port 8090 (`web/apps/aquamobil/vite.config.ts`). Konsta UI; React 19. The Docker build context is the REPO ROOT, not the app dir — `infrastructure/docker/Dockerfile.aquamobil` copies `libs/farm-shared` and `libs/shared-contracts` from outside the app; only the builder WORKDIR and the lockfile install are app-scoped.
+Field-worker mobile data-entry PWA. `base: '/mobile/'`, own toolchain + standalone lockfile + own `node_modules`, dev port 8090 (`web/apps/aquamobil/vite.config.ts`). React 19; the UI vocabulary is the app's own `src/components/ui` primitives (Field/Input/Select/Textarea, Switch, Button, ListRow, BottomSheet, IconButton, PageHeader) — no UI-kit dependency (FE-MEDIUM-091). The Docker build context is the REPO ROOT, not the app dir — `infrastructure/docker/Dockerfile.aquamobil` copies `libs/farm-shared` and `libs/shared-contracts` from outside the app; only the builder WORKDIR and the lockfile install are app-scoped.
 
 ## Invariants
 

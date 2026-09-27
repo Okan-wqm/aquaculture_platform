@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-import fnmatch
 import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .implementation_safety import is_gh_api_path_forbidden
+from .canonical_path import matches_repo_glob, normalize_repo_relpath
+from .implementation_safety import (
+    CANONICAL_VALIDATION_COMMANDS,
+    canonical_command_satisfied_by,
+    is_gh_api_path_forbidden,
+)
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .risk_policy import classify_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -17,26 +22,6 @@ DEFAULT_POLICY: dict[str, Any] = {
     "enabled": False,
     "base_branch": "main",
     "merge_method": "squash",
-    "allowed_low_risk_globs": [
-        "docs/**",
-        "*.md",
-        "tests/**",
-        "aria-kernel/tests/**",
-        "tools/aria-adapters/**/__tests__/**",
-        "tools/aria-adapters/**/*.test.ts",
-        "tools/aria-adapters/**/*.spec.ts",
-        "tools/aria-adapters/fixtures/**",
-        "tools/aria-adapters/*.tool.json",
-        "**/__tests__/**",
-        "**/*.test.ts",
-        "**/*.spec.ts",
-        "**/*.test.tsx",
-        "**/*.spec.tsx",
-        "**/*.test.js",
-        "**/*.spec.js",
-        "**/test_*.py",
-        "**/*_test.py",
-    ],
     "hard_forbidden_globs": [
         ".github/workflows/**",
         ".github/actions/**",
@@ -47,12 +32,18 @@ DEFAULT_POLICY: dict[str, Any] = {
         "docker/docker-compose.yml",
         "**/migrations/**",
         "**/*Migration*",
+        "**/*Migration*/**",
         "**/.env*",
         "**/*secret*",
+        "**/*secret*/**",
         "**/*credential*",
+        "**/*credential*/**",
         "**/*private-key*",
+        "**/*private-key*/**",
         "**/*pricing*",
+        "**/*pricing*/**",
         "**/*billing*",
+        "**/*billing*/**",
         "apps/billing-service/**",
     ],
     "runtime_forbidden_globs": [
@@ -146,7 +137,9 @@ def classify_changed_files(
     for path in paths:
         if _matches_any(path, active_policy["hard_forbidden_globs"]):
             forbidden.append(path)
-        elif _matches_any(path, active_policy["allowed_low_risk_globs"]):
+        elif classify_path(path) == "L1":
+            # ARIA-HIGH-187: the ONE low-risk answer is the enterprise
+            # policy's L1 lane (CODEOWNERS-aware); no private copy here.
             low_risk.append(path)
         elif _matches_any(path, active_policy["runtime_forbidden_globs"]):
             forbidden.append(path)
@@ -467,24 +460,33 @@ def record_pr_lifecycle(
     )
 
 
-# The three universal dimensions and the command substrings that prove
-# them. Commands come from validation.run_validation_commands' closed
-# allowlist, so the substrings match structured commands, not free text.
-_HYGIENE_DIMENSIONS: dict[str, tuple[str, ...]] = {
-    "format": ("format:check",),
-    "typecheck": ("type-check",),
-    "test": ("--target=test", "npm run test"),
-}
+# ARIA-HIGH-104 (2) — the hygiene battery IS the canonical validation suite.
+#
+# This table used to name three hand-picked dimensions (format / typecheck /
+# test) with substring needles, one of which (`format:check`) no other
+# contract named: the plan contract admitted the canonical suite, staging
+# ran it as baseline, the implementer was told to run it, the pre-PR-open
+# perimeter required it — and then the merge gate demanded a fourth command
+# that none of them had mentioned, so a change that did exactly what every
+# contract said could never merge. The suite is one tuple now
+# (`implementation_safety.CANONICAL_VALIDATION_COMMANDS`, which grew
+# `npm run format:check`), and this gate reads it: one dimension per
+# canonical command, keyed by the command itself, matched by the same
+# whole-entry rule the perimeter uses (`canonical_command_satisfied_by`).
+# Derived, not retyped, so the two cannot disagree again — pinned by
+# tests/test_validation_suite_ssot.py.
+_HYGIENE_DIMENSIONS: tuple[str, ...] = CANONICAL_VALIDATION_COMMANDS
 
 
 def _hygiene_battery_result(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which canonical commands have a verified exit-0 run, and which do not."""
     satisfied: dict[str, str] = {}
     for run in runs:
         if not isinstance(run, dict) or run.get("status") != "ok":
             continue
         cmd = str(run.get("cmd") or "")
-        for dimension, needles in _HYGIENE_DIMENSIONS.items():
-            if dimension not in satisfied and any(n in cmd for n in needles):
+        for dimension in _HYGIENE_DIMENSIONS:
+            if dimension not in satisfied and canonical_command_satisfied_by(cmd, dimension):
                 satisfied[dimension] = str(run.get("validation_run_id") or "")
     return {
         "satisfied": satisfied,
@@ -804,7 +806,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision",
+                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,reviews,reviewDecision",
             ],
         )
         return {
@@ -814,10 +816,14 @@ class GhCliGitHubAdapter:
             "target_ref": payload.get("baseRefName"),
             "base_branch": payload.get("baseRefName"),
             "baseRefName": payload.get("baseRefName"),
+            "base_sha": payload.get("baseRefOid"),
+            "baseRefOid": payload.get("baseRefOid"),
             "head_ref": payload.get("headRefName"),
             "headRefName": payload.get("headRefName"),
             "head_sha": payload.get("headRefOid"),
             "headRefOid": payload.get("headRefOid"),
+            "body": payload.get("body"),
+            "url": payload.get("url"),
             "changed_files": payload.get("files", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
@@ -1223,19 +1229,15 @@ def _append_decision(base_dir: str | Path | None, decision: dict[str, Any]) -> N
 
 
 def _changed_file_path(item: str | dict[str, Any]) -> str:
-    if isinstance(item, str):
-        return _normalize_path(item)
+    # ARIA-HIGH-186: the classifier's input must be the path GitHub changed,
+    # dot and all; a traversal or empty entry is a malformed PR, refused.
     if isinstance(item, dict):
-        return _normalize_path(str(item.get("path") or item.get("filename") or item.get("fileName") or ""))
-    return ""
-
-
-def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+        item = str(item.get("path") or item.get("filename") or item.get("fileName") or "")
+    return normalize_repo_relpath(item)
 
 
 def _matches_any(path: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+    return any(matches_repo_glob(path, pattern) for pattern in patterns)
 
 
 def _first_string(payload: dict[str, Any], *keys: str) -> str | None:

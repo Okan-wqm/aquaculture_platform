@@ -6,6 +6,8 @@
 import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, Position, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { useI18n } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
@@ -30,6 +32,7 @@ const WIDTH = Math.round(812 * SCALE_FACTOR);
 const HEIGHT = Math.round(315 * SCALE_FACTOR);
 
 const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, data, selected }) => {
+  const { t } = useI18n();
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 
@@ -39,27 +42,25 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
   const [drainType, setDrainType] = useState<HandleType>(data?.drainType || 'source');
   const [outlet, setOutlet] = useState<HandleType>(data?.outlet || 'source');
 
-  const toggleHandler = (
-    currentType: HandleType,
-    setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    fieldName: HandleFieldName
-  ) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const newType: HandleType = currentType === 'source' ? 'target' : 'source';
-    setFunc(newType);
-    updateNodeData(id, { [fieldName]: newType } as Partial<DrumFilterNodeData>);
-  };
+  const toggleHandler =
+    (
+      currentType: HandleType,
+      setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
+      fieldName: HandleFieldName,
+    ) =>
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const newType: HandleType = currentType === 'source' ? 'target' : 'source';
+      setFunc(newType);
+      updateNodeData(id, { [fieldName]: newType } as Partial<DrumFilterNodeData>);
+    };
 
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, inletType1, inletType2, inletType3, drainType, outlet, updateNodeInternals]);
 
-  const handleStyle = (
-    left: number,
-    top: number,
-    color: string
-  ): React.CSSProperties => ({
+  const handleStyle = (left: number, top: number, color: string): React.CSSProperties => ({
     position: 'absolute',
     left: (left - BASE_LEFT_OFFSET) * SCALE_FACTOR,
     top: (top - BASE_TOP_OFFSET) * SCALE_FACTOR,
@@ -73,7 +74,8 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
     pointerEvents: 'all',
   });
 
-  const getHandleColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+  const getHandleColor = (type: HandleType) =>
+    type === 'source' ? colors.success[500] : colors.info[500];
 
   return (
     <div
@@ -82,34 +84,83 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
         height: HEIGHT,
         position: 'relative',
         pointerEvents: 'none',
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
       }}
     >
       <div style={{ transform: `scale(${SCALE_FACTOR})`, transformOrigin: 'top left' }}>
-        <svg width="812" height="315" viewBox="60 105 812 315" xmlns="http://www.w3.org/2000/svg" style={{ pointerEvents: 'auto' }}>
+        <svg
+          width="812"
+          height="315"
+          viewBox="60 105 812 315"
+          xmlns="http://www.w3.org/2000/svg"
+          className="pointer-events-auto"
+        >
           <rect width="100%" height="100%" fill="transparent" />
           {/* Inlet pipe */}
-          <rect x="90" y="230" width="70" height="40" fill="#9e9e9e" stroke="#333" strokeWidth="2" />
-          <text x="95" y="225" fontSize="13" fill="#333">Giris Borusu</text>
+          <rect
+            x="90"
+            y="230"
+            width="70"
+            height="40"
+            fill={colors.neutral[400]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="2"
+          />
+          <text x="95" y="225" fontSize="13" fill={themeColors.neutral[700]}>
+            {t('scada.symbol.inletPipe')}
+          </text>
           {/* Drain pipe */}
-          <rect x="100" y="180" width="120" height="15" fill="#7b5e57" stroke="#000" strokeWidth="1.5" />
-          <text x="105" y="175" fontSize="12" fill="#000">Drenaj Borusu</text>
+          <rect
+            x="100"
+            y="180"
+            width="120"
+            height="15"
+            fill={colors.accent[700]}
+            stroke={themeColors.black}
+            strokeWidth="1.5"
+          />
+          <text x="105" y="175" fontSize="12" fill={themeColors.black}>
+            {t('scada.symbol.drainPipe')}
+          </text>
           {/* Main body */}
-          <rect x="160" y="150" width="612" height="200" rx="20" ry="20" fill="#e0e0e0" stroke="#333" strokeWidth="2" />
-          <text x="350" y="260" fontSize="16" fill="#000">{data?.label || 'Faivre 200 Drum Filtre'}</text>
+          <rect
+            x="160"
+            y="150"
+            width="612"
+            height="200"
+            rx="20"
+            ry="20"
+            fill={colors.neutral[200]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="2"
+          />
+          <text x="350" y="260" fontSize="16" fill={themeColors.black}>
+            {data?.label || 'Faivre 200 Drum Filtre'}
+          </text>
           {/* Mesh pattern */}
           <defs>
             <pattern id="mesh" patternUnits="userSpaceOnUse" width="20" height="20">
-              <path d="M0,0 L20,20 M20,0 L0,20" stroke="#888" strokeWidth="2" />
+              <path d="M0,0 L20,20 M20,0 L0,20" stroke={themeColors.neutral[400]} strokeWidth="2" />
             </pattern>
           </defs>
           <rect x="180" y="170" width="572" height="160" fill="url(#mesh)" opacity="0.6" />
           {/* Service cover */}
-          <rect x="200" y="120" width="540" height="30" rx="10" fill="#cfd8dc" stroke="#444" strokeWidth="2" />
-          <text x="400" y="115" fontSize="13" fill="#000">Servis Kapagi</text>
+          <rect
+            x="200"
+            y="120"
+            width="540"
+            height="30"
+            rx="10"
+            fill={colors.neutral[300]}
+            stroke={themeColors.neutral[600]}
+            strokeWidth="2"
+          />
+          <text x="400" y="115" fontSize="13" fill={themeColors.black}>
+            {t('scada.symbol.serviceHatch')}
+          </text>
           {/* Cover hinges */}
-          <g stroke="#fff" strokeWidth="2">
+          <g stroke={themeColors.white} strokeWidth="2">
             <path d="M220 120 L220 105 L235 105 L235 120" />
             <path d="M300 120 L300 105 L315 105 L315 120" />
             <path d="M380 120 L380 105 L395 105 L395 120" />
@@ -118,41 +169,66 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
             <path d="M620 120 L620 105 L635 105 L635 120" />
           </g>
           {/* Bolts */}
-          <g fill="#000">
+          <g fill={themeColors.black}>
             {[180, 220, 260, 300, 340, 380, 420, 460, 500, 540, 580, 620, 660, 700].map((cx) => (
               <circle key={cx} cx={cx} cy="160" r="3" />
             ))}
           </g>
           {/* Water drops */}
-          <g fill="none" stroke="#00f" strokeWidth="1">
+          <g fill="none" stroke={themeColors.info[500]} strokeWidth="1">
             {[180, 220, 260, 300, 340, 380, 420, 460, 500, 540, 580, 620, 660, 700].map((cx) => (
               <path key={cx} d={`M${cx} 160 L${cx - 5} 170 L${cx + 5} 170 Z`} />
             ))}
           </g>
           {/* Outlet pipe */}
-          <rect x="772" y="230" width="70" height="40" fill="#9e9e9e" stroke="#333" strokeWidth="2" />
-          <text x="777" y="225" fontSize="13" fill="#333">Cikis Borusu</text>
+          <rect
+            x="772"
+            y="230"
+            width="70"
+            height="40"
+            fill={colors.neutral[400]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="2"
+          />
+          <text x="777" y="225" fontSize="13" fill={themeColors.neutral[700]}>
+            {t('scada.symbol.outletPipe')}
+          </text>
           {/* Motor */}
           <g>
-            <rect x="752" y="160" width="40" height="60" fill="#757575" stroke="#222" strokeWidth="1.5" rx="5" />
-            <circle cx="772" cy="190" r="10" fill="#212121" />
-            <rect x="762" y="155" width="20" height="10" fill="#444" />
-            <text x="742" y="150" fontSize="11" fill="#000">Motor</text>
-            <g stroke="#000" strokeWidth="1">
-              <circle cx="792" cy="190" r="10" fill="#00ff00" />
+            <rect
+              x="752"
+              y="160"
+              width="40"
+              height="60"
+              fill={colors.gray[400]}
+              stroke={themeColors.neutral[800]}
+              strokeWidth="1.5"
+              rx="5"
+            />
+            <circle cx="772" cy="190" r="10" fill={colors.neutral[900]} />
+            <rect x="762" y="155" width="20" height="10" fill={themeColors.neutral[600]} />
+            <text x="742" y="150" fontSize="11" fill={themeColors.black}>
+              {t('scada.symbol.motor')}
+            </text>
+            <g stroke={themeColors.black} strokeWidth="1">
+              <circle cx="792" cy="190" r="10" fill={colors.success[500]} />
               <line x1="788" y1="186" x2="796" y2="194" />
               <line x1="788" y1="194" x2="796" y2="186" />
             </g>
           </g>
           {/* Support legs */}
-          <g fill="#616161" stroke="#333" strokeWidth="1.5">
+          <g fill={colors.neutral[600]} stroke={themeColors.neutral[700]} strokeWidth="1.5">
             <rect x="180" y="350" width="20" height="40" />
             <rect x="175" y="390" width="30" height="10" />
             <rect x="712" y="350" width="20" height="40" />
             <rect x="707" y="390" width="30" height="10" />
           </g>
-          <text x="185" y="420" fontSize="11" fill="#000">Destek</text>
-          <text x="717" y="420" fontSize="11" fill="#000">Destek</text>
+          <text x="185" y="420" fontSize="11" fill={themeColors.black}>
+            {t('scada.symbol.support')}
+          </text>
+          <text x="717" y="420" fontSize="11" fill={themeColors.black}>
+            {t('scada.symbol.support')}
+          </text>
         </svg>
       </div>
 
@@ -166,7 +242,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType1}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -179,7 +255,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType2}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -192,7 +268,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType3}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -205,7 +281,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={drainType}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -218,7 +294,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={outlet}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
     </div>

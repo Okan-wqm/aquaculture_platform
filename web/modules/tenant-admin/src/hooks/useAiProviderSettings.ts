@@ -13,7 +13,7 @@ import {
   UPDATE_AI_PROVIDER_SETTINGS_MUTATION,
 } from '../graphql';
 
-export type LlmProviderId = 'anthropic' | 'openai';
+export type LlmProviderId = 'anthropic' | 'openai' | 'zai';
 
 export interface AiProviderSettings {
   provider: LlmProviderId;
@@ -22,6 +22,7 @@ export interface AiProviderSettings {
   enablementReason: 'ok' | 'disabled' | 'key_missing';
   anthropicKeyHint: string | null;
   openaiKeyHint: string | null;
+  zaiKeyHint: string | null;
   chatModel: string | null;
   monthlyTokenBudget: number;
   hourlyRequestLimit: number;
@@ -36,6 +37,7 @@ export interface AiProviderSettings {
 export interface UpdateAiProviderSettingsInput {
   provider?: LlmProviderId;
   anthropicApiKey?: string;
+  zaiApiKey?: string;
   openaiApiKey?: string;
   chatModel?: string;
   isEnabled?: boolean;

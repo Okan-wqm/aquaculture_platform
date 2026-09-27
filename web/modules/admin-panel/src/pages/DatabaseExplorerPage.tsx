@@ -6,11 +6,35 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Input,
+  Badge,
+  Alert,
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  type SortConfig,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
 import { saveBlob } from '../services/blob-client';
 import { useAdminQuery, useAdminMutation, adminKeys } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import {
+  ChevronDown,
+  Clipboard,
+  Code,
+  Download,
+  FileText,
+  Lock,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -30,15 +54,21 @@ interface ColumnInfo {
 
 // Sensitive columns that should be visually marked
 const SENSITIVE_COLUMN_PATTERNS = [
-  'password', 'secret', 'token', 'api_key', 'hash', 'salt',
-  'mfa_secret', 'credential', 'private_key', 'encryption_key',
+  'password',
+  'secret',
+  'token',
+  'api_key',
+  'hash',
+  'salt',
+  'mfa_secret',
+  'credential',
+  'private_key',
+  'encryption_key',
 ];
 
 const isSensitiveColumnName = (name: string): boolean => {
   const lowerName = name.toLowerCase();
-  return SENSITIVE_COLUMN_PATTERNS.some(
-    (pattern) => lowerName.includes(pattern),
-  );
+  return SENSITIVE_COLUMN_PATTERNS.some((pattern) => lowerName.includes(pattern));
 };
 
 interface TableInfo {
@@ -87,10 +117,15 @@ const isMaskedValue = (value: unknown): boolean => {
   return value === MASKED_VALUE;
 };
 
-const getDataTypeBadgeColor = (dataType: string): 'info' | 'success' | 'warning' | 'error' | 'default' => {
-  if (dataType.includes('int') || dataType.includes('numeric') || dataType.includes('decimal')) return 'info';
-  if (dataType.includes('varchar') || dataType.includes('text') || dataType.includes('char')) return 'success';
-  if (dataType.includes('timestamp') || dataType.includes('date') || dataType.includes('time')) return 'warning';
+const getDataTypeBadgeColor = (
+  dataType: string,
+): 'info' | 'success' | 'warning' | 'error' | 'default' => {
+  if (dataType.includes('int') || dataType.includes('numeric') || dataType.includes('decimal'))
+    return 'info';
+  if (dataType.includes('varchar') || dataType.includes('text') || dataType.includes('char'))
+    return 'success';
+  if (dataType.includes('timestamp') || dataType.includes('date') || dataType.includes('time'))
+    return 'warning';
   if (dataType.includes('bool')) return 'error';
   if (dataType.includes('json') || dataType.includes('uuid')) return 'default';
   return 'default';
@@ -142,8 +177,12 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
     // Validate required fields before submitting (BUG-015)
     if (mode === 'create') {
       const missingFields = columns.filter(
-        (col) => !col.isNullable && !col.columnDefault && (formData[col.columnName] || '').trim() === ''
-          && !col.columnDefault?.includes('gen_random_uuid') && !col.columnDefault?.includes('nextval')
+        (col) =>
+          !col.isNullable &&
+          !col.columnDefault &&
+          (formData[col.columnName] || '').trim() === '' &&
+          !col.columnDefault?.includes('gen_random_uuid') &&
+          !col.columnDefault?.includes('nextval'),
       );
       if (missingFields.length > 0) {
         setError(`Required fields missing: ${missingFields.map((c) => c.columnName).join(', ')}`);
@@ -166,7 +205,12 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
           }
         } else if (col.dataType.includes('int')) {
           parsedData[col.columnName] = parseInt(value, 10);
-        } else if (col.dataType.includes('numeric') || col.dataType.includes('decimal') || col.dataType.includes('float') || col.dataType.includes('double')) {
+        } else if (
+          col.dataType.includes('numeric') ||
+          col.dataType.includes('decimal') ||
+          col.dataType.includes('float') ||
+          col.dataType.includes('double')
+        ) {
           parsedData[col.columnName] = parseFloat(value);
         } else if (col.dataType.includes('bool')) {
           parsedData[col.columnName] = value.toLowerCase() === 'true' || value === '1';
@@ -184,7 +228,10 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
       // Remove auto-generated columns for create
       if (mode === 'create') {
         columns.forEach((col) => {
-          if (col.columnDefault?.includes('gen_random_uuid') || col.columnDefault?.includes('nextval')) {
+          if (
+            col.columnDefault?.includes('gen_random_uuid') ||
+            col.columnDefault?.includes('nextval')
+          ) {
             delete parsedData[col.columnName];
           }
         });
@@ -216,60 +263,56 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
         {columns.map((col) => {
           const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
           return (
-          <div key={col.columnName}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {col.columnName}
-              {col.isPrimaryKey && (
-                <Badge variant="info" className="ml-2">
-                  PK
-                </Badge>
+            <div key={col.columnName}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {col.columnName}
+                {col.isPrimaryKey && (
+                  <Badge variant="info" className="ml-2">
+                    PK
+                  </Badge>
+                )}
+                {col.isForeignKey && (
+                  <Badge variant="warning" className="ml-1">
+                    FK
+                  </Badge>
+                )}
+                {isSensitive && (
+                  <Badge variant="error" className="ml-1">
+                    Sensitive
+                  </Badge>
+                )}
+                {!col.isNullable && !col.columnDefault && (
+                  <span className="text-error-500 ml-1">*</span>
+                )}
+              </label>
+              {isSensitive ? (
+                <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400 italic">
+                  [Sensitive field — not shown for security. Clear to unset.]
+                </div>
+              ) : (
+                <Input
+                  value={formData[col.columnName] || ''}
+                  onChange={(e) => setFormData({ ...formData, [col.columnName]: e.target.value })}
+                  placeholder={col.columnDefault || col.dataType}
+                  disabled={
+                    mode === 'edit' &&
+                    col.isPrimaryKey &&
+                    col.columnDefault?.includes('gen_random_uuid')
+                  }
+                />
               )}
-              {col.isForeignKey && (
-                <Badge variant="warning" className="ml-1">
-                  FK
-                </Badge>
-              )}
-              {isSensitive && (
-                <Badge variant="error" className="ml-1">
-                  Sensitive
-                </Badge>
-              )}
-              {!col.isNullable && !col.columnDefault && (
-                <span className="text-red-500 ml-1">*</span>
-              )}
-            </label>
-            {isSensitive ? (
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
-                [Sensitive field — not shown for security. Clear to unset.]
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant={getDataTypeBadgeColor(col.dataType)}>{col.dataType}</Badge>
+                {col.isNullable && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">nullable</span>
+                )}
+                {col.columnDefault && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    default: {col.columnDefault.substring(0, 30)}
+                  </span>
+                )}
               </div>
-            ) : (
-              <Input
-                value={formData[col.columnName] || ''}
-                onChange={(e) =>
-                  setFormData({ ...formData, [col.columnName]: e.target.value })
-                }
-                placeholder={col.columnDefault || col.dataType}
-                disabled={
-                  mode === 'edit' &&
-                  col.isPrimaryKey &&
-                  col.columnDefault?.includes('gen_random_uuid')
-                }
-              />
-            )}
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant={getDataTypeBadgeColor(col.dataType)}>
-                {col.dataType}
-              </Badge>
-              {col.isNullable && (
-                <span className="text-xs text-gray-500">nullable</span>
-              )}
-              {col.columnDefault && (
-                <span className="text-xs text-gray-500">
-                  default: {col.columnDefault.substring(0, 30)}
-                </span>
-              )}
             </div>
-          </div>
           );
         })}
       </div>
@@ -320,9 +363,8 @@ const DatabaseExplorerPage: React.FC = () => {
   // Reads (ADMIN-HIGH-121)
   // ==========================================================================
 
-  const schemasQuery = useAdminQuery<string[]>(
-    adminKeys.database.schemas(),
-    ({ signal }) => databaseApi.getExplorerSchemas(signal),
+  const schemasQuery = useAdminQuery<string[]>(adminKeys.database.schemas(), ({ signal }) =>
+    databaseApi.getExplorerSchemas(signal),
   );
 
   const tablesQuery = useAdminQuery<TableInfo[]>(
@@ -419,7 +461,9 @@ const DatabaseExplorerPage: React.FC = () => {
   ];
 
   const loading =
-    schemasQuery.isPending || tablesQuery.isPending || (selectedTable !== null && tableDataQuery.isPending);
+    schemasQuery.isPending ||
+    tablesQuery.isPending ||
+    (selectedTable !== null && tableDataQuery.isPending);
 
   const reload = (): void => {
     void schemasQuery.refetch();
@@ -447,13 +491,9 @@ const DatabaseExplorerPage: React.FC = () => {
     setOrderDirection('ASC');
   };
 
-  const handleSort = (column: string) => {
-    if (orderBy === column) {
-      setOrderDirection(orderDirection === 'ASC' ? 'DESC' : 'ASC');
-    } else {
-      setOrderBy(column);
-      setOrderDirection('ASC');
-    }
+  const handleSort = (sort: SortConfig | null) => {
+    setOrderBy(sort ? sort.key : undefined);
+    setOrderDirection(sort?.direction === 'desc' ? 'DESC' : 'ASC');
   };
 
   const handleCreateRow = () => {
@@ -522,88 +562,155 @@ const DatabaseExplorerPage: React.FC = () => {
   // Find selected table info
   const selectedTableInfo = tables.find((t) => t.tableName === selectedTable);
 
+  // Server-described columns: the header carries the key and sensitivity markers, the cells mask and format.
+  const explorerColumns: DataTableColumn<Record<string, unknown>>[] = tableData
+    ? [
+        ...tableData.columns.map((col): DataTableColumn<Record<string, unknown>> => {
+          const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+          return {
+            key: col.columnName,
+            header: col.columnName,
+            className: isSensitive ? 'text-accent-600 dark:text-accent-400' : undefined,
+            headerRender: (
+              <span
+                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-accent-50 dark:bg-accent-900/20 px-1' : ''}`}
+                title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
+              >
+                {col.columnName}
+                {col.isPrimaryKey && (
+                  <Clipboard className="w-3 h-3 text-warning-500" aria-hidden="true" />
+                )}
+                {isSensitive && (
+                  <Lock className="w-3 h-3 text-accent-500" aria-label="Hassas veri - Maskeli" />
+                )}
+              </span>
+            ),
+            render: (value) => {
+              const valueIsMasked = isMaskedValue(value);
+              return (
+                <span
+                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-accent-50 dark:bg-accent-900/20 px-1' : ''}`}
+                  title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(value)}
+                >
+                  {value === null ? (
+                    <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
+                  ) : valueIsMasked ? (
+                    <span className="flex items-center gap-1 text-accent-600 dark:text-accent-400 font-mono">
+                      <Lock className="w-3 h-3" aria-hidden="true" />
+                      {MASKED_VALUE}
+                    </span>
+                  ) : col.dataType.includes('json') ? (
+                    <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+                      {formatValue(value).substring(0, 50)}...
+                    </code>
+                  ) : (
+                    formatValue(value)
+                  )}
+                </span>
+              );
+            },
+          };
+        }),
+        {
+          key: '__actions',
+          header: 'Actions',
+          align: 'right',
+          sortable: false,
+          render: (_value, row) =>
+            primaryKey ? (
+              <span className="whitespace-nowrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Edit row"
+                  onClick={() => handleEditRow(row)}
+                >
+                  <Pencil className="w-4 h-4" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Delete row"
+                  onClick={() => confirmDelete(row)}
+                >
+                  <Trash2 className="w-4 h-4 text-error-500" aria-hidden="true" />
+                </Button>
+              </span>
+            ) : (
+              <span className="text-xs italic text-gray-500 dark:text-gray-400">
+                no primary key
+              </span>
+            ),
+        },
+      ]
+    : [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Database Explorer</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            View and manage database tables
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <select
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            value={selectedSchema}
-            onChange={(e) => handleSchemaSelect(e.target.value)}
-          >
-            {schemas.map((schema) => (
-              <option key={schema} value={schema}>
-                {schema}
-              </option>
-            ))}
-          </select>
-          {selectedTable && (
-            <>
-              {/* Export Dropdown */}
-              <div className="relative">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  disabled={exportTable.isPending}
-                >
-                  {exportTable.isPending ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
-                  ) : (
-                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+      <PageHeader
+        title="Database Explorer"
+        description="View and manage database tables"
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <select
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
+              value={selectedSchema}
+              onChange={(e) => handleSchemaSelect(e.target.value)}
+            >
+              {schemas.map((schema) => (
+                <option key={schema} value={schema}>
+                  {schema}
+                </option>
+              ))}
+            </select>
+            {selectedTable && (
+              <>
+                {/* Export Dropdown */}
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    disabled={exportTable.isPending}
+                  >
+                    {exportTable.isPending ? (
+                      <Spinner size="sm" color="gray" className="mr-2" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-2" aria-hidden="true" />
+                    )}
+                    Export
+                    <ChevronDown className="w-4 h-4 ml-1" aria-hidden="true" />
+                  </Button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-gray-900 rounded-lg shadow-lg border z-50">
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
+                        onClick={() => handleExport('csv')}
+                      >
+                        <FileText className="w-4 h-4 inline mr-2" aria-hidden="true" />
+                        CSV
+                      </button>
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg"
+                        onClick={() => handleExport('json')}
+                      >
+                        <Code className="w-4 h-4 inline mr-2" aria-hidden="true" />
+                        JSON
+                      </button>
+                    </div>
                   )}
-                  Export
-                  <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                </div>
+                <Button onClick={handleCreateRow}>
+                  <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+                  New Row
                 </Button>
-                {showExportMenu && (
-                  <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border z-50">
-                    <button
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
-                      onClick={() => handleExport('csv')}
-                    >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      CSV
-                    </button>
-                    <button
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
-                      onClick={() => handleExport('json')}
-                    >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                      </svg>
-                      JSON
-                    </button>
-                  </div>
-                )}
-              </div>
-              <Button onClick={handleCreateRow}>
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Row
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <QueryFailureNotice
-        errors={queryErrors}
-        hasContent={tables.length > 0}
-        onRetry={reload}
+              </>
+            )}
+          </div>
+        }
       />
+
+      <QueryFailureNotice errors={queryErrors} hasContent={tables.length > 0} onRetry={reload} />
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Table List */}
@@ -616,12 +723,12 @@ const DatabaseExplorerPage: React.FC = () => {
                 onClick={() => handleTableSelect(table.tableName)}
                 className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
                   selectedTable === table.tableName
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'hover:bg-gray-100'
+                    ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
                 <div className="font-medium text-sm">{table.tableName}</div>
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                   <span>{table.rowCount.toLocaleString()} rows</span>
                   <span>{formatBytes(table.sizeBytes)}</span>
                 </div>
@@ -633,20 +740,20 @@ const DatabaseExplorerPage: React.FC = () => {
         {/* Table Data */}
         <Card className="lg:col-span-3 overflow-hidden">
           {!selectedTable ? (
-            <div className="flex items-center justify-center h-64 text-gray-500">
+            <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
               Select a table
             </div>
           ) : loading && !tableData ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <Spinner size="lg" />
             </div>
           ) : tableData ? (
             <>
               {/* Table Info Header */}
-              <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b flex items-center justify-between">
                 <div>
                   <span className="font-semibold">{selectedTable}</span>
-                  <span className="text-sm text-gray-500 ml-2">
+                  <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                     ({tableData.totalRows.toLocaleString()} rows)
                   </span>
                 </div>
@@ -660,139 +767,42 @@ const DatabaseExplorerPage: React.FC = () => {
                     onClick={() => void tableDataQuery.refetch()}
                     disabled={tableDataQuery.isFetching}
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
+                    <RefreshCw className="w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
               </div>
 
               {/* Data Table */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      {tableData.columns.map((col) => {
-                        const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
-                        return (
-                          <th
-                            key={col.columnName}
-                            className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
-                              isSensitive ? 'text-orange-600 bg-orange-50' : 'text-gray-500'
-                            }`}
-                            onClick={() => handleSort(col.columnName)}
-                            title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
-                          >
-                            <div className="flex items-center gap-1">
-                              {col.columnName}
-                              {col.isPrimaryKey && (
-                                <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-                                </svg>
-                              )}
-                              {isSensitive && (
-                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
-                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                </svg>
-                              )}
-                              {orderBy === col.columnName && (
-                                <svg className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                </svg>
-                              )}
-                            </div>
-                          </th>
-                        );
-                      })}
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {tableData.rows.map((row, idx) => {
-                      const rowKey = primaryKey
-                        ? String(row[primaryKey.columnName])
-                        : idx;
-
-                      return (
-                        <tr key={rowKey} className="hover:bg-gray-50">
-                          {tableData.columns.map((col, colIdx) => {
-                            const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
-                            const valueIsMasked = isMaskedValue(row[col.columnName]);
-
-                            return (
-                              <td
-                                key={`${rowKey}-${colIdx}`}
-                                className={`px-4 py-2 text-sm max-w-xs truncate ${
-                                  valueIsMasked ? 'bg-orange-50' : ''
-                                } ${isSensitive ? 'text-orange-600' : 'text-gray-900'}`}
-                                title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(row[col.columnName])}
-                              >
-                                {row[col.columnName] === null ? (
-                                  <span className="text-gray-500 italic">NULL</span>
-                                ) : valueIsMasked ? (
-                                  <span className="flex items-center gap-1 text-orange-600 font-mono">
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                    </svg>
-                                    {MASKED_VALUE}
-                                  </span>
-                                ) : col.dataType.includes('json') ? (
-                                  <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                                    {formatValue(row[col.columnName]).substring(0, 50)}...
-                                  </code>
-                                ) : (
-                                  formatValue(row[col.columnName])
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
-                            {primaryKey ? (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label="Edit row"
-                                  onClick={() => handleEditRow(row)}
-                                >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                  </svg>
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label="Delete row"
-                                  onClick={() => confirmDelete(row)}
-                                >
-                                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </Button>
-                              </>
-                            ) : (
-                              <span className="text-xs italic text-gray-500">
-                                no primary key
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<Record<string, unknown>>
+                data={tableData.rows}
+                columns={explorerColumns}
+                keyExtractor={(row, index) =>
+                  primaryKey ? String(row[primaryKey.columnName]) : String(index)
+                }
+                emptyMessage="No rows"
+                searchable={false}
+                serverSideSort
+                defaultSort={
+                  orderBy
+                    ? { key: orderBy, direction: orderDirection === 'ASC' ? 'asc' : 'desc' }
+                    : undefined
+                }
+                onSort={handleSort}
+                stickyHeader={false}
+                compact
+                className="border-0 rounded-none shadow-none"
+              />
 
               {/* Pagination */}
               {tableData.totalPages > 1 && (
                 <div className="px-4 py-3 border-t flex items-center justify-between">
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
                     Page {tableData.page} / {tableData.totalPages} (
                     {((tableData.page - 1) * tableData.limit + 1).toLocaleString()} -{' '}
-                    {Math.min(tableData.page * tableData.limit, tableData.totalRows).toLocaleString()}{' '}
+                    {Math.min(
+                      tableData.page * tableData.limit,
+                      tableData.totalRows,
+                    ).toLocaleString()}{' '}
                     / {tableData.totalRows.toLocaleString()})
                   </div>
                   <div className="flex gap-2">
@@ -838,21 +848,14 @@ const DatabaseExplorerPage: React.FC = () => {
         onClose={() => setDeleteConfirm({ show: false, id: '' })}
         title="Delete Row"
       >
-        <p className="text-gray-600 mb-4">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
           Are you sure you want to delete this row? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setDeleteConfirm({ show: false, id: '' })}
-          >
+          <Button variant="outline" onClick={() => setDeleteConfirm({ show: false, id: '' })}>
             Cancel
           </Button>
-          <Button
-            variant="danger"
-            loading={deleteRow.isPending}
-            onClick={handleDeleteRow}
-          >
+          <Button variant="danger" loading={deleteRow.isPending} onClick={handleDeleteRow}>
             Delete
           </Button>
         </div>

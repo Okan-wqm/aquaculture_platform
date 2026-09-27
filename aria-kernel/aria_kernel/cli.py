@@ -133,6 +133,7 @@ from aria_kernel.runtime_artifacts import (
     approve_runtime_v2_promotion,
     autonomy_exit_code,
     autonomy_output_summary,
+    _fit_memory_learning_summary,
     classify_cycle_evidence,
     restore_artifact,
     retention_apply,
@@ -528,15 +529,12 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     from .workspace import canonical_identity
     from .state_store import (
         StateStoreRefusal,
-        _read_commit_ref,
-        build_publishable_snapshot,
         checkout_state_store,
         findings_root,
         open_state_store,
-        publish_state,
+        prepare_and_publish_state,
         store_environment,
         read_published_snapshot,
-        read_snapshot_at_worktree_head,
         tools_root,
         verify_state_store,
         workspace_root,
@@ -567,7 +565,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             # from publish rather than publish's first step.
             store = checkout_state_store(
                 args.repo_root,
-                branch=args.branch,
+                branch=args.branch or STATE_BRANCH,
                 remote=args.remote,
                 store_dir=args.store_dir,
             )
@@ -589,6 +587,8 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             }, indent=2, sort_keys=True))
             return 0
 
+        # Opening derives the branch from the store worktree; ``--branch``,
+        # when given, is checked against it.
         store = open_state_store(
             args.repo_root,
             branch=args.branch,
@@ -601,17 +601,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             print(json.dumps(verdict, indent=2, sort_keys=True))
             return 0 if verdict["valid"] else 1
 
-        base_head = _read_commit_ref(store.root, "HEAD")
-        if base_head is None:
-            raise StateStoreRefusal(
-                "state_publish_base_head_unavailable: operator publish HEAD is "
-                "not an exact commit"
-            )
-        base = read_snapshot_at_worktree_head(
-            store,
-            expected_head=base_head,
-        )
-        snapshot = build_publishable_snapshot(
+        # ONE call, ONE lock. The preamble binds one exact base, drops what
+        # the parent tree carries that no snapshot can claim (recording it),
+        # records an acknowledged reduction, and builds the snapshot from the
+        # healed store; the publish commits it against that base — the same
+        # steps the contention-replay orchestrator runs under its lock, so
+        # this command and that orchestrator cannot disagree about what a
+        # publish stages, and nothing can run between the two halves here.
+        result = prepare_and_publish_state(
             store,
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
@@ -620,14 +617,6 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             lane="operator",
             repo_hash=repo_hash,
             parent_commit=args.parent_commit,
-            previous=base,
-        )
-        result = publish_state(
-            store,
-            snapshot=snapshot,
-            cycle_id=args.cycle_id,
-            repo_hash=repo_hash,
-            expected_base_head=base_head,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
@@ -741,6 +730,25 @@ def build_parser() -> argparse.ArgumentParser:
     fb_batch = add_subparser(feedback_sub, "record-batch")
     fb_batch.add_argument("--sample-id", required=True)
     fb_batch.add_argument("--file", required=True)
+    # Typed-judgment plan Phase 6 — the sample a human label can bind to:
+    # the judge groups themselves, in three strata, with a pre-filled verdict
+    # file (verdict null, unconfirmed) the operator completes.
+    fb_queue = add_subparser(feedback_sub, "label-queue")
+    fb_queue.add_argument("--tool-id", required=True)
+    fb_queue.add_argument("--limit", type=int, default=15)
+    fb_queue.add_argument("--cycle-id", default=None)
+    fb_queue.add_argument("--out", required=True, help="Where the pre-filled verdict file is written")
+    # V9.5 check 12 — the operator's channel for a plan-request row. The
+    # kernel signs what it records; a row appended any other way is dropped
+    # at ingestion with an unsigned_operator_feedback governance event, so
+    # this verb is the ONLY way a request reaches the synthesizer.
+    fb_request = add_subparser(feedback_sub, "request")
+    fb_request.add_argument("--request", required=True, help="What the operator wants planned")
+    fb_request.add_argument("--priority", default="medium", choices=["low", "medium", "high"])
+    fb_request.add_argument("--authored-by", required=True, help="Operator identity recorded on the row")
+    fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
+    fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
@@ -864,7 +872,14 @@ def build_parser() -> argparse.ArgumentParser:
         # snapshot mentions — loss that looks exactly like a clean run.
         store_parser.add_argument("--repo-hash", default=None,
                                   help="Workspace subtree key; defaults to the repo's canonical identity.")
-        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        # Checkout materialises the named branch (the production one by
+        # default); publish and verify-store OPEN a store, whose branch is
+        # read from its worktree — there the flag is a check, not a claim.
+        store_parser.add_argument(
+            "--branch", default=None,
+            help=f"State branch. checkout: the branch to materialise (default {STATE_BRANCH}); "
+                 "publish/verify-store: must equal the store worktree's branch when given.",
+        )
         store_parser.add_argument("--remote", default="origin")
         store_parser.add_argument("--store-dir", default=None,
                                   help="Store worktree path; defaults to <repo-root>/.aria-state-store.")
@@ -1052,6 +1067,31 @@ def build_parser() -> argparse.ArgumentParser:
     attestation_probe = add_subparser(attestation_sub, "probe")
     attestation_probe.add_argument("--repo", required=True)
     attestation_probe.add_argument("--target-ref", required=True)
+    # ARIA-HIGH-198 — what the attested host will do. `merge` runs no model
+    # and no agent code; `agent` is every lane that spawns one. Named
+    # --attestation-lane, not --lane: the change lane (L1..L3) is
+    # kernel-derived and never a CLI flag (Plan ARIA-V3 §2c); this is the
+    # host's role, a different axis, and one spelling for both would let the
+    # two be confused at the command line.
+    attestation_probe.add_argument(
+        "--attestation-lane", choices=("agent", "merge"), default="agent",
+    )
+
+    # ARIA-HIGH-198 — the merge lane's own entry point. The merge ran inside
+    # the autonomy cycle on the persistent self-hosted host, which can never
+    # attest ephemeral; this verb runs the SAME runner and authority for one
+    # PR on whatever host invokes it (aria-merge-runner.yml: GitHub-hosted).
+    merge_parser = add_subparser(sub, "merge-lane")
+    merge_sub = merge_parser.add_subparsers(dest="merge_command", required=True)
+    merge_run = add_subparser(merge_sub, "run")
+    # Without --pr: every PR holding a readiness claim, the cycle's own set.
+    merge_run.add_argument("--pr", type=int, default=None)
+    merge_run.add_argument("--workspace-root", type=Path, default=Path("."))
+    # ARIA-HIGH-200 — only an operator's recorded act lifts ARIA's own
+    # self-merge freeze; no ARIA workflow holds that authority.
+    merge_unfreeze = add_subparser(merge_sub, "unfreeze")
+    merge_unfreeze.add_argument("--freeze-id", required=True)
+    merge_unfreeze.add_argument("--operator-approval-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -1563,6 +1603,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
     plan_advance_rounds = add_subparser(plan_sub, "advance-rounds")
+    add_workspace_args(plan_advance_rounds)
     plan_advance_rounds.add_argument("--plan-id", required=True)
     plan_advance_rounds.add_argument("--max-rounds", type=int, default=5)
     plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
@@ -2354,17 +2395,11 @@ def build_parser() -> argparse.ArgumentParser:
              "Set lower (e.g. 60) to verify the V7 phase progression "
              "quickly without polling for Gate A/B/C consumer envelopes.",
     )
-    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — challenger-timeout + max-rounds
-    # + max-budget-usd-per-run exposed for operator tuning. Default
+    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — max-rounds + max-budget-usd-per-run
+    # exposed for operator tuning (ARIA-HIGH-194 retired the challenger
+    # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
-    auto_run.add_argument(
-        "--challenger-timeout-seconds", type=float, default=300.0,
-        help="Per-poll budget for state-machine waits inside "
-             "convergence_drainer (default 300s). Used by round-1 "
-             "challenger + cross_review polls and round-2+ revision "
-             "polls. Lower for fast smoke; raise for slow LLMs.",
-    )
     auto_run.add_argument(
         "--max-rounds", type=int, default=2,
         help="Max convergence rounds per plan (default 2 for "
@@ -2859,12 +2894,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
+    # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
+    # payload against a store); a spawn's settings never compile it. Inside
+    # the sandbox the hook client (`hook_client.py`, stdlib only) ships the
+    # payload to the executor's broker (`hook_broker`), which runs the same
+    # `hooks.run_hook` with the kernel's own store, request id and cap.
     hook_parser = add_subparser(sub, "hook")
     hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
     for verb in ("pre-tool", "post-tool", "session"):
         hook_verb = add_subparser(hook_sub, verb)
         hook_verb.add_argument("--workspace-root", required=True)
         hook_verb.add_argument("--request-id", required=True)
+        if verb == "pre-tool":
+            # cycle_and_turn_budget_cap — the cap the kernel compiled for the
+            # spawn (claude_settings.build_settings, write-scope profiles,
+            # from the policy of the store's bound workspace); absent for an
+            # unbudgeted spawn. Taken from argv only — never from a policy
+            # file an agent could have edited in its own tree.
+            hook_verb.add_argument("--turn-budget", type=int, default=None)
 
     # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
     checkpoint_parser = add_subparser(sub, "checkpoint")
@@ -3207,6 +3254,33 @@ def _main(argv: list[str] | None = None) -> int:
         ), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "feedback" and args.feedback_command == "request":
+        from aria_kernel.operator_feedback_signature import record_operator_request
+        print(json.dumps(record_operator_request(
+            request=args.request,
+            priority=args.priority,
+            authored_by=args.authored_by,
+            request_id=args.request_id,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "rotate-signing-key":
+        from aria_kernel.operator_feedback_signature import rotate_signing_key
+        print(json.dumps(rotate_signing_key(
+            base_dir=args.tools_dir, reason=args.reason,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "label-queue":
+        from aria_kernel.label_queue import build_label_queue
+
+        queue = build_label_queue(tool_id=args.tool_id, base_dir=args.tools_dir, limit=int(args.limit), cycle_id=args.cycle_id)
+        Path(args.out).write_text(json.dumps(queue["verdict_file"], indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps({"sample_id": queue["sample"]["sample_id"], "sampled_count": queue["sample"]["sampled_count"],
+                          "strata_available": queue["sample"]["strata_available"], "out": str(args.out)},
+                         sort_keys=True))
+        return 0
     if args.command == "feedback" and args.feedback_command == "record-batch":
         from aria_kernel.feedback_store import record_operator_feedback_batch
         payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
@@ -3616,6 +3690,42 @@ def _main(argv: list[str] | None = None) -> int:
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
+    if args.command == "merge-lane" and args.merge_command == "run":
+        from .auto_merge_runners import (
+            enumerate_prs_with_readiness_claims,
+            resolve_readiness_claim_id_from_claims,
+            select_auto_merge_runner,
+        )
+        from .github_adapters import select_github_adapter
+
+        merge_profile = get_profile(base_dir=args.tools_dir)
+        merge_adapter = select_github_adapter(
+            profile=merge_profile, base_dir=args.tools_dir, cwd=str(args.workspace_root),
+        )
+        merge_runner = select_auto_merge_runner(
+            profile=merge_profile,
+            adapter_factory=lambda: merge_adapter,
+            pr_enumerator=(
+                (lambda _adapter: [args.pr]) if args.pr is not None
+                else (lambda adapter: enumerate_prs_with_readiness_claims(adapter, base_dir=args.tools_dir))
+            ),
+            readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
+        )
+        merge_result = merge_runner(base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(merge_result, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "merge-lane" and args.merge_command == "unfreeze":
+        from .self_merge_freeze import unfreeze_self_merge
+
+        unfreeze_row = unfreeze_self_merge(
+            freeze_id=args.freeze_id,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(unfreeze_row, indent=2, sort_keys=True, default=str))
+        return 0
+
     if args.command == "runner-attestation" and args.attestation_command == "probe":
         # FAZ 5a — lane-start producer: one probed attestation row per
         # recorded readiness claim, keyed exactly as the merge gate reads.
@@ -3626,6 +3736,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             repo=args.repo,
             target_ref=args.target_ref,
+            lane=args.attestation_lane,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
@@ -3654,18 +3765,9 @@ def _main(argv: list[str] | None = None) -> int:
         # operator typed. Only rows the single writer stamped `ok` qualify
         # as pass evidence; the gate still decides whether the required
         # commands are among them.
-        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+        from aria_kernel.validation_runs_ledger import refs_for_change
 
-        candidate_refs = [
-            {
-                "cmd": row.get("cmd"),
-                "exit_code": row.get("exit_code"),
-                "log_path": row.get("log_path"),
-                "ran_at": row.get("recorded_at"),
-            }
-            for row in list_validation_runs_for_change(args.change_id, base_dir=args.tools_dir)
-            if row.get("status") == "ok"
-        ]
+        candidate_refs = refs_for_change(args.change_id, base_dir=args.tools_dir)
         try:
             result = enforce_validation_matrix(
                 change_id=args.change_id,
@@ -4837,6 +4939,7 @@ def _main(argv: list[str] | None = None) -> int:
             path = record_anti_pattern(
                 pattern,
                 workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
                 reason_class=args.reason_class,
                 operator_signature=args.operator_signature,
             )
@@ -5873,7 +5976,7 @@ def _main(argv: list[str] | None = None) -> int:
         )
         # CL-1 (ORPHAN-725) — the B-V2-13 deadline floor is retired with
         # the waits it was sized for: the resumable step function never
-        # blocks on challenger_timeout, so a cycle deadline no longer
+        # blocks on an envelope, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
         # ARIA-HIGH-064 — the two budget caps used to be exported here as
         # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
@@ -5901,9 +6004,8 @@ def _main(argv: list[str] | None = None) -> int:
         from .cycle_phases.plan_source import V9PressureSourceProvider
         plan_content_provider = V9PressureSourceProvider()
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
-        # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
-        # --max-rounds are now plumbed all the way to the orchestrator
-        # (and from there to convergence_runner). Previously the
+        # ORPHAN-HIGH-082 fix: CLI flag --max-rounds is plumbed all the
+        # way to the orchestrator (and from there to convergence_runner). Previously the
         # arguments were parsed + validated above (line 3422-3434) but
         # never passed downstream, so the drainer silently fell back to
         # its 1800s + 4-rounds defaults regardless of operator input.
@@ -5937,7 +6039,6 @@ def _main(argv: list[str] | None = None) -> int:
             max_rounds=args.max_rounds,
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
-            challenger_timeout_seconds=args.challenger_timeout_seconds,
             # Plan ARIA-V3.1-E — explicit profile threaded to the
             # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,
@@ -5989,8 +6090,9 @@ def _main(argv: list[str] | None = None) -> int:
         if args.output == "full":
             summary.pop("full_result", None)
             summary["full_result_artifact"] = str(Path(args.artifact))
+        _fit_memory_learning_summary(summary)
         encoded = json.dumps(summary, indent=2, sort_keys=True)
-        if len(encoded.encode("utf-8")) > SUMMARY_STDOUT_MAX_BYTES:
+        if len(encoded.encode("utf-8")) + 1 > SUMMARY_STDOUT_MAX_BYTES:
             print(json.dumps({
                 "schema_version": 2,
                 "result_detail": "summary",
@@ -6132,6 +6234,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             workspace_root=args.workspace_root,
             request_id=args.request_id,
+            turn_budget=getattr(args, "turn_budget", None),
         )
         if stdout:
             print(stdout)
@@ -6197,7 +6300,7 @@ def _main(argv: list[str] | None = None) -> int:
         from . import self_improvement as si
 
         if args.self_command == "scan":
-            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            print(json.dumps([s.to_dict() for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
             return 0
         if args.self_command == "open":
             print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))

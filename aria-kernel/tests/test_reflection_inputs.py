@@ -45,6 +45,7 @@ class ProducerKwargsTests(unittest.TestCase):
         self.assertEqual(kwargs["skill_genesis_result"], {"resolved": 1})
         self.assertEqual(kwargs["cycle_runner_result"], {"status": "ok"})
         self.assertEqual(kwargs["pedagogy_lint_result"], {"lint_pass_rate": 1.0})
+        self.assertIsNone(kwargs["memory_learning_result"])
 
     def test_crashed_cycle_yields_skipped_not_error(self) -> None:
         # The crash path's contract: cycle_result is None, but the crash
@@ -74,7 +75,8 @@ class ProducerKwargsTests(unittest.TestCase):
             built <= accepted,
             f"builder emits kwargs run_reflection does not accept: {built - accepted}",
         )
-        self.assertEqual(len(built), 7)
+        self.assertIn("memory_learning_result", built)
+        self.assertEqual(len(built), 8)
 
 
 class PedagogySnapshotTests(unittest.TestCase):
@@ -129,12 +131,15 @@ class ReflectionRowCarriesProducersTests(unittest.TestCase):
                     },
                 ),
             )
+            report = (root / "reports/daily" / (row["recorded_at"][:10] + ".md")).read_text(encoding="utf-8")
         # Pre-C5 all of these were None on the autonomy lane, always.
         self.assertEqual(row["pedagogy"]["violation_count"], 4)
         self.assertEqual(row["skill_genesis"], {"resolved": 2})
         self.assertEqual(row["cycle_runner"], {"status": "ok"})
         self.assertEqual(row["calibration"], {"judged_judges": 3})
         self.assertEqual(row["judge_replay"], replay)
+        self.assertNotIn("memory_learning", row)
+        self.assertNotIn("## Memory Learning", report)
 
     def test_replay_recall_section_renders_from_reflection(self) -> None:
         """C6 deliberate-break: pre-fix this section read a judge_replay

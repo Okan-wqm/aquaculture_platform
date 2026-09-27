@@ -2,7 +2,18 @@
  * Create Purchase Order Modal
  */
 import React, { useState } from 'react';
-import { Modal, useToast, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  formatCurrency,
+  DEFAULT_CURRENCY,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useCreatePurchaseOrder,
   PurchaseOrderCategory,
@@ -11,6 +22,7 @@ import {
 import { useFeedList } from '../../../hooks/useFeeds';
 import { useChemicalList } from '../../../hooks/useChemicals';
 import { useConsumableList } from '../../../hooks/useConsumables';
+import { X } from 'lucide-react';
 
 const CATEGORIES: { value: PurchaseOrderCategory; label: string }[] = [
   { value: PurchaseOrderCategory.FEED, label: 'Feed' },
@@ -163,14 +175,83 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
     0,
   );
 
+  type ItemRow = (typeof items)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'item',
+      header: 'Item',
+      render: (_value, item) => item.itemName,
+    },
+    {
+      key: 'qty',
+      header: 'Qty',
+      render: (_value, item) => (
+        <Input
+          type="number"
+          min="0.01"
+          step="0.01"
+          value={item.quantity}
+          onChange={(e) => updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)}
+        />
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, item) => item.unit,
+    },
+    {
+      key: 'price',
+      header: 'Price',
+      render: (_value, item) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={item.unitPrice ?? ''}
+          onChange={(e) =>
+            updateItem(
+              item.itemId,
+              'unitPrice',
+              e.target.value ? parseFloat(e.target.value) : undefined,
+            )
+          }
+          placeholder="0.00"
+        />
+      ),
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      render: (_value, item) => (
+        <>
+          {item.unitPrice ? formatCurrency(item.unitPrice * item.quantity, DEFAULT_CURRENCY) : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, item) => (
+        <>
+          <Button variant="ghost" type="button" onClick={() => removeItem(item.itemId)}>
+            <X className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="New Purchase Order" size="lg">
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Category *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Category *
+            </label>
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat.value}
@@ -181,8 +262,8 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                   }}
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     category === cat.value
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {cat.label}
@@ -192,160 +273,86 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           </div>
 
           {/* Supplier */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Supplier Name *</label>
-              <input
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Supplier Name *
+              </label>
+              <Input
+                fullWidth
                 type="text"
                 required
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Contact</label>
-              <input
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Contact
+              </label>
+              <Input
+                fullWidth
                 type="text"
                 value={supplierContact}
                 onChange={(e) => setSupplierContact(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
           </div>
 
           {/* Expected Delivery */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expected Delivery Date
             </label>
-            <input
+            <Input
+              fullWidth
               type="date"
               value={expectedDeliveryDate}
               onChange={(e) => setExpectedDeliveryDate(e.target.value)}
-              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* Add Items */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Items *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Items *
+            </label>
             <div className="flex gap-2">
-              <select
+              <Select
+                aria-label="Item to add"
+                className="flex-1"
                 value={selectedItemId}
                 onChange={(e) => setSelectedItemId(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select item to add...</option>
-                {itemOptions
-                  .filter((o) => !items.some((i) => i.itemId === o.id))
-                  .map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name} {opt.code ? `(${opt.code})` : ''}
-                    </option>
-                  ))}
-              </select>
-              <button
-                type="button"
-                onClick={addItem}
-                disabled={!selectedItemId}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+                options={[
+                  { value: '', label: 'Select item to add...' },
+                  ...itemOptions
+                    .filter((o) => !items.some((i) => i.itemId === o.id))
+                    .map((opt) => ({
+                      value: opt.id,
+                      label: `${opt.name} ${opt.code ? `(${opt.code})` : ''}`,
+                    })),
+                ]}
+              />
+              <Button variant="primary" type="button" onClick={addItem} disabled={!selectedItemId}>
                 Add
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Items Table */}
           {items.length > 0 && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Item
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Qty
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Unit
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Price
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                      Total
-                    </th>
-                    <th className="px-4 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {items.map((item) => (
-                    <tr key={item.itemId}>
-                      <td className="px-4 py-2 text-sm">{item.itemName}</td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.quantity}
-                          onChange={(e) =>
-                            updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)
-                          }
-                          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-sm text-gray-500">{item.unit}</td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.unitPrice ?? ''}
-                          onChange={(e) =>
-                            updateItem(
-                              item.itemId,
-                              'unitPrice',
-                              e.target.value ? parseFloat(e.target.value) : undefined,
-                            )
-                          }
-                          placeholder="0.00"
-                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-sm font-medium">
-                        {item.unitPrice
-                          ? formatCurrency(item.unitPrice * item.quantity, DEFAULT_CURRENCY)
-                          : '-'}
-                      </td>
-                      <td className="px-4 py-2">
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item.itemId)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M6 18L18 6M6 6l12 12"
-                            />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <DataTable<ItemRow>
+                data={items}
+                columns={itemRowColumns}
+                keyExtractor={(item) => item.itemId}
+                emptyMessage="No records found"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
               {totalAmount > 0 && (
-                <div className="bg-gray-50 px-4 py-2 text-right text-sm font-medium text-gray-900">
+                <div className="bg-gray-50 dark:bg-gray-800 px-4 py-2 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
                   Total: {formatCurrency(totalAmount, DEFAULT_CURRENCY)}
                 </div>
               )}
@@ -354,31 +361,24 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Notes</label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Notes
+            </label>
+            <Textarea fullWidth rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
-          >
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={!supplierName || items.length === 0 || createPO.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
           >
             {createPO.isPending ? 'Creating...' : 'Create PO'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

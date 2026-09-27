@@ -34,7 +34,9 @@ describe('DataTable — toolbar', () => {
   });
 
   it('renders the search box when asked', () => {
-    render(<DataTable<Row> data={rows} columns={columns} keyExtractor={(row) => row.id} searchable />);
+    render(
+      <DataTable<Row> data={rows} columns={columns} keyExtractor={(row) => row.id} searchable />,
+    );
     expect(screen.getByPlaceholderText(/search/i)).toBeTruthy();
   });
 });
@@ -154,7 +156,13 @@ describe('DataTable — header slot', () => {
     render(
       <DataTable<Row>
         data={rows}
-        columns={[{ key: 'name', header: 'Name', headerRender: <span data-testid="key-marker">Name (pk)</span> }]}
+        columns={[
+          {
+            key: 'name',
+            header: 'Name',
+            headerRender: <span data-testid="key-marker">Name (pk)</span>,
+          },
+        ]}
         keyExtractor={(row) => row.id}
         searchable={false}
       />,
@@ -200,4 +208,3 @@ describe('DataTable — controlled expansion', () => {
     expect(screen.getByText('details of Ada')).toBeTruthy();
   });
 });
-

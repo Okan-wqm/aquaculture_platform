@@ -87,16 +87,12 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
     {
       key: 'role',
       header: 'Role',
-      render: (_value, user) => (
-        <RoleBadge role={user.role} />
-      ),
+      render: (_value, user) => <RoleBadge role={user.role} />,
     },
     {
       key: 'status',
       header: 'Status',
-      render: (_value, user) => (
-        <StatusBadge status={user.status} />
-      ),
+      render: (_value, user) => <StatusBadge status={user.status} />,
     },
     {
       key: 'lastLogin',
@@ -112,13 +108,43 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
       render: (_value, user) => (
         <div className="flex items-center justify-end gap-2">
           {canEditUsers && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onEditUser(user)} aria-label={`Edit ${user.name}`} title="Edit user"><Edit className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onEditUser(user)}
+              aria-label={`Edit ${user.name}`}
+              title="Edit user"
+            >
+              <Edit className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {canManageSiteAccess && user.role === 'MODULE_USER' && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onManageSiteAccess(user)} aria-label={`Manage site access for ${user.name}`} title="Manage site access"><MapPin className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onManageSiteAccess(user)}
+              aria-label={`Manage site access for ${user.name}`}
+              title="Manage site access"
+            >
+              <MapPin className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {canDeactivateUsers && user.status !== 'inactive' && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onDeleteUser(user)} aria-label={`Delete ${user.name}`} title="Delete user"><Trash2 className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onDeleteUser(user)}
+              aria-label={`Delete ${user.name}`}
+              title="Delete user"
+            >
+              <Trash2 className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {/* ADMIN-HIGH-012: deactivation used to be a one-way
               trapdoor here — the guarded resolvers existed but no UI
@@ -126,13 +152,43 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               admin. The reactivate and unlock actions are gated by
               the SAME capability that allowed the deactivation. */}
           {canDeactivateUsers && user.status === 'inactive' && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onActivateUser(user)} aria-label={`Activate ${user.name}`} title="Activate user"><UserCheck className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onActivateUser(user)}
+              aria-label={`Activate ${user.name}`}
+              title="Activate user"
+            >
+              <UserCheck className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {canDeactivateUsers && user.isLocked && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onUnlockUser(user)} aria-label={`Unlock ${user.name}`} title="Unlock user"><LockOpen className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onUnlockUser(user)}
+              aria-label={`Unlock ${user.name}`}
+              title="Unlock user"
+            >
+              <LockOpen className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {canEditUsers && (
-            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onViewPermissions(user)} aria-label={`Effective permissions for ${user.name}`} title="Effective permissions"><ShieldCheck className="w-4 h-4" aria-hidden="true" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onViewPermissions(user)}
+              aria-label={`Effective permissions for ${user.name}`}
+              title="Effective permissions"
+            >
+              <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+            </Button>
           )}
           {!canEditUsers &&
           !canDeactivateUsers &&
@@ -141,7 +197,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
           ) : null}
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -178,8 +234,22 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
           Showing {users.length} users (page {pagination.page + 1})
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" disabled={pagination.page === 0} onClick={() => onPageChange(pagination.page - 1)}>Previous</Button>
-          <Button variant="ghost" size="sm" disabled={pagination.rawPageCount < pagination.pageSize} onClick={() => onPageChange(pagination.page + 1)}>Next</Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pagination.page === 0}
+            onClick={() => onPageChange(pagination.page - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pagination.rawPageCount < pagination.pageSize}
+            onClick={() => onPageChange(pagination.page + 1)}
+          >
+            Next
+          </Button>
         </div>
       </div>
     </div>

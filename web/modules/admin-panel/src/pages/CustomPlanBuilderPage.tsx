@@ -19,6 +19,8 @@ import {
   CustomPlan,
   CustomPlanStatus,
 } from '../services/adminApi';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { ChevronLeft, CircleCheck } from 'lucide-react';
 
 // ============================================================================
@@ -92,10 +94,25 @@ const QUANTITY_FIELD_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantiti
 // Custom Plan Builder Page
 // ============================================================================
 
+/**
+ * A subscribed quantity as the operator typed it.
+ *
+ * `parseInt(e.target.value) || 0` turned any unparseable entry — a stray
+ * letter in "1OO", say — into 0, silently, on a field this plan's PRICE is
+ * computed from. The quote then came back lower and the plan could be created
+ * at it. Clearing the box still means 0, which is what the operator asked for;
+ * a typo now leaves the previous quantity alone.
+ */
+const parseQuantity = (raw: string, previous: number): number => {
+  const trimmed = raw.trim();
+  if (trimmed === '') return 0;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed) || parsed < 0) return previous;
+  return parsed;
+};
+
 const CustomPlanBuilderPage: React.FC = () => {
   const navigate = useNavigate();
-  const [availableModules, setAvailableModules] = useState<ModulePricingWithModule[]>([]);
-  const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   /** Why billing could not price the plan — shown instead of a number. */
   const [pricingError, setPricingError] = useState<string | null>(null);
@@ -120,24 +137,21 @@ const CustomPlanBuilderPage: React.FC = () => {
     notes: '',
   });
 
-  useEffect(() => {
-    loadModulePricings();
-  }, []);
-
-  const loadModulePricings = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await billingApi.getModulePricingWithModules();
-      setAvailableModules(data);
-    } catch (err) {
-      console.error('Failed to load module pricings:', err);
-      setAvailableModules([]);
-      setError('Failed to load module pricing. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  /**
+   * The module price sheet this plan is priced from.
+   *
+   * The load wrote `console.error` and set "Failed to load module pricing.
+   * Please try again." — discarding the server's own reason, on the same
+   * endpoint and with the same words as ModulePricingPage did before
+   * ADMIN-HIGH-141. A capability refusal and an outage looked identical, and
+   * the operator could only retry into the same wall.
+   */
+  const modulesQuery = useAdminQuery<ModulePricingWithModule[]>(
+    adminKeys.billing.modulePricing(),
+    ({ signal }) => billingApi.getModulePricingWithModules(signal),
+  );
+  const availableModules: ModulePricingWithModule[] = modulesQuery.data ?? [];
+  const loading = modulesQuery.isPending;
 
   const calculatePricing = useCallback(async () => {
     if (config.modules.length === 0) {
@@ -260,12 +274,24 @@ const CustomPlanBuilderPage: React.FC = () => {
         validTo: config.validTo || undefined,
         notes: config.notes,
       });
-      // Auto-submit for approval after creation
+      // Auto-submit for approval after creation.
+      //
+      // The plan IS created either way, so this is a partial success — but the
+      // failure half used to be announced in the green success box with its
+      // reason discarded by a bare `catch {}`. An operator could not tell a
+      // capability refusal from a validation rejection, and had nothing to act
+      // on. The plan's creation is still reported as the success it is; the
+      // submit's failure is reported as a failure, with the server's words.
       try {
         await billingApi.submitCustomPlanForApproval(createdPlan.id);
         setSuccess('Custom plan created and submitted for approval! Redirecting...');
-      } catch {
-        setSuccess('Custom plan created as draft. Could not auto-submit for approval.');
+      } catch (submitErr) {
+        setSuccess('Custom plan created as a draft.');
+        setError(
+          `The plan was saved but could not be submitted for approval: ${
+            (submitErr as Error).message
+          }`,
+        );
       }
       setTimeout(() => navigate('/admin/billing/custom-plans'), 1500);
     } catch (err) {
@@ -343,6 +369,13 @@ const CustomPlanBuilderPage: React.FC = () => {
       />
 
       {/* Alerts */}
+      {/* The price sheet read, named — not "Please try again". */}
+      <QueryFailureNotice
+        errors={[modulesQuery.error]}
+        hasContent={availableModules.length > 0}
+        onRetry={() => void modulesQuery.refetch()}
+      />
+
       {error && (
         <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800">
           <div className="text-error-700 dark:text-error-300">{error}</div>
@@ -532,7 +565,10 @@ const CustomPlanBuilderPage: React.FC = () => {
                                     updateModuleQuantity(
                                       selectedModule.moduleCode,
                                       field,
-                                      parseInt(e.target.value) || 0,
+                                      parseQuantity(
+                                        e.target.value,
+                                        selectedModule.quantities[field] ?? 0,
+                                      ),
                                     )
                                   }
                                 />

@@ -510,7 +510,9 @@ export function AccountPage(): JSX.Element {
                   {roleBadge.label}
                 </span>
                 {userTenantId && (
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Tenant: {userTenantId}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                    Tenant: {userTenantId}
+                  </span>
                 )}
               </div>
             </div>
@@ -693,7 +695,6 @@ export function AccountPage(): JSX.Element {
         <p className="text-xs text-gray-400 dark:text-gray-500">App Version: {APP_VERSION}</p>
         <p className="text-xs text-gray-400 dark:text-gray-500">Last synced: {lastSyncLabel}</p>
       </div>
-
 
       {/* ================================================================
           Confirmation Dialogs

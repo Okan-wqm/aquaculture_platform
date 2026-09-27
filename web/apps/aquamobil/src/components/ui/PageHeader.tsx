@@ -25,14 +25,29 @@ const TONES = {
   cyan: { bar: 'from-cyan-600 to-cyan-500', hub: 'from-cyan-700 via-cyan-600 to-cyan-500' },
   teal: { bar: 'from-teal-600 to-teal-500', hub: 'from-teal-700 via-teal-600 to-teal-500' },
   green: { bar: 'from-green-600 to-green-500', hub: 'from-green-700 via-green-600 to-green-500' },
-  emerald: { bar: 'from-emerald-600 to-emerald-500', hub: 'from-emerald-700 via-emerald-600 to-emerald-500' },
+  emerald: {
+    bar: 'from-emerald-600 to-emerald-500',
+    hub: 'from-emerald-700 via-emerald-600 to-emerald-500',
+  },
   gray: { bar: 'from-gray-600 to-gray-500', hub: 'from-gray-700 via-gray-600 to-gray-500' },
   amber: { bar: 'from-amber-600 to-amber-500', hub: 'from-amber-700 via-amber-600 to-amber-500' },
-  orange: { bar: 'from-orange-600 to-orange-500', hub: 'from-orange-600 via-orange-500 to-amber-500' },
+  orange: {
+    bar: 'from-orange-600 to-orange-500',
+    hub: 'from-orange-600 via-orange-500 to-amber-500',
+  },
   red: { bar: 'from-red-600 to-red-500', hub: 'from-red-700 via-red-600 to-red-500' },
-  violet: { bar: 'from-violet-600 to-violet-500', hub: 'from-violet-700 via-violet-600 to-violet-500' },
-  purple: { bar: 'from-purple-600 to-purple-500', hub: 'from-purple-700 via-purple-600 to-violet-500' },
-  indigo: { bar: 'from-indigo-600 to-indigo-500', hub: 'from-indigo-700 via-indigo-600 to-indigo-500' },
+  violet: {
+    bar: 'from-violet-600 to-violet-500',
+    hub: 'from-violet-700 via-violet-600 to-violet-500',
+  },
+  purple: {
+    bar: 'from-purple-600 to-purple-500',
+    hub: 'from-purple-700 via-purple-600 to-violet-500',
+  },
+  indigo: {
+    bar: 'from-indigo-600 to-indigo-500',
+    hub: 'from-indigo-700 via-indigo-600 to-indigo-500',
+  },
 } as const;
 
 export type PageHeaderTone = keyof typeof TONES | 'plain';
@@ -102,7 +117,9 @@ export function PageHeader({
               aria-label={backLabel}
               className={clsx(
                 'min-h-touch min-w-touch -ml-2 flex shrink-0 items-center justify-center rounded-xl touch-feedback transition-colors',
-                plain ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : 'hover:bg-white/10 dark:hover:bg-gray-800/10',
+                plain
+                  ? 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  : 'hover:bg-white/10 dark:hover:bg-gray-800/10',
               )}
             >
               <ArrowLeft size={22} />
@@ -119,7 +136,12 @@ export function PageHeader({
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold tracking-tight truncate">{title}</h1>
             {subtitle && (
-              <p className={clsx('text-xs truncate', plain ? 'text-gray-500 dark:text-gray-400' : 'text-white/80')}>
+              <p
+                className={clsx(
+                  'text-xs truncate',
+                  plain ? 'text-gray-500 dark:text-gray-400' : 'text-white/80',
+                )}
+              >
                 {subtitle}
               </p>
             )}

@@ -188,12 +188,48 @@ Aliasing to it would demand a field that does not arrive, so `support.ts` keeps 
 fold in when it is done: `api/support.ts` declares a fourth inline copy of the shape, and
 `TicketsPage.fetchComments` hand-remaps it field by field with `as string` casts.
 
-### One thing checked and found NOT to be a defect
+**CLOSED 2026-09-10 by W9s**, exactly that way. `TicketCommentResponseDto` and
+`TicketCommentPageDto` type the endpoint; `SupportTicket.comments` and `TicketComment.ticket` carry
+`@ApiHideProperty()`, because no read path loads either and the schema had listed `comments` among
+the REQUIRED fields of every ticket; `services/types/support.ts` aliases the contract; and both
+adjacent items folded in as predicted — the inline copy in `api/support.ts` and the hand-remapping
+in the page are gone. The `TRACKED_SHADOWS` allowlist in
+`tests/invariants/admin-panel-contract-shadowing.spec.ts` is empty as a result, which is how that
+entry was always meant to leave.
 
-`getComments` returns `PaginationResultV1<TicketComment>`, an envelope, while the client types it as
-a bare array and calls `.map` on the result. That reads like a guaranteed TypeError. It is not:
-`apiFetch` unwraps `envelope.data` before returning. Recorded because the shape invites the
-conclusion and the next reader should not have to re-derive it.
+### One thing checked and found NOT to be a defect — **CORRECTED 2026-09-10, it was one**
+
+> **This section was wrong.** It is kept, with the correction below it, because a review that
+> quietly deletes its own mistaken clearance teaches nothing. ADMIN-CRITICAL-156 closes the defect
+> this section cleared.
+
+The original note read:
+
+> `getComments` returns `PaginationResultV1<TicketComment>`, an envelope, while the client types it
+> as a bare array and calls `.map` on the result. That reads like a guaranteed TypeError. It is not:
+> `apiFetch` unwraps `envelope.data` before returning.
+
+`apiFetch` has **two** return paths, and that reasoning used the wrong one. Traced end to end
+(ADMIN-CRITICAL-156):
+
+1. `ResponseInterceptor.pageEnvelope` (`shared/response.interceptor.ts:133`) sends
+   `{success, data: page.items, meta: {...paginationMetadataV1(page), timestamp}}` — so
+   `envelope.data` is the array and `envelope.meta` carries the six pagination fields.
+2. `apiFetch` tests `isPaginationMetadataV1(envelope.meta) && Array.isArray(envelope.data)` FIRST
+   (`http-client.ts:321`). `isPaginationMetadataV1` validates only those six keys and their
+   derivation (`pagination-contracts/src/index.ts:204`), so the extra `timestamp` does not fail it.
+   Both conditions hold.
+3. That branch returns `{data, total, page, limit, totalPages, hasNextPage, hasPreviousPage}` — an
+   **object**. The `return envelope.data` the note relied on is the `else`, and it never runs for a
+   paginated route.
+
+So `(data || []).map(...)` in `TicketsPage.fetchComments` ran `.map` on an object and threw a
+`TypeError`, which the handler's `catch` sent to `console.error`. Every ticket's comment thread
+rendered "No comments yet", on every ticket, silently.
+
+The indirect evidence was available at the time and points the same way: every other paginated
+admin client declares `PaginatedResult<T>` and reads `.data`, which is only correct **because** that
+first branch fires. `TicketComment` was the one client that declared a bare array.
 
 ### Verification of the ADMIN-MEDIUM-111 closure
 

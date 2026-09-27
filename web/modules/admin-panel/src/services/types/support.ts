@@ -2,7 +2,7 @@
  * Support domain types (Tickets, Messaging, Announcements, Onboarding)
  */
 
-import type { ApiSchema } from '../contract';
+import type { ApiQuery, ApiSchema } from '../contract';
 
 // ============================================================================
 // Ticket Types
@@ -40,33 +40,25 @@ export type SupportTicket = ApiSchema<'SupportTicket'>;
 export type TicketCommentAuthorType = 'admin' | 'tenant_user' | 'system';
 
 /**
- * A ticket comment, as `GET /support/tickets/:id/comments` returns it.
+ * A ticket comment, as `GET /support/tickets/:id/comments` returns it
+ * (ADMIN-MEDIUM-114, closed).
  *
- * DELIBERATELY NOT sourced from the contract, and the reason is a defect in the
- * OTHER direction from the rest of ADMIN-MEDIUM-111. `TicketController
- * .getComments` declares no return type, so the swagger plugin inferred the
- * ENTITY, and the contract's `TicketComment` therefore requires a `ticket`
- * property carrying a whole `SupportTicket`. The service's `findAndCount` loads
- * no relations, so that property is never in the response: the contract
- * OVERSTATES what the endpoint sends, and aliasing to it would demand a field
- * that does not arrive.
+ * This was hand-written, and the note here said why: `TicketController
+ * .getComments` declared no return type, so the swagger plugin inferred the
+ * ENTITY and the contract's `TicketComment` required a whole `SupportTicket`
+ * inside every comment — a field `findAndCount` never loads. Aliasing to it
+ * would have demanded data that does not arrive.
  *
- * Fixing it means giving the endpoint an explicit response DTO — a
- * response-shape change with its own review — tracked as ADMIN-MEDIUM-114.
- * Until then this stays hand-written, which is the honest state.
+ * The endpoint has a response DTO now (`TicketCommentPageDto`), so this is
+ * derived. What the hand-written version got wrong while it stood: it declared
+ * a FLAT ARRAY where the route returns a PAGE, so `(data || []).map(...)` ran
+ * `.map` on an object and threw into a `console.error` — every ticket's
+ * comment thread rendered empty, silently (ADMIN-CRITICAL-156).
  */
-export interface TicketComment {
-  id: string;
-  ticketId: string;
-  authorId: string;
-  authorType: TicketCommentAuthorType;
-  authorName?: string;
-  content: string;
-  isInternal: boolean;
-  attachments?: TicketAttachmentInfo[];
-  emailSent?: boolean;
-  createdAt: string;
-}
+export type TicketComment = ApiSchema<'TicketCommentResponseDto'>;
+
+/** One page of a ticket's comments. */
+export type TicketCommentPage = ApiSchema<'TicketCommentPageDto'>;
 
 export interface TicketReply {
   id: string;
@@ -80,39 +72,72 @@ export interface TicketReply {
   createdAt: string;
 }
 
-export interface TicketStats {
-  total: number;
-  open: number;
-  inProgress: number;
-  waitingCustomer?: number;
-  resolved: number;
-  closed?: number;
-  avgFirstResponseMinutes?: number;
-  avgResolutionMinutes?: number;
-  avgResponseTime?: number;
-  avgResolutionTime?: number;
-  slaBreachCount?: number;
-  avgSatisfactionRating?: number;
-  satisfactionScore?: number;
-  byCategory?: Array<{ category: string; count: number }>;
-  byPriority?: Array<{ priority: string; count: number }>;
-}
+/**
+ * The ticket aggregate, from the contract (ADMIN-CRITICAL-156).
+ *
+ * The hand-written version declared TWENTY fields where the endpoint sends
+ * ten: half were optional aliases the server has never sent
+ * (`avgResponseTime`, `avgResolutionTime`, `satisfactionScore`, `byCategory`,
+ * `byPriority` — the last two are separate endpoints), and the four real
+ * averages were marked optional. That is where `TicketsPage`'s `a || b || 0`
+ * chains and its `slaBreachCount ? … : 100` came from: the type said the truth
+ * might be missing, so the page invented a value for when it was.
+ *
+ * The three averages are NULLABLE here because they are null on the wire when
+ * there is nothing to average — no first response yet, nothing resolved,
+ * nobody has rated. A page must render an em dash for those, not a zero.
+ */
+export type TicketStats = ApiSchema<'TicketStatsResponseDto'>;
 
 // ============================================================================
 // Messaging Types
 // ============================================================================
 
-export type MessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
-export type MessageStatus = 'sent' | 'delivered' | 'read';
 export type ThreadStatus = 'open' | 'closed' | 'archived';
 
-export interface SupportMessageAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-  mimeType: string;
-}
+/**
+ * One `admin.messages` row, as `/support/messages` returns it
+ * (ADMIN-CRITICAL-157).
+ *
+ * SOURCED from the contract, because the hand-written copy disagreed with the
+ * server on all three fields that decide what the operator sees, and the panel
+ * only has one messaging page — so all three defects were live at once:
+ *
+ *  - `senderType` was `'super_admin' | 'tenant_admin' | 'system'`. That is the
+ *    OTHER messaging stack's union (see {@link GraphQLSupportMessage});
+ *    admin-api writes `'admin'`. `MessagingPage`'s `senderType ===
+ *    'super_admin'` test was therefore false for every message ever written:
+ *    the platform's own replies drew left-aligned in tenant styling, and the
+ *    read receipt keyed on that same test never drew at all.
+ *  - `status` omitted `'failed'`, so a message that failed to send drew as one
+ *    that had been sent and not yet read.
+ *  - the attachment fields were `filename` and `size`; the wire carries
+ *    `fileName` and `fileSize`. Every attachment rendered as a nameless link
+ *    reading "NaN MB".
+ *
+ * Two of these were unrepresentable defects, not typos — a union member the
+ * server cannot send and a field name it does not use — which is exactly what
+ * sourcing from the contract makes a compile error.
+ */
+export type SupportMessageAttachment = ApiSchema<'MessageAttachmentResponseDto'>;
+export type SupportMessage = ApiSchema<'SupportMessageResponseDto'>;
+export type MessageSenderType = SupportMessage['senderType'];
+export type MessageStatus = SupportMessage['status'];
+
+/** One page of a thread's messages, with the total the bare array never sent. */
+export type SupportMessagePage = ApiSchema<'SupportMessagePageDto'>;
+
+/** The messaging rollup. `avgResponseTimeMinutes` is null when nothing has been answered. */
+export type MessagingStats = ApiSchema<'MessagingStatsResponseDto'>;
+
+/** What a broadcast actually did — `failed > 0` is a partial send. */
+export type BulkMessageResult = ApiSchema<'BulkMessageResultDto'>;
+
+/**
+ * Who a broadcast reaches. Required on the request, and `{}` is a MEANING —
+ * every active tenant — not an omission (ADMIN-CRITICAL-157).
+ */
+export type BulkMessageAudience = ApiSchema<'BulkMessageAudienceDto'>;
 
 /**
  * @deprecated Use {@link SupportMessageAttachment} instead.
@@ -120,25 +145,50 @@ export interface SupportMessageAttachment {
  */
 export type MessageAttachment = SupportMessageAttachment;
 
-export interface SupportMessage {
-  id: string;
-  threadId: string;
-  senderId: string;
-  senderType: MessageSenderType;
-  senderName: string;
-  content: string;
-  status: MessageStatus;
-  isInternal: boolean;
-  attachments: SupportMessageAttachment[] | null;
-  readAt: string | null;
-  createdAt: string;
-}
-
 /**
  * @deprecated Use {@link SupportMessage} instead.
  * Kept temporarily for backward compatibility with REST-based code.
  */
 export type Message = SupportMessage;
+
+/**
+ * A message from the OTHER support-messaging stack — auth-service's GraphQL
+ * subgraph, which owns its own threads and messages and is reached through
+ * `useMessaging` / `graphql/messaging-operations.ts`.
+ *
+ * NAMED for the subgraph it comes from, deliberately, for the same reason
+ * {@link GraphQLSupportThread} is: one name over two unrelated shapes is how
+ * the REST message shape came to be declared with the GraphQL stack's
+ * `senderType` union (ADMIN-CRITICAL-157). auth-service really does write
+ * `SenderType.SUPER_ADMIN`
+ * (`apps/auth-service/src/modules/messaging/services/messaging.service.ts:216`);
+ * admin-api really does write `'admin'`. Both are correct about their own
+ * table, and neither is correct about the other's.
+ */
+export type GraphQLMessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
+export type GraphQLMessageStatus = 'sent' | 'delivered' | 'read';
+
+export interface GraphQLMessageAttachment {
+  id: string;
+  filename: string;
+  url: string;
+  size: number;
+  mimeType: string;
+}
+
+export interface GraphQLSupportMessage {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderType: GraphQLMessageSenderType;
+  senderName: string;
+  content: string;
+  status: GraphQLMessageStatus;
+  isInternal: boolean;
+  attachments: GraphQLMessageAttachment[] | null;
+  readAt: string | null;
+  createdAt: string;
+}
 
 /**
  * The GraphQL support thread, as the messaging subgraph declares it.
@@ -206,6 +256,17 @@ export type MessageThreadSummary = ApiSchema<'ThreadSummaryDto'>;
  */
 export type SupportThreadRecord = ApiSchema<'MessageThread'>;
 
+/**
+ * The thread row `POST /support/messages/threads` replies with.
+ *
+ * Distinct from {@link SupportThreadRecord} by ONE field: `createThread` saves
+ * the row and returns it, so the `messages` relation is not loaded, while
+ * `GET /support/messages/threads/:id` does load it. Inferring both from the
+ * entity made the create reply demand a `messages` array that never arrives
+ * (ADMIN-CRITICAL-157).
+ */
+export type CreatedMessageThread = ApiSchema<'CreatedMessageThreadDto'>;
+
 // ============================================================================
 // Announcement Types
 // ============================================================================
@@ -224,6 +285,54 @@ export type SupportThreadRecord = ApiSchema<'MessageThread'>;
 export type Announcement = ApiSchema<'Announcement'>;
 export type AnnouncementType = Announcement['type'];
 export type AnnouncementStatus = Announcement['status'];
+
+/**
+ * What `POST /support/announcements` accepts (ADMIN-HIGH-145).
+ *
+ * This was previously derived by SUBTRACTION from the read shape —
+ * `Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' |
+ * 'updatedAt'>` — and `acknowledgedCount` is not one of its keys; the field is
+ * `acknowledgmentCount`. So the subtraction removed nothing there, and the
+ * create type went on requiring `status`, `acknowledgmentCount` and a full
+ * `acknowledgments` roster, none of which `CreateAnnouncementDto` accepts. The
+ * page compiled only by casting its form output, and the compiler could no
+ * longer tell it which fields the endpoint actually wants.
+ *
+ * A create payload is its own contract, not a read shape minus guesses.
+ */
+export type CreateAnnouncementInput = ApiSchema<'CreateAnnouncementDto'>;
+
+/**
+ * What `PUT /support/announcements/:id` accepts. Every field optional, as the
+ * DTO declares them — `Partial<Announcement>` would have offered `status`,
+ * `viewCount` and `acknowledgmentCount`, which the endpoint ignores, so a
+ * caller could believe it had reset a counter.
+ */
+export type UpdateAnnouncementInput = ApiSchema<'UpdateAnnouncementDto'>;
+
+/**
+ * The aggregate behind the header strip, as `GET /support/announcements/stats`
+ * declares it. `byType` has the four keys the backend enum has — the previous
+ * hand-written copy widened it to `Record<string, number>`.
+ */
+export type AnnouncementStats = ApiSchema<'AnnouncementStatsResponseDto'>;
+
+/** One roster row: a view, and possibly an acknowledgment, by one user. */
+export type AnnouncementAcknowledgment = ApiSchema<'AnnouncementAcknowledgment'>;
+
+/** The roster of an announcement, with its two counters. */
+export type AnnouncementAcknowledgmentStatus =
+  ApiSchema<'AnnouncementAcknowledgmentStatusDto'>;
+
+/**
+ * The query string `GET /support/announcements` accepts, bound to the route.
+ *
+ * The hand-built version declared `isPublished` — a parameter this controller
+ * has never had — and omitted `status`, the only filter the page actually
+ * sends. A query key the server does not know is not an error; it is ignored
+ * (the ADMIN-HIGH-123 class), so the two could never disagree loudly.
+ */
+export type AnnouncementListQuery = ApiQuery<'AnnouncementController_getAllAnnouncements'>;
 
 export interface AnnouncementTarget {
   tenantIds?: string[];

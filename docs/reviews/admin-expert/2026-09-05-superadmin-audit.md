@@ -823,16 +823,929 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 21 pages, in three domain batches (tenant 1, billing 11,
-messaging 9 — the system batch is finished), governed by
-`.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
-contract for server-side pagination, sort and dataset-scoped aggregates follows
-the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
-page that reaches the network without the data layer is listed with owner,
-expiry and reason under a ceiling that only decreases; every module-scoped cache
-in `web/` reaches the logout authority; `@tanstack/react-query` is declared
-wherever it is imported, at the federation-pinned version; the barrel keeps
-exporting the primitives.
+**Remaining: none.** All 44 pages have moved. The ratchet ran from 44 to 0
+across W8b–W9t, each departure carrying its own finding, and
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml` was **deleted** with its
+last entry (`MessagingPage`, ADMIN-CRITICAL-157) rather than left at
+`ceiling: 0` — an empty allowlist is an invitation to add a row. The
+`AdminTable` contract for server-side pagination, sort and dataset-scoped
+aggregates follows the migration. **Gate:**
+`tests/invariants/admin-panel-data-layer.spec.ts` — a page that reaches the
+network outside the data layer now **fails the build**, with no exception
+mechanism; every module-scoped cache in `web/` reaches the logout authority;
+`@tanstack/react-query` is declared wherever it is imported, at the
+federation-pinned version; the barrel keeps exporting the primitives.
+
+## ADMIN-CRITICAL-157 — the internal note delivered to the customer
+
+**State:** OPEN → closed by W9t · **Wave:** W9t · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`MessagingPage` is the platform's one admin↔tenant conversation surface, and it
+is the last page of ADMIN-HIGH-121's ratchet. Eight defects, seven of them
+invisible to the operator.
+
+1. **The internal-note toggle was never sent.** The composer had a working
+   Internal Note / Public Message switch, styled the draft yellow, and posted
+   `{ content, senderName }` — no `isInternal`. `AddMessageDto` accepts the
+   field and the column defaults to `false`, so **every internal note an admin
+   ever wrote _about_ a customer was delivered _into_ that customer's own
+   support thread**, visible to them.
+2. **Every broadcast answered 400.** The Bulk Message dialog previewed _"This
+   message will be sent to all active tenants"_ and sent neither `tenantIds`
+   nor `targetCriteria` — the one body `sendBulkMessage` refuses. The refusal
+   went to `console.error`, so the dialog just sat there. No broadcast this
+   platform ever attempted was delivered.
+3. **A partial broadcast read as a complete one.** The reply carries
+   `{ sent, failed }`; the client declared it `void` and the page discarded it,
+   so 3 of 400 would have closed the dialog exactly like 400 of 400.
+4. **The platform's own replies rendered as the tenant's.** Alignment, bubble
+   colour and the read receipt were keyed on `senderType === 'super_admin'`.
+   admin-api writes `'admin'`; `'super_admin'` belongs to auth-service's
+   GraphQL messaging subgraph — a **different support stack** whose union the
+   panel's hand-written type had adopted. The test was false for every message
+   ever written, and no receipt ever drew.
+5. **A failed send drew as an unread one** — `'failed'` was missing from the
+   panel's status union.
+6. **Every attachment was a nameless "NaN MB" link** — the wire sends
+   `fileName` / `fileSize`, the page read `filename` / `size`.
+7. **Every message was signed "Admin"** — a literal the page sent beside a
+   `// TODO: Use actual admin name`, and both handlers preferred
+   `dto.senderName` over the authenticated user. The same class
+   ADMIN-CRITICAL-102 fixed for ticket creation.
+8. **A thread past 50 messages showed its oldest 50, silently.** `getMessages`
+   took `page` / `limit`, defaulted the limit to 50 and returned a **bare
+   array** — the total never left the server — under a header printing the real
+   `messageCount` from another query.
+
+Also fixed: six writes and two reads were swallowed into `console.error` (send,
+close, reopen, archive, create thread, broadcast; the stats read and
+mark-as-read), and mark-as-read shared one `try` with the message read so a
+refused acknowledgement was indistinguishable from a failed load;
+`calculateAvgResponseTime` returned `Math.round(avg || 0)`, so a platform that
+had never answered a tenant reported an average response time of **0 minutes**;
+and the new-conversation dialog took the tenant as a free-text UUID, where a
+valid-but-wrong id opens a support conversation against a tenant nobody meant
+to contact (the ADMIN-HIGH-153 class).
+
+**The fixes are structural.** `senderName` is **removed** from both request
+DTOs, so the wrong attribution is unrepresentable and `forbidNonWhitelisted`
+rejects a request that tries. `targetCriteria` becomes the single **required**
+audience field, described by a `BulkMessageAudienceDto` class — the
+`AnnouncementTarget` interface it replaced generated
+`Record<string, never>`, the plugin describing classes only — and it carries
+only the clauses `getTargetTenants` actually applies, because an audience
+filter that narrows nothing is the same lie in a different place.
+`getMessages` returns `createStandardPaginatedResult`;
+`avgResponseTimeMinutes` is nullable. `SupportMessageResponseDto`,
+`SupportMessagePageDto`, `MessagingStatsResponseDto`, `BulkMessageResultDto`
+and `CreatedMessageThreadDto` are declared so the panel **aliases the
+contract** instead of hand-writing it — which is what turned defects 4, 5 and 6
+into compile errors. The page moved to `useAdminQuery` / `useAdminMutation`
+with `QueryFailureNotice` and `TenantSelect`.
+
+## ADMIN-CRITICAL-156 — a comment thread that was always empty, and always silent
+
+**State:** OPEN → closed by W9s · **Wave:** W9s · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Also **closes ADMIN-MEDIUM-114**, which had tracked the missing comments DTO.
+This is what the gap cost while it stood.
+
+1. **Every ticket's comment thread rendered empty, silently.**
+   `GET /support/tickets/:id/comments` returns
+   `createStandardPaginatedResult`; the client declared a **flat array**, so
+   `(data || []).map(...)` called `.map` on the decoded page object, threw a
+   `TypeError`, and `fetchComments`'s `catch` wrote it to `console.error`. On
+   every ticket. An admin opened a ticket, saw no messages, and replied to a
+   customer whose messages were in the database.
+2. **The stats type invented ten fields.** The endpoint sends ten required
+   numbers; the client declared twenty — half optional aliases the server has
+   never sent (`avgResponseTime`, `avgResolutionTime`, `satisfactionScore`,
+   `byCategory`, `byPriority`) and the four real averages marked optional.
+   That is where the page's `a || b || 0` chains came from, and where
+   `slaBreachCount ? … : 100` came from: a fabricated **100% SLA compliance**
+   for when the field was "missing".
+3. **Three cards measured an absence.** `getTicketStats` returned `0` when
+   there was nothing to average, so a platform that had answered no ticket
+   showed _"Avg Response: 0m"_ — instant — and one nobody had rated showed a
+   ★ 0. The three are `null` on the wire now, and an em dash in the page.
+4. **Every queue row's message badge read 0** —
+   `commentCount: 0, // Not provided by API`.
+5. **All four writes failed silently** — assign, status, priority, comment —
+   each into `console.error`, then a refetch showing the unchanged ticket.
+6. **The SLA rate printed its float tail**: three breaches over seven tickets
+   rendered `57.142857142857146%`.
+
+Also fixed: `SupportTicket.comments` and `TicketComment.ticket` are hidden
+from the contract with `@ApiHideProperty` — no read path loads either, yet the
+schema listed `comments` among the **required** fields of every ticket, each
+comment carrying a whole `SupportTicket` back, so a client typed from the
+artifact had to fabricate the field to compile (**that** is what had blocked
+ADMIN-MEDIUM-114); the resolution deadline now prefers the server's own
+`dueAt` and only derives from `createdAt + slaResolutionMinutes` when there is
+none, where the previous order was inverted; the attachment button in the reply
+box had no `onClick` at all and is removed per ADMIN-HIGH-011; and the two
+action selects gained accessible names.
+
+## ADMIN-CRITICAL-154 — a glossary presented as a tenant's live PLC actuation policy
+
+**State:** OPEN → closed by W9r · **Wave:** W9r · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The page's own docblock stated the rule it broke:
+
+> **LIFE-SAFETY (C9):** This page reflects autonomous PLC actuation policy. It
+> MUST show real backend state, not hardcoded defaults.
+
+and its red banner told the operator:
+
+> The actuation policy and autonomous safety limits shown below are loaded from
+> the real backend TenantAgentConfig entity. **These are not display-only
+> values** — they directly control what the AI can do to physical
+> infrastructure. Always verify actuation policies match your operational
+> requirements.
+
+**Nothing on the page was ever read from `TenantAgentConfig`.** The two
+sections headed _"(from TenantAgentConfig)"_ were a static glossary typed into
+the file: `ACTUATION_POLICY_INFO` describes what the three policy _values_
+mean, and the safety-limits table lists _field names_ with their descriptions.
+`GET /messaging/personas` returns
+`{id, name, description, icon, color, capabilities}` — no policy, no limits —
+and admin-api has **no route, no NATS call and no reference** to
+`TenantAgentConfig`, `actuationPolicy` or `autonomousSafetyLimits` anywhere in
+the service.
+
+So an operator who came here to verify that a tenant's SCADA AI cannot
+autonomously dose reagent was shown a glossary, told it was that tenant's live
+configuration, and instructed to verify against it. This is a fabricated
+**provenance** rather than a fabricated number, on the surface that governs
+autonomous control of physical equipment — which is why it outranks every other
+finding in this audit.
+
+W9r removes the claim. The banner states that the page does **not** show a
+tenant's actuation policy and that admin-api cannot read the entity; both
+reference sections are relabelled for what they are; capability labels are
+headed "descriptive, not permissions"; and a panel where an operator looks for
+the effective policy states the gap and names ADMIN-HIGH-155 — deliberately
+**empty** rather than filled with a default, because a default there reads as a
+policy.
+
+Also fixed: admin-api's `PersonaResponse` declared `id: string` where the reply
+sends `string | null`, invented an `isActive`, and omitted `icon`, `color` and
+`capabilities` (the panel's hand-written type was the more accurate of the
+two); the table declared four headers and rendered three cells, so the "Scope"
+column was empty; and the tenant was an unvalidated free-text UUID box.
+
+**Not done, and tracked:** building the read path is ADMIN-HIGH-155. It crosses
+into ai-service, which this wave has not otherwise touched, and a life-safety
+read path warrants its own review rather than being bundled into a page
+migration.
+
+## ADMIN-HIGH-155 — no platform-admin read path to a tenant's AI actuation policy
+
+**State:** OPEN · **Wave:** unscheduled · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tracked half of ADMIN-CRITICAL-154. `TenantAgentConfig` holds
+`actuationPolicy`, `autonomousSafetyLimits`, `autonomousActionsEnabled` and
+`proactiveMonitoringEnabled` — the settings that decide what a tenant's AI may
+do to physical equipment. admin-api has no path to it: ai-service exposes
+exactly one admin-reachable responder (`request.ai.isEnabled`) and admin-api
+does not call even that. A SUPER_ADMIN therefore cannot see, from the
+platform-admin boundary, whether any tenant's AI is permitted to actuate.
+
+What must be **built**:
+
+1. A read-only NATS responder in ai-service returning the **effective**
+   per-tenant agent config, resolved the way `AgentProfileService` resolves it
+   at runtime (most-restrictive-wins between the persona base policy and the
+   tenant override) — the effective policy, not the raw row, which would be a
+   third thing to misread.
+2. An admin-api route in front of it with a response DTO class, so the artifact
+   describes it and the panel derives its type.
+3. The panel's empty "Effective actuation policy for this tenant" filled from
+   it, with an em dash wherever a field is null.
+
+Until it lands the panel says so and names this finding. That is the honest
+state; it is not the finished state.
+
+## ADMIN-HIGH-153 — the GDPR export that was fetched and thrown away
+
+**State:** OPEN → closed by W9q · **Wave:** W9q · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`POST /messaging/tenants/:id/export` performs the export **inside the
+request**: `DataExportService.exportTenant` serialises the rows to JSON or CSV
+and returns them as `data`, alongside
+`{jobId, status: 'completed', format, recordCount, isUnderLegalHold,
+exportedAt}`. Nothing stores that payload server-side and there is no second
+endpoint to fetch it from, so **the response is the only copy that will ever
+exist**.
+
+admin-api declared the reply as `{ exportId: string; status: string }` —
+`exportId` is a field the reply does not have (it is `jobId`), and five were
+missing, `data` above all. The panel's hand-written type listed six of the
+seven and also omitted `data`. So the page rendered _"Export job accepted /
+Records: 12,431"_ and **threw the export away**. An operator answering an
+Art 20 portability request ran it, watched it succeed, and had no file.
+
+That is also why ADMIN-HIGH-148 found nothing to list: nothing was ever kept.
+
+Three smaller defects went with it:
+
+- **202 Accepted for work already finished**, which is why the page's own copy
+  told the operator the job "runs asynchronously". It is 200 now, and the DTO
+  and the copy both say the export happens in the request.
+- **A free-text UUID box for the tenant.** A valid-but-wrong id exports a
+  _different_ tenant's entire messaging history, on an endpoint that returns
+  the whole of it. `TenantSelect` removes the class.
+- **A second cache with no abort signal** on the overview read, with
+  hand-written response shapes (closed by ADMIN-MEDIUM-152).
+
+The page downloads the file through `saveBlob` with the right MIME type and
+extension, states the record count and the legal-hold flag the export came back
+with, and points at the compliance-log entry: the export is audited as
+`message_export` — one of the four actions `MessagingAuditPage`'s filter could
+never match before ADMIN-CRITICAL-150.
+
+## ADMIN-MEDIUM-152 — the one page in the batch that was already honest
+
+**State:** OPEN → closed by W9p · **Wave:** W9p · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Registered as MEDIUM, and the reason is on the record: `MessagingMonitoringPage`
+was **not** lying. Every KPI already rendered an em dash until the aggregate
+arrived, the outbox panel rendered only when it had one,
+`oldestPendingAgeSeconds === null` already showed a dash rather than "0s", the
+error banner already carried the server's own message with a retry, and the
+freshness note already said the numbers were the aggregation's rather than the
+request's. ADMIN-HIGH-009 wrote both sides of this contract together and they
+still agree field for field. Registering a HIGH here would inflate the ledger
+this audit exists to keep honest.
+
+What is real, and now fixed:
+
+- **Both aggregates carried no schema.** `GET /messaging/monitoring/stats` and
+  `GET /messaging/tenants` were typed by **interfaces** inside the controller,
+  and the swagger plugin describes classes only — so both were
+  `{"type": "object"}` in the artifact and the panel had nothing to derive
+  from. It hand-wrote five shapes. They are DTO classes now and the frontend
+  aliases them through `ApiSchema`, which closes the drift **before** it
+  happened rather than after — every other page in this audit that hand-wrote a
+  response type had already drifted from it (ADMIN-HIGH-110,
+  ADMIN-MEDIUM-111, ADMIN-CRITICAL-150, ADMIN-CRITICAL-151).
+- **One sentence did assert something.** The tenant chart's empty state read
+  _"No tenant messaging activity recorded yet."_ on a FAILED read as well as an
+  empty one.
+- **The read sat in a second cache with no abort signal**, so leaving the page
+  could not cancel it. It is on `useAdminQuery` now, with `staleTime` matching
+  messaging-service's own 60-second cache, so the page does not re-request a
+  number that cannot have changed.
+- **`ErrorBanner` was a fourth local copy** of `QueryFailureNotice`, and is
+  gone.
+
+## ADMIN-CRITICAL-151 — a deletion window the page said it had set, and had not
+
+**State:** OPEN → closed by W9o · **Wave:** W9o · **Owner:** okan
+**Deadline:** 2026-12-31
+
+This page decides how long a tenant's messages survive. All three of its paths
+were broken, and two of them silently.
+
+1. **"+ Override" was a no-op that looked like a success.** The modal
+   collected a channel id and a retention window; `handleAddOverride`
+   discarded all three of its arguments (`_tenantId`, `_channelId`,
+   `_retentionDays`), refetched the list and closed the modal. The operator
+   set a channel's deletion window and the UI behaved exactly as if it had
+   been written. Its comment said the endpoint was _"not yet available in
+   admin gateway"_ — and `UpdateRetentionPolicyDto` has taken
+   `{ channelId, retentionDays }` all along, with `channelId` documented
+   _"null means the policy applies to every channel of the tenant"_. The
+   capability existed; only the wiring did not.
+2. **"Edit" could never save.** It sent
+   `{ defaultRetention: '1y', applyToAll: true }` — neither key on the DTO,
+   under `forbidNonWhitelisted: true`, with no `retentionDays`: refused twice
+   over. It also addressed the route with the **policy** id where the path
+   parameter is the **tenant** id, so a well-formed body would still have
+   answered `Tenant <policy-uuid> not found`.
+3. **The list could never load, and would have crashed if it had.** The route
+   requires `tenantId` and the client sent none (the third instance of
+   ADMIN-HIGH-149's consequence), so the table drew _"No tenant retention
+   policies configured. Retention policies will appear once tenants enable
+   messaging."_ The row type declared nine fields, **seven invented** —
+   including `defaultRetention` as one of four labels where the wire carries a
+   number of days, and three counts rendered through `.toLocaleString()`.
+4. **"Indefinite" was offered and could not be sent.**
+   `RetentionPolicy.retentionDays` documents `-1` as indefinite and
+   `executeRetentionCleanup` skips those policies
+   (`retention-policy.service.ts:221`) — but the DTO's `@Min(1)` refused it.
+   The one window an operator picks for a legal-preservation channel was the
+   one the API rejected. Fixed **in the DTO**
+   (`@Min(-1) @NotEquals(0) @Max(3650)`), not by removing the option: the
+   state is real and the nightly job honours it. Zero stays refused — zero
+   days would ask the cleanup to delete everything the moment it runs.
+
+W9o also corrects admin-api's `RetentionPolicyResponse` (four of seven fields),
+takes a tenant through `TenantSelect`, reads through `useAdminQuery` keyed per
+tenant, writes through `useAdminMutation` invalidating that key, warns only
+when a window is actually **shortened**, validates the channel UUID at the
+field the DTO validates, and says "Not set" where no policy row exists rather
+than showing a number it did not read.
+
+**Gates:** `apps/admin-api-service/src/messaging/__tests__/update-retention-policy.dto.spec.ts`
+pins both directions of the window contract (9 tests: −1 accepted, 0 refused,
+−2 and 3651 refused, the old body shape refused), plus 11 page tests.
+
+## ADMIN-CRITICAL-150 — a forensic trail that could not display a correct row in any state
+
+**State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Seven compounding defects on the platform's record of what was done to
+messaging data.
+
+1. **The default state 400'd.** `GET /messaging/audit` declares
+   `@TenantParam('query') tenantId: string`; the page's tenant box was an
+   optional free-text filter defaulting to `''` and sent as `undefined`. So
+   the page as it opens refused at the pipe — and the table then drew _"No
+   audit entries found. Audit entries will appear once messaging activity
+   begins."_ That second sentence explains an absence the page had not
+   established.
+2. **A valid tenant crashed it.** The route answers
+   `{items, hasMore, cursor, totalCount}`; the client declared
+   `PaginatedResult<T>`, an offset page with a `data` array. `result.data` was
+   `undefined`, `entries` became `undefined`, and the next render threw on
+   `entries.length` — a blank screen where the audit log should be.
+3. **The row type was fiction.** `messaging.compliance_audit_logs` holds
+   `{id, tenantId, userId, action, resourceType, resourceId, details,
+ipAddress, userAgent, createdAt}`. The client declared `timestamp` (so
+   `new Date(entry.timestamp)` was `Invalid Date`), `tenantName` and
+   `userName` (absent — two blank columns), `channelId` and `messageId`
+   (absent), and `details` as a **string** when it is `jsonb | null` — so the
+   cell showed `[object Object]` and the CSV export called `.replace` on an
+   object and **threw**.
+4. **`ipAddress` and `userAgent` were never shown** — the two fields that say
+   where an action came from, on a forensic surface.
+5. **The pager sent parameters the route does not have.** It sent `page` and
+   `pageSize`; the route takes `limit` and `cursor`. Every "page" returned the
+   same first rows and Previous/Next moved nothing.
+6. **No action filter could ever match.** The seven values — `send`, `edit`,
+   `delete`, `create_channel`, `join_channel`, `leave_channel`,
+   `upload_file` — are not members of `ComplianceAction`. Every selection
+   returned nothing, permanently; `ACTION_COLORS` keyed on the same seven so
+   every real row rendered grey; and the four an auditor comes for
+   (`message_export`, `data_anonymize`, `retention_set`,
+   `legal_hold_toggle`) were not offered at all.
+7. **The CSV quoted one field.** A comma in any other value silently shifted
+   every column after it, in a file handed on as the record — and it exported
+   one page of 25 under a filename claiming to be the audit log.
+
+W9n retypes the client to the row and the cursor page the route returns,
+requires the tenant id, corrects admin-api's own under-declared `AuditLogRow`,
+moves the page to `useAdminQuery` keyed by the request (cursor included),
+replaces page numbers with a cursor trail so Previous works, renders
+`resourceType` / `resourceId` / `ipAddress` and jsonb `details`, quotes every
+CSV field and writes the scope and page number into the file, and takes the
+action vocabulary from the entity.
+
+**Gate:**
+`tests/invariants/messaging-compliance-action-parity.spec.ts` pins the frontend
+list to `enum ComplianceAction` **in both directions** and requires every
+member to have a label and a badge. That is the highest tier available: the
+enum belongs to messaging-service, reaches admin-api only as a NATS reply, and
+admin-api may not import another service's source.
+
+## ADMIN-HIGH-149 — 32 routes that refused a parameter their contract never mentioned
+
+**State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`TenantParam` was only a parameter decorator, and the `@nestjs/swagger` plugin
+reads `@Query()` and nothing else. So all **32** query-sourced call sites in
+admin-api documented **no tenant parameter** in `openapi.json` — while
+`VerifiedTenantPipe` refused any request that omitted it with
+`BadRequestException('tenantId is required')`. The artifact described endpoints
+that could never be called successfully from it.
+
+Two pages in this audit are the consequence, not a coincidence:
+ADMIN-CRITICAL-147 and ADMIN-CRITICAL-150 each shipped a call that could only
+ever 400, and each rendered a placeholder in place of the answer.
+
+W9n fixes it at **Tier 2**, at the decorator: `@TenantParam('query')` now
+applies `ApiQuery` to its owning method, so the parameter appears with its
+name, its required flag, `format: uuid` and a description stating whether the
+request is refused without it — for all 32 call sites and every route added
+after this. `'param'` contributes nothing (the route template already declares
+it), `'body'` nothing (`TenantIdCarrier` declares it on the DTO).
+
+**Gate:** `libs/backend-common/src/decorators/__tests__/tenant-param-openapi.spec.ts`
+reads the same metadata key the swagger module reads, over all three sources,
+the custom-key form, the optional form, and two ids on one handler — so a
+refactor back to a bare `createParamDecorator` fails the build. The artifact
+now documents 32 `tenantId` query parameters where it documented none.
+
+## ADMIN-CRITICAL-147 — a litigation-hold dashboard reporting 100% from requests that always failed
+
+**State:** OPEN → closed by W9m · **Wave:** W9m · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Both of this page's reads went out **without a tenant id**. The client's own
+docblocks promised that omitting it returned _"platform-wide stats"_ and
+_"all tenants"_ — a mode neither route has ever had:
+`MessagingAdminController.getComplianceStats` and `.getLegalHolds` each declare
+`@TenantParam('query') tenantId: string` with the decorator's default
+`optional: false`, and `VerifiedTenantPipe` answers a request without one with
+`BadRequestException('tenantId is required')`
+(`verified-tenant.pipe.ts:79-81`).
+
+So every load of the page 400'd on both reads, and
+`stats = statsQuery.data ?? EMPTY_STATS` rendered the placeholder:
+
+- **Compliance Score 100%**, in green;
+- **Under Legal Hold: 0** messages, Active Holds **0**, Pending Cleanup **0**,
+  Retention Policies **0**, Active Exports **0**;
+- a legal-holds table showing a **green tick** over **"No legal holds"**.
+
+An error banner sat above it, but six cards and a table stated numbers — and on
+a litigation-hold surface those numbers asserted that a platform under a
+preservation order had none, and that its compliance was perfect. It is the
+`getHealthScore()`-returns-100-from-an-empty-table pattern (correction **C2**)
+on a regulatory surface, which is why it is CRITICAL and not HIGH.
+
+W9m fixes it at **Tier 1 first**: `getComplianceStats` and `getLegalHolds`
+require a tenant id, so the call the page made cannot be written, and
+`adminKeys.messaging.complianceStats` / `.legalHolds` take it too — a key
+without it would have served one tenant's legal holds under another tenant's
+view. `EMPTY_STATS` is **deleted**: a placeholder object is indistinguishable
+from an answer once it reaches a stat card. Every card renders an em dash for a
+figure the page does not have, in a neutral colour so an unknown score cannot
+be graded green. The page asks which tenant it reports on and reads nothing
+until it knows. Releasing a hold — which makes held messages eligible for
+retention cleanup again, the one thing a hold exists to prevent — now confirms
+first and goes through `useAdminMutation`.
+
+**Note for W10:** `TenantSelect` and `useTenants` were on the kill list as
+fully dead. This page is now a real consumer, so that verdict changes for those
+two entries; `useActiveTenants` and `useTenantSearch` moved off `useAsyncData`
+onto `useAdminQuery` in the same commit.
+
+## ADMIN-HIGH-148 — three compliance sections with no producing endpoint
+
+**State:** OPEN · **Wave:** unscheduled · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tracked half of ADMIN-CRITICAL-147. The page built three empty arrays in
+the browser — `exports: []`, four zero-count retention buckets, and
+`dailyAudit: []` — behind a `// WHY:` comment saying no endpoint served them.
+The comment was honest; the UI was not. It rendered _"No export jobs found."_,
+_"No retention data available"_ and _"No audit data available"_, so a GDPR
+auditor reading the page concluded the platform had no export jobs and no audit
+activity.
+
+W9m removes those arrays and their renderers and states the gap on screen,
+naming this finding. What must still be **built**, in messaging-service with an
+admin-api route in front of it:
+
+1. **A listing of the export jobs** `POST /messaging/tenants/:id/export`
+   creates. The endpoint creates them and nothing can enumerate them, so a
+   completed GDPR Art 20 export cannot be found again or downloaded. Build this
+   first: an export a regulator asked for that the operator cannot locate is
+   the same failure class as a report nobody produces.
+2. A retention-bucket aggregation counting tenants per retention window.
+3. A per-day audit-operation count for the last 14 days.
+
+## ADMIN-HIGH-146 — money stated in a currency the sum did not have
+
+**State:** OPEN → closed by W9l · **Wave:** W9l · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The last page of the billing batch, and the plainest instance of the class this
+audit keeps finding: a value printed with an attribute its source does not
+carry.
+
+- **Every money card was stamped `$`.** The page's own `formatCurrency`
+  hardcoded `currency: 'USD'`, and `InvoiceStats.totalAmount` / `totalPaid` /
+  `totalPending` / `totalOverdue` are each
+  `COALESCE(SUM(total), 0) FROM billing.invoices` with **no `GROUP BY
+currency`** (`invoice-management.service.ts:308`). The same response carries
+  a `byCurrency` breakdown built by `GROUP BY currency` — the endpoint saying
+  outright that the table is multi-currency. So on any platform holding one
+  EUR invoice, four cards and an exported CSV read `$1,234,567.89` for a figure
+  that is not an amount of dollars, or of anything else. The page now derives
+  the currency from `byCurrency`: with exactly one it formats in **that**
+  currency; with more than one the cross-currency sums are an em dash and the
+  real per-currency figures are listed, which are the numbers an operator can
+  act on.
+- **"Payments With Refunds" was a 100-row subtotal beside a true total.** It
+  fetched `getPayments({ status: 'succeeded', limit: 100 })` and counted the
+  rows carrying a refund — sitting next to "Successful Payments", which was
+  the endpoint's `total`. The `succeeded` filter also excluded every **fully**
+  refunded payment, whose status is `refunded`, so the card counted partial
+  refunds and called them refunds. Both numbers have been exact on the server
+  since ADMIN-HIGH-138 (`PaymentStats.refunded`, `.succeeded`), so the read
+  moves to `/billing/payments/stats` and the hundred-row fetch is gone.
+- **Five `?? 0` fallbacks on required fields.** Dead defensive code; had one
+  ever been absent it would have printed a fabricated zero into a billing
+  report.
+- **The CSV named no currency and no scope.** Both are columns now, with a
+  per-currency row per code, and the header states the totals are all-time.
+
+**Billing batch closed.** Ratchet 9 → 8; only the messaging batch's eight
+pages remain.
+
+## ADMIN-HIGH-145 — a broadcast to every tenant that could not say it had failed
+
+**State:** OPEN → closed by W9k · **Wave:** W9k · **Owner:** okan
+**Deadline:** 2026-12-31
+
+This page publishes messages to every tenant, and it was the quietest page in
+the panel about whether it had done so.
+
+- **Four writes failed in total silence.** Publish, cancel, delete and create
+  each caught their error, wrote `console.error` (banned), and told the
+  operator **nothing** — then refetched, so the list re-rendered with the
+  announcement exactly as it was. A refused publish of a global `critical`
+  maintenance notice was indistinguishable from a successful one: same click,
+  same repaint, no message. The operator's belief that every tenant had been
+  notified was the only thing that changed.
+- **A failed acknowledgment roster rendered as "No activity yet".** The modal
+  read `data.acknowledgments || []` behind a `console.error`, so an
+  unreachable endpoint and a genuinely unseen announcement drew the same
+  sentence — on the one screen that answers _who has read the notice we
+  required them to read_.
+- **A failed stats read removed the header strip**, unannounced, so the page
+  looked like a build without stats rather than a page with a broken read.
+- **The "Edit" pencil opened the statistics modal.** The form modal already
+  accepts an existing announcement and titles itself "Edit Announcement";
+  nothing ever passed it one, and `updateAnnouncement` — an audited route —
+  had no caller in the panel.
+- **Delete asked nothing.** One click on a trash icon destroyed a platform
+  announcement, on a route the backend marks `@Destructive()`, while the plan
+  page confirms a mere _deprecate_.
+- **"Schedule" with no date threw.** `new Date('').toISOString()` raises a
+  `RangeError`, so the submit crashed the render tree instead of refusing.
+- **One capped page, presented as the whole.** The list asks for 100 rows and
+  showed them under a header whose "Total" counts the whole table, with no
+  hint that the two numbers measure different things, and a search box that
+  filters only what loaded.
+
+Underneath all of it, **three of the page's reads carried no response schema at
+all**: `GET /support/announcements`, `/stats` and `/:id/acknowledgments` each
+returned an anonymous inline type, and the `@nestjs/swagger` plugin describes
+classes only. So the client hand-typed all three, and both hand-typed shapes
+were wrong — the create payload was derived as
+`Omit<Announcement, … 'acknowledgedCount' …>` against a key the read shape does
+not have (it is `acknowledgmentCount`), so the subtraction removed nothing
+there and the create type went on demanding `status`, `acknowledgmentCount` and
+a full `acknowledgments` roster the DTO rejects, held together by a cast in the
+page; and the list filter declared `isPublished`, a query parameter this
+controller has never accepted, while omitting `status`, the only filter the
+page sends (the ADMIN-HIGH-123 class: an unknown query key is ignored, never
+refused).
+
+W9k adds `AnnouncementPageDto` / `AnnouncementStatsResponseDto` /
+`AnnouncementAcknowledgmentStatusDto`, hides the two relation properties no
+read path loads (they were listed among the **required** fields of every
+announcement the API returns), derives the client types through `ApiSchema` and
+`ApiQuery`, and moves the page onto `useAdminQuery` / `useAdminMutation` with
+one `QueryFailureNotice` carrying every read and write error.
+
+## ADMIN-HIGH-144 — a priced quantity a typo could zero, and a failure in the green box
+
+**State:** OPEN → closed by W9j · **Wave:** W9j · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three defects on the page that prices a negotiated plan.
+
+- **A quantity a typo could zero.** `parseInt(e.target.value) || 0` turned any
+  unparseable entry — a stray letter in `1OO` — into `0`, silently, on a field
+  this plan's **price** is computed from. The quote came back lower and the
+  plan could be created at it. Clearing the box still means 0; a typo now
+  leaves the previous quantity alone.
+- **A failure announced as a success.** After `createCustomPlan` succeeds the
+  page auto-submits for approval, and that step sat behind a bare `catch {}`
+  which announced its failure through **`setSuccess`** — the green box — with
+  the server's reason discarded entirely. The plan really is created either
+  way, so it is a partial success; but an operator could not tell a capability
+  refusal from a validation rejection. The creation is still reported as the
+  success it is, and the submit's failure is reported as a failure carrying the
+  server's own words.
+- **The same generic load message as its sibling.** The catalogue load wrote
+  `console.error` (banned) and set _"Failed to load module pricing. Please try
+  again."_ — the same endpoint, and the same words, `ModulePricingPage` used
+  before ADMIN-HIGH-141.
+
+W9j moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with an abort signal, surfaces it through `QueryFailureNotice`, adds a
+`parseQuantity` helper for the quantity fields, and splits the partial-success
+reporting into its two true halves.
+
+## ADMIN-HIGH-143 — a redemption cap that a typo, or a zero, silently removed
+
+**State:** OPEN → closed by W9h · **Wave:** W9h · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`discount-rules.ts:104-106` (and `112-114`) enforce a redemption cap **only
+when it is neither null nor undefined** — so `undefined` means _unlimited_.
+
+The create form built both caps with `parseInt(e.target.value, 10) ||
+undefined`, which yields `undefined` from three different operator inputs:
+
+| typed                             | result                                                               |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `abc`, or a stray letter in `1OO` | `NaN \|\| undefined` → **unlimited**                                 |
+| _(empty)_                         | `undefined` → unlimited — correct, and what the placeholder promises |
+| **`0`**                           | `0 \|\| undefined` → **unlimited**                                   |
+
+The last is the sharpest. `0` is the clearest way an operator can say _"this
+code may not be redeemed"_, and it produced a code with **no cap at all** — on
+a field whose only purpose is to bound how much revenue a discount can give
+away.
+
+The display carried the same defect in reverse:
+`value={newCode.maxRedemptions || ''}` blanked a stored `0`, so the box could
+not show the value it held.
+
+W9h replaces both with a `parseRedemptionCap` helper: empty still means
+unlimited, a real number is kept **including 0**, and an unparseable entry
+leaves the previous value alone rather than silently removing the limit.
+Display uses `?? ''`.
+
+**Fixed alongside:** `isActive: showActive || undefined` sent **no filter at
+all** when the Active box was unticked, so clearing it widened the listing to
+every code rather than narrowing it to the inactive ones the label implies.
+
+Both reads move to `useAdminQuery` on `adminKeys.billing.discountCodes(filters)`
+and `discountStats()` with abort signals. The three write handlers — whose
+error surfacing was already honest, showing the server's own message — keep
+their own error block and now refresh through the cache instead of a floating
+`loadData()`.
+
+## ADMIN-MEDIUM-142 — two standards of honesty on one page
+
+**State:** OPEN → closed by W9g · **Wave:** W9g · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`loadPlans` caught its error, wrote `console.error` (banned), and set the fixed
+string _"Failed to load plans. Please try again."_, which the render showed as a
+full-page takeover with a Retry.
+
+**One function below**, `handleDeprecatePlan` set `(err as Error).message` —
+the server's actual reason. The same page told an operator precisely what was
+wrong when a write failed and nothing whatsoever when a read did; the read's
+failure could not be told apart from a capability refusal, an outage, or a bad
+gateway.
+
+MEDIUM rather than HIGH because, unlike its siblings in this batch, this page
+never rendered a fabricated number. It failed loudly — just uninformatively.
+
+W9g moves the read to `useAdminQuery` on `adminKeys.billing.plans(true)` with
+an abort signal, the deprecate write to `useAdminMutation` invalidating that key
+rather than calling `loadPlans()` as a floating promise, and surfaces both
+errors verbatim through `QueryFailureNotice` — inline, because a refused
+deprecate is a message about that action, not a reason to remove the catalogue
+the operator is reading. The `plans` key now carries `includeInactive` as a
+discriminator, so an inactive-inclusive listing cannot overwrite a public one in
+one cache entry.
+
+## ADMIN-HIGH-141 — "Please try again", in place of the reason to try differently
+
+**State:** OPEN → closed by W9f · **Wave:** W9f · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Both the read and the save caught their error, wrote `console.error` (banned),
+and set a fixed string: _"Failed to load module pricings. Please try again."_
+and _"Failed to save pricing. Please try again."_ The server's own message went
+nowhere.
+
+On the save that is the worse of the two, because **the server does not fail
+vaguely.** The contract takes an exact decimal tier multiplier in `(0, 10]` and
+refuses anything outside it _with a reason_ rather than coercing — a rule this
+very page already records, in a comment on `handleTierMultiplierChange` left by
+an earlier wave. Replacing that refusal with "Please try again" means the
+operator retries the same rejected value, gets the same generic sentence, and
+never learns which field is wrong. The one piece of information that could end
+the loop is the one thing thrown away.
+
+The read had the same shape: a capability refusal and a network outage rendered
+identically.
+
+W9f moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with an abort signal, the save to `useAdminMutation` invalidating that key
+instead of hand-reloading, and surfaces both errors verbatim through
+`QueryFailureNotice`.
+
+**Fixed alongside:** `parseInt(value) || 0` on the included-quantity field,
+which silently turned `"1OO"` into `1` and `"abc"` into `0` on a field that
+decides what a tenant is charged for. An unparseable entry now leaves the
+quantity alone — the same reasoning the earlier wave applied to the multiplier
+one function below, and had not applied here.
+
+## ADMIN-HIGH-140 — "No usage data", on the surface invoices are built from
+
+**State:** OPEN → closed by W9e · **Wave:** W9e · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The page ran four reads — summary, all-tenants usage, trends, top-tenants —
+and **only the summary destructured an `error`.** The other three discarded
+theirs entirely, and each rendered its failure as an empty result:
+
+| failed read | what the operator saw                        |
+| ----------- | -------------------------------------------- |
+| trends      | _"No usage data for this period"_            |
+| top-tenants | _"No tenant usage data for this meter type"_ |
+| all-tenants | _"No tenant usage data available"_           |
+
+On a metered-billing dashboard those are claims about **consumption**, and
+consumption is exactly what the invoice is computed from. An unanswered request
+is not zero usage.
+
+**Second defect, same page.** The button labelled **"Refresh Data"** called
+`refreshSummary` — it refreshed one of the four reads. An operator pressing it
+to get current numbers got one current number and three stale ones, with
+nothing on screen to tell them apart.
+
+W9e moves all four reads to `useAdminQuery` on
+`adminKeys.billing.usageSummary` / `usageTenants` / `usageTrends` /
+`usageTopTenants` — each keyed by its own discriminators, so a trend for one
+period cannot overwrite another's, nor a top-tenants list for one meter
+another meter's — threads an abort signal through all four client functions,
+surfaces every failed read through `QueryFailureNotice`, and points both
+refresh controls at all four queries.
+
+## ADMIN-HIGH-139 — a Retry that could never leave the state it retried
+
+**State:** OPEN → closed by W9d · **Wave:** W9d · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The render returned a full-page error whenever `error` was set. `loadData`
+assigned it in its catch, and **nothing anywhere assigned `null` again** —
+`grep -c "setError(null)"` returned **0**. So after one transient failure the
+Retry button fetched successfully and the page went on showing the error,
+permanently, until the operator reloaded the browser.
+
+Moving both reads to `useAdminQuery` fixes this by construction: a query's
+error is derived from its last outcome, so a successful refetch clears it. The
+four `loadData()` call sites were also floating promises, which CLAUDE.md bans.
+
+**A second item, and a correction to the obvious reading of it.** The three
+lifecycle writes — cancel, extend trial, reactivate — passed a literal
+`'admin'` as an actor under `// TODO: get from auth context`. That looks like a
+forged audit trail, and it is not. The client functions took the argument as
+`_cancelledBy` / `_reactivatedBy` / `_extendedBy` and **never put it on the
+wire**; the server derives the actor from the authenticated request via
+`getAuthUserId(req)`, refuses with 401 when it is absent, and the routes carry
+`@AuditedOperation` and `@RequiresCapability('billing-ops')`. The ledger was
+right all along.
+
+The comment was still a defect, of the opposite kind: it asserted a gap that
+ADMIN-CRITICAL-008 had already closed, and invited a future contributor to
+"fix" it by sending a client-supplied actor — which is what would have opened a
+real accountability hole. The dead arguments and the comment are gone.
+
+Write failures now have their own state, kept apart from the reads', so a
+failed cancel no longer blanks the list the operator is working on.
+
+**What this page already got right is left alone.** Unlike its siblings in this
+batch, its stat cards are guarded by `{stats && …}` — it never invented a zero.
+
+## ADMIN-HIGH-138 — "Net Revenue", computed from the 50 rows on screen
+
+**State:** OPEN → closed by W9c · **Wave:** W9c · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The three money cards — **Succeeded Amount**, **Refunded**, **Net Revenue** —
+were summed _in the browser_ from `payments`: one page of at most 50 rows,
+narrowed further by whatever status filter was active. Two consequences, both
+on the platform's revenue figure:
+
+- filter the list to `failed` and **Net Revenue read $0**, because no succeeded
+  row was in the array being summed;
+- any platform with more than 50 payments saw the net of its **first page**
+  presented as its net revenue.
+
+The aggregate belongs to the server, which already ran the `GROUP BY` that
+produced the counts. `summarizePaymentStatusCounts` now also returns
+`succeededAmount` and `refundedAmount`, and both SQL windows select
+`COALESCE(SUM(p.refunded_amount), 0)`. `refundedAmount` sums `refunded_amount`
+rather than the amount of rows whose _status_ is refunded — a partially
+refunded payment captured in full and returned only part of itself, a
+distinction the client-side sum could not make.
+
+Surfacing those fields exposed a second defect. `GET /billing/payments/stats`
+was typed by an **interface**, and the `@nestjs/swagger` plugin describes
+classes only, so the generated artifact carried `"schema": {"type": "object"}`
+for an endpoint the admin-panel reads its money cards from — which is precisely
+what invited the frontend to hand-write its own `PaymentStats` beside the
+contract (CONTRACT-CRITICAL-003). A `PaymentStatsResponseDto` class now types
+the response, the artifact carries a `$ref`, and the frontend type is an
+`ApiSchema` alias.
+
+Also removed from the page: an `as unknown as string` cast inside a
+`typeof`-narrowed branch (banned, and type-checking nothing), a floating
+`fetchPayments()` in a `useEffect` and after two writes, and `data.total || 0`.
+
+## ADMIN-HIGH-137 — "Overdue: $0", asserted before billing had answered
+
+**State:** OPEN → closed by W9b · **Wave:** W9b · **Owner:** okan
+**Deadline:** 2026-12-31
+
+- **Five money totals seeded with zeros.** They lived in
+  `useState<InvoiceStats>({totalInvoices: 0, totalAmount: 0, totalPaid: 0,
+totalPending: 0, totalOverdue: 0})`. Before billing answered — and
+  _permanently_ if `getInvoiceStats` failed, because the catch set an error
+  string and left the zeros standing — the page asserted **$0 owed, $0 overdue,
+  0 invoices**. A zero owed is a specific and reassuring claim about
+  receivables; an unanswered request is no basis for it.
+- **A page-local type shadowing the contract.** `interface InvoiceStats`
+  restated five of the contract type's eleven fields, so the page was
+  structurally blind to `byStatus`, `byCurrency`, `avgPaymentTime`,
+  `overdueRate`, `paidThisMonth` and `pendingThisMonth`, and could drift from
+  the server's shape without the compiler noticing.
+- **A filter row missing three of the eight states.** It offered `all`, `paid`,
+  `pending`, `overdue`, `void`. A `draft`, a `sent` invoice, a `partially_paid`
+  one and a `refunded` one could not be filtered for at all — those rows were
+  reachable only by scrolling an unfiltered list.
+
+W9b moves both reads to `useAdminQuery` on `adminKeys.billing.invoices(filters)`
+and `invoiceStats()` with abort signals, deletes the shadow type in favour of
+the contract's, renders an em dash wherever a total has not loaded, surfaces
+either failed read through `QueryFailureNotice`, takes the filter options from
+the server's full vocabulary, and replaces the three writes' hand-rolled
+`Promise.all([fetchInvoices(), fetchStats()])` with one reload of both queries.
+
+## ADMIN-HIGH-136 — three untrue statements about money, on one overview
+
+**State:** OPEN → closed by W9a · **Wave:** W9a · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The billing overview is the page an operator reads to know what the platform
+earns and is owed. It stated three things that were not so.
+
+- **A failed read shown as an absence of money.** The "Recent Transactions"
+  feed loaded behind a bare `catch { return [] }`, so billing being unreachable
+  rendered as _"No recent transactions"_ — a claim that the platform took no
+  money, produced by a request that never answered.
+- **A real zero replaced by another question's answer.** The metrics used `||`
+  where `??` was meant: `subs.mrr || revenue.mrr`. `||` treats a genuine `0` as
+  absent, so a tenant base that really bills nothing displayed the _analytics_
+  MRR under the _subscriptions_ heading. Not a stale number — a different
+  number. Same for `arr` and `averageRevenuePerUser`.
+- **Six receivable states restated as failures.** `billing.invoices.status`
+  holds eight values (`draft`, `pending`, `sent`, `paid`, `partially_paid`,
+  `overdue`, `void`, `refunded`). The feed mapped `paid` and `pending` and
+  called **everything else "failed"**, with a red badge. An overdue invoice is
+  money still owed, not money that failed to move; a refund is money returned,
+  not a failure; a draft has not been sent to anyone.
+
+W9a moves all three reads to `useAdminQuery` on
+`adminKeys.billing.dashboardMetrics()` / `revenueTrend()` / `recentInvoices()`,
+threading an abort signal through `getRevenueAnalytics`, `getSubscriptionStats`,
+`getInvoiceStats`, `getPaymentStats` and `getInvoices`. The fallbacks become
+`??`; each failed read renders `QueryFailureNotice` naming it, distinct from a
+genuine empty result; and each of the eight invoice states gets its own label
+and badge. The trend panel likewise stops rendering a failed series as a range
+with no revenue in it.
+
+`paymentSuccessRate` was already correct — it renders an em dash when there
+have been no attempts — and is left alone.
+
+## ADMIN-HIGH-159 — a price sheet that failed, offered anyway at a guessed price
+
+**State:** OPEN → closed by W8v · **Wave:** W8v · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tenant-creation wizard loaded its module catalogue in a `useEffect` with a
+silent double fallback. `getModulePricingWithModules()` failing wrote
+`console.warn` and fell through to `modulesApi.list()` — a module list that
+carries no pricing metrics at all — so every module was offered with a
+hard-coded seed of `{users: 1, farms: 1, storageGb: 1}` instead of each metric's
+`includedQuantity`. An operator could walk the whole wizard and provision a
+tenant whose subscribed quantities were a constant nobody chose.
+
+A second failure wrote another `console.warn` and left the list empty, which the
+page rendered as _"No modules found — Please define modules in Billing > Module
+Pricing page first"_: an instruction to create data that very likely already
+exists, for a request that did not return. Nothing on screen ever said the price
+sheet had not loaded.
+
+The page already states the correct principle one step later, for the quote
+(ADR-0013): the number comes from billing, or the page says it could not price
+the selection. Offering modules that cannot be priced is that same defect one
+step earlier.
+
+W8v moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with the abort signal threaded through `billingApi.getModulePricingWithModules`,
+deletes the `modulesApi.list` fallback and its hard-coded quantities, seeds each
+quantity from the sheet's `includedQuantity`, and renders `QueryFailureNotice`
+with the failed read named and a Retry in place of the empty-catalogue copy.
+CreateTenantPage is the last of the tenant batch's six pages; the ratchet drops
+to 20.
+
+The provisioning submit is deliberately untouched: it is the best-built write
+path in this batch — an idempotency key, a real provisioning operation, polling
+under an `AbortController`, and `success` gated on `SUCCEEDED`.
 
 ## ADMIN-HIGH-134 — a card counting a field the endpoint never returns
 

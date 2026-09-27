@@ -623,8 +623,14 @@ export class TicketService {
     const withResponse = all.filter(t => t.firstResponseAt);
     const withRating = all.filter(t => t.satisfactionRating > 0);
 
-    // Calculate averages
-    let avgFirstResponse = 0;
+    // ADMIN-CRITICAL-156: an average over nothing is NULL, not 0.
+    //
+    // These three were 0 when there was nothing to average, and zero is a
+    // measurement: the admin panel rendered "0m" for a platform where no
+    // ticket had been answered yet, and a 0-star satisfaction card for one
+    // where nobody had rated. Null says there is no observation, and the
+    // panel renders an em dash for it.
+    let avgFirstResponse: number | null = null;
     if (withResponse.length > 0) {
       const totalResponseTime = withResponse.reduce((sum, t) => {
         return sum + (t.firstResponseAt!.getTime() - t.createdAt.getTime());
@@ -632,7 +638,7 @@ export class TicketService {
       avgFirstResponse = Math.round(totalResponseTime / withResponse.length / 60000);
     }
 
-    let avgResolution = 0;
+    let avgResolution: number | null = null;
     if (resolved.length > 0) {
       const totalResolutionTime = resolved.reduce((sum, t) => {
         return sum + (t.resolvedAt!.getTime() - t.createdAt.getTime());
@@ -640,9 +646,11 @@ export class TicketService {
       avgResolution = Math.round(totalResolutionTime / resolved.length / 60000);
     }
 
-    let avgSatisfaction = 0;
+    let avgSatisfaction: number | null = null;
     if (withRating.length > 0) {
-      avgSatisfaction = withRating.reduce((sum, t) => sum + t.satisfactionRating, 0) / withRating.length;
+      const mean =
+        withRating.reduce((sum, t) => sum + t.satisfactionRating, 0) / withRating.length;
+      avgSatisfaction = Math.round(mean * 10) / 10;
     }
 
     return {
@@ -655,7 +663,7 @@ export class TicketService {
       avgFirstResponseMinutes: avgFirstResponse,
       avgResolutionMinutes: avgResolution,
       slaBreachCount: all.filter(t => t.slaBreached).length,
-      avgSatisfactionRating: Math.round(avgSatisfaction * 10) / 10,
+      avgSatisfactionRating: avgSatisfaction,
     };
   }
 

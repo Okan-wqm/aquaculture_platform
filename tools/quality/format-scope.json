@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0e19ffa58c3266abbc4a1867a7d8811b859e407cc1637b170b86d7ab92428ce1",
+      "content_sha256": "6b5033fc845a685d5d0e665dcfb565aa8009b83db6a55b3bff05cc64e93915c4",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1353,6 +1353,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/dto/module-price-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/payment-stats-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -1724,7 +1730,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/__tests__/update-retention-policy.dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/messaging/dto/messaging-admin.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/messaging-monitoring-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2716,7 +2734,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/announcement-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/dto/announcement.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/messaging-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2729,6 +2759,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/dto/onboarding.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/ticket-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -42175,6 +42211,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/decorators/__tests__/tenant-param-openapi.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/decorators/audit-log.decorator.ts",
       "prettier_managed": true
     },
@@ -48753,6 +48795,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/messaging-compliance-action-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -53576,13 +53624,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AnnouncementsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/AuditLogPage.spec.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/BillingReportsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/CreateTenantPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/CustomPlanBuilderPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/CustomPlansListPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -53600,7 +53678,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DiscountCodePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/EmailTemplatesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/MessagingPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/ModulePricingPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -53618,6 +53720,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/PlanManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/ReportsPage.spec.tsx",
       "prettier_managed": true
     },
@@ -53625,6 +53739,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/RoleManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/SubscriptionManagementPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -53643,6 +53763,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/TicketsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/UsageDashboardPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -53739,6 +53871,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAiPersonasPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAuditPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingMonitoringPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingRetentionPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingTenantsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -54103,7 +54265,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "78acf6a19b786ad8e8e38560b1050e134042bc6b3f84e6a783ff1b0facea9fec",
+      "content_sha256": "6c3d329fe0770212918f8ba68df6e60348bf1981f8f46992197032a4f18e0360",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

@@ -58,8 +58,8 @@ import type {
 
 export const billingApi = {
   // Plans
-  getPlans: (includeInactive = false) =>
-    apiFetch<PlanDefinition[]>(`/billing/plans?includeInactive=${includeInactive}`),
+  getPlans: (includeInactive = false, signal?: AbortSignal) =>
+    apiFetch<PlanDefinition[]>(`/billing/plans?includeInactive=${includeInactive}`, { signal }),
   getPublicPlans: () => apiFetch<PlanDefinition[]>('/billing/plans/public'),
   getPlanById: (id: string) => apiFetch<PlanDefinition>(`/billing/plans/${id}`),
   getPlanByCode: (code: string) => apiFetch<PlanDefinition>(`/billing/plans/code/${code}`),
@@ -93,9 +93,14 @@ export const billingApi = {
   getDiscountCodes: (
     options?: { isActive?: boolean; campaignId?: string; includeExpired?: boolean } &
       PaginationParams,
+    signal?: AbortSignal,
   ) =>
-    apiFetch<PaginatedResult<DiscountCode>>(`/billing/discounts?${buildQueryString(options || {})}`),
-  getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
+    apiFetch<PaginatedResult<DiscountCode>>(
+      `/billing/discounts?${buildQueryString(options || {})}`,
+      { signal },
+    ),
+  getDiscountStats: (signal?: AbortSignal) =>
+    apiFetch<DiscountStats>('/billing/discounts/stats', { signal }),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) =>
     apiFetch<DiscountCodeLookup>(`/billing/discounts/code/${code}`),
@@ -169,8 +174,13 @@ export const billingApi = {
     search?: string;
     limit?: number;
     offset?: number;
-  }) => apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(`/billing/subscriptions?${buildQueryString(filters || {})}`),
-  getSubscriptionStats: () => apiFetch<SubscriptionStats>('/billing/subscriptions/stats'),
+  }, signal?: AbortSignal) =>
+    apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(
+      `/billing/subscriptions?${buildQueryString(filters || {})}`,
+      { signal },
+    ),
+  getSubscriptionStats: (signal?: AbortSignal) =>
+    apiFetch<SubscriptionStats>('/billing/subscriptions/stats', { signal }),
   getSubscriptionReminders: () =>
     apiFetch<Array<{ tenantId: string; tenantName: string; daysUntilExpiry: number; type: 'trial' | 'subscription' }>>('/billing/subscriptions/reminders'),
   getSubscriptionByTenant: (tenantId: string) =>
@@ -179,37 +189,41 @@ export const billingApi = {
     const { changedBy: _changedBy, ...payload } = request;
     return apiFetch<Record<string, unknown>>('/billing/subscriptions/change-plan', { method: 'POST', body: JSON.stringify(payload) });
   },
-  cancelSubscription: (tenantId: string, reason: string, _cancelledBy?: string) =>
+  cancelSubscription: (tenantId: string, reason: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
-  reactivateSubscription: (tenantId: string, _reactivatedBy?: string) =>
+  reactivateSubscription: (tenantId: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/reactivate`, {
       method: 'POST',
     }),
-  extendTrial: (tenantId: string, additionalDays: number, _extendedBy?: string) =>
+  extendTrial: (tenantId: string, additionalDays: number) =>
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
       body: JSON.stringify({ additionalDays }),
     }),
 
   // Invoices
-  getInvoices: (params?: { status?: string; search?: string; limit?: number; offset?: number }) => {
+  getInvoices: (
+    params?: { status?: string; search?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append('status', params.status);
     if (params?.search) searchParams.append('search', params.search);
     if (params?.limit) searchParams.append('limit', String(params.limit));
     if (params?.offset) searchParams.append('offset', String(params.offset));
     return apiFetch<{ invoices: InvoiceOverview[]; total: number }>(
-      `/billing/invoices?${searchParams.toString()}`
+      `/billing/invoices?${searchParams.toString()}`,
+      { signal },
     );
   },
-  getInvoiceStats: () =>
-    apiFetch<InvoiceStats>('/billing/invoices/stats'),
+  getInvoiceStats: (signal?: AbortSignal) =>
+    apiFetch<InvoiceStats>('/billing/invoices/stats', { signal }),
   /** Payment success/volume aggregate for the billing dashboard KPI row. */
-  getPaymentStats: () =>
-    apiFetch<PaymentStats>('/billing/payments/stats'),
+  getPaymentStats: (signal?: AbortSignal) =>
+    apiFetch<PaymentStats>('/billing/payments/stats', { signal }),
   getInvoiceById: (invoiceId: string) =>
     apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
   markInvoicePaid: (invoiceId: string, amount: number) =>
@@ -252,14 +266,18 @@ export const billingApi = {
     }),
 
   // Payments
-  getPayments: (params?: { status?: string; invoiceId?: string; limit?: number; offset?: number }) => {
+  getPayments: (
+    params?: { status?: string; invoiceId?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append('status', params.status);
     if (params?.invoiceId) searchParams.append('invoiceId', params.invoiceId);
     if (params?.limit) searchParams.append('limit', String(params.limit));
     if (params?.offset) searchParams.append('offset', String(params.offset));
     return apiFetch<{ payments: PaymentOverview[]; total: number }>(
-      `/billing/payments?${searchParams.toString()}`
+      `/billing/payments?${searchParams.toString()}`,
+      { signal },
     );
   },
   recordPayment: (data: RecordPaymentDto) =>
@@ -281,8 +299,8 @@ export const billingApi = {
   getModulePricings: () => apiFetch<ModulePricing[]>('/billing/module-pricing'),
   getModulePricingByCode: (moduleCode: string) =>
     apiFetch<ModulePricing | null>(`/billing/module-pricing/code/${moduleCode}`),
-  getModulePricingWithModules: () =>
-    apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules'),
+  getModulePricingWithModules: (signal?: AbortSignal) =>
+    apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules', { signal }),
   getModulePricingHistory: (moduleId: string, options?: { page?: number; limit?: number }) =>
     apiFetch<ModulePricingPage>(
       `/billing/module-pricing/${moduleId}/history?${buildQueryString(options || {})}`,
@@ -329,9 +347,10 @@ export const billingApi = {
   // page metadata. The response interceptor lifts `items` into the envelope's
   // `data` slot, and `apiFetch` decodes that into `PaginatedResult<T>`, so this
   // is the shape the browser actually holds (ADMIN-HIGH-004).
-  getCustomPlans: (filter?: CustomPlanFilter) =>
+  getCustomPlans: (filter?: CustomPlanFilter, signal?: AbortSignal) =>
     apiFetch<PaginatedResult<CustomPlan>>(
       `/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`,
+      { signal },
     ),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
@@ -360,14 +379,48 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/clone`, { method: 'POST', body: JSON.stringify({ newTenantId }) }),
 
   // Usage Metering
-  getUsageSummary: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`),
-  getAllTenantsUsage: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) =>
-    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString(params || {})}`),
+  getUsageSummary: (
+    params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`, {
+      signal,
+    }),
+  getAllTenantsUsage: (
+    params?: {
+      period?: AggregationPeriod;
+      dateFrom?: string;
+      dateTo?: string;
+      limit?: number;
+      offset?: number;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(
+      `/billing/usage/tenants?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getTenantUsageOverview: (tenantId: string, params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
     apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString(params || {})}`),
-  getUsageTrends: (params?: { period?: AggregationPeriod; meterType?: MeterType; tenantId?: string; numPeriods?: number }) =>
-    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`),
-  getTopTenantsByUsage: (meterType: MeterType, params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`),
+  getUsageTrends: (
+    params?: {
+      period?: AggregationPeriod;
+      meterType?: MeterType;
+      tenantId?: string;
+      numPeriods?: number;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`, {
+      signal,
+    }),
+  getTopTenantsByUsage: (
+    meterType: MeterType,
+    params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<TopTenantUsage[]>(
+      `/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`,
+      { signal },
+    ),
 };

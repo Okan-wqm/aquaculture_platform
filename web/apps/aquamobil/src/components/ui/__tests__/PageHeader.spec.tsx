@@ -27,7 +27,9 @@ describe('PageHeader', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Notifications' })).toBeTruthy();
     expect(screen.getByText('3 unread').tagName).toBe('P');
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
-    expect(classes(screen.getByRole('banner'))).toEqual(expect.arrayContaining(['bg-gradient-to-r', 'from-amber-600', 'to-amber-500']));
+    expect(classes(screen.getByRole('banner'))).toEqual(
+      expect.arrayContaining(['bg-gradient-to-r', 'from-amber-600', 'to-amber-500']),
+    );
   });
 
   it('runs the caller’s back handler instead of popping history', () => {
@@ -50,7 +52,9 @@ describe('PageHeader', () => {
       </MemoryRouter>,
     );
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
-    expect(classes(screen.getByRole('banner'))).toEqual(expect.arrayContaining(['bg-gradient-to-br', 'via-teal-600']));
+    expect(classes(screen.getByRole('banner'))).toEqual(
+      expect.arrayContaining(['bg-gradient-to-br', 'via-teal-600']),
+    );
     expect(container.querySelector('svg path')).toBeTruthy();
     expect(screen.getByTestId('kpi')).toBeTruthy();
   });
@@ -58,7 +62,11 @@ describe('PageHeader', () => {
   it('places actions on the title row and keeps the plain tone on a light surface', () => {
     render(
       <MemoryRouter>
-        <PageHeader tone="plain" title="Channel Info" actions={<button type="button">Save</button>} />
+        <PageHeader
+          tone="plain"
+          title="Channel Info"
+          actions={<button type="button">Save</button>}
+        />
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();

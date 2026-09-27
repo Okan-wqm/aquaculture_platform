@@ -22,19 +22,50 @@ export const PushButtonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Start" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.label || ''}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Start"
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Button Mode</label>
-        <Select fullWidth options={[{ value: 'momentary', label: 'Momentary - press &amp; release' }, { value: 'toggle', label: 'Toggle - on/off persistent' }]} value={config.mode || 'momentary'} onChange={(e) => onChange({ mode: e.target.value })} />
+        <Select
+          fullWidth
+          options={[
+            { value: 'momentary', label: 'Momentary - press &amp; release' },
+            { value: 'toggle', label: 'Toggle - on/off persistent' },
+          ]}
+          value={config.mode || 'momentary'}
+          onChange={(e) => onChange({ mode: e.target.value })}
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value to Send</label>
-        <Input fullWidth type="text" value={config.value ?? ''} onChange={(e) => onChange({ value: e.target.value })} placeholder="1" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.value ?? ''}
+          onChange={(e) => onChange({ value: e.target.value })}
+          placeholder="1"
+        />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Security Level</label>
-        <Select fullWidth options={[{ value: 'none', label: 'None' }, { value: 'confirm', label: 'Confirmation Required' }, { value: 'pin', label: 'PIN Required' }]} value={config.security || 'none'} onChange={(e) => onChange({ security: e.target.value })} />
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Security Level
+        </label>
+        <Select
+          fullWidth
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'confirm', label: 'Confirmation Required' },
+            { value: 'pin', label: 'PIN Required' },
+          ]}
+          value={config.security || 'none'}
+          onChange={(e) => onChange({ security: e.target.value })}
+        />
       </div>
     </div>
   );

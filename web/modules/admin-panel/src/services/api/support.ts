@@ -13,10 +13,20 @@ import type {
   TicketStatus,
   TicketPriority,
   TicketCategory,
+  TicketComment,
   MessageThreadSummary,
   SupportThreadRecord,
+  CreatedMessageThread,
   SupportMessage,
+  MessagingStats,
+  BulkMessageResult,
+  BulkMessageAudience,
   Announcement,
+  AnnouncementAcknowledgmentStatus,
+  AnnouncementListQuery,
+  AnnouncementStats,
+  CreateAnnouncementInput,
+  UpdateAnnouncementInput,
   OnboardingStep,
   TenantOnboarding,
 } from '../types';
@@ -30,8 +40,10 @@ export const supportApi = {
     tenantId?: string;
     assignedTo?: string;
     search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
+  } & PaginationParams & DateRangeParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
   getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
   createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string }) =>
@@ -46,7 +58,8 @@ export const supportApi = {
   // Fix: backend uses POST /support/tickets/:id/status with { status: 'closed' } (no /close endpoint)
   closeTicket: (id: string, _resolution?: string) =>
     apiFetch<SupportTicket>(`/support/tickets/${id}/status`, { method: 'POST', body: JSON.stringify({ status: 'closed' }) }),
-  getTicketStats: () => apiFetch<TicketStats>('/support/tickets/stats'),
+  getTicketStats: (signal?: AbortSignal) =>
+    apiFetch<TicketStats>('/support/tickets/stats', { signal }),
   getTicketStatsByCategory: () =>
     apiFetch<Array<{ category: string; count: number; avgResolutionTime: number }>>('/support/tickets/stats/by-category'),
   getTicketStatsByPriority: () =>
@@ -60,8 +73,21 @@ export const supportApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  getTicketTeam: () => apiFetch<Array<{ id: string; name: string; activeTickets: number }>>('/support/tickets/team'),
-  getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
+  getTicketTeam: (signal?: AbortSignal) =>
+    apiFetch<Array<{ id: string; name: string; activeTickets: number }>>(
+      '/support/tickets/team',
+      { signal },
+    ),
+  /**
+   * One page of a ticket's comments (ADMIN-CRITICAL-156).
+   *
+   * A PAGE, not an array: `TicketService.getComments` returns
+   * `createStandardPaginatedResult`, so this arrives as the decoded envelope.
+   * Declaring it an array is what made `TicketsPage` call `.map` on an object
+   * and swallow the TypeError, rendering every thread empty.
+   */
+  getTicketComments: (ticketId: string, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<TicketComment>>(`/support/tickets/${ticketId}/comments`, { signal }),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
     apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
   updateTicketStatus: (ticketId: string, status: string) =>
@@ -72,19 +98,43 @@ export const supportApi = {
   // Messaging - Backend: /support/messages
   // The list returns MessagingService.getAllThreads's projection, not the
   // thread row and not the GraphQL shape (ADMIN-HIGH-110).
-  getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
+  getMessageThreads: (
+    params?: { tenantId?: string; status?: string; hasUnread?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
     apiFetch<PaginatedResult<MessageThreadSummary>>(
       `/support/messages/threads?${buildQueryString(params || {})}`,
+      { signal },
     ),
   getThread: (threadId: string) =>
     apiFetch<SupportThreadRecord>(`/support/messages/threads/${threadId}`),
-  getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
-  createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<SupportThreadRecord>('/support/messages/threads', {
+  /**
+   * One PAGE of a thread's messages (ADMIN-CRITICAL-157).
+   *
+   * The route always took `page` and `limit` and defaulted the limit to 50; it
+   * now returns the total with them, so a truncated thread is visible as one
+   * instead of looking complete.
+   */
+  getThreadMessages: (threadId: string, params?: PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<SupportMessage>>(
+      `/support/messages/threads/${threadId}/messages?${buildQueryString(params || {})}`,
+      { signal },
+    ),
+  /**
+   * `senderName` is NOT sent, on this call or the next (ADMIN-CRITICAL-157).
+   *
+   * Both request DTOs used to accept one and prefer it over the authenticated
+   * user, and this page sent the literal `'Admin'` — so every message the
+   * platform has ever written to a tenant is signed "Admin" rather than by the
+   * person who wrote it. The field is gone from the contract; the server signs
+   * with the verified admin's identity.
+   */
+  createThread: (data: { tenantId: string; subject: string; content: string }) =>
+    apiFetch<CreatedMessageThread>('/support/messages/threads', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
+  sendSupportMessage: (threadId: string, data: { content: string; isInternal: boolean }) =>
     apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
   markAsRead: (threadId: string) =>
     apiFetch<void>(`/support/messages/threads/${threadId}/read`, { method: 'POST' }),
@@ -94,18 +144,50 @@ export const supportApi = {
     apiFetch<void>(`/support/messages/threads/${threadId}/close`, { method: 'POST' }),
   reopenThread: (threadId: string) =>
     apiFetch<void>(`/support/messages/threads/${threadId}/reopen`, { method: 'POST' }),
-  sendBulkMessage: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) =>
-    apiFetch<void>('/support/messages/bulk', { method: 'POST', body: JSON.stringify(data) }),
+  /**
+   * Broadcast to a NAMED audience, and report what it did (ADMIN-CRITICAL-157).
+   *
+   * This sent neither `tenantIds` nor `targetCriteria`, which is the one
+   * combination the route refuses — so every broadcast the panel attempted
+   * answered 400 under a dialog that promised "all active tenants".
+   * `targetCriteria` is now the single required audience field: `{}` is every
+   * active tenant, `{ tenantIds }` a chosen set.
+   *
+   * The reply was declared `void` and discarded. It carries `sent` and
+   * `failed`: the loop opens one thread per tenant and counts the ones that
+   * threw, so a broadcast that reached 3 of 400 closed its dialog exactly like
+   * one that reached all 400.
+   */
+  sendBulkMessage: (data: {
+    subject: string;
+    content: string;
+    targetCriteria: BulkMessageAudience;
+    sendEmail: boolean;
+  }) =>
+    apiFetch<BulkMessageResult>('/support/messages/bulk', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   getUnreadCount: () => apiFetch<{ unreadCount: number }>('/support/messages/unread-count'),
-  getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
+  getMessagingStats: (signal?: AbortSignal) =>
+    apiFetch<MessagingStats>('/support/messages/stats', { signal }),
 
   // Announcements
-  getAnnouncements: (params?: { type?: string; isPublished?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<Announcement>>(`/support/announcements?${buildQueryString(params || {})}`),
+  //
+  // The filter object is the ROUTE's own query type (ADMIN-HIGH-145). The
+  // hand-written one declared `isPublished`, which this controller has never
+  // accepted, and omitted `status`, the only filter the page sends — a
+  // disagreement the server cannot report, because an unknown query key is
+  // silently ignored.
+  getAnnouncements: (params?: AnnouncementListQuery, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<Announcement>>(
+      `/support/announcements?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getAnnouncement: (id: string) => apiFetch<Announcement>(`/support/announcements/${id}`),
-  createAnnouncement: (data: Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' | 'updatedAt'>) =>
+  createAnnouncement: (data: CreateAnnouncementInput) =>
     apiFetch<Announcement>('/support/announcements', { method: 'POST', body: JSON.stringify(data) }),
-  updateAnnouncement: (id: string, data: Partial<Announcement>) =>
+  updateAnnouncement: (id: string, data: UpdateAnnouncementInput) =>
     apiFetch<Announcement>(`/support/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   publishAnnouncement: (id: string) =>
     apiFetch<Announcement>(`/support/announcements/${id}/publish`, { method: 'POST' }),
@@ -114,10 +196,13 @@ export const supportApi = {
     apiFetch<Announcement>(`/support/announcements/${id}/cancel`, { method: 'POST' }),
   deleteAnnouncement: (id: string) =>
     apiFetch<void>(`/support/announcements/${id}`, { method: 'DELETE' }),
-  getAnnouncementStats: () =>
-    apiFetch<{ total: number; published: number; scheduled: number; draft: number; expired: number; totalViews: number; totalAcknowledgments: number; byType: Record<string, number> }>('/support/announcements/stats'),
-  getAnnouncementAcknowledgments: (id: string) =>
-    apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
+  getAnnouncementStats: (signal?: AbortSignal) =>
+    apiFetch<AnnouncementStats>('/support/announcements/stats', { signal }),
+  getAnnouncementAcknowledgments: (id: string, signal?: AbortSignal) =>
+    apiFetch<AnnouncementAcknowledgmentStatus>(
+      `/support/announcements/${id}/acknowledgments`,
+      { signal },
+    ),
 
   // Onboarding - Backend: /support/onboarding
   getOnboardingSteps: (signal?: AbortSignal) =>

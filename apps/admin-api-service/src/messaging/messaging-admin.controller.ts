@@ -18,6 +18,12 @@ import {
   UpdateRetentionPolicyDto,
 } from './dto/messaging-admin.dto';
 import {
+  MessagingMonitoringStatsDto,
+  MessagingTenantsOverviewDto,
+  TenantDataExportResultDto,
+  AiPersonaDto,
+} from './dto/messaging-monitoring-response.dto';
+import {
   Destructive,
   RequiresCapability,
   TenantParam,
@@ -66,73 +72,62 @@ interface LegalHoldResponse {
   createdAt: string;
 }
 
+/**
+ * One `messaging.retention_policies` row, as messaging-service replies
+ * (ADMIN-CRITICAL-151).
+ *
+ * `channelId === null` is the tenant's default window; a non-null one is a
+ * channel override. `retentionDays === -1` is indefinite — the nightly
+ * cleanup skips those policies.
+ *
+ * The previous declaration named four of the seven fields the reply carries,
+ * and the admin panel wrote its own nine-field row type against it — seven of
+ * those nine invented, including the two cleanup timestamps and three counts
+ * the table rendered through `.toLocaleString()`.
+ */
 interface RetentionPolicyResponse {
   id: string;
   tenantId: string;
+  /** null for the tenant-wide default; a channel id for an override. */
   channelId: string | null;
+  /** -1 means indefinite: no automatic deletion. */
   retentionDays: number;
-}
-
-interface AuditLogResponse {
-  items: Array<{ id: string; action: string; resourceType: string; createdAt: string }>;
-  hasMore: boolean;
-  cursor: string | null;
-  totalCount: number;
-}
-
-interface ExportResponse {
-  exportId: string;
-  status: string;
-}
-
-/** Per-tenant messaging activity row (ADMIN-HIGH-009). */
-interface TenantMessagingOverviewRow {
-  tenantId: string;
-  messageCount24h: number;
-  messageCount7d: number;
-  totalMessages: number;
-  activeChannels: number;
-}
-
-/** Cross-tenant outbox health snapshot (ADMIN-HIGH-009). */
-interface MessagingOutboxHealth {
-  pendingCount: number;
-  failedCount: number;
-  oldestPendingAgeSeconds: number | null;
-}
-
-/** Platform-wide monitoring statistics returned by GET /messaging/monitoring/stats. */
-interface MonitoringStatsResponse {
-  totals: {
-    totalMessages: number;
-    messages24h: number;
-    messages7d: number;
-    activeChannels: number;
-    tenantCount: number;
-  };
-  perTenant: TenantMessagingOverviewRow[];
-  outbox: MessagingOutboxHealth;
-  generatedAt: string;
-}
-
-/** Per-tenant messaging overview returned by GET /messaging/tenants. */
-interface TenantsOverviewResponse {
-  tenants: TenantMessagingOverviewRow[];
-  generatedAt: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**
- * Mirrors messaging-service's `AiPersonaDefinition` (a shared-catalogue
- * persona as the admin inventory serves it). Personas are platform-managed
- * and read-only here — there is no enabled flag on the wire.
+ * One page of `messaging.compliance_audit_logs`, as messaging-service replies
+ * (ADMIN-CRITICAL-150).
+ *
+ * The row list under-declared the reply: it named four of the ten columns
+ * ``ComplianceAuditLog`` carries, and this interface is the only declaration
+ * of the shape anywhere on the admin side — the NATS handler's own return type
+ * is `items: unknown[]`. The admin panel wrote its own row type against the
+ * four and invented five more, and every one of the invented fields rendered
+ * `undefined` or worse.
  */
-interface PersonaResponse {
-  id: string | null;
-  name: string;
-  description: string;
-  icon: string;
-  color: string;
-  capabilities: string[];
+interface AuditLogRow {
+  id: string;
+  tenantId: string;
+  userId: string;
+  /** `ComplianceAction` in messaging-service; a closed set, carried as text. */
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  /** `jsonb`, not a string: null when the action recorded no detail. */
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+interface AuditLogResponse {
+  items: AuditLogRow[];
+  hasMore: boolean;
+  cursor: string | null;
+  totalCount: number;
 }
 
 // ── Controller ──────────────────────────────────────────────────────────
@@ -284,8 +279,8 @@ export class MessagingAdminController {
    */
   @Get('monitoring/stats')
   @ApiOperation({ summary: 'Get messaging monitoring statistics' })
-  async getMonitoringStats(): Promise<MonitoringStatsResponse> {
-    return this.sendNatsRequest<MonitoringStatsResponse>(
+  async getMonitoringStats(): Promise<MessagingMonitoringStatsDto> {
+    return this.sendNatsRequest<MessagingMonitoringStatsDto>(
       'request.messaging.admin.getMonitoringStats',
       {},
     );
@@ -333,8 +328,8 @@ export class MessagingAdminController {
    */
   @Get('tenants')
   @ApiOperation({ summary: 'List tenants with messaging stats' })
-  async getTenants(): Promise<TenantsOverviewResponse> {
-    return this.sendNatsRequest<TenantsOverviewResponse>(
+  async getTenants(): Promise<MessagingTenantsOverviewDto> {
+    return this.sendNatsRequest<MessagingTenantsOverviewDto>(
       'request.messaging.admin.getTenantsOverview',
       {},
     );
@@ -350,18 +345,26 @@ export class MessagingAdminController {
   @Destructive()
   @RequiresCapability('support-ops')
   @Post('tenants/:id/export')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperation({ summary: 'Trigger tenant data export' })
+  // 200, not 202 (ADMIN-HIGH-153): `DataExportService.exportTenant` performs
+  // the export inside the request and replies `status: 'completed'` with the
+  // serialised payload. Answering "Accepted" for work already done is what
+  // led the admin panel to describe the job as asynchronous and to discard
+  // the file it had been handed.
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Export a tenant's messaging data" })
   async triggerExport(
     @TenantParam('param', { key: 'id', allow: 'any' }) tenantId: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>('request.messaging.admin.triggerExport', {
-      tenantId,
-      userId: user.id,
-      format: dto.format ?? 'json',
-    });
+  ): Promise<TenantDataExportResultDto> {
+    return this.sendNatsRequest<TenantDataExportResultDto>(
+      'request.messaging.admin.triggerExport',
+      {
+        tenantId,
+        userId: user.id,
+        format: dto.format ?? 'json',
+      },
+    );
   }
 
   // ── AI Personas ─────────────────────────────────────────────────────
@@ -372,8 +375,8 @@ export class MessagingAdminController {
    */
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
-  async getPersonas(@TenantParam('query') tenantId: string): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>('request.messaging.admin.getPersonas', {
+  async getPersonas(@TenantParam('query') tenantId: string): Promise<AiPersonaDto[]> {
+    return this.sendNatsRequest<AiPersonaDto[]>('request.messaging.admin.getPersonas', {
       tenantId,
     });
   }

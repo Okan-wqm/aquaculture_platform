@@ -8,7 +8,8 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAsyncData } from '../hooks';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { billingApi } from '../services/adminApi';
 import type {
   UsageSummaryStats,
@@ -452,74 +453,62 @@ const UsageDashboardPage: React.FC = () => {
   const [selectedTrendMeter, setSelectedTrendMeter] = useState<MeterType>(MeterType.API_CALLS);
   const [topTenantsMeter, setTopTenantsMeter] = useState<MeterType>(MeterType.API_CALLS);
 
-  // Fetch usage summary
-  const fetchSummary = useCallback(async () => {
-    return billingApi.getUsageSummary({ period: AggregationPeriod.MONTHLY });
-  }, []);
+  /**
+   * The four reads behind this dashboard.
+   *
+   * Three of them used to discard their error entirely — only the summary
+   * destructured one — and each rendered its failure as an empty result: "No
+   * usage data for this period", "No tenant usage data for this meter type",
+   * "No tenant usage data available". On a METERED-BILLING surface those are
+   * claims about consumption, and consumption is what the invoice is built
+   * from. An unanswered request is not zero usage.
+   */
+  const trendNumPeriods =
+    trendPeriod === AggregationPeriod.DAILY ? 30 : trendPeriod === AggregationPeriod.WEEKLY ? 12 : 6;
 
-  const {
-    data: summary,
-    loading: summaryLoading,
-    error: summaryError,
-    refresh: refreshSummary,
-  } = useAsyncData<UsageSummaryStats>(fetchSummary, {
-    cacheKey: 'usage-summary',
-    cacheTTL: 60000,
-  });
-
-  // Fetch tenants usage
-  const fetchTenantsUsage = useCallback(async () => {
-    const result = await billingApi.getAllTenantsUsage({
-      period: AggregationPeriod.MONTHLY,
-      limit: 10,
-    });
-    return result;
-  }, []);
-
-  const { data: tenantsData, loading: tenantsLoading } = useAsyncData<{
-    tenants: TenantUsageOverview[];
-    total: number;
-  }>(fetchTenantsUsage, {
-    cacheKey: 'usage-tenants',
-    cacheTTL: 60000,
-  });
-
-  // Fetch usage trends
-  const fetchTrends = useCallback(async () => {
-    return billingApi.getUsageTrends({
-      period: trendPeriod,
-      numPeriods:
-        trendPeriod === AggregationPeriod.DAILY
-          ? 30
-          : trendPeriod === AggregationPeriod.WEEKLY
-            ? 12
-            : 6,
-    });
-  }, [trendPeriod]);
-
-  const { data: trends = [], loading: trendsLoading } = useAsyncData<UsageTrendPoint[]>(
-    fetchTrends,
-    {
-      cacheKey: `usage-trends-${trendPeriod}`,
-      cacheTTL: 60000,
-    },
+  const summaryQuery = useAdminQuery<UsageSummaryStats>(
+    adminKeys.billing.usageSummary(AggregationPeriod.MONTHLY),
+    ({ signal }) => billingApi.getUsageSummary({ period: AggregationPeriod.MONTHLY }, signal),
   );
 
-  // Fetch top tenants
-  const fetchTopTenants = useCallback(async () => {
-    return billingApi.getTopTenantsByUsage(topTenantsMeter, {
-      period: AggregationPeriod.MONTHLY,
-      limit: 10,
-    });
-  }, [topTenantsMeter]);
-
-  const { data: topTenants = [], loading: topTenantsLoading } = useAsyncData<TopTenantUsage[]>(
-    fetchTopTenants,
-    {
-      cacheKey: `usage-top-tenants-${topTenantsMeter}`,
-      cacheTTL: 60000,
-    },
+  const tenantsQuery = useAdminQuery<{ tenants: TenantUsageOverview[]; total: number }>(
+    adminKeys.billing.usageTenants({ period: AggregationPeriod.MONTHLY, limit: 10 }),
+    ({ signal }) =>
+      billingApi.getAllTenantsUsage({ period: AggregationPeriod.MONTHLY, limit: 10 }, signal),
   );
+
+  const trendsQuery = useAdminQuery<UsageTrendPoint[]>(
+    adminKeys.billing.usageTrends(trendPeriod, trendNumPeriods),
+    ({ signal }) =>
+      billingApi.getUsageTrends({ period: trendPeriod, numPeriods: trendNumPeriods }, signal),
+  );
+
+  const topTenantsQuery = useAdminQuery<TopTenantUsage[]>(
+    adminKeys.billing.usageTopTenants(topTenantsMeter, AggregationPeriod.MONTHLY),
+    ({ signal }) =>
+      billingApi.getTopTenantsByUsage(
+        topTenantsMeter,
+        { period: AggregationPeriod.MONTHLY, limit: 10 },
+        signal,
+      ),
+  );
+
+  const summary = summaryQuery.data;
+  const summaryLoading = summaryQuery.isPending;
+  const summaryError = summaryQuery.error;
+  const tenantsData = tenantsQuery.data;
+  const tenantsLoading = tenantsQuery.isPending;
+  const trends: UsageTrendPoint[] = trendsQuery.data ?? [];
+  const trendsLoading = trendsQuery.isPending;
+  const topTenants: TopTenantUsage[] = topTenantsQuery.data ?? [];
+  const topTenantsLoading = topTenantsQuery.isPending;
+
+  const refreshAll = useCallback((): void => {
+    void summaryQuery.refetch();
+    void tenantsQuery.refetch();
+    void trendsQuery.refetch();
+    void topTenantsQuery.refetch();
+  }, [summaryQuery, tenantsQuery, trendsQuery, topTenantsQuery]);
 
   // Derived data
   const maxMeterUsage = useMemo(() => {
@@ -545,21 +534,26 @@ const UsageDashboardPage: React.FC = () => {
 
   if (summaryError && !summary) {
     return (
-      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-6 text-center">
-        <p className="text-error-600 dark:text-error-400 font-medium">Failed to load usage data</p>
-        <p className="text-error-500 text-sm mt-1">{summaryError}</p>
-        <button
-          onClick={refreshSummary}
-          className="mt-4 px-4 py-2 bg-error-600 text-white text-sm font-medium rounded-lg hover:bg-error-700 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
+      <QueryFailureNotice
+        errors={[summaryError, tenantsQuery.error, trendsQuery.error, topTenantsQuery.error]}
+        hasContent={false}
+        onRetry={refreshAll}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
+      {/*
+        Every read that failed, named. Three of these used to be discarded
+        entirely, so an unanswered request rendered as "no usage data" — a claim
+        about consumption on the surface metered invoices are built from.
+      */}
+      <QueryFailureNotice
+        errors={[summaryError, tenantsQuery.error, trendsQuery.error, topTenantsQuery.error]}
+        hasContent={Boolean(summary)}
+        onRetry={refreshAll}
+      />
       {/* Header */}
       <PageHeader
         title="Usage Dashboard"
@@ -573,7 +567,7 @@ const UsageDashboardPage: React.FC = () => {
               Billing Overview
             </Link>
             <button
-              onClick={refreshSummary}
+              onClick={refreshAll}
               className="px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors"
             >
               Refresh Data

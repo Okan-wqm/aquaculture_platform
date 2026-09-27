@@ -23,6 +23,8 @@ import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/
 import type { PaginatedResult } from '../services/types/common';
 import { expectedTotalPages } from '@platform/pagination-contracts';
 
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { formatCurrencyAmount } from '../utils/money';
 
 // ============================================================================
@@ -67,9 +69,6 @@ const CustomPlansListPage: React.FC = () => {
   const confirm = useConfirm();
   const navigate = useNavigate();
 
-  const [plans, setPlans] = useState<readonly CustomPlan[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -92,30 +91,36 @@ const CustomPlansListPage: React.FC = () => {
   // Data Loading
   // ============================================================================
 
-  const loadPlans = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result: PaginatedResult<CustomPlan> = await billingApi.getCustomPlans({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        search: searchQuery || undefined,
-        page,
-        limit,
-      });
-      setPlans(result.data);
-      setTotal(result.total || 0);
-    } catch (err) {
-      console.error('Failed to load custom plans:', err);
-      setError((err as Error).message || 'Failed to load custom plans');
-      setPlans([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, searchQuery, page]);
+  /**
+   * The custom-plan queue, per filter and page.
+   *
+   * The page was already honest about failures — it surfaced
+   * `(err as Error).message`, the server's own reason — so this migration is
+   * not fixing a lie. What it removes is a banned `console.error`, six floating
+   * `loadPlans()` promises after the writes, and a second cache beside the
+   * shell's that `logoutCleanup()` never reached.
+   */
+  const plansQuery = useAdminQuery<PaginatedResult<CustomPlan>>(
+    adminKeys.billing.customPlans({ statusFilter, searchQuery, page, limit }),
+    ({ signal }) =>
+      billingApi.getCustomPlans(
+        {
+          status: statusFilter !== 'all' ? statusFilter : undefined,
+          search: searchQuery || undefined,
+          page,
+          limit,
+        },
+        signal,
+      ),
+  );
 
-  useEffect(() => {
-    loadPlans();
-  }, [loadPlans]);
+  const plans: readonly CustomPlan[] = plansQuery.data?.data ?? [];
+  const total = plansQuery.data?.total ?? 0;
+  const loading = plansQuery.isPending;
+
+  const loadPlans = useCallback((): void => {
+    void plansQuery.refetch();
+  }, [plansQuery]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -486,6 +491,17 @@ const CustomPlansListPage: React.FC = () => {
       />
 
       {/* Alerts */}
+      {/*
+        The READ. The write errors below keep their own block: they were
+        already surfacing the server's own message, and a refused approval is a
+        message about that action rather than a reason to take the queue away.
+      */}
+      <QueryFailureNotice
+        errors={[plansQuery.error]}
+        hasContent={plans.length > 0}
+        onRetry={loadPlans}
+      />
+
       {error && (
         <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 text-error-700 dark:text-error-300">
           {error}

@@ -52,6 +52,30 @@ describe('PaymentManagementService.getPaymentStats', () => {
     expect(stats.totalAmount).toBe(1300);
   });
 
+  it('sums captured and refunded money over every row, not the page on screen', async () => {
+    // The payments page used to compute these in the browser from the 50 rows
+    // it had loaded, narrowed by the active status filter, and label the
+    // difference "Net Revenue" — so filtering to `failed` showed $0 net.
+    queryMock
+      .mockResolvedValueOnce([
+        { status: 'succeeded', count: '6', total: '600', refundedTotal: '0' },
+        { status: 'failed', count: '2', total: '200', refundedTotal: '0' },
+        { status: 'refunded', count: '1', total: '100', refundedTotal: '100' },
+        // The case the client-side sum could not get right: this payment
+        // captured 50 and gave back 20. Its full amount is not the refund.
+        { status: 'partially_refunded', count: '1', total: '50', refundedTotal: '20' },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const service = await makeService();
+    const stats = await service.getPaymentStats();
+
+    // A partially refunded payment still captured in full.
+    expect(stats.succeededAmount).toBe(650);
+    // Only what was handed back, from refunded_amount — not 150.
+    expect(stats.refundedAmount).toBe(120);
+  });
+
   it('returns a 0 success rate (not NaN) when there are no terminal attempts', async () => {
     queryMock
       .mockResolvedValueOnce([{ status: 'pending', count: '2', total: '20' }])

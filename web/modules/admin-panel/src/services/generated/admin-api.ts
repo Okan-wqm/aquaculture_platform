@@ -6351,7 +6351,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Trigger tenant data export */
+        /** Export a tenant's messaging data */
         post: operations["MessagingAdminController_triggerExport"];
         delete?: never;
         options?: never;
@@ -7867,6 +7867,48 @@ export interface components {
         VoidInvoiceDto: {
             reason: string;
         };
+        PaymentStatsWindowDto: {
+            /** @description Every payment row in the window, whatever its status. */
+            totalPayments: number;
+            /** @description Payments that captured. */
+            succeeded: number;
+            /** @description Payments that attempted capture and did not get it. */
+            failed: number;
+            /** @description Payments fully or partially refunded. */
+            refunded: number;
+            /** @description In flight: pending plus processing. */
+            pending: number;
+            /** @description succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down. */
+            successRate: number;
+            /** @description Sum of every row amount in the window. */
+            totalAmount: number;
+            /** @description Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference "Net Revenue". */
+            succeededAmount: number;
+            /** @description Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself. */
+            refundedAmount: number;
+        };
+        PaymentStatsResponseDto: {
+            /** @description Every payment row in the window, whatever its status. */
+            totalPayments: number;
+            /** @description Payments that captured. */
+            succeeded: number;
+            /** @description Payments that attempted capture and did not get it. */
+            failed: number;
+            /** @description Payments fully or partially refunded. */
+            refunded: number;
+            /** @description In flight: pending plus processing. */
+            pending: number;
+            /** @description succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down. */
+            successRate: number;
+            /** @description Sum of every row amount in the window. */
+            totalAmount: number;
+            /** @description Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference "Net Revenue". */
+            succeededAmount: number;
+            /** @description Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself. */
+            refundedAmount: number;
+            /** @description The trailing 30 days. The dashboard shows this window: an all-time rate on a long-lived tenant is dominated by history and stops moving when something breaks today. */
+            last30Days: components["schemas"]["PaymentStatsWindowDto"];
+        };
         RecordPaymentDto: {
             /** Format: uuid */
             invoiceId: string;
@@ -8164,20 +8206,125 @@ export interface components {
             tenantId?: string;
             subject: string;
             content: string;
+        };
+        CreatedMessageThreadDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenantId: string;
+            subject: string;
+            /** Format: uuid */
+            lastMessageId?: string;
+            messageCount: number;
+            unreadAdminCount: number;
+            unreadTenantCount: number;
+            isArchived: boolean;
+            isClosed: boolean;
+            /** Format: date-time */
+            lastMessageAt?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        MessageAttachmentResponseDto: {
+            id: string;
+            fileName: string;
+            /** @description Size in bytes. */
+            fileSize: number;
+            mimeType: string;
+            url: string;
+            uploadedAt: string;
+        };
+        SupportMessageResponseDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            threadId: string;
+            /** Format: uuid */
+            senderId: string;
+            /**
+             * @description The platform side is 'admin'. There is no 'super_admin' — the panel's union invented it, and every test against it was false.
+             * @enum {string}
+             */
+            senderType: "admin" | "tenant_admin" | "system";
+            /** @description Display name captured when the message was written, derived from the authenticated sender. ABSENT when unknown — the column is nullable and `JSON.stringify` omits undefined. */
             senderName?: string;
+            content: string;
+            /**
+             * @description 'failed' is a real state; a client that omits it draws a failure as an unread send.
+             * @enum {string}
+             */
+            status: "sent" | "delivered" | "read" | "failed";
+            /** @description Internal notes are not shown to the tenant. */
+            isInternal: boolean;
+            /** @description Absent when the message carries no attachments. */
+            attachments?: components["schemas"]["MessageAttachmentResponseDto"][];
+            /** @description Whether the message was emailed to the tenant. */
+            emailSent: boolean;
+            /**
+             * Format: date-time
+             * @description When the counterparty read it. Absent while unread.
+             */
+            readAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SupportMessagePageDto: {
+            items: components["schemas"]["SupportMessageResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
         };
         AddMessageDto: {
             content: string;
-            senderName?: string;
             isInternal?: boolean;
             attachments?: Record<string, never>[];
         };
+        BulkMessageAudienceDto: {
+            /** @description Send only to these tenants. Omit for every tenant matching the other clauses. */
+            tenantIds?: string[];
+            excludeTenantIds?: string[];
+            /** @description Narrow to these plan codes. */
+            plans?: string[];
+            regions?: string[];
+            /** @description Suspended and trial-expired tenants are excluded unless this is true. */
+            includeInactive?: boolean;
+        };
         BulkMessageDto: {
+            targetCriteria: components["schemas"]["BulkMessageAudienceDto"];
             subject: string;
             content: string;
-            targetCriteria?: Record<string, never>;
-            tenantIds?: string[];
             sendEmail?: boolean;
+        };
+        BulkMessageResultDto: {
+            /** @description Tenants whose thread was created. */
+            sent: number;
+            /** @description Tenants whose thread FAILED. A non-zero value is a partial send. */
+            failed: number;
+            /** @description The threads that were created. */
+            threadIds: string[];
+        };
+        MessagingStatsResponseDto: {
+            /** @description Threads that are not archived. */
+            totalThreads: number;
+            activeThreads: number;
+            closedThreads: number;
+            /** @description Every message row, archived threads included. */
+            totalMessages: number;
+            /** @description Messages awaiting an admin, summed over unarchived threads. */
+            unreadMessages: number;
+            /** @description Mean minutes between a tenant message and the admin reply that followed it, over the pairs that EXIST. null when no admin has ever answered — not 0, which reads as an instant reply. */
+            avgResponseTimeMinutes: number | null;
+        };
+        UnreadCountResponseDto: {
+            unreadCount: number;
         };
         Announcement: {
             id: string;
@@ -8201,25 +8348,47 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            acknowledgments: components["schemas"]["AnnouncementAcknowledgment"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
         };
-        AnnouncementAcknowledgment: {
-            id: string;
-            announcementId: string;
-            tenantId: string;
-            userId: string;
-            userName?: string;
-            /** Format: date-time */
-            viewedAt?: string;
-            /** Format: date-time */
-            acknowledgedAt?: string;
-            announcement: components["schemas"]["Announcement"];
-            /** Format: date-time */
-            createdAt: string;
+        AnnouncementPageDto: {
+            items: components["schemas"]["Announcement"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
+        };
+        AnnouncementStatsByTypeDto: {
+            /** @description Announcements of type `info`, in any status. */
+            info: number;
+            /** @description Announcements of type `warning`, in any status. */
+            warning: number;
+            /** @description Announcements of type `critical`, in any status. */
+            critical: number;
+            /** @description Announcements of type `maintenance`, in any status. */
+            maintenance: number;
+        };
+        AnnouncementStatsResponseDto: {
+            /** @description Every announcement row, in any status. Counted over the whole table — not over the page the list endpoint returned, which is capped. */
+            total: number;
+            /** @description Announcements currently published. */
+            published: number;
+            /** @description Announcements with a future publish time. */
+            scheduled: number;
+            /** @description Announcements never published. */
+            draft: number;
+            /** @description Announcements past their expiry. */
+            expired: number;
+            /** @description Sum of `viewCount` over every announcement. */
+            totalViews: number;
+            /** @description Sum of `acknowledgmentCount` over every announcement. */
+            totalAcknowledgments: number;
+            /** @description One count per announcement type. The four keys are always present. */
+            byType: components["schemas"]["AnnouncementStatsByTypeDto"];
         };
         CreateAnnouncementDto: {
             title: string;
@@ -8243,6 +8412,27 @@ export interface components {
             expiresAt?: string;
             requiresAcknowledgment?: boolean;
         };
+        AnnouncementAcknowledgment: {
+            id: string;
+            announcementId: string;
+            tenantId: string;
+            userId: string;
+            userName?: string;
+            /** Format: date-time */
+            viewedAt?: string;
+            /** Format: date-time */
+            acknowledgedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AnnouncementAcknowledgmentStatusDto: {
+            /** @description The announcement's own view counter. */
+            totalViews: number;
+            /** @description The announcement's own acknowledgment counter. */
+            totalAcknowledgments: number;
+            /** @description Every view or acknowledgment recorded against this announcement, newest first. An empty array means nobody has seen it — which is why a failed read must never be rendered as one. */
+            acknowledgments: components["schemas"]["AnnouncementAcknowledgment"][];
+        };
         AcknowledgeDto: {
             /**
              * Format: uuid
@@ -8251,6 +8441,23 @@ export interface components {
             tenantId?: string;
             userId: string;
             userName: string;
+        };
+        TicketStatsResponseDto: {
+            /** @description Every ticket row, in any status. */
+            total: number;
+            open: number;
+            inProgress: number;
+            waitingCustomer: number;
+            resolved: number;
+            closed: number;
+            /** @description Mean minutes to first response, over tickets that HAVE one. null when no ticket has been responded to — not 0, which reads as instant. */
+            avgFirstResponseMinutes: number | null;
+            /** @description Mean minutes to resolution, over RESOLVED tickets. null when nothing has been resolved. */
+            avgResolutionMinutes: number | null;
+            /** @description Tickets whose SLA is marked breached. */
+            slaBreachCount: number;
+            /** @description Mean satisfaction rating over tickets that were RATED. null when none were — not 0, which reads as universal dissatisfaction. */
+            avgSatisfactionRating: number | null;
         };
         SupportTicket: {
             id: string;
@@ -8287,26 +8494,10 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            comments: components["schemas"]["TicketComment"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
-        };
-        TicketComment: {
-            id: string;
-            ticketId: string;
-            authorId: string;
-            /** @enum {string} */
-            authorType: "system" | "admin" | "tenant_user";
-            authorName?: string;
-            content: string;
-            isInternal: boolean;
-            attachments?: Record<string, never>[];
-            emailSent: boolean;
-            ticket: components["schemas"]["SupportTicket"];
-            /** Format: date-time */
-            createdAt: string;
         };
         CreateTicketDto: {
             /**
@@ -8347,11 +8538,62 @@ export interface components {
             /** @enum {string} */
             priority: "critical" | "high" | "low" | "medium";
         };
+        TicketAttachmentResponseDto: {
+            id: string;
+            fileName: string;
+            fileSize: number;
+            mimeType: string;
+            url: string;
+            uploadedAt: string;
+        };
+        TicketCommentResponseDto: {
+            id: string;
+            /** Format: uuid */
+            ticketId: string;
+            /** Format: uuid */
+            authorId: string;
+            /** @enum {string} */
+            authorType: "admin" | "tenant_user" | "system";
+            /** @description Display name captured when the comment was written. ABSENT from the payload when unknown — the column is nullable and `JSON.stringify` omits undefined, so a client must treat the key as optional rather than expecting null. */
+            authorName?: string;
+            content: string;
+            /** @description Internal notes are not shown to the tenant. */
+            isInternal: boolean;
+            /** @description Absent when the comment carries no attachments. */
+            attachments?: components["schemas"]["TicketAttachmentResponseDto"][];
+            /** @description Whether the comment was emailed to the tenant. */
+            emailSent: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        TicketCommentPageDto: {
+            items: components["schemas"]["TicketCommentResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
+        };
         AddCommentDto: {
             content: string;
             authorName?: string;
             isInternal?: boolean;
             attachments?: Record<string, never>[];
+        };
+        TicketComment: {
+            id: string;
+            ticketId: string;
+            authorId: string;
+            /** @enum {string} */
+            authorType: "system" | "admin" | "tenant_user";
+            authorName?: string;
+            content: string;
+            isInternal: boolean;
+            attachments?: Record<string, never>[];
+            emailSent: boolean;
+            /** Format: date-time */
+            createdAt: string;
         };
         SatisfactionRatingDto: {
             rating: number;
@@ -9439,6 +9681,50 @@ export interface components {
             channelId?: string | null;
             retentionDays: number;
         };
+        MessagingMonitoringTotalsDto: {
+            /** @description Messages of any age, across every tenant. */
+            totalMessages: number;
+            messages24h: number;
+            messages7d: number;
+            /** @description Non-archived channels across every tenant. */
+            activeChannels: number;
+            /** @description Tenants with messages or active channels. */
+            tenantCount: number;
+        };
+        TenantMessagingOverviewRowDto: {
+            /** Format: uuid */
+            tenantId: string;
+            /** @description Messages created in the last 24 hours. */
+            messageCount24h: number;
+            /** @description Messages created in the last 7 days. */
+            messageCount7d: number;
+            /** @description Messages of any age. */
+            totalMessages: number;
+            /** @description Channels that are not archived. */
+            activeChannels: number;
+        };
+        MessagingOutboxHealthDto: {
+            /** @description Events enqueued but not yet published, and not dead-lettered. */
+            pendingCount: number;
+            /** @description Dead-lettered events that exhausted their retries. These are NOT retried automatically. */
+            failedCount: number;
+            /** @description Age in seconds of the oldest pending event; null when nothing is pending. Null is not zero — a dashboard must not render it as an age. */
+            oldestPendingAgeSeconds: number | null;
+        };
+        MessagingMonitoringStatsDto: {
+            totals: components["schemas"]["MessagingMonitoringTotalsDto"];
+            /** @description Per-tenant breakdown, sorted by 24h message volume descending. */
+            perTenant: components["schemas"]["TenantMessagingOverviewRowDto"][];
+            outbox: components["schemas"]["MessagingOutboxHealthDto"];
+            /** @description When messaging-service computed the aggregate. It caches for 60 seconds, so this is the age of the numbers, not of the request. */
+            generatedAt: string;
+        };
+        MessagingTenantsOverviewDto: {
+            /** @description Per-tenant rows, sorted by 24h message volume descending. */
+            tenants: components["schemas"]["TenantMessagingOverviewRowDto"][];
+            /** @description When messaging-service computed the aggregate. */
+            generatedAt: string;
+        };
         TriggerExportDto: {
             /**
              * Format: uuid
@@ -9447,6 +9733,36 @@ export interface components {
             tenantId?: string;
             /** @enum {string} */
             format?: "csv" | "json";
+        };
+        TenantDataExportResultDto: {
+            /**
+             * Format: uuid
+             * @description Identifies this export in the audit log.
+             */
+            jobId: string;
+            /** @description Always 'completed': the export is performed synchronously, inside the request. */
+            status: string;
+            /** @enum {string} */
+            format: "csv" | "json";
+            /** @description Rows in the export. */
+            recordCount: number;
+            /** @description The export itself, serialised as JSON or CSV. This is the file — there is no second endpoint to fetch it from, and nothing stores it server-side. */
+            data: string;
+            /** @description Whether the tenant is under an effective legal hold. The export still runs; the flag records that the data is preserved for a matter. */
+            isUnderLegalHold: boolean;
+            exportedAt: string;
+        };
+        AiPersonaDto: {
+            /** @description Persona id in ai-service. `null` is the general AI assistant. */
+            id: string | null;
+            name: string;
+            description: string;
+            /** @description Lucide icon name, for rendering only. */
+            icon: string;
+            /** @description Theme colour key, for rendering only. */
+            color: string;
+            /** @description Capability labels describing what the persona can do. These are DESCRIPTIONS, not grants: what the AI may actually actuate is decided by TenantAgentConfig.actuationPolicy, which this response does not carry. */
+            capabilities: string[];
         };
         ForgotPasswordDto: {
             /** Format: email */
@@ -10011,6 +10327,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10081,6 +10399,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10103,6 +10423,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10497,6 +10819,8 @@ export interface operations {
                 limit?: string;
                 minTime?: string;
                 grouped?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10597,6 +10921,8 @@ export interface operations {
             query?: {
                 hours?: string;
                 metricType?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -11100,7 +11426,10 @@ export interface operations {
     };
     EmailTemplateController_getAllTemplates: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11142,7 +11471,10 @@ export interface operations {
     };
     EmailTemplateController_getTemplatesByCategory: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path: {
                 category: string;
@@ -11182,7 +11514,10 @@ export interface operations {
     };
     EmailTemplateController_getTemplateByCode: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path: {
                 code: string;
@@ -12337,6 +12672,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -12588,6 +12925,8 @@ export interface operations {
                 overdueOnly?: string;
                 limit?: string;
                 offset?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -12770,7 +13109,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PaymentStatsResponseDto"];
                 };
             };
         };
@@ -12785,6 +13124,8 @@ export interface operations {
                 dateTo?: string;
                 limit?: string;
                 offset?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -12925,6 +13266,8 @@ export interface operations {
                 period?: string;
                 meterType?: string;
                 numPeriods?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -13847,6 +14190,8 @@ export interface operations {
                 moduleId?: string;
                 page?: string;
                 limit?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -15060,7 +15405,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageThread"];
+                    "application/json": components["schemas"]["CreatedMessageThreadDto"];
                 };
             };
         };
@@ -15188,7 +15533,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Message"][];
+                    "application/json": components["schemas"]["SupportMessagePageDto"];
                 };
             };
         };
@@ -15254,7 +15599,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["BulkMessageResultDto"];
+                };
             };
         };
     };
@@ -15271,7 +15618,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MessagingStatsResponseDto"];
+                };
             };
         };
     };
@@ -15288,7 +15637,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UnreadCountResponseDto"];
+                };
             };
         };
     };
@@ -15310,7 +15661,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementPageDto"];
+                };
             };
         };
     };
@@ -15350,7 +15703,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementStatsResponseDto"];
+                };
             };
         };
     };
@@ -15516,7 +15871,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAcknowledgmentStatusDto"];
+                };
             };
         };
     };
@@ -15582,6 +15939,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -15634,7 +15993,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["TicketStatsResponseDto"];
                 };
             };
         };
@@ -15946,7 +16305,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["TicketCommentPageDto"];
+                };
             };
         };
     };
@@ -16578,6 +16939,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -16793,6 +17156,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -17595,6 +17960,8 @@ export interface operations {
                 endDate?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -17639,6 +18006,8 @@ export interface operations {
                 ipAddress?: string;
                 userId?: string;
                 isSuperAdmin?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -18485,6 +18854,8 @@ export interface operations {
                 endDate?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -18809,6 +19180,8 @@ export interface operations {
                 search?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -19089,7 +19462,10 @@ export interface operations {
     };
     MessagingAdminController_getComplianceStats: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19108,7 +19484,10 @@ export interface operations {
     };
     MessagingAdminController_getLegalHolds: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19150,7 +19529,10 @@ export interface operations {
     };
     MessagingAdminController_releaseLegalHold: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -19171,7 +19553,10 @@ export interface operations {
     };
     MessagingAdminController_getRetentionPolicies: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19225,14 +19610,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["MessagingMonitoringStatsDto"];
                 };
             };
         };
     };
     MessagingAdminController_getAuditLog: {
         parameters: {
-            query?: {
+            query: {
                 limit?: string;
                 cursor?: string;
                 userId?: string;
@@ -19240,6 +19625,8 @@ export interface operations {
                 resourceType?: string;
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
             };
             header?: never;
             path?: never;
@@ -19271,7 +19658,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["MessagingTenantsOverviewDto"];
                 };
             };
         };
@@ -19289,19 +19676,22 @@ export interface operations {
             };
         };
         responses: {
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["TenantDataExportResultDto"];
                 };
             };
         };
     };
     MessagingAdminController_getPersonas: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19313,7 +19703,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": components["schemas"]["AiPersonaDto"][];
                 };
             };
         };

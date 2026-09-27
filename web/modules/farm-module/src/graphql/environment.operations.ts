@@ -28,6 +28,19 @@ const ENVIRONMENT_VALUE_FIELDS = `
   stationDistanceKm
 `;
 
+/**
+ * The deployment rollout gate as a value (ORPHAN-MEDIUM-827). The one
+ * environment read that answers while the gate is closed; every other read
+ * below is refused with a 503 until it opens.
+ */
+export const ENVIRONMENT_MONITORING_STATUS_QUERY = `
+  query EnvironmentMonitoringStatus {
+    environmentMonitoringStatus {
+      enabled
+    }
+  }
+`;
+
 export const SITE_ENVIRONMENT_CURRENT_QUERY = `
   query SiteEnvironmentCurrent($siteId: ID!) {
     siteEnvironmentCurrent(siteId: $siteId) {

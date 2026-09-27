@@ -11,6 +11,8 @@ describe('SuggestChannelsTool', () => {
     userRoles: ['operator'],
     correlationId: 'corr-123',
     persona: 'aqua-expert',
+    personaTier: 'expert',
+    offeredToolNames: [],
     actuationPolicy: 'confirm_required',
   };
 
@@ -25,12 +27,7 @@ describe('SuggestChannelsTool', () => {
       expect(meta.category).toBe('sensor_query');
       expect(meta.runtime).toBe('cloud');
       expect(meta.requiresConfirmation).toBe(false);
-      expect(meta.requiredPermissions).toEqual([
-        'operator',
-        'manager',
-        'expert',
-        'supervisor',
-      ]);
+      expect(meta.requiredPermissions).toEqual(['operator', 'manager', 'expert', 'supervisor']);
     });
   });
 
@@ -69,9 +66,7 @@ describe('SuggestChannelsTool', () => {
     it('should accept valid input', async () => {
       const result = await tool.validate({
         sensorId: 'sensor-1',
-        detectedFields: [
-          { key: 'temperature', dataType: 'number', sampleCount: 10 },
-        ],
+        detectedFields: [{ key: 'temperature', dataType: 'number', sampleCount: 10 }],
       });
       expect(result.valid).toBe(true);
     });
@@ -112,9 +107,7 @@ describe('SuggestChannelsTool', () => {
       expect(result.data!.sensorId).toBe('sensor-1');
       expect(result.data!.tenantId).toBe('tenant_test');
 
-      const tempProposal = result.data!.proposals.find(
-        (p) => p.channelKey === 'temperature',
-      );
+      const tempProposal = result.data!.proposals.find((p) => p.channelKey === 'temperature');
       expect(tempProposal).toBeDefined();
       expect(tempProposal!.displayLabel).toBe('Temperature');
       expect(tempProposal!.unit).toBe('\u00b0C');
@@ -123,9 +116,7 @@ describe('SuggestChannelsTool', () => {
       expect(tempProposal!.operationalMax).toBe(30);
       expect(tempProposal!.alertThresholds).toBeDefined();
 
-      const pumpProposal = result.data!.proposals.find(
-        (p) => p.channelKey === 'pump_active',
-      );
+      const pumpProposal = result.data!.proposals.find((p) => p.channelKey === 'pump_active');
       expect(pumpProposal).toBeDefined();
       expect(pumpProposal!.dataType).toBe('boolean');
       expect(pumpProposal!.widgetType).toBe('indicator');
@@ -238,7 +229,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 10, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 10,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -251,7 +249,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 3, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 3,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -264,7 +269,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 1, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 1,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -277,9 +289,30 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'waterTemperature', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
-            { key: 'dissolved-oxygen', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
-            { key: 'pH Level', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'waterTemperature',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
+            {
+              key: 'dissolved-oxygen',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
+            {
+              key: 'pH Level',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -297,7 +330,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'water_temp', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'water_temp',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -311,7 +351,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,
@@ -325,7 +372,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
           industryContext: 'aquaculture',
         },
@@ -340,7 +394,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'status', dataType: 'string', sampleCount: 5, suggestedUnit: '', suggestedLabel: 'Status', suggestedWidgetType: 'text' },
+            {
+              key: 'status',
+              dataType: 'string',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: 'Status',
+              suggestedWidgetType: 'text',
+            },
           ],
         },
         ctx,
@@ -354,7 +415,14 @@ describe('SuggestChannelsTool', () => {
         {
           sensorId: 'sensor-1',
           detectedFields: [
-            { key: 'temp', dataType: 'number', sampleCount: 5, suggestedUnit: '', suggestedLabel: '', suggestedWidgetType: '' },
+            {
+              key: 'temp',
+              dataType: 'number',
+              sampleCount: 5,
+              suggestedUnit: '',
+              suggestedLabel: '',
+              suggestedWidgetType: '',
+            },
           ],
         },
         ctx,

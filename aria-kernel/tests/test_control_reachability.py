@@ -31,9 +31,7 @@ longer exists — fails too, so the manifest cannot rot in either direction.
 
 from __future__ import annotations
 
-import json
 import unittest
-from datetime import date
 from pathlib import Path
 
 from aria_kernel.control_reachability import (
@@ -43,16 +41,15 @@ from aria_kernel.control_reachability import (
     unreachable_controls,
     unrostered_production_dirs,
 )
+from aria_kernel.surface_waivers import (
+    DORMANT_CONTROL_MANIFEST,
+    REQUIRED_WAIVER_FIELDS,
+    iter_waivers,
+    lapsed_waivers,
+    load_waiver_manifest,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = REPO_ROOT / "aria-kernel" / "control-reachability.dormant.json"
-REQUIRED_WAIVER_FIELDS = ("owner", "reason", "expires_on", "finding_id")
-
-
-def _manifest() -> dict[str, dict[str, str]]:
-    if not MANIFEST_PATH.exists():
-        return {}
-    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
 class ControlReachabilityTests(unittest.TestCase):
@@ -60,7 +57,12 @@ class ControlReachabilityTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.controls = declared_controls(REPO_ROOT)
         cls.unreachable = unreachable_controls(REPO_ROOT)
-        cls.manifest = _manifest()
+        # ARIA-MEDIUM-128 — the manifest is read by the production reader the
+        # doctor's `deadlines` organ reads it with (`DORMANT_CONTROL_MANIFEST`
+        # in `surface_waivers.WAIVER_MANIFESTS`), so this gate and the organ
+        # parse one file one way and cannot disagree about a date. The keys
+        # of the loaded object are the control names.
+        cls.manifest = load_waiver_manifest(REPO_ROOT, DORMANT_CONTROL_MANIFEST)
 
     def test_the_convention_still_selects_a_real_control_surface(self) -> None:
         # If a rename swept the control verbs away, every later assertion in
@@ -95,7 +97,7 @@ class ControlReachabilityTests(unittest.TestCase):
         )
 
     def test_every_waiver_names_an_owner_a_reason_a_deadline_and_a_finding(self) -> None:
-        for name, entry in sorted(self.manifest.items()):
+        for name, entry in iter_waivers(self.manifest, DORMANT_CONTROL_MANIFEST):
             with self.subTest(control=name):
                 for field in REQUIRED_WAIVER_FIELDS:
                     self.assertTrue(
@@ -109,12 +111,11 @@ class ControlReachabilityTests(unittest.TestCase):
     def test_a_waiver_expires_against_the_clock_not_against_a_regex(self) -> None:
         # THE LESSON. `invariant-reachability.spec.ts` checked this field's
         # shape and not its value; every waiver was a month stale and green.
-        today = date.today()
-        expired = [
-            f"{name} (expired {entry['expires_on']}, {entry['finding_id']})"
-            for name, entry in sorted(self.manifest.items())
-            if date.fromisoformat(entry["expires_on"]) < today
-        ]
+        # The predicate is `surface_waivers.waiver_has_lapsed`, reached
+        # through `lapsed_waivers` — the one the doctor announces seven days
+        # ahead of (ARIA-MEDIUM-128); the gate that fires here and the organ
+        # that warns before it read one clock.
+        expired = lapsed_waivers(self.manifest, DORMANT_CONTROL_MANIFEST)
         self.assertEqual(expired, [], "dormancy waiver(s) past their deadline: " + ", ".join(expired))
 
     def test_a_waiver_for_a_control_that_is_now_wired_must_be_removed(self) -> None:

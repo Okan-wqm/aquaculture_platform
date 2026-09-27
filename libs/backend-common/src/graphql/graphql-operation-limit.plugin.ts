@@ -38,6 +38,7 @@ export const MAX_GRAPHQL_SELECTION_VISITS = 10_000;
  */
 export const ENVIRONMENT_READ_OPERATION_FIELD_LIMITS: Readonly<Record<string, number>> =
   Object.freeze({
+    environmentMonitoringStatus: 1,
     siteEnvironmentCurrent: 1,
     siteEnvironmentHistory: 1,
     siteEnvironmentForecast: 1,

@@ -400,13 +400,96 @@ def _check_required_test_cmd_correlation(
                 f"validation_matrix_spec_missing_cmd_correlation_field: "
                 f"{spec.get('risk_type')}/{spec.get('name')}"
             )
-        if not any(substring in cmd for cmd in cmds):
+        if not any(required_test_cmd_satisfied_by(substring, cmd) for cmd in cmds):
             failures.append(
                 f"validation_run_ref_does_not_match_required_test_cmd: "
                 f"required test {spec.get('name')!r} expects cmd "
                 f"containing {substring!r}; no candidate ref's cmd matched"
             )
     return failures
+
+
+def nx_run_identity(cmd: str) -> tuple[str, frozenset[str] | None] | None:
+    """``(target, projects)`` an nx command runs, or ``None`` when it is not nx.
+
+    Every spelling nx accepts for "run target T on project P" is one identity:
+    ``nx test P`` (the spec table's phrasing), ``nx run P:T``,
+    ``nx run-many --target=T --projects=P,Q`` (the only per-project form
+    ``validation.parse_allowed_command`` admits) and ``nx affected
+    --target=T``, whose project set is the affected set and is reported as
+    ``None`` — unknown here, not empty.
+    """
+    parts = cmd.split()
+    try:
+        index = parts.index("nx")
+    except ValueError:
+        return None
+    verbs = parts[index + 1:]
+    if not verbs:
+        return None
+    verb = verbs[0]
+    options = [item for item in verbs[1:] if item.startswith("-")]
+    positional = [item for item in verbs[1:] if not item.startswith("-")]
+
+    def option(*names: str) -> str | None:
+        for item in options:
+            for name in names:
+                if item.startswith(name + "="):
+                    return item[len(name) + 1:]
+        return None
+
+    if verb in {"run-many", "affected"}:
+        target = option("--target", "-t")
+        if target is None:
+            return None
+        if verb == "affected":
+            return target, None
+        projects = option("--projects", "-p")
+        return target, frozenset(p for p in (projects or "").split(",") if p)
+    if verb == "run" and positional and ":" in positional[0]:
+        project, _, target = positional[0].partition(":")
+        return target, frozenset({project})
+    if positional:
+        # `nx <target> <project>` — the spec table's phrasing.
+        return verb, frozenset({positional[0]})
+    return None
+
+
+def required_test_cmd_satisfied_by(expected: str, cmd: str) -> bool:
+    """Whether one validation run's ``cmd`` is the test a spec requires.
+
+    Plan 023 v3 §R-3 matched by substring, and the spec table phrases its
+    requirements as ``nx test <project>`` — the one nx spelling
+    ``validation.parse_allowed_command`` REFUSES (only ``affected`` and
+    ``run-many`` are allowed). No runnable command could ever satisfy a
+    per-project requirement: the real event-contracts upcaster run of
+    ``tests/test_validation_matrix_cmd_correlation_end_to_end`` proved it.
+    An nx requirement is therefore matched by IDENTITY — the same target on
+    the required project, in any spelling nx accepts — and only a
+    non-nx requirement (``schema-invariants``) keeps the substring rule. An
+    ``affected`` run names no project set, so it satisfies an ``affected``
+    requirement of the same target and nothing per-project: the gate does
+    not know what was affected.
+    """
+    required = nx_run_identity(expected)
+    if required is None:
+        # A non-nx requirement (`schema-invariants`) is a spec name the
+        # command line carries or does not.
+        return expected in cmd
+    actual = nx_run_identity(cmd)
+    if actual is None:
+        # `echo nx test event-contracts` contains the words and runs nothing:
+        # an nx requirement is met only by an nx run with the same identity.
+        return False
+    required_target, required_projects = required
+    actual_target, actual_projects = actual
+    if required_target != actual_target:
+        return False
+    if required_projects is None:
+        return actual_projects is None
+    if actual_projects is None:
+        return False
+    return required_projects <= actual_projects
 
 
 def _check_run_pass_layer(

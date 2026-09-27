@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
+from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
 
 WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
@@ -206,6 +207,67 @@ def adjudicate_waivers(
     return result
 
 
+def _coverage_witness_input(plan_content: dict[str, Any]) -> dict[str, Any]:
+    """The writer's normalized input, also used to verify its native artifact."""
+    affected = plan_content.get("affected_surfaces") or {}
+    # Preserve the direct wrapper shape while sharing native plan path extraction.
+    paths = _affected_surface_paths([affected] if isinstance(affected, dict) else affected)
+    waivers = (plan_content.get("coverage") or {}).get("waivers", [])
+    return {
+        "schema_version": 1,
+        "affected_paths": [str(p) for p in (paths or [])],
+        "waivers": [
+            {"node": str(w.get("node")), "reason": str(w.get("reason"))}
+            for w in waivers
+            if isinstance(w, dict)
+        ],
+    }
+
+
+def _coverage_report_fields(
+    report: dict[str, Any], *, round_number: int, manifest_relpath: str,
+) -> dict[str, Any]:
+    """Derive event fields from the exact witness report without file writes."""
+    uncovered = [
+        {
+            "node_id": str(node.get("node_id")),
+            "kind": str(node.get("kind")),
+            "why": str(node.get("why")),
+        }
+        for node in report.get("uncovered", [])
+        if isinstance(node, dict)
+    ]
+    waived = [
+        {"node_id": str(node.get("node_id")), "reason": str(node.get("reason"))}
+        for node in report.get("waived", [])
+        if isinstance(node, dict)
+    ]
+    closure = report.get("closure") or {}
+    closure_summary = {
+        "projects": len(closure.get("projects", [])),
+        "event_consumers": len(closure.get("event_consumers", [])),
+        "migration_couplings": len(closure.get("migration_couplings", [])),
+        "unmapped_paths": len(report.get("unmapped_paths", [])),
+        "waived": len(waived),
+    }
+    if uncovered:
+        verdict = "gaps"
+        synthetic_risks = [
+            build_synthetic_risk(node, round_number=round_number, closure_manifest_path=manifest_relpath)
+            for node in uncovered
+        ]
+    else:
+        verdict = "covered_with_waivers" if waived else "covered"
+        synthetic_risks = []
+    return {
+        "verdict": verdict,
+        "closure_summary": closure_summary,
+        "uncovered": uncovered,
+        "waived": waived,
+        "synthetic_risks": synthetic_risks,
+    }
+
+
 def compute_plan_coverage(
     *,
     plan_content: dict[str, Any],
@@ -242,18 +304,7 @@ def compute_plan_coverage(
     except (OSError, subprocess.SubprocessError):
         pass
 
-    affected = plan_content.get("affected_surfaces") or {}
-    paths = affected.get("paths") if isinstance(affected, dict) else affected
-    waivers = (plan_content.get("coverage") or {}).get("waivers", [])
-    witness_input = {
-        "schema_version": 1,
-        "affected_paths": [str(p) for p in (paths or [])],
-        "waivers": [
-            {"node": str(w.get("node")), "reason": str(w.get("reason"))}
-            for w in waivers
-            if isinstance(w, dict)
-        ],
-    }
+    witness_input = _coverage_witness_input(plan_content)
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
     input_path.write_text(json.dumps(witness_input, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -332,48 +383,18 @@ def compute_plan_coverage(
     manifest_path.write_bytes(manifest_bytes)
     manifest_hash = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
 
-    uncovered = [
-        {
-            "node_id": str(node.get("node_id")),
-            "kind": str(node.get("kind")),
-            "why": str(node.get("why")),
-        }
-        for node in report.get("uncovered", [])
-        if isinstance(node, dict)
-    ]
-    waived = [
-        {"node_id": str(node.get("node_id")), "reason": str(node.get("reason"))}
-        for node in report.get("waived", [])
-        if isinstance(node, dict)
-    ]
-    closure = report.get("closure") or {}
-    closure_summary = {
-        "projects": len(closure.get("projects", [])),
-        "event_consumers": len(closure.get("event_consumers", [])),
-        "migration_couplings": len(closure.get("migration_couplings", [])),
-        "unmapped_paths": len(report.get("unmapped_paths", [])),
-        "waived": len(waived),
-    }
-    if uncovered:
-        verdict = "gaps"
-        synthetic_risks = [
-            build_synthetic_risk(node, round_number=round_number, closure_manifest_path=manifest_relpath)
-            for node in uncovered
-        ]
-    else:
-        verdict = "covered_with_waivers" if waived else "covered"
-        synthetic_risks = []
+    fields = _coverage_report_fields(report, round_number=round_number, manifest_relpath=manifest_relpath)
     return {
         "round_number": round_number,
         "target_revision_id": target_revision_id,
         "target_plan_content_hash": target_plan_content_hash,
-        "verdict": verdict,
+        "verdict": fields["verdict"],
         "closure_manifest_path": manifest_relpath,
         "closure_manifest_hash": manifest_hash,
-        "closure_summary": closure_summary,
-        "uncovered": uncovered,
-        "waived": waived,
-        "synthetic_risks": synthetic_risks,
+        "closure_summary": fields["closure_summary"],
+        "uncovered": fields["uncovered"],
+        "waived": fields["waived"],
+        "synthetic_risks": fields["synthetic_risks"],
         "computed_at_sha": computed_at_sha,
         "witness": witness_meta,
     }

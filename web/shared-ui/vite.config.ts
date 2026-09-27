@@ -82,6 +82,10 @@ export default defineConfig({
         __dirname,
         '../../libs/aquaculture-engines/src/index.ts',
       ),
+      // The design colour tokens are zero-dependency data, not a federation
+      // shared dep, so they BUNDLE into shared-ui's dist the same way. Aliased
+      // to source so `styles/theme.ts` resolves the palette at build time.
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../libs/shared-contracts/src'),
     },
   },
 });

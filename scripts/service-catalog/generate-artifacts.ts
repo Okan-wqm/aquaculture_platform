@@ -15,6 +15,7 @@ const {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
   backendImageBuildTargets,
+  deployShipsImage,
   frontendImageBuildMatrix,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
@@ -128,6 +129,9 @@ function signalEmitterSources(key: string): readonly string[] {
   if (key === 'db_migrate_complete') {
     return ['apps/db-migrate/src/main.ts'];
   }
+  if (key === 'mqtt_subscribed_topics') {
+    return ['apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts'];
+  }
   throw new Error(`No emitter source mapping for boot signal ${key}`);
 }
 
@@ -194,8 +198,14 @@ function requiredSignalsArtifact(): Artifact {
       yamlList(signalEmitterSources(key), '      '),
     ].join('\n'),
   );
+  // A boot signal can only be asserted for a service the deploy puts on the
+  // host. DEPLOY-HIGH-024 lowered the un-shipped sidecar to 'warning' for the
+  // health gate; its `nats_auth_mode_mtls` signal then failed the boot-signal
+  // gate instead (run 35529464872, `phase=boot_signal`, rollback) — the same
+  // unsatisfiable promise through a second contract (DEPLOY-HIGH-025). The predicate is the
+  // catalogue's; the manifest is derived from it, never hand-adjusted.
   const services = activeDropletServices()
-    .filter((entry) => entry.requiredSignals.length > 0)
+    .filter((entry) => entry.requiredSignals.length > 0 && deployShipsImage(entry))
     .map((entry) =>
       [
         `  - name: ${entry.composeServiceName}`,

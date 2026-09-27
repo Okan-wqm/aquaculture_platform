@@ -35,7 +35,7 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_risk_policy_classifies_from_policy_hash(self) -> None:
-        l1 = classify_change(["docs/aria/SPEC.md"])
+        l1 = classify_change(["docs/runbooks/example.md"])
         self.assertTrue(l1.valid)
         self.assertEqual(l1.lane, "L1")
         self.assertEqual(l1.policy_hash, risk_policy_hash())

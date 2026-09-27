@@ -3,7 +3,8 @@
  * TanStack Query hooks for payroll operations
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_PAYROLLS,
@@ -74,7 +75,8 @@ export function useCreatePayroll() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Payroll created' },
     mutationFn: (input: CreatePayrollInput) =>
       graphqlRequest<{ createPayroll: Payroll }, unknown>(
         client,
@@ -92,7 +94,8 @@ export function useApprovePayroll() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Payroll approved' },
     mutationFn: (id: string) =>
       graphqlRequest<{ approvePayroll: Payroll }, unknown>(
         client,

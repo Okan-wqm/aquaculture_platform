@@ -28,6 +28,7 @@ import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { MessageInput } from '@/components/messaging/MessageInput';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useEditMessage } from '@/hooks/useEditMessage';
@@ -462,8 +463,7 @@ export function ChatRoomPage(): JSX.Element {
 
   return (
     <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
-      style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
+      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
     >
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
@@ -535,12 +535,12 @@ export function ChatRoomPage(): JSX.Element {
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+            <Spinner size="lg" />
           </div>
         ) : errorMsg ? (
           <div className="text-center py-12 px-4">
             <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
-            <p className="text-sm text-gray-500">{errorMsg}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
@@ -759,14 +759,14 @@ export function ChatRoomPage(): JSX.Element {
       {offlineMediaNotice && (
         <div
           role="status"
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
+          className="fixed bottom-nav-gap left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
         >
           <AlertCircle size={16} className="flex-shrink-0 text-amber-300" />
           <span>{offlineMediaNotice}</span>
           <button
             type="button"
             aria-label="Dismiss"
-            className="ml-1 px-1.5 rounded-md hover:bg-white/10 touch-feedback text-base leading-none"
+            className="ml-1 px-1.5 rounded-md hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback text-base leading-none"
             onClick={() => setOfflineMediaNotice(null)}
           >
             <span aria-hidden="true">×</span>

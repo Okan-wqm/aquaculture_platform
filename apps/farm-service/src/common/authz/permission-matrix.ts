@@ -321,6 +321,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   criticalWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   effectiveUnitTemperatures: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   environmentLayerCatalog: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  environmentMonitoringStatus: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   environmentScenes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

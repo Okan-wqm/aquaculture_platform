@@ -19,7 +19,16 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { useTenantQuery } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  useTenantQuery,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -28,9 +37,7 @@ import {
   Pencil,
   Trash2,
   Archive,
-  X,
   Link2,
-  Loader2,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -80,20 +87,14 @@ interface LinkChannel {
 // ratcheted by web-usetenantquery-adoption-ratchet.spec.ts.
 function useLinkSensors() {
   return useTenantQuery(['tagRegistryLinkSensors'], async () => {
-    const data = await graphqlFetch<{ sensors: { items: LinkSensor[] } }>(
-      LINK_SENSORS_QUERY,
-      {},
-    );
+    const data = await graphqlFetch<{ sensors: { items: LinkSensor[] } }>(LINK_SENSORS_QUERY, {});
     return data.sensors.items;
   });
 }
 
 function useLinkChannels() {
   return useTenantQuery(['tagRegistryLinkChannels'], async () => {
-    const data = await graphqlFetch<{ allDataChannels: LinkChannel[] }>(
-      LINK_CHANNELS_QUERY,
-      {},
-    );
+    const data = await graphqlFetch<{ allDataChannels: LinkChannel[] }>(LINK_CHANNELS_QUERY, {});
     return data.allDataChannels;
   });
 }
@@ -174,144 +175,119 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
     }
   };
 
-  const numField = (
-    label: string,
-    value: string,
-    set: (v: string) => void,
-  ): React.ReactElement => (
-    <label className="flex flex-col gap-1 text-xs text-gray-600">
+  const numField = (label: string, value: string, set: (v: string) => void): React.ReactElement => (
+    <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
       {label}
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => set(e.target.value)}
-        className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
-      />
+      <Input type="number" value={value} onChange={(e) => set(e.target.value)} />
     </label>
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">Tag Düzenle</h2>
-            <p className="text-xs text-gray-500 font-mono">{tag.fqn}</p>
-          </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600" aria-label="Kapat">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-4 flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Görünen Ad
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Açıklama
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
-            />
-          </label>
-
-          <div className="grid grid-cols-3 gap-2">
-            <label className="flex flex-col gap-1 text-xs text-gray-600">
-              Birim
-              <input
-                value={engUnit}
-                onChange={(e) => setEngUnit(e.target.value)}
-                className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
-              />
-            </label>
-            {numField('Eng Min', engMin, setEngMin)}
-            {numField('Eng Max', engMax, setEngMax)}
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            {numField('Alarm LL', alarmLL, setAlarmLL)}
-            {numField('Alarm L', alarmL, setAlarmL)}
-            {numField('Alarm H', alarmH, setAlarmH)}
-            {numField('Alarm HH', alarmHH, setAlarmHH)}
-          </div>
-
-          <div className="border-t border-gray-100 pt-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Link2 className="w-3.5 h-3.5 text-cyan-600" />
-              <span className="text-xs font-medium text-gray-700">Canlı Veri Bağlantısı</span>
-            </div>
-            <p className="text-[11px] text-gray-500 mb-2">
-              Bu tag&apos;i bir sensör kanalına bağlayın — gelen ölçümler bu tag&apos;in
-              FQN&apos;i altında operatör ekranlarına canlı akar.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="flex flex-col gap-1 text-xs text-gray-600">
-                Sensör
-                <select
-                  value={linkSensorId}
-                  onChange={(e) => {
-                    setLinkSensorId(e.target.value);
-                    setLinkChannelId('');
-                  }}
-                  className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white"
-                >
-                  <option value="">— bağlantı yok —</option>
-                  {(sensors ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-gray-600">
-                Kanal
-                <select
-                  value={linkChannelId}
-                  onChange={(e) => setLinkChannelId(e.target.value)}
-                  disabled={!linkSensorId}
-                  className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white disabled:bg-gray-50 disabled:text-gray-400"
-                >
-                  <option value="">— tüm kanallar —</option>
-                  {sensorChannels.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.displayLabel || c.channelKey}{c.unit ? ` (${c.unit})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
-          >
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title="Tag Düzenle"
+      description={<span className="font-mono">{tag.fqn}</span>}
+      showCloseButton={!updateTag.isPending}
+      closeOnEscape={!updateTag.isPending}
+      closeOnOverlayClick={!updateTag.isPending}
+      className="max-h-[85vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             İptal
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={updateTag.isPending}
-            className="px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50 flex items-center gap-1.5"
-          >
-            {updateTag.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={updateTag.isPending}>
+            {updateTag.isPending && <Spinner size="sm" color="inherit" />}
             Kaydet
-          </button>
+          </Button>
+        </>
+      }
+    >
+      <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
+        Görünen Ad
+        <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
+        Açıklama
+        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+      </label>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
+          Birim
+          <Input value={engUnit} onChange={(e) => setEngUnit(e.target.value)} />
+        </label>
+        {numField('Eng Min', engMin, setEngMin)}
+        {numField('Eng Max', engMax, setEngMax)}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        {numField('Alarm LL', alarmLL, setAlarmLL)}
+        {numField('Alarm L', alarmL, setAlarmL)}
+        {numField('Alarm H', alarmH, setAlarmH)}
+        {numField('Alarm HH', alarmHH, setAlarmHH)}
+      </div>
+
+      <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Link2 className="w-3.5 h-3.5 text-info-600 dark:text-info-400" />
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+            Canlı Veri Bağlantısı
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+          Bu tag&apos;i bir sensör kanalına bağlayın — gelen ölçümler bu tag&apos;in FQN&apos;i
+          altında operatör ekranlarına canlı akar.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
+            Sensör
+            <select
+              value={linkSensorId}
+              onChange={(e) => {
+                setLinkSensorId(e.target.value);
+                setLinkChannelId('');
+              }}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
+            >
+              <option value="">— bağlantı yok —</option>
+              {(sensors ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
+            Kanal
+            <select
+              value={linkChannelId}
+              onChange={(e) => setLinkChannelId(e.target.value)}
+              disabled={!linkSensorId}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-500"
+            >
+              <option value="">— tüm kanallar —</option>
+              {sensorChannels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.displayLabel || c.channelKey}
+                  {c.unit ? ` (${c.unit})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
-    </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md px-2 py-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          {error}
+        </div>
+      )}
+    </Modal>
   );
 };
 
@@ -386,12 +362,17 @@ const TagRegistryPage: React.FC = () => {
 
   const statusBadge = (status: string): React.ReactElement => {
     const styles: Record<string, string> = {
-      draft: 'bg-gray-50 text-gray-600 border-gray-200',
-      active: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-      retired: 'bg-amber-50 text-amber-700 border-amber-200',
+      draft:
+        'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700',
+      active:
+        'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800',
+      retired:
+        'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800',
     };
     return (
-      <span className={`inline-block px-1.5 py-0.5 text-[11px] rounded border ${styles[status] ?? styles.draft}`}>
+      <span
+        className={`inline-block px-1.5 py-0.5 text-[11px] rounded border ${styles[status] ?? styles.draft}`}
+      >
         {status}
       </span>
     );
@@ -400,23 +381,123 @@ const TagRegistryPage: React.FC = () => {
   const linkedBadge = (tag: UnifiedTag): React.ReactElement => {
     const isLinked = typeof tag.source?.sensorId === 'string' && tag.source.sensorId !== '';
     return isLinked ? (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800">
         <Link2 className="w-3 h-3" /> canlı
       </span>
     ) : (
-      <span className="text-[11px] text-gray-400">—</span>
+      <span className="text-[11px] text-gray-400 dark:text-gray-500">—</span>
     );
   };
+
+  const unifiedTagColumns: DataTableColumn<UnifiedTag>[] = [
+    {
+      key: 'fqn',
+      header: 'FQN',
+      render: (_value, tag) => tag.fqn,
+    },
+    {
+      key: 'ad',
+      header: 'Ad',
+      render: (_value, tag) => tag.displayName || tag.localName,
+    },
+    {
+      key: 'iO',
+      header: 'I/O',
+      render: (_value, tag) => tag.ioType,
+    },
+    {
+      key: 'veriTipi',
+      header: 'Veri Tipi',
+      render: (_value, tag) => tag.dataType,
+    },
+    {
+      key: 'yN',
+      header: 'Yön',
+      render: (_value, tag) => tag.direction,
+    },
+    {
+      key: 'birim',
+      header: 'Birim',
+      render: (_value, tag) => tag.engUnit ?? '—',
+    },
+    {
+      key: 'aralK',
+      header: 'Aralık',
+      render: (_value, tag) => (
+        <>
+          {tag.engMin != null || tag.engMax != null
+            ? `${tag.engMin ?? '−∞'} … ${tag.engMax ?? '+∞'}`
+            : '—'}
+        </>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, tag) => statusBadge(tag.status),
+    },
+    {
+      key: 'canl',
+      header: 'Canlı',
+      render: (_value, tag) => linkedBadge(tag),
+    },
+    {
+      key: 'lem',
+      header: 'İşlem',
+      align: 'right',
+      render: (_value, tag) => (
+        <>
+          {tag.status !== 'retired' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={() => setEditingTag(tag)}
+              title="Düzenle"
+              aria-label={`${tag.fqn} tag'ini düzenle`}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          {/* Lifecycle: hard delete exists only while DRAFT; anything
+              past DRAFT can only be retired (server-enforced). */}
+          {tag.status === 'draft' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={() => setConfirmDeleteTag(tag)}
+              title="Sil"
+              aria-label={`${tag.fqn} tag'ini sil`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          ) : tag.status !== 'retired' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={() => setConfirmRetireTag(tag)}
+              title="Emekli et"
+              aria-label={`${tag.fqn} tag'ini emekli et`}
+            >
+              <Archive className="w-4 h-4" />
+            </Button>
+          ) : null}
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="p-4 flex flex-col gap-4 h-full overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <Tags className="w-5 h-5 text-cyan-600" />
+          <Tags className="w-5 h-5 text-info-600 dark:text-info-400" />
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Tag Registry</h1>
-            <p className="text-xs text-gray-500">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tag Registry</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               SCADA bağlamalarının, deploy çözümlemesinin ve canlı verinin tek kimlik kaynağı
             </p>
           </div>
@@ -424,34 +505,46 @@ const TagRegistryPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <select
             value={deviceId}
-            onChange={(e) => { setDeviceId(e.target.value); setPage(1); }}
-            className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white"
+            onChange={(e) => {
+              setDeviceId(e.target.value);
+              setPage(1);
+            }}
+            className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
             aria-label="Edge cihazı"
           >
             <option value="">Tüm cihazlar</option>
             {(devices?.items ?? []).map((d) => (
-              <option key={d.id} value={d.id}>{d.deviceCode}</option>
+              <option key={d.id} value={d.id}>
+                {d.deviceCode}
+              </option>
             ))}
           </select>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleDiscover}
             disabled={!deviceId || discover.isPending}
-            title={deviceId ? 'Cihazın I/O konfigürasyonlarından tag keşfet' : 'Önce bir cihaz seçin'}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50"
+            title={
+              deviceId ? 'Cihazın I/O konfigürasyonlarından tag keşfet' : 'Önce bir cihaz seçin'
+            }
           >
-            {discover.isPending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Radar className="w-4 h-4" />}
+            {discover.isPending ? (
+              <Spinner size="sm" color="inherit" />
+            ) : (
+              <Radar className="w-4 h-4" />
+            )}
             Tag Keşfet
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
             onClick={() => refetch()}
-            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
             title="Yenile"
             aria-label="Yenile"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -460,8 +553,8 @@ const TagRegistryPage: React.FC = () => {
         <div
           className={`text-xs px-3 py-2 rounded-md border ${
             banner.kind === 'ok'
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              : 'bg-red-50 text-red-700 border-red-200'
+              ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800'
+              : 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800'
           }`}
         >
           {banner.text}
@@ -470,125 +563,63 @@ const TagRegistryPage: React.FC = () => {
 
       {/* Search */}
       <div className="relative max-w-sm">
-        <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-        <input
+        <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <Input
+          fullWidth
           value={searchTerm}
-          onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setPage(1);
+          }}
           placeholder="FQN veya ada göre ara..."
-          className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
         />
       </div>
 
       {/* Table */}
-      <div className="border border-gray-200 rounded-lg overflow-x-auto bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left text-xs text-gray-500 border-b border-gray-200">
-              <th className="px-3 py-2 font-medium">FQN</th>
-              <th className="px-3 py-2 font-medium">Ad</th>
-              <th className="px-3 py-2 font-medium">I/O</th>
-              <th className="px-3 py-2 font-medium">Veri Tipi</th>
-              <th className="px-3 py-2 font-medium">Yön</th>
-              <th className="px-3 py-2 font-medium">Birim</th>
-              <th className="px-3 py-2 font-medium">Aralık</th>
-              <th className="px-3 py-2 font-medium">Durum</th>
-              <th className="px-3 py-2 font-medium">Canlı</th>
-              <th className="px-3 py-2 font-medium text-right">İşlem</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-gray-400">
-                  <Loader2 className="w-5 h-5 animate-spin inline-block" />
-                </td>
-              </tr>
-            )}
-            {!loading && error && (
-              <tr>
-                <td colSpan={10} className="px-3 py-6 text-center text-sm text-red-600">{error}</td>
-              </tr>
-            )}
-            {!loading && !error && tags.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
-                  Kayıtlı tag yok. Bir cihaz seçip <span className="font-medium">Tag Keşfet</span> ile başlayın.
-                </td>
-              </tr>
-            )}
-            {!loading && !error && tags.map((tag) => (
-              <tr key={tag.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="px-3 py-2 font-mono text-xs text-gray-900">{tag.fqn}</td>
-                <td className="px-3 py-2 text-gray-700">{tag.displayName || tag.localName}</td>
-                <td className="px-3 py-2 text-xs text-gray-500">{tag.ioType}</td>
-                <td className="px-3 py-2 text-xs text-gray-500">{tag.dataType}</td>
-                <td className="px-3 py-2 text-xs text-gray-500">{tag.direction}</td>
-                <td className="px-3 py-2 text-xs text-gray-500">{tag.engUnit ?? '—'}</td>
-                <td className="px-3 py-2 text-xs text-gray-500">
-                  {tag.engMin != null || tag.engMax != null
-                    ? `${tag.engMin ?? '−∞'} … ${tag.engMax ?? '+∞'}`
-                    : '—'}
-                </td>
-                <td className="px-3 py-2">{statusBadge(tag.status)}</td>
-                <td className="px-3 py-2">{linkedBadge(tag)}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {tag.status !== 'retired' && (
-                    <button
-                      onClick={() => setEditingTag(tag)}
-                      className="p-1 text-gray-400 hover:text-cyan-600"
-                      title="Düzenle"
-                      aria-label={`${tag.fqn} tag'ini düzenle`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  )}
-                  {/* Lifecycle: hard delete exists only while DRAFT; anything
-                      past DRAFT can only be retired (server-enforced). */}
-                  {tag.status === 'draft' ? (
-                    <button
-                      onClick={() => setConfirmDeleteTag(tag)}
-                      className="p-1 text-gray-400 hover:text-red-600"
-                      title="Sil"
-                      aria-label={`${tag.fqn} tag'ini sil`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  ) : tag.status !== 'retired' ? (
-                    <button
-                      onClick={() => setConfirmRetireTag(tag)}
-                      className="p-1 text-gray-400 hover:text-amber-600"
-                      title="Emekli et"
-                      aria-label={`${tag.fqn} tag'ini emekli et`}
-                    >
-                      <Archive className="w-4 h-4" />
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {!loading && error && (
+        <p className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 px-3 py-2 text-sm text-error-600 dark:text-error-400">
+          {error}
+        </p>
+      )}
+      <DataTable<UnifiedTag>
+        data={tags}
+        columns={unifiedTagColumns}
+        keyExtractor={(tag) => tag.id}
+        loading={loading}
+        emptyMessage={
+          <>
+            Kayıtlı tag yok. Bir cihaz seçip <span className="font-medium">Tag Keşfet</span> ile
+            başlayın.
+          </>
+        }
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{total} tag</span>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
+            size="xs"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-2 py-1 border border-gray-200 rounded disabled:opacity-40"
           >
             Önceki
-          </button>
-          <span>{page} / {totalPages}</span>
-          <button
+          </Button>
+          <span>
+            {page} / {totalPages}
+          </span>
+          <Button
+            variant="secondary"
+            size="xs"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="px-2 py-1 border border-gray-200 rounded disabled:opacity-40"
           >
             Sonraki
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -606,59 +637,45 @@ const TagRegistryPage: React.FC = () => {
 
       {/* Retire confirm */}
       {confirmRetireTag && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-1">Tag emekli edilsin mi?</h2>
-            <p className="text-xs text-gray-500 mb-3">
+        <ConfirmModal
+          isOpen
+          onClose={() => setConfirmRetireTag(null)}
+          onConfirm={handleRetire}
+          title="Tag emekli edilsin mi?"
+          message={
+            <>
               <span className="font-mono">{confirmRetireTag.fqn}</span> emekli edilecek: kayıt
-              denetim için kalır, ama bağlamalar artık çözülmez ve canlı veri akmaz. Bu işlem
-              geri alınamaz.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmRetireTag(null)}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleRetire}
-                disabled={retireTag.isPending}
-                className="px-3 py-1.5 text-sm text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-50"
-              >
-                Emekli Et
-              </button>
-            </div>
-          </div>
-        </div>
+              denetim için kalır, ama bağlamalar artık çözülmez ve canlı veri akmaz. Bu işlem geri
+              alınamaz.
+            </>
+          }
+          confirmText="Emekli Et"
+          cancelText="İptal"
+          variant="warning"
+          isLoading={retireTag.isPending}
+          loadingText="Emekli ediliyor..."
+        />
       )}
 
       {/* Delete confirm */}
       {confirmDeleteTag && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-1">Tag silinsin mi?</h2>
-            <p className="text-xs text-gray-500 mb-3">
-              <span className="font-mono">{confirmDeleteTag.fqn}</span> kalıcı olarak silinecek.
-              Bu tag&apos;e bağlı widget bağlamaları çözülemez hale gelir.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmDeleteTag(null)}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteTag.isPending}
-                className="px-3 py-1.5 text-sm text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50"
-              >
-                Sil
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          isOpen
+          onClose={() => setConfirmDeleteTag(null)}
+          onConfirm={handleDelete}
+          title="Tag silinsin mi?"
+          message={
+            <>
+              <span className="font-mono">{confirmDeleteTag.fqn}</span> kalıcı olarak silinecek. Bu
+              tag'e bağlı widget bağlamaları çözülemez hale gelir.
+            </>
+          }
+          confirmText="Sil"
+          cancelText="İptal"
+          variant="danger"
+          isLoading={deleteTag.isPending}
+          loadingText="Siliniyor..."
+        />
       )}
     </div>
   );

@@ -5,8 +5,9 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { CapabilityAuthorityService } from '../services/capability-authority';
-import { CATALOGUE_CAPABILITIES } from '../services/permission-catalogue';
-import { TenantRoleService } from '../services/tenant-role.service';
+import { CATALOGUE_CAPABILITIES, isKnownCapability } from '../services/permission-catalogue';
+import { DEFAULT_ROLE_PERMISSIONS, TenantRoleService } from '../services/tenant-role.service';
+import { colors } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Constants
@@ -512,6 +513,68 @@ describe('TenantRoleService', () => {
       expect(supervisorResources).toContain('employees:view');
     });
 
+    it('every capability the seed template grants is a catalogue capability (a typo cannot silently no-op at seed time)', () => {
+      // entitledTemplate keeps a grant only if `entitled.has(resource:action)`,
+      // so a misspelled template key would be dropped silently — this pins
+      // the template to the catalogue.
+      for (const [roleName, categories] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+        for (const resources of Object.values(categories)) {
+          for (const [resource, actions] of Object.entries(resources)) {
+            for (const [action, granted] of Object.entries(actions)) {
+              if (!granted) continue;
+              expect({
+                roleName,
+                capability: `${resource}:${action}`,
+                known: isKnownCapability(`${resource}:${action}`),
+              }).toEqual({
+                roleName,
+                capability: `${resource}:${action}`,
+                known: true,
+              });
+            }
+          }
+        }
+      }
+      // Every seed role carries the farm specialty grant (tier gating is elsewhere).
+      for (const [roleName, categories] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+        expect({
+          roleName,
+          farm: categories['ai_specialists']?.['ai_specialties']?.['farm'],
+        }).toEqual({
+          roleName,
+          farm: true,
+        });
+      }
+    });
+
+    it('RBAC-MEDIUM-016 (all-of): ai_specialties:farm is seeded only when BOTH ai and farm are licensed', async () => {
+      const seedWith = async (modules: Array<{ code: string }>): Promise<string[]> => {
+        mockQueryRunner.query.mockReset();
+        mockQueryRunner.query
+          .mockResolvedValueOnce([]) // existence: none
+          .mockResolvedValueOnce(modules); // entitlement
+        for (let i = 0; i < 5; i++) {
+          mockQueryRunner.query
+            .mockResolvedValueOnce([{ id: `default-role-${i}` }])
+            .mockResolvedValueOnce([]);
+        }
+        mockDataSource.query.mockResolvedValue([]);
+        await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+        const permInserts = mockQueryRunner.query.mock.calls.filter(
+          (call) =>
+            typeof call[0] === 'string' &&
+            call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
+        );
+        expect(permInserts).toHaveLength(5);
+        // Supervisor (first created) is the template that grants the specialty.
+        return permInserts[0]![1]![2] as string[];
+      };
+
+      expect(await seedWith([{ code: 'ai' }])).not.toContain('ai_specialties:farm');
+      expect(await seedWith([{ code: 'farm' }])).not.toContain('ai_specialties:farm');
+      expect(await seedWith([{ code: 'ai' }, { code: 'farm' }])).toContain('ai_specialties:farm');
+    });
+
     it('should rollback transaction on error during seeding', async () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence SELECT
@@ -720,7 +783,7 @@ describe('TenantRoleService', () => {
       const insertCall = mockQueryRunner.query.mock.calls[1];
       const insertParams = insertCall![1];
       expect((insertParams as unknown[])[0]).toBe(TENANT_ID); // tenantId prepended
-      expect(insertParams).toContain('#6366F1'); // default color
+      expect(insertParams).toContain(colors.primary[500]); // default color, from the tokens
       expect(insertParams).toContain('shield'); // default icon
     });
 

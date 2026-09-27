@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -155,6 +155,24 @@ describe('TenantGuard', () => {
       const guard = createGuard();
       const context = createMockContext({ sub: 'user-1', roles: [Role.MODULE_USER] });
       await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
+    });
+
+    // -----------------------------------------------------------------
+    // MSGFIX-FAZ0 (2026-09-16): no-user (tokenless/broken auth) must be an
+    // AUTHENTICATION failure (401 → GraphQL UNAUTHENTICATED), not 400.
+    // -----------------------------------------------------------------
+    it('should throw UnauthorizedException when there is no user context at all', async () => {
+      const guard = createGuard();
+      const context = createMockContext(undefined);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should keep BadRequestException when the user exists but lacks tenantId (JWT claim contract)', async () => {
+      const guard = createGuard();
+      // User object present and identifiable — only the tenantId claim is missing.
+      const context = createMockContext({ sub: 'user-1', email: 'u@example.com' });
+      await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
+      await expect(guard.canActivate(context)).rejects.not.toThrow(UnauthorizedException);
     });
 
     it('should throw BadRequestException for invalid UUID tenantId', async () => {

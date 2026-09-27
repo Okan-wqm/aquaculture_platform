@@ -24,6 +24,7 @@ import type {
 } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../../scada-builder/equipment-symbols/types';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -81,8 +82,8 @@ const BADGE_STYLE: React.CSSProperties = {
   lineHeight: '14px',
   padding: '1px 5px',
   borderRadius: 4,
-  background: '#0e7490',
-  color: '#ecfeff',
+  background: colors.primary[600],
+  color: colors.primary[50],
   pointerEvents: 'none',
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -190,9 +191,9 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
     position: 'relative' as const,
     zIndex: 500,
     borderRadius: 8,
-    border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
+    border: selected ? `2px solid ${themeColors.primary[400]}` : `1px solid ${themeColors.neutral[200]}`,
     boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
-    background: '#ffffff',
+    background: colors.white,
     overflow: 'hidden' as const,
     userSelect: 'none' as const,
   }), [size.width, size.height, selected]);
@@ -250,7 +251,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
                   position: 'absolute',
                   width: isCorner ? 10 : 6,
                   height: isCorner ? 10 : 6,
-                  background: '#06b6d4',
+                  background: colors.primary[400],
                   border: '2px solid white',
                   borderRadius: isCorner ? 3 : 2,
                   cursor: meta.cursor,

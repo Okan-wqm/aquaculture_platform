@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,79 +81,84 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
 
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-medium text-gray-700">Security Levels</h4>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Security Levels</h4>
 
       {(['none', 'confirm', 'pin'] as const).map((level) => (
         <div key={level} className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-600 capitalize">
-              {level === 'none' ? 'No Security' : level === 'confirm' ? 'Confirmation Required' : 'PIN Required'}
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 capitalize">
+              {level === 'none'
+                ? 'No Security'
+                : level === 'confirm'
+                  ? 'Confirmation Required'
+                  : 'PIN Required'}
             </label>
-            <button
-              onClick={() => addTagToLevel(level)}
-              className="text-xs text-cyan-600 hover:text-cyan-700"
-            >
+            <Button variant="ghost" size="xs" onClick={() => addTagToLevel(level)}>
               + Add
-            </button>
+            </Button>
           </div>
           {controlSecurity[level].map((tag, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
+              <Input
                 type="text"
                 value={tag}
                 onChange={(e) => updateTagInLevel(level, i, e.target.value)}
                 placeholder="tag.name"
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => removeTagFromLevel(level, i)}
                 aria-label="Remove tag"
-                className="text-red-400 hover:text-red-600 text-xs px-1"
               >
                 X
-              </button>
+              </Button>
             </div>
           ))}
         </div>
       ))}
 
       {/* Emergency Stop Config */}
-      <div className="pt-3 border-t border-gray-200 space-y-2">
-        <h5 className="text-xs font-medium text-gray-600">Emergency Stop</h5>
+      <div className="pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400">Emergency Stop</h5>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Hold Duration (ms)</label>
-          <input
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            Hold Duration (ms)
+          </label>
+          <Input
+            fullWidth
             type="number"
             min={500}
             step={100}
             value={emergencyStop.holdDuration}
-            onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })}
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            onChange={(e) =>
+              onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })
+            }
           />
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-gray-500">Affected Tags</label>
-            <button onClick={addAffectedTag} className="text-xs text-cyan-600 hover:text-cyan-700">
+            <label className="text-xs text-gray-500 dark:text-gray-400">Affected Tags</label>
+            <Button variant="ghost" size="xs" onClick={addAffectedTag}>
               + Add
-            </button>
+            </Button>
           </div>
           {emergencyStop.affectedTags.map((tag, i) => (
             <div key={i} className="flex items-center gap-1 mb-1">
-              <input
+              <Input
                 type="text"
                 value={tag}
                 onChange={(e) => updateAffectedTag(i, e.target.value)}
                 placeholder="tag.name"
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => removeAffectedTag(i)}
                 aria-label="Remove affected tag"
-                className="text-red-400 hover:text-red-600 text-xs px-1"
               >
                 X
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -161,10 +167,12 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
             type="checkbox"
             id="resetRequiresPin"
             checked={emergencyStop.resetRequiresPin}
-            onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, resetRequiresPin: e.target.checked })}
-            className="text-cyan-600 rounded focus:ring-cyan-500"
+            onChange={(e) =>
+              onEmergencyStopChange?.({ ...emergencyStop, resetRequiresPin: e.target.checked })
+            }
+            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
           />
-          <label htmlFor="resetRequiresPin" className="text-xs text-gray-700">
+          <label htmlFor="resetRequiresPin" className="text-xs text-gray-700 dark:text-gray-300">
             PIN required for reset
           </label>
         </div>

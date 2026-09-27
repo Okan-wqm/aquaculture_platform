@@ -57,17 +57,53 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
+export { PageHeader } from './Layout/PageHeader';
+export type { PageHeaderProps } from './Layout/PageHeader';
+export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
+export type { DesktopOnlyNoticeProps } from './Layout/DesktopOnlyNotice';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
 export type {
   ModalProps,
+  ModalSize,
+  DialogTheme,
   ConfirmModalProps,
   DeleteConfirmationDialogProps,
   DeletePreviewData,
   AffectedItemGroup,
   AffectedItemSummary,
 } from './Modal';
+
+// Drawer
+export { Drawer } from './Drawer';
+export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
+
+// Tabs
+export { Tabs, TabPanel, tabId, panelId } from './Tabs';
+export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
+
+// Severity + tag quality — one vocabulary, one palette
+export {
+  SeverityBadge,
+  SEVERITIES,
+  normalizeSeverity,
+  severityClasses,
+  severityColor,
+} from './Severity';
+export type { Severity, SeverityTone, SeverityBadgeProps } from './Severity';
+export { QualityIndicator, normalizeQuality, qualityClasses, qualityColor } from './Quality';
+export type { TagQuality, QualityIndicatorProps } from './Quality';
+
+// Popover / Menu / Tooltip
+export { Popover, Menu } from './Menu';
+export type { PopoverProps, PopoverTriggerProps, MenuProps, MenuItem } from './Menu';
+export { Tooltip } from './Tooltip';
+export type { TooltipProps } from './Tooltip';
+
+// Empty / error surfaces
+export { EmptyState, ErrorState } from './EmptyState';
+export type { EmptyStateProps, EmptyStateAction, ErrorStateProps } from './EmptyState';
 
 // Alert & Badge
 export { Alert, Badge } from './Alert';
@@ -123,7 +159,7 @@ export {
   SparklineChart,
   ChartContainer,
   ChartLegend,
-  ChartTooltip,
+  ChartTooltipContent,
 } from './Charts';
 export type {
   AreaChartProps,
@@ -136,11 +172,12 @@ export type {
   SparklineChartProps,
   ChartContainerProps,
   ChartLegendProps,
-  ChartTooltipProps,
+  ChartTooltipContentProps,
+  ChartTooltipPayloadItem,
+  ChartTooltipFormatter,
   BarDataset,
   DataPoint,
   LegendItem,
-  TooltipItem,
 } from './Charts';
 
 // Router - Pre-configured router with v7 future flags
@@ -156,5 +193,10 @@ export { SandboxedHtmlPreview } from './SandboxedHtmlPreview';
 export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
-export { VisuallyHidden, FocusTrap, RouteAnnouncer } from './a11y';
-export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps } from './a11y';
+export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent } from './a11y';
+export type {
+  VisuallyHiddenProps,
+  FocusTrapProps,
+  RouteAnnouncerProps,
+  SkipToContentProps,
+} from './a11y';

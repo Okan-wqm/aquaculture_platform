@@ -65,6 +65,45 @@ import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
+ * SENSOR-HIGH-118: the exact topic filters the MQTT listener subscribes.
+ *
+ * Exported as the SSoT — the sensor_service ACL grants (mqtt-auth.service)
+ * and its parameterized unit tests are derived from this list, so the ACL
+ * and the subscription set cannot drift apart. One denied filter used to
+ * fail the whole single-packet SUBSCRIBE (SUBACK 0x80) and silently kill
+ * ALL ingestion.
+ */
+export const SENSOR_SERVICE_SUBSCRIPTION_FILTERS: readonly string[] = [
+  // Sensor data topics
+  'sensors/#', // All sensor data
+  'aquaculture/+/sensors/#', // Tenant-specific sensors
+  '+/+/+/temperature-array', // Array sensor pattern
+
+  // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
+  // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
+  'tenants/+/devices/+/telemetry', // Device telemetry (CPU, RAM, Disk, Temp)
+  'tenants/+/devices/+/status', // Device status (online/offline)
+  'tenants/+/devices/+/response', // Command response (legacy singular)
+  'tenants/+/devices/+/responses', // Command response (plural - Edge Agent v2.0+)
+  'tenants/+/devices/+/io_data', // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
+  'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
+  'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
+  'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
+];
+
+/**
+ * Legacy edge/ filters — subscribed only when LEGACY_EDGE_TOPICS_ENABLED.
+ * These topics lack tenant enforcement (see D04 SEC-M01 note at the push site).
+ */
+export const LEGACY_EDGE_SUBSCRIPTION_FILTERS: readonly string[] = [
+  'edge/+/heartbeat', // Device heartbeat (health metrics)
+  'edge/+/birth', // Device birth certificate
+  'edge/+/death', // Device death (LWT - Last Will Testament)
+  'edge/+/response', // Command response from device (legacy singular)
+  'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
+];
+
+/**
  * MQTT Topic Pattern for tenant-aware sensor data
  * Format: sensors/{tenantId}/{sensorId}/data
  * or: sensors/{tenantId}/{location}/+
@@ -306,7 +345,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
     // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
     // here would ack a message that was never durably persisted.
-    this.messageHandler = (topic: string, message: Buffer) => this.handleMessage(topic, message);
+    this.messageHandler = (topic: string, message: Buffer) => {
+      this.mqttClient?.recordMessageReceived();
+      return this.handleMessage(topic, message)
+        .then(() => {
+          this.mqttClient?.recordMessageProcessed();
+        })
+        .catch(() => {
+          this.mqttClient?.recordMessageFailed();
+        });
+    };
   }
 
   async onModuleInit(): Promise<void> {
@@ -393,35 +441,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Subscribe to wildcard topic patterns
-    const topics = [
-      // Sensor data topics
-      'sensors/#', // All sensor data
-      'aquaculture/+/sensors/#', // Tenant-specific sensors
-      '+/+/+/temperature-array', // Array sensor pattern
-
-      // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
-      // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
-      'tenants/+/devices/+/telemetry', // Device telemetry (CPU, RAM, Disk, Temp)
-      'tenants/+/devices/+/status', // Device status (online/offline)
-      'tenants/+/devices/+/response', // Command response (legacy singular)
-      'tenants/+/devices/+/responses', // Command response (plural - Edge Agent v2.0+)
-      'tenants/+/devices/+/io_data', // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
-      'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
-      'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
-      'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
-    ];
+    // Subscribe to wildcard topic patterns (SENSOR_SERVICE_SUBSCRIPTION_FILTERS
+    // is the single source of truth — the ACL grant list and its unit tests
+    // are derived from it, see SENSOR-HIGH-118).
+    const topics = [...SENSOR_SERVICE_SUBSCRIPTION_FILTERS];
 
     // Legacy edge/ topics (D04 SEC-M01): only subscribe when explicitly enabled
     // These topics lack tenant enforcement — migrate devices to tenant-prefixed topics
     if (this.legacyEdgeTopicsEnabled) {
-      topics.push(
-        'edge/+/heartbeat', // Device heartbeat (health metrics)
-        'edge/+/birth', // Device birth certificate
-        'edge/+/death', // Device death (LWT - Last Will Testament)
-        'edge/+/response', // Command response from device (legacy singular)
-        'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
-      );
+      topics.push(...LEGACY_EDGE_SUBSCRIPTION_FILTERS);
       this.logger.warn(
         'Legacy edge/ topic subscriptions are ENABLED. ' +
           'These topics lack tenant enforcement. ' +

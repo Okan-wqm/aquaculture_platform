@@ -13,26 +13,14 @@ import {
   tokenLifecycle,
   useAuthContext,
   useI18n,
-  I18nProvider,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
+import { Lock } from 'lucide-react';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-const SecureLockIcon: React.FC = () => (
-  <svg
-    viewBox="0 0 24 24"
-    width="12"
-    height="12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    aria-hidden="true"
-  >
-    <rect x="5" y="11" width="14" height="9" rx="1.5" />
-    <path d="M8 11V8a4 4 0 018 0v3" />
-  </svg>
-);
+const SecureLockIcon: React.FC = () => <Lock aria-hidden="true" size={12} />;
 
 // ============================================================================
 // Layout Component
@@ -44,11 +32,9 @@ const AuthLayout: React.FC = () => {
   if (isLoading) {
     return (
       <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
-        <div
-          className="animate-spin w-8 h-8 border-2 border-[#7fd6e1]/35 border-t-[#7fd6e1] rounded-full"
-          role="status"
-          aria-label="Loading authentication"
-        />
+        <div role="status" aria-label="Loading authentication">
+          <Spinner size="lg" color="inherit" className="text-primary-300" />
+        </div>
       </div>
     );
   }
@@ -61,14 +47,10 @@ const AuthLayout: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  // The login/auth surface is presented in ENGLISH regardless of the app's
-  // browser-detected locale — a nested provider overrides it for this subtree
-  // only, so the rest of the app keeps its auto-detected language.
-  return (
-    <I18nProvider locale="en">
-      <AuthChrome />
-    </I18nProvider>
-  );
+  // The auth surface speaks the same language as the rest of the shell — the
+  // device preference, then the browser, then Turkish (FE-HIGH-089). It used to
+  // pin English here while <html lang> said Turkish.
+  return <AuthChrome />;
 };
 
 // ============================================================================
@@ -95,10 +77,7 @@ const AuthChrome: React.FC = () => {
           <div className="industrial-auth-card-glow" />
 
           <div className="industrial-auth-card-header">
-            <div
-              className="industrial-auth-security-chip"
-              aria-label={t('auth.authorizedAccess')}
-            >
+            <div className="industrial-auth-security-chip" aria-label={t('auth.authorizedAccess')}>
               <span className="industrial-auth-security-dot" />
               access
             </div>

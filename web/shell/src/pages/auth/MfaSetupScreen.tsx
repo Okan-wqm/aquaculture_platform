@@ -23,6 +23,7 @@ import {
 
 import { QrCode } from '../../components/QrCode';
 import { AuthFormShell } from './AuthFormShell';
+import { Lock } from 'lucide-react';
 
 interface SetupMfaResponse {
   setupMfa: {
@@ -60,22 +61,7 @@ const VERIFY_MFA_SETUP_WITH_TOKEN = `
   }
 `;
 
-const LockIcon: React.FC = () => (
-  <svg
-    className="w-6 h-6"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-    aria-hidden="true"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-    />
-  </svg>
-);
+const LockIcon: React.FC = () => <Lock className="w-6 h-6" aria-hidden="true" />;
 
 export interface MfaSetupScreenProps {
   /** The setup credential returned by login (mfaSetupRequired=true). */
@@ -226,7 +212,7 @@ const MfaSetupScreen: React.FC<MfaSetupScreenProps> = ({ challenge, onBackToLogi
               Save these recovery codes somewhere safe — each can be used once if you lose your
               device:
             </p>
-            <ul className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-field-bg)] px-3 py-2">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1 rounded-lg bg-[var(--surface-field-bg)] px-3 py-2">
               {setup.recoveryCodes.map((rc) => (
                 <li key={rc} className="font-mono text-xs text-[var(--surface-heading-fg)]">
                   {rc}

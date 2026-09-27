@@ -21,6 +21,15 @@ import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
 import { PrefilledField, ProvenanceBadge } from '../components/common';
+import {
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import { ChevronDown, FlaskConical, Info as InfoIcon, Plus, TriangleAlert, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -128,19 +137,31 @@ function getThresholdStatus(adultFemale: number): {
   color: string;
 } {
   if (adultFemale >= SEA_LICE_THRESHOLDS.MAX_ALLOWED) {
-    return { level: 'critical', label: 'CRITICAL', color: 'text-red-700 bg-red-100' };
+    return {
+      level: 'critical',
+      label: 'CRITICAL',
+      color: 'text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40',
+    };
   }
   if (adultFemale >= SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER) {
     return {
       level: 'treatment',
       label: 'Treatment Required',
-      color: 'text-orange-700 bg-orange-100',
+      color: 'text-accent-700 dark:text-accent-300 bg-accent-100 dark:bg-accent-900/40',
     };
   }
   if (adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL) {
-    return { level: 'alert', label: 'Alert', color: 'text-yellow-700 bg-yellow-100' };
+    return {
+      level: 'alert',
+      label: 'Alert',
+      color: 'text-warning-700 dark:text-warning-300 bg-warning-100 dark:bg-warning-900/40',
+    };
   }
-  return { level: 'normal', label: 'Normal', color: 'text-green-700 bg-green-100' };
+  return {
+    level: 'normal',
+    label: 'Normal',
+    color: 'text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40',
+  };
 }
 
 function getInitialFormData(): SeaLiceFormData {
@@ -187,23 +208,22 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
   temperatureMeta,
 }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Site</label>
-        <input
-          type="text"
-          value={siteName}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700"
-        />
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Site
+        </label>
+        <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Report Period</label>
-        <input
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Report Period
+        </label>
+        <Input
+          fullWidth
           type="text"
           value={getWeekLabel(formData.weekNumber, formData.year)}
           disabled
-          className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700"
         />
       </div>
     </div>
@@ -235,40 +255,28 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
         // editable so a schema-required value is never locked read-only before
         // the assembler verdict lands.
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Water Temperature at 3m Depth (°C) <span className="text-red-500">*</span>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Water Temperature at 3m Depth (°C) <span className="text-error-500">*</span>
           </label>
-          <input
+          <Input
+            fullWidth
             type="number"
             step="0.1"
             value={formData.waterTemperature3m || ''}
             onChange={(e) => onChange({ waterTemperature3m: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             placeholder="Enter water temperature"
           />
         </div>
       )}
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         Standard measurement depth for Norwegian sea lice reporting
       </p>
     </div>
     {/* Sensor integration note */}
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+    <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
       <div className="flex items-start gap-2">
-        <svg
-          className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <p className="text-xs text-blue-700">
+        <InfoIcon className="w-4 h-4 text-info-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+        <p className="text-xs text-info-700 dark:text-info-300">
           {temperatureMeta && temperatureMeta.provenance !== 'MANUAL_REQUIRED'
             ? 'Pre-filled from the newest site temperature (sensor reading or manual measurement). Override by recording a new measurement — the report always reflects the source records.'
             : 'No site temperature on record — link a temperature sensor or record a manual water-quality measurement (3 m depth, at least weekly).'}
@@ -384,26 +392,14 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
         <div
           className={`p-4 rounded-lg ${
             thresholdStatus.level === 'critical'
-              ? 'bg-red-50 border border-red-200'
+              ? 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'
               : thresholdStatus.level === 'treatment'
-                ? 'bg-orange-50 border border-orange-200'
-                : 'bg-yellow-50 border border-yellow-200'
+                ? 'bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800'
+                : 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
           }`}
         >
           <div className="flex items-center">
-            <svg
-              className="w-5 h-5 text-orange-500 mr-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
+            <TriangleAlert className="w-5 h-5 text-accent-500 mr-2" aria-hidden="true" />
             <span className="font-medium">{thresholdStatus.label}</span>
           </div>
           <p className="mt-1 text-sm">
@@ -416,25 +412,25 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
 
       {/* Site-Level Counts */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
           <span>Site-Level Average Counts (per fish)</span>
           {lusetellingMeta && <ProvenanceBadge meta={lusetellingMeta} />}
           {formData.cageCounts.length > 0 && (
-            <span className="text-xs font-normal text-blue-600">
+            <span className="text-xs font-normal text-info-600 dark:text-info-400">
               Auto-calculated from per-cage data
             </span>
           )}
         </h4>
         {countsFromRecords && formData.cageCounts.length === 0 && (
-          <p className="text-xs text-gray-500 mb-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
             Aggregated from the week&apos;s lice-count records; corrections go to the source counts
             in Fish Health.
           </p>
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
-              Adult Female <span className="text-red-500">*</span>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Adult Female <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -443,22 +439,22 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.adultFemale || ''}
               onChange={(e) => updateSiteCounts('adultFemale', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL
-                  ? 'border-orange-300 bg-orange-50'
+                  ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/20'
                   : countsReadOnly
-                    ? 'border-gray-200 bg-gray-100 text-gray-700'
-                    : 'border-gray-300'
+                    ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                    : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="0.00"
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
               Threshold: {SEA_LICE_THRESHOLDS.ALERT_LEVEL}
             </p>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
-              Mobile <span className="text-red-500">*</span>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Mobile <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -467,17 +463,17 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.mobile || ''}
               onChange={(e) => updateSiteCounts('mobile', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 countsReadOnly
-                  ? 'border-gray-200 bg-gray-100 text-gray-700'
-                  : 'border-gray-300'
+                  ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="0.00"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
-              Attached <span className="text-red-500">*</span>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Attached <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -486,128 +482,120 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               value={formData.siteCounts.attached || ''}
               onChange={(e) => updateSiteCounts('attached', parseFloat(e.target.value) || 0)}
               disabled={countsReadOnly}
-              className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 countsReadOnly
-                  ? 'border-gray-200 bg-gray-100 text-gray-700'
-                  : 'border-gray-300'
+                  ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="0.00"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Total Avg/Fish</label>
-            <input
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Total Avg/Fish
+            </label>
+            <Input
+              fullWidth
               type="text"
               value={formData.siteCounts.averagePerFish.toFixed(2)}
               disabled
-              className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700"
             />
           </div>
         </div>
       </div>
 
       {/* Per-Cage Breakdown (Optional) */}
-      <div className="border border-gray-200 rounded-lg">
-        <button
+      <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
+        <Button
+          variant="ghost"
           type="button"
           onClick={() => setShowCageBreakdown(!showCageBreakdown)}
-          className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 rounded-lg"
         >
           <div>
-            <span className="text-sm font-medium text-gray-700">Per-Cage Breakdown (Optional)</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Per-Cage Breakdown (Optional)
+            </span>
             {formData.cageCounts.length > 0 && (
-              <span className="ml-2 text-xs text-blue-600">
+              <span className="ml-2 text-xs text-info-600 dark:text-info-400">
                 {formData.cageCounts.length} cage(s) entered
               </span>
             )}
           </div>
-          <svg
-            className={`w-5 h-5 text-gray-400 transition-transform ${showCageBreakdown ? 'rotate-180' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+          <ChevronDown
+            className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${showCageBreakdown ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </Button>
 
         {showCageBreakdown && (
-          <div className="px-4 pb-4 space-y-3 border-t border-gray-200">
+          <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-gray-700">
             <div className="pt-3 flex items-center justify-between">
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 Enter per-cage counts to auto-calculate weighted site averages.
               </p>
-              <button
-                type="button"
-                onClick={addCageCount}
-                className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-              >
+              <Button variant="secondary" size="sm" type="button" onClick={addCageCount}>
                 + Add Cage Count
-              </button>
+              </Button>
             </div>
 
             {formData.cageCounts.length === 0 ? (
-              <div className="text-center py-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                <p className="text-sm text-gray-500">No per-cage data entered</p>
-                <p className="text-xs text-gray-400 mt-1">
+              <div className="text-center py-6 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
+                <p className="text-sm text-gray-500 dark:text-gray-400">No per-cage data entered</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Site averages will be entered manually above
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
                 {formData.cageCounts.map((cage, index) => (
-                  <div key={index} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div
+                    key={index}
+                    className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+                  >
                     <div className="flex items-start justify-between mb-2">
-                      <span className="text-xs font-medium text-gray-600">Cage #{index + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeCageCount(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg>
-                      </button>
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        Cage #{index + 1}
+                      </span>
+                      <Button variant="ghost" type="button" onClick={() => removeCageCount(index)}>
+                        <X className="w-4 h-4" aria-hidden="true" />
+                      </Button>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Cage</label>
+                        <label
+                          htmlFor={`sea-lice-cage-${index}`}
+                          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                        >
+                          Cage
+                        </label>
                         {cageOptions.length > 0 ? (
-                          <select
+                          <Select
+                            id={`sea-lice-cage-${index}`}
+                            size="sm"
+                            placeholder="Select cage..."
                             value={cage.cageId}
                             onChange={(e) => handleCageSelect(index, e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          >
-                            <option value="">Select cage...</option>
-                            {cageOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.name} ({opt.code})
-                              </option>
-                            ))}
-                          </select>
+                            options={cageOptions.map((opt) => ({
+                              value: opt.id,
+                              label: `${opt.name} (${opt.code})`,
+                            }))}
+                          />
                         ) : (
-                          <input
+                          <Input
+                            fullWidth
                             type="text"
                             value={cage.cageName}
                             onChange={(e) => updateCageCount(index, { cageName: e.target.value })}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                             placeholder="Cage name"
                           />
                         )}
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Adult Female</label>
-                        <input
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Adult Female
+                        </label>
+                        <Input
+                          fullWidth
                           type="number"
                           step="0.01"
                           min="0"
@@ -615,13 +603,15 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                           onChange={(e) =>
                             updateCageCount(index, { adultFemale: parseFloat(e.target.value) || 0 })
                           }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                           placeholder="0.00"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Mobile</label>
-                        <input
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Mobile
+                        </label>
+                        <Input
+                          fullWidth
                           type="number"
                           step="0.01"
                           min="0"
@@ -629,13 +619,15 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                           onChange={(e) =>
                             updateCageCount(index, { mobile: parseFloat(e.target.value) || 0 })
                           }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                           placeholder="0.00"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Attached</label>
-                        <input
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Attached
+                        </label>
+                        <Input
+                          fullWidth
                           type="number"
                           step="0.01"
                           min="0"
@@ -643,20 +635,21 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                           onChange={(e) =>
                             updateCageCount(index, { attached: parseFloat(e.target.value) || 0 })
                           }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                           placeholder="0.00"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Fish Sampled</label>
-                        <input
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Fish Sampled
+                        </label>
+                        <Input
+                          fullWidth
                           type="number"
                           min="1"
                           value={cage.fishSampled || ''}
                           onChange={(e) =>
                             updateCageCount(index, { fishSampled: parseInt(e.target.value) || 0 })
                           }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                           placeholder="20"
                         />
                       </div>
@@ -670,19 +663,21 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
       </div>
 
       {/* Threshold Reference */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800 mb-2">Norwegian Sea Lice Thresholds</h4>
-        <div className="grid grid-cols-3 gap-4 text-sm">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200 mb-2">
+          Norwegian Sea Lice Thresholds
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div>
-            <span className="text-blue-600">Alert Level:</span>
+            <span className="text-info-600 dark:text-info-400">Alert Level:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.ALERT_LEVEL}</span>
           </div>
           <div>
-            <span className="text-orange-600">Treatment Trigger:</span>
+            <span className="text-accent-600 dark:text-accent-400">Treatment Trigger:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER}</span>
           </div>
           <div>
-            <span className="text-red-600">Critical Level:</span>
+            <span className="text-error-600 dark:text-error-400">Critical Level:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.MAX_ALLOWED}</span>
           </div>
         </div>
@@ -729,65 +724,45 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Treatments Applied</h4>
-          <p className="text-xs text-gray-500">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Treatments Applied
+          </h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Record any sea lice treatments during this reporting period (Mattilsynet format)
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addTreatment}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
+        <Button variant="secondary" size="sm" type="button" onClick={addTreatment}>
           + Add Treatment
-        </button>
+        </Button>
       </div>
 
       {formData.treatmentEntries.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-            />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500">No treatments recorded</p>
-          <p className="text-xs text-gray-400">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
+          <FlaskConical className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No treatments recorded</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Click "Add Treatment" if any treatments were applied this week
           </p>
         </div>
       ) : (
         <div className="space-y-3">
           {formData.treatmentEntries.map((treatment, index) => (
-            <div key={treatment.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div
+              key={treatment.id}
+              className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Treatment #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeTreatment(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Treatment #{index + 1}
+                </span>
+                <Button variant="ghost" type="button" onClick={() => removeTreatment(index)}>
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
 
               {/* Treatment Category Radio */}
               <div className="mb-3">
-                <label className="block text-xs font-medium text-gray-500 mb-2">
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
                   Treatment Category
                 </label>
                 <div className="flex items-center gap-4">
@@ -804,9 +779,9 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           dosage: undefined,
                         })
                       }
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
-                    <span className="text-sm text-gray-700">Non-Medicated</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Non-Medicated</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -817,30 +792,31 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                       onChange={() =>
                         updateTreatment(index, { category: 'medicated', nonMedicatedType: '' })
                       }
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-info-600 dark:text-info-400 focus:ring-info-500"
                     />
-                    <span className="text-sm text-gray-700">Medicated</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Medicated</span>
                   </label>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Non-medicated type selection */}
                 {treatment.category === 'non_medicated' && (
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Type</label>
-                    <select
+                    <label
+                      htmlFor={`sea-lice-non-medicated-type-${index}`}
+                      className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                    >
+                      Type
+                    </label>
+                    <Select
+                      id={`sea-lice-non-medicated-type-${index}`}
+                      size="sm"
+                      placeholder="Select type..."
                       value={treatment.nonMedicatedType || ''}
                       onChange={(e) => updateTreatment(index, { nonMedicatedType: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                    >
-                      <option value="">Select type...</option>
-                      {NON_MEDICATED_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={NON_MEDICATED_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                    />
                   </div>
                 )}
 
@@ -848,26 +824,33 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 {treatment.category === 'medicated' && (
                   <>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Active Ingredient</label>
-                      <select
+                      <label
+                        htmlFor={`sea-lice-active-ingredient-${index}`}
+                        className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                      >
+                        Active Ingredient
+                      </label>
+                      <Select
+                        id={`sea-lice-active-ingredient-${index}`}
+                        size="sm"
+                        placeholder="Select ingredient..."
                         value={treatment.activeIngredient || ''}
                         onChange={(e) =>
                           updateTreatment(index, { activeIngredient: e.target.value })
                         }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                      >
-                        <option value="">Select ingredient...</option>
-                        {ACTIVE_INGREDIENTS.map((ai) => (
-                          <option key={ai.value} value={ai.value}>
-                            {ai.label}
-                          </option>
-                        ))}
-                      </select>
+                        options={ACTIVE_INGREDIENTS.map((ai) => ({
+                          value: ai.value,
+                          label: ai.label,
+                        }))}
+                      />
                     </div>
                     <div className="flex gap-2">
                       <div className="flex-1">
-                        <label className="block text-xs text-gray-500 mb-1">Dosage</label>
-                        <input
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Dosage
+                        </label>
+                        <Input
+                          fullWidth
                           type="number"
                           step="0.01"
                           value={treatment.dosage || ''}
@@ -876,23 +859,23 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                               dosage: parseFloat(e.target.value) || undefined,
                             })
                           }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                           placeholder="Amount"
                         />
                       </div>
                       <div className="w-24">
-                        <label className="block text-xs text-gray-500 mb-1">Unit</label>
-                        <select
+                        <label
+                          htmlFor={`sea-lice-dosage-unit-${index}`}
+                          className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                        >
+                          Unit
+                        </label>
+                        <Select
+                          id={`sea-lice-dosage-unit-${index}`}
+                          size="sm"
                           value={treatment.dosageUnit || 'mg/L'}
                           onChange={(e) => updateTreatment(index, { dosageUnit: e.target.value })}
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                        >
-                          {DOSAGE_UNITS.map((u) => (
-                            <option key={u.value} value={u.value}>
-                              {u.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={DOSAGE_UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                        />
                       </div>
                     </div>
                   </>
@@ -900,28 +883,30 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
 
                 {/* Date */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date</label>
-                  <input
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Date
+                  </label>
+                  <Input
+                    fullWidth
                     type="date"
                     value={treatment.date}
                     onChange={(e) => updateTreatment(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                   />
                 </div>
 
                 {/* Mattilsynet-specific fields */}
-                <div className="col-span-2 grid grid-cols-2 gap-3 pt-2 border-t border-gray-200 mt-1">
+                <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       id={`beforeCounting-${treatment.id}`}
                       checked={treatment.beforeCounting}
                       onChange={(e) => updateTreatment(index, { beforeCounting: e.target.checked })}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                     />
                     <label
                       htmlFor={`beforeCounting-${treatment.id}`}
-                      className="text-xs text-gray-700"
+                      className="text-xs text-gray-700 dark:text-gray-300"
                     >
                       Treatment applied before lice counting?
                     </label>
@@ -937,9 +922,12 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           cagesTreated: e.target.checked ? undefined : 1,
                         })
                       }
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                     />
-                    <label htmlFor={`wholeSite-${treatment.id}`} className="text-xs text-gray-700">
+                    <label
+                      htmlFor={`wholeSite-${treatment.id}`}
+                      className="text-xs text-gray-700 dark:text-gray-300"
+                    >
                       Whole site treated?
                     </label>
                   </div>
@@ -948,10 +936,11 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 {/* Number of cages treated (if not whole site) */}
                 {!treatment.wholeSite && (
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Number of cages treated
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="1"
                       value={treatment.cagesTreated || ''}
@@ -960,7 +949,6 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                           cagesTreated: parseInt(e.target.value) || undefined,
                         })
                       }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="Number of cages"
                     />
                   </div>
@@ -968,11 +956,13 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
 
                 {/* Notes */}
                 <div className="col-span-2">
-                  <label className="block text-xs text-gray-500 mb-1">Notes</label>
-                  <textarea
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Notes
+                  </label>
+                  <Textarea
+                    fullWidth
                     value={treatment.notes}
                     onChange={(e) => updateTreatment(index, { notes: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     rows={2}
                     placeholder="Treatment details..."
                   />
@@ -999,14 +989,16 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
   return (
     <div className="space-y-6">
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-1">Resistance Tracking</h4>
-        <p className="text-xs text-gray-500">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Resistance Tracking
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Optional - record any resistance suspicions or sensitivity test results
         </p>
       </div>
 
       {/* Resistance Suspicion */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -1018,22 +1010,25 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
                 resistanceDetails: e.target.checked ? formData.resistanceDetails : '',
               })
             }
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
-          <label htmlFor="resistanceSuspicion" className="text-sm font-medium text-gray-700">
+          <label
+            htmlFor="resistanceSuspicion"
+            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Any resistance suspicion?
           </label>
         </div>
 
         {formData.resistanceSuspicion && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Describe the resistance suspicion
             </label>
-            <textarea
+            <Textarea
+              fullWidth
               value={formData.resistanceDetails}
               onChange={(e) => onChange({ resistanceDetails: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               rows={3}
               placeholder="Describe observations suggesting resistance (e.g., reduced treatment efficacy, repeat treatments needed)..."
             />
@@ -1042,7 +1037,7 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
       </div>
 
       {/* Sensitivity Test */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -1056,85 +1051,82 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
                   : { labName: '', testDate: '', ingredientTested: '', result: '' }),
               })
             }
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
-          <label htmlFor="sensitivityTest" className="text-sm font-medium text-gray-700">
+          <label
+            htmlFor="sensitivityTest"
+            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Sensitivity test performed?
           </label>
         </div>
 
         {formData.sensitivityTest.performed && (
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Laboratory Name</label>
-              <input
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Laboratory Name
+              </label>
+              <Input
+                fullWidth
                 type="text"
                 value={formData.sensitivityTest.labName}
                 onChange={(e) => updateSensitivityTest({ labName: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                 placeholder="e.g., PatoGen"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Test Date</label>
-              <input
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Test Date
+              </label>
+              <Input
+                fullWidth
                 type="date"
                 value={formData.sensitivityTest.testDate}
                 onChange={(e) => updateSensitivityTest({ testDate: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Active Ingredient Tested</label>
-              <select
+              <label
+                htmlFor="sea-lice-sensitivity-ingredient"
+                className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+              >
+                Active Ingredient Tested
+              </label>
+              <Select
+                id="sea-lice-sensitivity-ingredient"
+                size="sm"
+                placeholder="Select ingredient..."
                 value={formData.sensitivityTest.ingredientTested}
                 onChange={(e) => updateSensitivityTest({ ingredientTested: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              >
-                <option value="">Select ingredient...</option>
-                {ACTIVE_INGREDIENTS.map((ai) => (
-                  <option key={ai.value} value={ai.value}>
-                    {ai.label}
-                  </option>
-                ))}
-              </select>
+                options={ACTIVE_INGREDIENTS.map((ai) => ({ value: ai.value, label: ai.label }))}
+              />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Result</label>
-              <select
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Result</label>
+              <Select
+                fullWidth
+                options={[
+                  { value: '', label: 'Select result...' },
+                  { value: 'sensitive', label: 'Sensitive (Folsom)' },
+                  { value: 'reduced', label: 'Reduced Sensitivity (Nedsatt folsomhet)' },
+                  { value: 'resistant', label: 'Resistant (Resistent)' },
+                ]}
                 value={formData.sensitivityTest.result}
                 onChange={(e) =>
                   updateSensitivityTest({ result: e.target.value as SensitivityTestData['result'] })
                 }
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              >
-                <option value="">Select result...</option>
-                <option value="sensitive">Sensitive (Folsom)</option>
-                <option value="reduced">Reduced Sensitivity (Nedsatt folsomhet)</option>
-                <option value="resistant">Resistant (Resistent)</option>
-              </select>
+              />
             </div>
           </div>
         )}
       </div>
 
       {/* Info box */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
         <div className="flex items-start gap-2">
-          <svg
-            className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          <p className="text-xs text-blue-700">
+          <InfoIcon className="w-4 h-4 text-info-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <p className="text-xs text-info-700 dark:text-info-300">
             Resistance data is reported to Mattilsynet to track treatment efficacy across Norwegian
             aquaculture sites. Sensitivity tests (folsomhetsundersokelser) follow the standard
             bioassay protocol.
@@ -1161,147 +1153,159 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
     return NON_MEDICATED_TYPES.find((t) => t.value === value)?.label || value;
   };
 
+  type CageRow = NonNullable<NonNullable<typeof formData>['cageCounts']>[number];
+  const cageRowColumns: DataTableColumn<CageRow>[] = [
+    {
+      key: 'cage',
+      header: 'Cage',
+      render: (_value, cage, i) => <>{cage.cageName || `Cage ${i + 1}`}</>,
+    },
+    {
+      key: 'adultFemale',
+      header: 'Adult Female',
+      align: 'right',
+      render: (_value, cage) => cage.adultFemale.toFixed(2),
+    },
+    {
+      key: 'mobile',
+      header: 'Mobile',
+      align: 'right',
+      render: (_value, cage) => cage.mobile.toFixed(2),
+    },
+    {
+      key: 'attached',
+      header: 'Attached',
+      align: 'right',
+      render: (_value, cage) => cage.attached.toFixed(2),
+    },
+    {
+      key: 'fishSampled',
+      header: 'Fish Sampled',
+      align: 'right',
+      render: (_value, cage) => cage.fishSampled,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getWeekLabel(formData.weekNumber, formData.year)}
         </p>
       </div>
 
       {/* Threshold Warning */}
       {formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL && (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
           <div className="flex items-center">
-            <svg
-              className="w-5 h-5 text-orange-500 mr-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <span className="font-medium text-orange-800">{thresholdStatus.label}</span>
+            <TriangleAlert className="w-5 h-5 text-accent-500 mr-2" aria-hidden="true" />
+            <span className="font-medium text-accent-800 dark:text-accent-200">
+              {thresholdStatus.label}
+            </span>
           </div>
-          <p className="mt-1 text-sm text-orange-700">
+          <p className="mt-1 text-sm text-accent-700 dark:text-accent-300">
             This report indicates elevated lice levels that may require attention.
           </p>
         </div>
       )}
 
       {/* Data Summary */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Water Temperature</h5>
-          <p className="text-2xl font-bold text-gray-900">{formData.waterTemperature3m}°C</p>
-          <p className="text-xs text-gray-500">at 3m depth</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">
+            Water Temperature
+          </h5>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formData.waterTemperature3m}°C
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">at 3m depth</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Adult Female Lice</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">
+            Adult Female Lice
+          </h5>
           <p
-            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-orange-600' : 'text-gray-900'}`}
+            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-accent-600 dark:text-accent-400' : 'text-gray-900 dark:text-gray-100'}`}
           >
             {formData.siteCounts.adultFemale.toFixed(2)}
           </p>
-          <p className="text-xs text-gray-500">per fish (avg)</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">per fish (avg)</p>
         </div>
       </div>
 
       {/* Lice Counts */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
           Sea Lice Counts (per fish)
         </h5>
-        <div className="grid grid-cols-4 gap-4 text-center">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
           <div>
-            <div className="text-lg font-bold text-gray-900">
+            <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formData.siteCounts.adultFemale.toFixed(2)}
             </div>
-            <div className="text-xs text-gray-500">Adult Female</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Adult Female</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-gray-900">
+            <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formData.siteCounts.mobile.toFixed(2)}
             </div>
-            <div className="text-xs text-gray-500">Mobile</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Mobile</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-gray-900">
+            <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formData.siteCounts.attached.toFixed(2)}
             </div>
-            <div className="text-xs text-gray-500">Attached</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Attached</div>
           </div>
           <div>
-            <div className="text-lg font-bold text-blue-600">
+            <div className="text-lg font-bold text-info-600 dark:text-info-400">
               {formData.siteCounts.averagePerFish.toFixed(2)}
             </div>
-            <div className="text-xs text-gray-500">Total Avg</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Total Avg</div>
           </div>
         </div>
       </div>
 
       {/* Per-Cage Breakdown */}
       {formData.cageCounts.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Per-Cage Breakdown ({formData.cageCounts.length} cages)
           </h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 border-b border-gray-100">
-                  <th className="text-left pb-2 pr-3">Cage</th>
-                  <th className="text-right pb-2 px-2">Adult Female</th>
-                  <th className="text-right pb-2 px-2">Mobile</th>
-                  <th className="text-right pb-2 px-2">Attached</th>
-                  <th className="text-right pb-2 pl-2">Fish Sampled</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formData.cageCounts.map((cage, i) => (
-                  <tr key={i} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-3 font-medium text-gray-700">
-                      {cage.cageName || `Cage ${i + 1}`}
-                    </td>
-                    <td className="py-1.5 px-2 text-right">{cage.adultFemale.toFixed(2)}</td>
-                    <td className="py-1.5 px-2 text-right">{cage.mobile.toFixed(2)}</td>
-                    <td className="py-1.5 px-2 text-right">{cage.attached.toFixed(2)}</td>
-                    <td className="py-1.5 pl-2 text-right">{cage.fishSampled}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<CageRow>
+            data={formData.cageCounts}
+            columns={cageRowColumns}
+            keyExtractor={(_cage, i) => String(i)}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 
       {/* Treatments */}
       {formData.treatmentEntries.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Treatments ({formData.treatmentEntries.length})
           </h5>
           <ul className="space-y-3">
             {formData.treatmentEntries.map((t, i) => (
               <li key={i} className="text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="w-2 h-2 bg-orange-400 rounded-full flex-shrink-0" />
-                  <span className="font-medium text-gray-700">
+                  <span className="w-2 h-2 bg-accent-400 rounded-full flex-shrink-0" />
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
                     {t.category === 'medicated'
                       ? `Medicated - ${getIngredientLabel(t.activeIngredient || '')}`
                       : `Non-Medicated - ${getNonMedicatedLabel(t.nonMedicatedType || '')}`}
                   </span>
-                  <span className="text-gray-400">|</span>
-                  <span className="text-gray-500">{t.date}</span>
+                  <span className="text-gray-400 dark:text-gray-500">|</span>
+                  <span className="text-gray-500 dark:text-gray-400">{t.date}</span>
                 </div>
-                <div className="ml-4 text-xs text-gray-500 space-x-3">
+                <div className="ml-4 text-xs text-gray-500 dark:text-gray-400 space-x-3">
                   {t.category === 'medicated' && t.dosage && (
                     <span>
                       Dosage: {t.dosage} {t.dosageUnit}
@@ -1310,7 +1314,11 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span>{t.beforeCounting ? 'Before counting' : 'After counting'}</span>
                   <span>{t.wholeSite ? 'Whole site' : `${t.cagesTreated || '?'} cage(s)`}</span>
                 </div>
-                {t.notes && <p className="ml-4 mt-1 text-xs text-gray-400 italic">{t.notes}</p>}
+                {t.notes && (
+                  <p className="ml-4 mt-1 text-xs text-gray-400 dark:text-gray-500 italic">
+                    {t.notes}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -1319,26 +1327,34 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Resistance / Sensitivity */}
       {(formData.resistanceSuspicion || formData.sensitivityTest.performed) && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Resistance Tracking</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Resistance Tracking
+          </h5>
           {formData.resistanceSuspicion && (
             <div className="mb-3">
               <div className="flex items-center gap-2 text-sm">
-                <span className="w-2 h-2 bg-red-400 rounded-full" />
-                <span className="font-medium text-red-700">Resistance Suspicion</span>
+                <span className="w-2 h-2 bg-error-400 rounded-full" />
+                <span className="font-medium text-error-700 dark:text-error-300">
+                  Resistance Suspicion
+                </span>
               </div>
               {formData.resistanceDetails && (
-                <p className="ml-4 mt-1 text-xs text-gray-600">{formData.resistanceDetails}</p>
+                <p className="ml-4 mt-1 text-xs text-gray-600 dark:text-gray-400">
+                  {formData.resistanceDetails}
+                </p>
               )}
             </div>
           )}
           {formData.sensitivityTest.performed && (
             <div>
               <div className="flex items-center gap-2 text-sm mb-2">
-                <span className="w-2 h-2 bg-blue-400 rounded-full" />
-                <span className="font-medium text-gray-700">Sensitivity Test</span>
+                <span className="w-2 h-2 bg-info-400 rounded-full" />
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  Sensitivity Test
+                </span>
               </div>
-              <div className="ml-4 grid grid-cols-2 gap-2 text-xs text-gray-600">
+              <div className="ml-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-400">
                 <div>Lab: {formData.sensitivityTest.labName || '-'}</div>
                 <div>Date: {formData.sensitivityTest.testDate || '-'}</div>
                 <div>
@@ -1349,11 +1365,11 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span
                     className={
                       formData.sensitivityTest.result === 'sensitive'
-                        ? 'text-green-600 font-medium'
+                        ? 'text-success-600 dark:text-success-400 font-medium'
                         : formData.sensitivityTest.result === 'reduced'
-                          ? 'text-yellow-600 font-medium'
+                          ? 'text-warning-600 dark:text-warning-400 font-medium'
                           : formData.sensitivityTest.result === 'resistant'
-                            ? 'text-red-600 font-medium'
+                            ? 'text-error-600 dark:text-error-400 font-medium'
                             : ''
                     }
                   >
@@ -1373,12 +1389,12 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       )}
 
       {/* Submission Notice */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           By submitting this report, you confirm that the data is accurate and complete. This report
           will be submitted to the Norwegian Food Safety Authority (Mattilsynet).
         </p>
-        <p className="text-xs text-gray-500 mt-2">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
           Contact: {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
         </p>
       </div>
@@ -1641,8 +1657,12 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Sea Lice Reports</h2>
-          <p className="text-sm text-gray-500">Weekly lakselus monitoring - Due every Tuesday</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Sea Lice Reports
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Weekly lakselus monitoring - Due every Tuesday
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <SiteLocalitySelector
@@ -1651,20 +1671,10 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
             onChange={setSelectedSiteId}
             show={showSelector}
           />
-          <button
-            onClick={() => handleOpenWizard()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
+          <Button variant="primary" onClick={() => handleOpenWizard()}>
+            <Plus className="w-4 h-4" aria-hidden="true" />
             New Report
-          </button>
+          </Button>
         </div>
       </div>
 

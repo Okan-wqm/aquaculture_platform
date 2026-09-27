@@ -73,7 +73,7 @@ class _ArtifactCase(unittest.TestCase):
             request={
                 "role": role,
                 "allowed_scope": ["**"],
-                "must_satisfy": [{"id": "x", "criterion": "y"}],
+                "must_satisfy": [{"id": "x", "description": "y"}],
                 "allow_empty_satisfaction_matrix": True,
                 "evidence_refs": [self.rel],
             },

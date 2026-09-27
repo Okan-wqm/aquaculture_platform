@@ -4,6 +4,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
 
 const STEPS = ['Preparation', 'Buffer 1', 'Buffer 2', 'Verification', 'Done'];
 
@@ -22,19 +23,19 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ padding: '0 2px 4px', fontSize: 11, fontWeight: 600, color: '#374151' }}>
+      <div style={{ padding: '0 2px 4px', fontSize: 11, fontWeight: 600, color: colors.neutral[700] }}>
         {label}
       </div>
 
       {/* Step indicator */}
-      <svg width="100%" height={svgH} viewBox={`0 0 ${width} ${svgH}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block', flexShrink: 0 }}>
+      <svg width="100%" height={svgH} viewBox={`0 0 ${width} ${svgH}`} preserveAspectRatio="xMidYMid meet" className="block shrink-0">
         {/* Connecting line */}
         <line
           x1={padX}
           y1={20}
           x2={padX + stepSpacing * (stepCount - 1)}
           y2={20}
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth={2}
         />
         {/* Completed line */}
@@ -44,7 +45,7 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
             y1={20}
             x2={padX + stepSpacing * Math.min(currentStep, stepCount - 1)}
             y2={20}
-            stroke="#22c55e"
+            stroke={colors.success[500]}
             strokeWidth={2}
           />
         )}
@@ -60,14 +61,14 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
                 cx={x}
                 cy={20}
                 r={8}
-                fill={done ? '#22c55e' : active ? '#3b82f6' : '#e5e7eb'}
-                stroke={active ? '#93c5fd' : 'none'}
+                fill={done ? colors.success[500] : active ? colors.info[500] : colors.neutral[200]}
+                stroke={active ? colors.primary[200] : 'none'}
                 strokeWidth={active ? 2 : 0}
               />
-              <text x={x} y={23} textAnchor="middle" fontSize={8} fontWeight={700} fill={done || active ? 'white' : '#9ca3af'}>
+              <text x={x} y={23} textAnchor="middle" fontSize={8} fontWeight={700} fill={done || active ? 'white' : colors.neutral[400]}>
                 {done ? '\u2713' : i + 1}
               </text>
-              <text x={x} y={42} textAnchor="middle" fontSize={7} fill={active ? '#1d4ed8' : '#9ca3af'}>
+              <text x={x} y={42} textAnchor="middle" fontSize={7} fill={active ? colors.info[700] : colors.neutral[400]}>
                 {step}
               </text>
             </g>
@@ -80,14 +81,14 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
         style={{
           flex: 1,
           margin: '0 10px 8px',
-          background: '#f8fafc',
+          background: colors.neutral[50],
           borderRadius: 4,
-          border: '1px dashed #d1d5db',
+          border: `1px dashed ${themeColors.neutral[300]}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           fontSize: 10,
-          color: '#9ca3af',
+          color: colors.neutral[400],
         }}
       >
         Step {currentStep + 1}: {steps[currentStep] ?? ''}

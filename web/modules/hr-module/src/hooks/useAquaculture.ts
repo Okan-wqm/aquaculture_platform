@@ -4,7 +4,8 @@
  */
 
 import { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useFeedbackMutation } from '@aquaculture/shared-ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_WORK_AREAS,
@@ -475,7 +476,8 @@ export function useCreateWorkArea() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Work area created' },
     mutationFn: (input: CreateWorkAreaInput) =>
       graphqlRequest<{ createWorkArea: WorkArea }, unknown>(
         client,
@@ -493,7 +495,8 @@ export function useUpdateWorkArea() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Work area updated' },
     mutationFn: (input: UpdateWorkAreaInput) =>
       graphqlRequest<{ updateWorkArea: WorkArea }, unknown>(
         client,
@@ -518,7 +521,8 @@ export function useCreateWorkRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation created' },
     mutationFn: (input: CreateWorkRotationInput) =>
       graphqlRequest<{ createWorkRotation: WorkRotation }, unknown>(
         client,
@@ -536,7 +540,8 @@ export function useUpdateWorkRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation updated' },
     mutationFn: (input: UpdateWorkRotationInput) =>
       graphqlRequest<{ updateWorkRotation: WorkRotation }, unknown>(
         client,
@@ -557,7 +562,8 @@ export function useStartRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation started' },
     mutationFn: ({ rotationId, actualStartDate }: { rotationId: string; actualStartDate?: string }) =>
       graphqlRequest<{ startRotation: WorkRotation }, unknown>(
         client,
@@ -580,7 +586,8 @@ export function useEndRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation ended' },
     mutationFn: ({
       rotationId,
       actualEndDate,
@@ -611,7 +618,8 @@ export function useCancelRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation cancelled' },
     mutationFn: ({ rotationId, reason }: { rotationId: string; reason: string }) =>
       graphqlRequest<{ cancelRotation: WorkRotation }, unknown>(
         client,
@@ -632,7 +640,8 @@ export function useApproveRotation() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rotation approved' },
     mutationFn: ({ rotationId, notes }: { rotationId: string; notes?: string }) =>
       graphqlRequest<{ approveRotation: WorkRotation }, unknown>(
         client,
@@ -657,7 +666,8 @@ export function useDeactivateWorkArea() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Work area deactivated' },
     mutationFn: (id: string) =>
       graphqlRequest<{ deactivateWorkArea: WorkArea }, unknown>(
         client,

@@ -120,16 +120,23 @@ class StateStoreLayoutTests(unittest.TestCase):
         resolved = resolve_fixture_dir(tool, self.tools, workspace_root=self.workspace)
         self.assertEqual(resolved, self.fixture_dir.resolve())
 
-    def test_git_discovery_skips_worktree_stub_files(self) -> None:
+    def test_git_discovery_skips_the_state_store_worktree(self) -> None:
         # ORPHAN-HIGH-797 — the state store is a git WORKTREE of aria/state:
-        # its .git is a FILE (stub), not a directory. Discovery must not
-        # anchor there or the checkout's own fixture paths read as escapes —
-        # the live failure on the first fully-alive night.
-        stub = self.tools.parent / ".git"
-        stub.write_text("gitdir: /somewhere/else/main-worktree\n", encoding="utf-8")
+        # its .git is a FILE (a gitdir pointer), and discovery must not anchor
+        # there or the checkout's own fixture paths read as escapes — the
+        # live failure on the first fully-alive night. ARIA-HIGH-098 moved
+        # the discriminator: a pointer file is how EVERY linked worktree
+        # marks its root (trial eleven's whole workspace was one), so the
+        # store is recognised by the GENESIS record the kernel wrote into
+        # it, not by the shape of its .git.
+        from aria_kernel.state_store import GENESIS_FILENAME
+
+        store = self.tools.parent
+        (store / ".git").write_text("gitdir: /somewhere/else/main-worktree\n", encoding="utf-8")
+        (store / GENESIS_FILENAME).write_text('{"$schema": "aria/state-genesis/v1"}\n', encoding="utf-8")
         tool = get_tool("x-adapter", self.tools)
         resolved = resolve_fixture_dir(tool, self.tools)
-        # Discovery walks past the stub FILE to the workspace's real .git dir.
+        # Discovery walks past the store to the workspace's own .git.
         self.assertEqual(resolved, self.fixture_dir.resolve())
 
     def test_suite_actually_writes_the_row_the_six_nights_never_got(self) -> None:

@@ -1,0 +1,22 @@
+{
+  "name": "mqtt-test-harness",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/mqtt-test-harness/src",
+  "projectType": "library",
+  "tags": ["scope:devOnly"],
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p libs/mqtt-test-harness/tsconfig.lib.json --noEmit"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["libs/mqtt-test-harness/src/**/*.ts"]
+      }
+    }
+  }
+}

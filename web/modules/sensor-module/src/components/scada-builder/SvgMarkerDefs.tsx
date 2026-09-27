@@ -107,7 +107,7 @@ export const SvgMarkerDefs: React.FC<SvgMarkerDefsProps> = ({ screenId, markers 
 
   return (
     <svg
-      style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
+      className="absolute w-0 h-0 overflow-hidden"
       aria-hidden="true"
     >
       <defs>

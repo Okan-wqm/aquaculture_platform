@@ -121,13 +121,13 @@ class DecisionMemory(_Store):
     def test_I_V12_MEM_02_sealed_at_mint_rendered_as_data(self) -> None:
         bare = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="anything",
-            must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="conv-0", base_dir=self.tools)
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-0", base_dir=self.tools)
         self.assertNotIn("decision_memory", bare)
         self.assertNotIn('section="decision_memory"', render_invocation_prompt(bare))
         control.record_control("cancel", base_dir=self.tools, request_id="AIR-9", reason="the tenant isolation approach was rejected by the panel")
         req = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="challenge the tenant isolation plan",
-            must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1", base_dir=self.tools)
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1", base_dir=self.tools)
         self.assertIn("decision_memory", req)
         prompt = render_invocation_prompt(req)
         self.assertIn('<derived_context section="decision_memory">', prompt)

@@ -130,7 +130,7 @@ export class UpdateParameterConfigInput {
   @Field({ nullable: true, description: 'Chart color (hex)' })
   @IsOptional()
   @Matches(/^#[0-9a-fA-F]{6}$/, {
-    message: 'chartColor must be a valid 6-digit hex color, e.g. #3b82f6',
+    message: 'chartColor must be a valid 6-digit hex color in #rrggbb form',
   })
   chartColor?: string;
 

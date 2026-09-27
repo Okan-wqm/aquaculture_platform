@@ -9,7 +9,6 @@
  */
 
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import type { ReactNode, ChangeEvent } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { LiceCountPage } from '../LiceCountPage';
@@ -89,64 +88,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
     <div data-testid="queued-badge">queued:{operationId}</div>
   ),
 }));
-
-vi.mock('konsta/react', () => ({
-  List: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  BlockTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-  ListInput: ({
-    type,
-    value,
-    onChange,
-    onInput,
-    children,
-    placeholder,
-    label,
-  }: {
-    type?: string;
-    value?: string | number;
-    onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
-    onInput?: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-    children?: ReactNode;
-    placeholder?: string;
-    label?: string;
-  }) => {
-    if (type === 'select') {
-      return (
-        <select value={value} onChange={onChange}>
-          {children}
-        </select>
-      );
-    }
-    if (type === 'textarea') {
-      return <textarea value={value} onChange={onInput} placeholder={placeholder} />;
-    }
-    return (
-      <input
-        type={type || 'text'}
-        aria-label={label}
-        value={value ?? ''}
-        onChange={onInput}
-        placeholder={placeholder}
-      />
-    );
-  },
-}));
-
-vi.mock('lucide-react', () => {
-  const Stub = (): ReactNode => <svg data-testid="icon" />;
-  return {
-    ArrowLeft: Stub,
-    AlertCircle: Stub,
-    Bug: Stub,
-    Camera: Stub,
-    ChevronRight: Stub,
-    ImageOff: Stub,
-    Loader2: Stub,
-    Minus: Stub,
-    Plus: Stub,
-    X: Stub,
-  };
-});
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),

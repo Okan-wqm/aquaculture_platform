@@ -1,3 +1,4 @@
+import { chartPalette, colors } from '@aquaculture/shared-contracts';
 /**
  * Analytics Service
  *
@@ -317,7 +318,7 @@ export class AnalyticsService {
     return {
       label: 'Tenant Growth',
       data,
-      color: '#3B82F6',
+      color: colors.info[500],
     };
   }
 
@@ -329,7 +330,7 @@ export class AnalyticsService {
     return {
       label: 'Churn Rate (%)',
       data,
-      color: '#EF4444',
+      color: colors.error[500],
     };
   }
 
@@ -407,7 +408,7 @@ export class AnalyticsService {
     return {
       label: 'Daily Active Users',
       data,
-      color: '#10B981',
+      color: colors.success[400],
     };
   }
 
@@ -461,7 +462,7 @@ export class AnalyticsService {
       datasets: days.map((day, index) => ({
         label: day,
         data: heatmapData[index] ?? Array.from({ length: 24 }, () => 0),
-        backgroundColor: '#3B82F6',
+        backgroundColor: colors.info[500],
       })),
     };
   }
@@ -588,7 +589,7 @@ export class AnalyticsService {
     return {
       label: 'Monthly Revenue',
       data,
-      color: '#8B5CF6',
+      color: colors.accent[400],
     };
   }
 
@@ -607,7 +608,7 @@ export class AnalyticsService {
           metrics.byPlan['professional'] ?? 0,
           metrics.byPlan['enterprise'] ?? 0,
         ],
-        backgroundColor: ['#3B82F6', '#10B981', '#8B5CF6'],
+        backgroundColor: chartPalette.slice(0, 3),
       }],
     };
   }
@@ -670,7 +671,7 @@ export class AnalyticsService {
     return Promise.resolve({
       label: 'API Calls',
       data: [],
-      color: '#F59E0B',
+      color: colors.warning[400],
     });
   }
 
@@ -683,7 +684,7 @@ export class AnalyticsService {
     return Promise.resolve({
       label: 'Error Rate (%)',
       data: [],
-      color: '#EF4444',
+      color: colors.error[500],
     });
   }
 
@@ -751,9 +752,8 @@ export class AnalyticsService {
       datasets: [{
         label: 'Active Users',
         data: [0, 0, 0, 0, 0, 0, 0],
-        backgroundColor: [
-          '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'
-        ],
+        // One categorical order for every chart the platform draws.
+        backgroundColor: chartPalette.slice(0, 7),
       }],
     });
   }
@@ -768,8 +768,8 @@ export class AnalyticsService {
       datasets: [{
         label: 'Adoption Rate (%)',
         data: [0, 0, 0, 0, 0, 0],
-        backgroundColor: '#3B82F6',
-        borderColor: '#2563EB',
+        backgroundColor: colors.info[500],
+        borderColor: colors.info[600],
       }],
     });
   }

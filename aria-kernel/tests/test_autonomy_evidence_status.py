@@ -119,6 +119,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
         f"{KERNEL}state_manifest.py",
+        f"{KERNEL}budget.py",
         "tools/aria-poc/dispatch_failure.py",
         "tools/aria-poc/claude_runtime.py",
         "tools/aria-poc/ci_executor.py",
@@ -164,6 +165,8 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}plan_coverage.py",
         f"{KERNEL}budget.py",
         f"{KERNEL}cost_budget.py",
+        f"{KERNEL}turn_budget.py",
+        f"{KERNEL}turn_budget_policy.py",
         f"{KERNEL}state_manifest.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
@@ -184,6 +187,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         ".github/workflows/aria-agent-executor.yml",
         ".github/workflows/aria-agent-eval.yml",
         ".github/workflows/aria-readiness-claim.yml",
+        ".github/workflows/aria-merge-runner.yml",
     ),
     "autonomy_unlock": (
         f"{KERNEL}acceptance_reconciler.py",
@@ -231,6 +235,7 @@ EXPECTED_PRODUCERS = {
         f"{KERNEL}file_claims.py", f"{KERNEL}operator_feedback_signature.py",
         f"{KERNEL}expert_review_gate.py", f"{KERNEL}plan_coverage.py",
         f"{KERNEL}budget.py", f"{KERNEL}cost_budget.py",
+        f"{KERNEL}turn_budget.py", f"{KERNEL}turn_budget_policy.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
     "enterprise_readiness": (
@@ -242,6 +247,7 @@ EXPECTED_PRODUCERS = {
         ".github/workflows/aria-agent-executor.yml",
         ".github/workflows/aria-agent-eval.yml",
         ".github/workflows/aria-readiness-claim.yml",
+        ".github/workflows/aria-merge-runner.yml",
     ),
     "autonomy_unlock": (
         f"{KERNEL}acceptance_reconciler.py", f"{KERNEL}autonomy_unlock.py",
@@ -266,6 +272,10 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        # Native runtime attempts read results to bind (budget.py) and to
+        # reconcile (ci_executor.py) an attempt — decisions, not observations.
+        f"{KERNEL}budget.py",
+        "tools/aria-poc/ci_executor.py",
     ),
     "finding_funnel": (
         f"{KERNEL}finding_promotion.py", f"{KERNEL}funnel_health.py",
@@ -1458,10 +1468,6 @@ def alias_factory(root):
         observational = {
             ("cycle_runtime", f"{KERNEL}reflection.py", "consumer"):
                 "reflection reports completed cycles but cannot authorize them",
-            ("finding_funnel", f"{KERNEL}burn_in.py", "consumer"):
-                "burn-in only reports funnel counts",
-            ("finding_funnel", f"{KERNEL}runtime_artifacts.py", "consumer"):
-                "artifact packaging only inventories raw findings",
             ("executor", f"{KERNEL}human_required.py", "consumer"):
                 "human escalation observes outstanding requests",
             # Plan 032 — ops/economy readers of executor results (Faz 032d–032i):
@@ -1484,12 +1490,19 @@ def alias_factory(root):
                 "runner attestation reports readiness without authorizing it",
             ("cycle_runtime", f"{KERNEL}integrity.py", "consumer"):
                 "integrity verification observes cycle chain bytes only",
+            ("cycle_runtime", f"{KERNEL}tool_sit_out.py", "consumer"):
+                "the sat-out reader counts the cycles a quarantined tool missed; it cannot start or seal one",
             ("executor", f"{KERNEL}shadow_eval_bridge.py", "consumer"):
                 "shadow bridge consumes execution to authorize genesis evidence",
             ("executor", f"{KERNEL}tool_registry.py", "consumer"):
                 "registry reads governance history for inventory reporting",
             ("executor", f"{KERNEL}worker_dispatch.py", "consumer"):
                 "worker dispatch consumes requests but cannot validate results",
+            # ARIA-HIGH-092 — the self-improvement dispatcher derives a
+            # request's state to avoid re-asking a mission still in flight;
+            # it reads the verdict, it cannot render one.
+            ("executor", f"{KERNEL}mission_dispatch.py", "consumer"):
+                "mission dispatch reads request state to skip an in-flight mission; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):
@@ -1676,6 +1689,15 @@ def alias_factory(root):
                 ),
             },
             "recovery_safety": {
+                # ARIA-HIGH-199 — the self-revert producer reads the merge
+                # decisions to know which merges ARIA made (and may revert);
+                # it never authorizes a merge from them.
+                (
+                    "pre_merge_perimeter",
+                    "auto_merge_decisions",
+                    f"{KERNEL}self_revert.py",
+                    "consumer",
+                ),
                 (
                     "executor",
                     "agent_invocation_results",
@@ -1686,6 +1708,19 @@ def alias_factory(root):
                     "executor",
                     "agent_invocation_results",
                     f"{KERNEL}external_outage_reaper.py",
+                    "consumer",
+                ),
+            },
+            "publish_integrity_gate": {
+                # ARIA-HIGH-117 — the one publish path runs
+                # verify_runtime_artifacts on the store before its first
+                # mutation, which reads the cycle chain bytes the way
+                # integrity.py does (already observational above): it
+                # refuses an unverifiable store and authorizes no cycle.
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}state_store.py",
                     "consumer",
                 ),
             },
@@ -2485,7 +2520,6 @@ class NativeProofContractTests(unittest.TestCase):
                 "tools_governance",
             ),
             "finding_funnel": (
-                "raw_findings",
                 "operator_feedback",
                 "findings",
                 "promotions",
@@ -3006,7 +3040,9 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(counts["executor"]["executor_drain_attempted"], 5)
         self.assertEqual(counts["executor"]["executor_drain_succeeded"], 4)
         self.assertEqual(counts["executor"]["executor_drain_failed"], 1)
-        self.assertEqual(counts["finding_funnel"]["raw_unique_fingerprints"], 1)
+        # ARIA-HIGH-190: raw_findings rows are not consumed by any capability.
+        self.assertNotIn("raw_unique_fingerprints", counts["finding_funnel"])
+        self.assertNotIn("raw_findings", counts["finding_funnel"])
         self.assertEqual(counts["finding_funnel"]["ai_consensus_true_positive"], 1)
         self.assertEqual(counts["finding_funnel"]["unique_promoted"], 2)
         self.assertEqual(counts["fixture_calibration"]["fixture_suites_passed"], 1)
@@ -3878,6 +3914,41 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             self.assertEqual(capability.evidence_refs, ())
             self.assertEqual(capability.counts, {"unavailable": 1})
 
+    def test_oversized_raw_findings_does_not_block_evidence(self) -> None:
+        """ARIA-HIGH-190: the adapters' raw stream is not counted evidence.
+
+        Live ``raw-findings.jsonl`` is 57.5 MB; as a count surface it pushed
+        the counted-evidence budget over its cap and every cycle publish
+        failed. Here the per-ledger cap is squeezed below the raw file's
+        size: the raw stream must still be snapshotted, but never consumed.
+        """
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
+        for index in range(200):
+            append_declared_jsonl(
+                self.tools / "raw-findings.jsonl",
+                {
+                    "schema_version": 1,
+                    "finding_id": f"raw-{index}",
+                    "finding_fingerprint": f"fp-{index}",
+                    "finding": {"rule": "doc-staleness", "detail": "x" * 512},
+                },
+                expected_surface="raw_findings",
+            )
+        raw_size = (self.tools / "raw-findings.jsonl").stat().st_size
+        self._publish()
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_MAX_EVIDENCE_LEDGER_BLOB_BYTES",
+            raw_size - 1,
+        ):
+            status = self._derive()
+        self.assertNotIn(
+            "state_commit_surface_too_large:raw_findings",
+            status.blockers,
+        )
+        self.assertEqual(status.capabilities["cycle_runtime"].state, "live_proven")
+        self.assertNotIn("raw_findings", status.capabilities["finding_funnel"].counts)
+
     def _derive_with_outer_hashless_kg(self, *, mixed: bool):
         self._publish(with_cycle=False)
         relative = "knowledge-graph/conventions.jsonl"
@@ -4012,7 +4083,7 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
         self.assertEqual(status.capabilities["cycle_runtime"].state, "live_proven")
         self.assertEqual(status.capabilities["cycle_runtime"].counts["cycles"], 1)
         self.assertEqual(
-            status.capabilities["finding_funnel"].counts["raw_findings"],
+            status.capabilities["finding_funnel"].counts["findings"],
             0,
         )
         self.assertNotEqual(

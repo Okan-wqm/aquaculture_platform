@@ -13,7 +13,6 @@ import {
   Info,
   Server,
   Layers,
-  Loader2,
   Warehouse,
   Users,
   Cpu,
@@ -29,67 +28,152 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
+import {
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Badge,
+  useFeedbackMutation,
+  downloadJson,
+} from '@aquaculture/shared-ui';
+import { getTableSchema } from '../lib/api';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
  */
 const MODULE_TABLES: Record<string, string[]> = {
   sensor: [
-    'sensors', 'sensor_readings', 'sensor_metrics', 'sensor_data_channels', 'sensor_protocols',
-    'processes', 'vfd_devices', 'vfd_readings', 'vfd_register_mappings',
-    'dashboard_layouts', 'edge_devices', 'device_io_configs',
-    'plc_connections', 'plc_alarms', 'plc_telemetry', 'feeding_parameters',
-    'automation_programs', 'program_steps', 'program_transitions', 'program_variables', 'step_actions',
+    'sensors',
+    'sensor_readings',
+    'sensor_metrics',
+    'sensor_data_channels',
+    'sensor_protocols',
+    'processes',
+    'vfd_devices',
+    'vfd_readings',
+    'vfd_register_mappings',
+    'dashboard_layouts',
+    'edge_devices',
+    'device_io_configs',
+    'plc_connections',
+    'plc_alarms',
+    'plc_telemetry',
+    'feeding_parameters',
+    'automation_programs',
+    'program_steps',
+    'program_transitions',
+    'program_variables',
+    'step_actions',
   ],
   farm: [
-    'farms', 'sites', 'departments', 'ponds', 'tanks', 'tank_allocations', 'tank_batches', 'tank_operations',
-    'batches', 'batches_v2', 'batch_documents', 'batch_feed_assignments', 'batch_locations', 'species',
-    'systems', 'sub_systems', 'equipment_types', 'equipment', 'equipment_systems', 'sub_equipment_types', 'sub_equipment',
-    'maintenance_schedules', 'work_orders', 'spare_parts',
-    'feed_types', 'feed_type_species', 'feeds', 'feed_inventory', 'feed_sites', 'feeding_protocols', 'feeding_records', 'feeding_tables', 'feeding_programs', 'feeding_program_tanks', 'daily_feeding_executions',
-    'chemical_types', 'chemicals', 'chemical_sites',
-    'growth_measurements', 'mortality_records', 'water_quality_measurements', 'health_events', 'harvest_plans', 'harvest_records',
-    'supplier_types', 'suppliers',
-    'code_sequences', 'farm_audit_logs', 'regulatory_settings', 'sentinel_hub_settings',
+    'farms',
+    'sites',
+    'departments',
+    'ponds',
+    'tanks',
+    'tank_allocations',
+    'tank_batches',
+    'tank_operations',
+    'batches',
+    'batches_v2',
+    'batch_documents',
+    'batch_feed_assignments',
+    'batch_locations',
+    'species',
+    'systems',
+    'sub_systems',
+    'equipment_types',
+    'equipment',
+    'equipment_systems',
+    'sub_equipment_types',
+    'sub_equipment',
+    'maintenance_schedules',
+    'work_orders',
+    'spare_parts',
+    'feed_types',
+    'feed_type_species',
+    'feeds',
+    'feed_inventory',
+    'feed_sites',
+    'feeding_protocols',
+    'feeding_records',
+    'feeding_tables',
+    'feeding_programs',
+    'feeding_program_tanks',
+    'daily_feeding_executions',
+    'chemical_types',
+    'chemicals',
+    'chemical_sites',
+    'growth_measurements',
+    'mortality_records',
+    'water_quality_measurements',
+    'health_events',
+    'harvest_plans',
+    'harvest_records',
+    'supplier_types',
+    'suppliers',
+    'code_sequences',
+    'farm_audit_logs',
+    'regulatory_settings',
+    'sentinel_hub_settings',
   ],
   hr: [
-    'employees', 'payrolls',
-    'leave_types', 'leave_balances', 'leave_requests',
-    'shifts', 'schedules', 'schedule_entries', 'scheduling_settings', 'attendance_records',
-    'weekly_plans', 'weekly_plan_entries',
-    'training_courses', 'training_enrollments',
-    'certification_types', 'employee_certifications',
-    'work_areas', 'work_rotations', 'safety_training_records',
+    'employees',
+    'payrolls',
+    'leave_types',
+    'leave_balances',
+    'leave_requests',
+    'shifts',
+    'schedules',
+    'schedule_entries',
+    'scheduling_settings',
+    'attendance_records',
+    'weekly_plans',
+    'weekly_plan_entries',
+    'training_courses',
+    'training_enrollments',
+    'certification_types',
+    'employee_certifications',
+    'work_areas',
+    'work_rotations',
+    'safety_training_records',
   ],
 };
 
 /**
  * Module configuration with display info
  */
-const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
+const MODULE_CONFIG: Record<
+  string,
+  { label: string; icon: React.ReactNode; color: string; bgColor: string }
+> = {
   farm: {
     label: 'Farm Module',
     icon: <Warehouse className="w-5 h-5" />,
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
+    color: 'text-success-600 dark:text-success-400',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
   },
   sensor: {
     label: 'Sensor Module',
     icon: <Cpu className="w-5 h-5" />,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
+    color: 'text-info-600 dark:text-info-400',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
   },
   hr: {
     label: 'HR Module',
     icon: <Users className="w-5 h-5" />,
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
+    color: 'text-accent-600 dark:text-accent-400',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
   },
   other: {
     label: 'Other Tables',
     icon: <Database className="w-5 h-5" />,
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-50',
+    color: 'text-gray-600 dark:text-gray-400',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
   },
 };
 
@@ -102,7 +186,13 @@ const parseSize = (s: string): number => {
   const m = s.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
   if (!m) return 0;
   const val = parseFloat(m[1]);
-  const units: Record<string, number> = { B: 1, KB: 1024, MB: 1048576, GB: 1073741824, TB: 1099511627776 };
+  const units: Record<string, number> = {
+    B: 1,
+    KB: 1024,
+    MB: 1048576,
+    GB: 1073741824,
+    TB: 1099511627776,
+  };
   return val * (units[(m[2] || 'B').toUpperCase()] ?? 1);
 };
 
@@ -126,42 +216,22 @@ const getModuleFromTableName = (fullTableName: string): string => {
  * Status badge component
  */
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
-    healthy: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-4 h-4" />,
-      label: 'Healthy',
-    },
-    warning: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Warning',
-    },
-    error: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Error',
-    },
-    unhealthy: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Unhealthy',
-    },
+  // FE-HIGH-079: database health on the shared-ui Badge scale.
+  const statusConfig: Record<
+    string,
+    { variant: 'success' | 'warning' | 'error'; icon: React.ReactNode; label: string }
+  > = {
+    healthy: { variant: 'success', icon: <CheckCircle className="w-4 h-4" />, label: 'Healthy' },
+    warning: { variant: 'warning', icon: <AlertCircle className="w-4 h-4" />, label: 'Warning' },
+    error: { variant: 'error', icon: <AlertCircle className="w-4 h-4" />, label: 'Error' },
+    unhealthy: { variant: 'error', icon: <AlertCircle className="w-4 h-4" />, label: 'Unhealthy' },
   };
-
   const config = statusConfig[status] || statusConfig.warning;
-
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${config.bg} ${config.text}`}
-    >
+    <Badge variant={config.variant} size="md" className="gap-1.5">
       {config.icon}
       {config.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -176,20 +246,20 @@ const StatCard: React.FC<{
   color: 'green' | 'blue' | 'purple' | 'yellow';
 }> = ({ icon, label, value, subValue, color }) => {
   const colorClasses = {
-    green: 'bg-green-50 text-green-600',
-    blue: 'bg-blue-50 text-blue-600',
-    purple: 'bg-purple-50 text-purple-600',
-    yellow: 'bg-yellow-50 text-yellow-600',
+    green: 'bg-success-50 dark:bg-success-900/20 text-success-600 dark:text-success-400',
+    blue: 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400',
+    purple: 'bg-accent-50 dark:bg-accent-900/20 text-accent-600 dark:text-accent-400',
+    yellow: 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400',
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-xl ${colorClasses[color]}`}>{icon}</div>
         <div>
-          <p className="text-sm text-gray-500">{label}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          {subValue && <p className="text-xs text-gray-500">{subValue}</p>}
+          <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+          {subValue && <p className="text-xs text-gray-500 dark:text-gray-400">{subValue}</p>}
         </div>
       </div>
     </div>
@@ -236,18 +306,49 @@ const TenantDatabase: React.FC = () => {
   const { data: databaseInfo, isLoading: loading, error: dbError } = useTenantDatabase();
   const error = dbError ? (dbError as Error).message : null;
 
+  // Export Schema (FE-MEDIUM-092): every table's columns and indexes, read
+  // through the same query the per-table view uses, written as one JSON file.
+  const exportSchema = useFeedbackMutation({
+    feedback: { success: 'Schema exported' },
+    mutationFn: async () => {
+      if (!databaseInfo) throw new Error('The database information has not loaded yet');
+      const tables = await Promise.all(
+        databaseInfo.tables.map(async (table) => {
+          const schema = await getTableSchema(databaseInfo.schemaName, table.name);
+          return {
+            name: table.name,
+            rowCount: table.rowCount,
+            size: table.size,
+            columns: schema.columns,
+            indexes: schema.indexes,
+          };
+        }),
+      );
+      downloadJson(`${databaseInfo.databaseName}-schema-${new Date().toISOString().slice(0, 10)}`, {
+        database: databaseInfo.databaseName,
+        schema: databaseInfo.schemaName,
+        exportedAt: new Date().toISOString(),
+        tables,
+      });
+    },
+  });
+
   // Schema query - enabled only when a table is selected
-  const { data: schemaData, isLoading: schemaLoading, error: schemaQueryError } = useTableSchema(
-    selectedSchemaName,
-    selectedTableOnly,
-    !!selectedTable,
-  );
+  const {
+    data: schemaData,
+    isLoading: schemaLoading,
+    error: schemaQueryError,
+  } = useTableSchema(selectedSchemaName, selectedTableOnly, !!selectedTable);
   const schemaColumns: ColumnInfo[] = schemaData?.columns || [];
   const schemaIndexes: IndexInfo[] = schemaData?.indexes || [];
   const schemaError = schemaQueryError ? (schemaQueryError as Error).message : null;
 
   // Data query - enabled only when a data table is selected
-  const { data: tableData, isLoading: dataLoading, error: dataQueryError } = useTableData({
+  const {
+    data: tableData,
+    isLoading: dataLoading,
+    error: dataQueryError,
+  } = useTableData({
     schemaName: dataSchemaName,
     tableName: dataTableOnly,
     limit: DATA_PAGE_SIZE,
@@ -328,9 +429,7 @@ const TenantDatabase: React.FC = () => {
   const filteredTables = useMemo(
     () =>
       tables
-        .filter((table) =>
-          table.name.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+        .filter((table) => table.name.toLowerCase().includes(searchQuery.toLowerCase()))
         .sort((a, b) => {
           if (sortBy === 'name') return a.name.localeCompare(b.name);
           if (sortBy === 'rows') return b.rowCount - a.rowCount;
@@ -382,8 +481,10 @@ const TenantDatabase: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-tenant-600 mx-auto" />
-          <p className="mt-2 text-sm text-gray-500">Loading database information...</p>
+          <Spinner size="lg" block />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Loading database information...
+          </p>
         </div>
       </div>
     );
@@ -394,15 +495,14 @@ const TenantDatabase: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-          <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load database info</p>
-          <p className="mt-1 text-sm text-gray-500">{error}</p>
-          <button
-            onClick={handleRefresh}
-            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700"
-          >
+          <AlertCircle className="w-8 h-8 text-error-500 mx-auto" />
+          <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">
+            Failed to load database info
+          </p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
+          <Button variant="primary" className="mt-4" onClick={handleRefresh}>
             Try Again
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -412,46 +512,119 @@ const TenantDatabase: React.FC = () => {
     return null;
   }
 
-  const utilizationPercent = databaseInfo.maxConnections > 0
-    ? Math.round((databaseInfo.activeConnections / databaseInfo.maxConnections) * 100)
-    : 0;
+  const utilizationPercent =
+    databaseInfo.maxConnections > 0
+      ? Math.round((databaseInfo.activeConnections / databaseInfo.maxConnections) * 100)
+      : 0;
+
+  type TenantTableRow = NonNullable<(typeof groupedTables)[string]>[number];
+  const tableColumnsFor = (
+    config: (typeof MODULE_CONFIG)[string],
+  ): DataTableColumn<TenantTableRow>[] => [
+    {
+      key: 'tableName',
+      header: 'Table Name',
+      render: (_value, table) => (
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
+            <Table className={`w-4 h-4 ${config.color}`} />
+          </div>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{table.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'rows',
+      header: 'Rows',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600 dark:text-gray-400">
+          {formatNumber(table.rowCount)}
+        </span>
+      ),
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600 dark:text-gray-400">{table.size}</span>
+      ),
+    },
+    {
+      key: 'indexes',
+      header: 'Indexes',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-600 dark:text-gray-400">{table.indexCount}</span>
+      ),
+    },
+    {
+      key: 'lastModified',
+      header: 'Last Modified',
+      render: (_value, table) => (
+        <span className="text-sm text-gray-500 dark:text-gray-400">
+          {formatDate(table.lastModified)}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, table) => (
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="ghost" onClick={() => handleViewData(table.name)}>
+            View Data
+          </Button>
+          <Button
+            variant="ghost"
+            rightIcon={<ChevronRight className="w-4 h-4" />}
+            onClick={() => handleViewSchema(table.name)}
+          >
+            View Schema
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Database</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            View your tenant database information and statistics
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Schema
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Database"
+        description="View your tenant database information and statistics"
+        actions={
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              leftIcon={<RefreshCw className="w-4 h-4" />}
+              onClick={handleRefresh}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<Download className="w-4 h-4" />}
+              onClick={() => exportSchema.mutate()}
+              loading={exportSchema.isPending}
+              disabled={!databaseInfo}
+            >
+              Export Schema
+            </Button>
+          </div>
+        }
+      />
 
       {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-100 dark:border-info-800 rounded-xl p-4">
         <div className="flex gap-3">
-          <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <Info className="w-5 h-5 text-info-600 dark:text-info-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm text-blue-800 font-medium">
+            <p className="text-sm text-info-800 dark:text-info-200 font-medium">
               Database Information
             </p>
-            <p className="text-sm text-blue-700 mt-1">
-              This is a read-only view of your tenant's database. For data
-              management operations, please contact your system administrator.
+            <p className="text-sm text-info-700 dark:text-info-300 mt-1">
+              This is a read-only view of your tenant's database. For data management operations,
+              please contact your system administrator.
             </p>
           </div>
         </div>
@@ -487,17 +660,17 @@ const TenantDatabase: React.FC = () => {
       </div>
 
       {/* Database Info Card */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-tenant-50">
-              <Server className="w-6 h-6 text-tenant-600" />
+            <div className="p-3 rounded-xl bg-success-50 dark:bg-success-900/20">
+              <Server className="w-6 h-6 text-success-600 dark:text-success-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {databaseInfo.databaseName}
               </h2>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Schema: {databaseInfo.schemaName}
               </p>
             </div>
@@ -505,68 +678,75 @@ const TenantDatabase: React.FC = () => {
           <StatusBadge status={databaseInfo.status} />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Database Type
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.databaseType}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">
+              {databaseInfo.databaseType}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Region
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.region}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">
+              {databaseInfo.region}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Isolation Level
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.isolationLevel}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">
+              {databaseInfo.isolationLevel}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Encryption
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.encryption}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">
+              {databaseInfo.encryption}
+            </p>
           </div>
         </div>
       </div>
 
       {/* Tables List - Grouped by Module */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Layers className="w-5 h-5 text-gray-500" />
-              <h2 className="text-lg font-semibold text-gray-900">Tables</h2>
-              <span className="text-sm text-gray-500">
+              <Layers className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tables</h2>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
                 ({filteredTables.length} tables)
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <input
+              <Input
                 type="text"
                 placeholder="Search tables..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
               />
-              <select
+              <Select
+                options={[
+                  { value: 'name', label: 'Sort by Name' },
+                  { value: 'rows', label: 'Sort by Rows' },
+                  { value: 'size', label: 'Sort by Size' },
+                ]}
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
-              >
-                <option value="name">Sort by Name</option>
-                <option value="rows">Sort by Rows</option>
-                <option value="size">Sort by Size</option>
-              </select>
+              />
             </div>
           </div>
         </div>
 
         {/* Module Groups */}
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {['farm', 'sensor', 'hr', 'other'].map((module) => {
             const config = MODULE_CONFIG[module];
             const moduleTables = groupedTables[module] || [];
@@ -583,21 +763,17 @@ const TenantDatabase: React.FC = () => {
                   className={`w-full px-6 py-4 flex items-center justify-between ${config.bgColor} hover:opacity-90 transition-opacity`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`${config.color}`}>
-                      {config.icon}
-                    </div>
-                    <span className={`text-sm font-semibold ${config.color}`}>
-                      {config.label}
-                    </span>
-                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                    <div className={`${config.color}`}>{config.icon}</div>
+                    <span className={`text-sm font-semibold ${config.color}`}>{config.label}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
                       {stats.tableCount} tables
                     </span>
-                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
                       {formatNumber(stats.totalRows)} rows
                     </span>
                   </div>
                   <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${
+                    className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${
                       expandedModules[module] ? 'rotate-0' : '-rotate-90'
                     }`}
                   />
@@ -605,84 +781,16 @@ const TenantDatabase: React.FC = () => {
 
                 {/* Module Tables */}
                 {expandedModules[module] && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-100">
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Table Name
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Rows
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Size
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Indexes
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Last Modified
-                          </th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {moduleTables.map((table) => (
-                          <tr
-                            key={table.name}
-                            className="hover:bg-gray-50 transition-colors"
-                          >
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
-                                  <Table className={`w-4 h-4 ${config.color}`} />
-                                </div>
-                                <span className="text-sm font-medium text-gray-900">
-                                  {table.name}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">
-                                {formatNumber(table.rowCount)}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">{table.size}</span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-600">{table.indexCount}</span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-500">
-                                {formatDate(table.lastModified)}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <div className="flex items-center justify-end gap-3">
-                                <button
-                                  onClick={() => handleViewData(table.name)}
-                                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-                                >
-                                  View Data
-                                </button>
-                                <button
-                                  onClick={() => handleViewSchema(table.name)}
-                                  className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
-                                >
-                                  View Schema
-                                  <ChevronRight className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<TenantTableRow>
+                    data={moduleTables}
+                    columns={tableColumnsFor(config)}
+                    keyExtractor={(table) => table.name}
+                    emptyMessage="No tables"
+                    searchable={false}
+                    sortable={false}
+                    stickyHeader={false}
+                    className="shadow-none rounded-none"
+                  />
                 )}
               </div>
             );
@@ -692,11 +800,11 @@ const TenantDatabase: React.FC = () => {
         {/* Empty State */}
         {filteredTables.length === 0 && (
           <div className="py-12 text-center">
-            <Table className="w-12 h-12 text-gray-500 mx-auto" />
-            <h3 className="mt-4 text-sm font-medium text-gray-900">
+            <Table className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+            <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
               No tables found
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Try adjusting your search criteria.
             </p>
           </div>

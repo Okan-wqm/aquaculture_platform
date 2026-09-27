@@ -83,8 +83,14 @@ describe('AI Chat (E2E)', () => {
   // ── AI Channel Creation ──────────────────────────────────────────────────
 
   describe('AI Channel Creation', () => {
-    it('should create an AI channel with a persona', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
+    it('should create an AI channel with a persona the caller is entitled to', async () => {
+      const res = await gqlRequest(
+        httpServer,
+        TENANT_A,
+        USER_A1,
+        ['MODULE_USER'],
+        ['ai_personas:expert'],
+      )
         .query(CREATE_CHANNEL, {
           input: {
             type: 'AI',
@@ -102,6 +108,25 @@ describe('AI Chat (E2E)', () => {
       expect(channel.members[0].userId).toBe(USER_A1);
 
       aiChannelWithPersonaId = channel.id;
+    });
+
+    it('should refuse a persona the caller is not entitled to', async () => {
+      // No `ai_personas:expert` claim: the resolver applies the catalogue's
+      // requiredCapabilities server-side, so a crafted mutation cannot pin
+      // a persona the picker would never have offered.
+      const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
+        .query(CREATE_CHANNEL, {
+          input: {
+            type: 'AI',
+            memberIds: [USER_A1],
+            aiPersona: 'expert-v1',
+          },
+        })
+        .expect(200);
+
+      expect(res.body.errors).toBeDefined();
+      expect(res.body.errors[0].extensions.code).toBe('FORBIDDEN');
+      expect(res.body.errors[0].message).toMatch(/permission to use the AI persona expert-v1/);
     });
 
     it('should create an AI channel without a persona (general assistant)', async () => {
@@ -181,16 +206,50 @@ describe('AI Chat (E2E)', () => {
   // ── AI Personas ─────────────────────────────────────────────────────────
 
   describe('AI Personas', () => {
-    it('should list available AI personas', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
+    it('should list only the personas the caller is entitled to', async () => {
+      // No persona capability: the picker still carries the tenant-default
+      // entry (id null) and nothing else.
+      const bare = await gqlRequest(httpServer, TENANT_A, USER_A1)
         .query(AVAILABLE_AI_PERSONAS)
         .expect(200);
+      expect(bare.body.errors).toBeUndefined();
+      const bareIds = bare.body.data.availableAiPersonas.map((p: { id: string | null }) => p.id);
+      expect(bareIds).toEqual([null]);
 
-      expect(res.body.errors).toBeUndefined();
-      const personas = res.body.data.availableAiPersonas;
-      expect(Array.isArray(personas)).toBe(true);
-      // Registry should return at least the default personas
-      for (const persona of personas) {
+      // `ai_personas:expert` unlocks the expert tier only; a farm specialist
+      // additionally needs `ai_specialties:farm`.
+      const expert = await gqlRequest(
+        httpServer,
+        TENANT_A,
+        USER_A1,
+        ['MODULE_USER'],
+        ['ai_personas:expert'],
+      )
+        .query(AVAILABLE_AI_PERSONAS)
+        .expect(200);
+      expect(expert.body.errors).toBeUndefined();
+      const expertIds = expert.body.data.availableAiPersonas.map(
+        (p: { id: string | null }) => p.id,
+      );
+      expect(expertIds).toContain('expert-v1');
+      expect(expertIds).not.toContain('manager-v1');
+      expect(expertIds).not.toContain('expert-farm-water-health-v1');
+
+      const farmExpert = await gqlRequest(
+        httpServer,
+        TENANT_A,
+        USER_A1,
+        ['MODULE_USER'],
+        ['ai_personas:expert', 'ai_specialties:farm'],
+      )
+        .query(AVAILABLE_AI_PERSONAS)
+        .expect(200);
+      expect(farmExpert.body.errors).toBeUndefined();
+      const farmIds = farmExpert.body.data.availableAiPersonas.map(
+        (p: { id: string | null }) => p.id,
+      );
+      expect(farmIds).toContain('expert-farm-water-health-v1');
+      for (const persona of farmExpert.body.data.availableAiPersonas) {
         expect(persona.name).toBeTruthy();
         expect(persona.description).toBeTruthy();
       }

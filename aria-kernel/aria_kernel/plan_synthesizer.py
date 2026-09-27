@@ -43,8 +43,6 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
-from .strict_jsonl_reader import read_strict_jsonl
-
 
 __all__ = [
     "PlanSynthesizer",
@@ -87,7 +85,6 @@ _REQUIRED_FIELDS = (
 _MAX_AFFECTED_SURFACES = 100
 _MAX_KEY_CHANGES = 50
 _MAX_EVIDENCE_REFS = 10
-_MAX_SNIPPET_CHARS = 200
 
 
 class PlanSynthesizer(Protocol):
@@ -340,8 +337,8 @@ def _collect_evidence_refs(
         abs_path = workspace_root / path
         if not abs_path.exists() or not abs_path.is_file():
             continue
-        # Primary path — extract from git diff hunks. Each ref carries a
-        # snippet of the changed line so operators can spot-check intent.
+        # Primary path — extract from git diff hunks, one `path:line` ref per
+        # added line.
         hunk_refs = _evidence_refs_from_hunks(
             workspace_root=workspace_root,
             path=path,
@@ -366,8 +363,10 @@ def _collect_evidence_refs(
                 continue
             if stripped.startswith(("//", "#", "/*", "*", "--", '"""', "'''")):
                 continue
-            snippet = stripped[:_MAX_SNIPPET_CHARS]
-            refs.append(f"{path}:{line_no}:{snippet}")
+            # ARIA-HIGH-195 — `path:line`, the one evidence-ref grammar
+            # (evidence_trust.EVIDENCE_REF_RE); a trailing snippet made the
+            # plan's own evidence unresolvable.
+            refs.append(f"{path}:{line_no}")
             break
     return refs
 
@@ -384,7 +383,7 @@ def _evidence_refs_from_hunks(
 ) -> list[str]:
     """Parse `git diff` hunks for ``path`` and emit one ref per changed line.
 
-    Returns up to ``remaining`` refs of shape ``path:line:snippet``,
+    Returns up to ``remaining`` refs of shape ``path:line`` (ARIA-HIGH-195),
     where each line is one that was ADDED or CONTEXT in the new file
     (we skip pure-deletion hunks because the line no longer exists
     in the working tree — `Path.exists()` would resolve but the
@@ -421,9 +420,8 @@ def _evidence_refs_from_hunks(
         if diff_line.startswith("+++") or diff_line.startswith("---"):
             continue
         if diff_line.startswith("+"):
-            snippet = diff_line[1:].strip()[:_MAX_SNIPPET_CHARS]
-            if snippet:
-                refs.append(f"{path}:{current_new_line}:{snippet}")
+            if diff_line[1:].strip():
+                refs.append(f"{path}:{current_new_line}")
             current_new_line += 1
         elif diff_line.startswith("-"):
             # Deletion — no new-file line consumed.
@@ -448,6 +446,8 @@ def _evidence_refs_from_hunks(
 #   * architectural-arbiter MED-003 — gh run list 10-min TTL cache
 #   * architectural-arbiter MED-004 — explicit source priority order
 #   * ai-safety-auditor HIGH-010 — operator-feedback signature verification
+#     (V9.5 check 12: keyed HMAC at ingestion, owned by
+#     operator_feedback_ingestion / operator_feedback_signature)
 #   * performance-expert HIGH-005 — per-source time budget governance event
 #   * performance-expert HIGH-006 — F-finding aging stat-only (no JSON
 #     parse until candidate selected)
@@ -736,90 +736,36 @@ def scan_failing_ci(
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
-def _verify_operator_feedback_signature(row: dict[str, Any]) -> bool:
-    """Plan ARIA-V9.4 — Tier-1 signature verification on operator-feedback
-    rows. ai-safety HIGH-010 — unauthenticated injection lane mitigation.
-
-    Required fields:
-      * ``id`` non-empty string
-      * ``authored_at`` non-empty
-      * ``signature`` non-empty
-      * ``signature_kid`` non-empty (key identifier; operator-side pinned)
-      * ``priority`` in {low, medium, high}  (NOT "max" — invented
-        priorities cannot override severity ladder)
-      * ``request`` non-empty
-      * ``status`` non-empty
-
-    Returns True iff all fields present + priority in closed set.
-
-    V9.4 ships SCHEMA verification + presence check. Cryptographic
-    verification (operator pinned public key HMAC validation) is a
-    V10.4-scope extension tracked under F-015 subfinding F-V10-4-1;
-    V9.4 signature presence + schema validation is the
-    load-bearing structural guard while the cryptographic check
-    lands. The unsigned-row drop path emits a governance event so
-    the audit trail surfaces missing rows."""
-    if not isinstance(row, dict):
-        return False
-    required = ("id", "authored_at", "signature", "signature_kid",
-                "priority", "request", "status")
-    for field in required:
-        v = row.get(field)
-        if not isinstance(v, str) or not v.strip():
-            return False
-    if row["priority"] not in {"low", "medium", "high"}:
-        return False
-    return True
-
-
-def scan_operator_feedback(workspace_root: str | Path) -> list[dict[str, Any]]:
+def scan_operator_feedback(
+    workspace_root: str | Path,
+    *,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 source — signed operator-feedback rows from
-    ``aria-tools/operator-feedback.jsonl``.
+    ``aria-tools/operator-feedback.jsonl``, verified at ingestion.
 
-    Unsigned rows DROPPED (NOT silently — caller emits
-    ``unsigned_operator_feedback`` governance event for each drop
-    via the rejected_rows return field). ai-safety HIGH-010.
+    V9.5 hard-fail check 12 (ai-safety HIGH-010): the pre-fix verifier
+    checked that ``signature`` and ``signature_kid`` were NON-EMPTY, so any
+    process that could append a line spoke with operator authority, and the
+    drop count rode on the first surviving candidate where nothing read it.
+    ``operator_feedback_ingestion.ingest_operator_feedback`` now owns the
+    read: keyed-HMAC verification per row, one ``unsigned_operator_feedback``
+    governance event per drop, and an ingestion row the pre-merge perimeter
+    joins the merged plan back to. This function only orders what it
+    admitted — highest priority first, oldest first within a priority.
 
-    Returns MAX-priority entries first (operator signal wins over
-    auto-discovered sources).
+    ``base_dir`` names the tools store when the caller knows it (the
+    provider does; ``ARIA_TOOLS_DIR`` can point it away from
+    ``<workspace>/aria-tools``); the legacy single-argument call keeps the
+    workspace-relative default.
     """
-    path = Path(workspace_root) / "aria-tools" / "operator-feedback.jsonl"
-    if not path.exists():
-        return []
-    candidates: list[dict[str, Any]] = []
-    rejected: list[str] = []
-    try:
-        for lineno, row in enumerate(
-            read_strict_jsonl(
-                path,
-                on_corruption="tolerant",
-                base_dir=path.parent,
-            ),
-            start=1,
-        ):
-            if row.get("status") != "unaddressed":
-                continue
-            if not _verify_operator_feedback_signature(row):
-                rejected.append(row.get("id") or f"line-{lineno}-unsigned")
-                continue
-            candidates.append({
-                "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
-                "candidate_id": row["id"],
-                "priority": row["priority"],
-                "request": row["request"],
-                "authored_at": row["authored_at"],
-                "signature_kid": row["signature_kid"],
-                "title_hint": f"Operator request {row['id']}",
-                "rejected_rows_in_scan": rejected,
-            })
-    except OSError:
-        return []
+    from .operator_feedback_ingestion import ingest_operator_feedback
+
+    tools_root = Path(base_dir) if base_dir is not None else Path(workspace_root) / "aria-tools"
+    candidates = list(ingest_operator_feedback(base_dir=tools_root, cycle_id=cycle_id).candidates)
     priority_rank = {"high": 0, "medium": 1, "low": 2}
     candidates.sort(key=lambda c: (priority_rank.get(c["priority"], 99), c["authored_at"]))
-    if rejected and candidates:
-        # Surface unsigned-row count on first candidate (caller emits
-        # one governance event per scan based on this field).
-        candidates[0]["rejected_rows_count"] = len(rejected)
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -845,6 +791,7 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
     GitHub issues labelled ``aria``. Reads the mission fold only; the
     issue body never enters a candidate (the mission title is the
     gateway's 200-char, label-gated summary)."""
+    from .gateway.router import ISSUE_MISSION_SOURCE_KIND
     from .mission import list_open_missions
 
     tools_root = Path(workspace_root) / "aria-tools"
@@ -852,7 +799,11 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
         return []
     candidates: list[dict[str, Any]] = []
     for mission in list_open_missions(base_dir=tools_root):
-        if str(mission.get("source_kind") or "") != "github_issue":
+        # The gateway's constant, not a literal copy of it: this scanner is
+        # the named consumer `mission_dispatch.GENERIC_PROJECTION_POINTERS`
+        # cites for `triage_github_issue`, and a copy is how the router and
+        # its reader come to disagree about what an issue mission is called.
+        if str(mission.get("source_kind") or "") != ISSUE_MISSION_SOURCE_KIND:
             continue
         candidates.append({
             "source_type": PlanCandidateSource.GITHUB_ISSUE.value,
@@ -869,6 +820,8 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
 def rank_candidate_sources(
     *,
     workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
@@ -878,13 +831,21 @@ def rank_candidate_sources(
 
     Per-source scan timing emitted as ``plan_source_scan_slow``
     governance event when single source > 2s (perf HIGH-005).
+
+    ``base_dir`` / ``cycle_id`` reach only the operator-feedback scanner:
+    its ingestion row is written to the tools store and stamped with the
+    cycle so the provider can bind the synthesis it selects to that scan
+    (V9.5 check 12).
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
     timings: dict[str, float] = {}
 
+    def _scan_operator_feedback(root: Path) -> list[dict[str, Any]]:
+        return scan_operator_feedback(root, base_dir=base_dir, cycle_id=cycle_id)
+
     for source_name, scanner in (
-        (PlanCandidateSource.OPERATOR_FEEDBACK.value, scan_operator_feedback),
+        (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
         (PlanCandidateSource.FAILING_CI.value, scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
         (PlanCandidateSource.F_FINDING.value, scan_f_findings),
@@ -945,15 +906,43 @@ def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list
         finding = json.loads(Path(finding_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return [], []
+    # Two shapes carry the finding's code references. The adapter-era
+    # ``evidence_chain[].reference`` (a ``path:line`` string), and the
+    # ``aria/finding/v1`` shape the consensus promotion emits
+    # (`finding.emit_finding`): ``evidences[].evidence_envelope`` with
+    # ``canonical_ref`` + ``line`` and a ``trust_grade``. ARIA-HIGH-183 — the
+    # first five findings the live ring promoted (F-009…F-013, 2026-09-20)
+    # carried only the second shape; this reader saw an empty chain, and the
+    # plan candidate the cycle selected from them (F-013) could never become
+    # a plan. A ref that is not ``repo_verified`` or is self-output is not a
+    # ground a challenger can stand on and is skipped.
+    references: list[str] = []
     chain = finding.get("evidence_chain")
-    if not isinstance(chain, list):
+    if isinstance(chain, list):
+        for entry in chain:
+            if isinstance(entry, dict) and isinstance(entry.get("reference"), str):
+                references.append(entry["reference"])
+    evidences = finding.get("evidences")
+    if isinstance(evidences, list):
+        for entry in evidences:
+            if not isinstance(entry, dict):
+                continue
+            envelope = entry.get("evidence_envelope") if isinstance(entry.get("evidence_envelope"), dict) else {}
+            if envelope.get("trust_grade") not in (None, "repo_verified") or envelope.get("self_output_class"):
+                continue
+            canonical = envelope.get("canonical_ref") or entry.get("ref")
+            if not isinstance(canonical, str) or not canonical.strip():
+                continue
+            canonical = canonical.strip()
+            line = envelope.get("line")
+            if isinstance(line, int) and line > 0 and not re.search(r":\d+$", canonical):
+                canonical = f"{canonical}:{line}"
+            references.append(canonical)
+    if not references:
         return [], []
     evidence_refs: list[str] = []
     affected: list[str] = []
-    for entry in chain:
-        if not isinstance(entry, dict):
-            continue
-        ref = entry.get("reference")
+    for ref in references:
         if not isinstance(ref, str) or not ref.strip():
             continue
         ref = ref.strip()
@@ -1006,7 +995,8 @@ def convert_candidate_to_plan_content(
     Candidate shapes (per source_type):
 
     * `operator_feedback` — { candidate_id, priority, request,
-      authored_at, signature_kid, title_hint }
+      authored_at, signer_kid, row_ledger_hash, ingestion_ledger_hash,
+      title_hint } (admitted by ``operator_feedback_ingestion``)
     * `failing_ci` — { candidate_id, workflow_name, head_sha,
       conclusion, created_at, title_hint }
     * `orphan_finding` — { candidate_id, severity, raw_id,
@@ -1101,14 +1091,24 @@ def convert_candidate_to_plan_content(
         )
         # ORPHAN-312 root fix — ground the plan in the finding's REAL code
         # references (evidence_chain), not the finding JSON file. This is what
-        # a challenger must cite; the JSON path is only a last-resort fallback
-        # so the validator's non-empty-evidence_refs rule still holds.
+        # a challenger must cite.
+        #
+        # ARIA-HIGH-181 — a finding whose chain yields no code reference is
+        # NOT converted. The fallback that once stood here minted the plan on
+        # `aria-findings/<id>.json`: a path under evidence_trust's
+        # SELF_OUTPUT_PREFIXES, gitignored, unresolvable at any workspace
+        # SHA — so the validator's non-empty rule was satisfied by a ref the
+        # kernel's own trust rule names inadmissible. The challenger planner
+        # dispatched on it (AIR-aria-challenger-planner-2d16fdbb749e, run
+        # 35485712865, 27 turns) found exactly that and refused; the refusal
+        # cost a requeue and the request could never be answered. The
+        # candidate is skipped by name (`plan_candidate_conversion_skipped`)
+        # and the next ranked candidate is tried, as the None contract says.
         evidence_refs, affected_surfaces = _evidence_refs_from_finding_json(
             candidate.get("path"),
         )
         if not evidence_refs:
-            evidence_refs = [f"aria-findings/{candidate_id}.json"]
-            affected_surfaces = [f"aria-findings/{candidate_id}.json"]
+            return None
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).
@@ -1137,6 +1137,20 @@ def convert_candidate_to_plan_content(
         ],
         "evidence_refs": evidence_refs,
     }
+    # ARIA-HIGH-104 (4) — the plan's ORIGIN is a plan claim, recorded in the
+    # body (hash-covered, revised and cross-reviewed like every other claim)
+    # and not only in the sidecar metadata that never reaches the plan
+    # ledger. Staging already read `plan_content.finding_id` onto the change
+    # chain and fell back to `plan:<plan_id>` because no producer wrote it;
+    # `plan_origin.commit_contract_for_plan` derives the commit trailer from
+    # it. A finding-sourced candidate's id IS the finding id (ORPHAN-<SEV>-NNN
+    # from the orphan register, F-NNN from aria-findings/); the other sources
+    # have no finding, so the key is absent rather than invented.
+    if source_type in {
+        PlanCandidateSource.ORPHAN_FINDING.value,
+        PlanCandidateSource.F_FINDING.value,
+    }:
+        content["finding_id"] = candidate_id
     metadata: dict[str, Any] = {
         "_pressure_source_type": source_type,
         "_candidate_id": candidate_id,

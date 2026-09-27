@@ -22,15 +22,12 @@
 import * as http from 'http';
 import * as https from 'https';
 
+import { emailRows, renderEmail, SEVERITY_TONE } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
-import type {
-  AlarmInstance,
-  NotificationConfig,
-  AlarmSeverity,
-} from '../scada-types';
+import type { AlarmInstance, NotificationConfig, AlarmSeverity } from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Nodemailer / http — loaded lazily to keep startup fast              */
@@ -96,10 +93,7 @@ export class NotificationService implements OnModuleDestroy {
    *
    * Called by AlarmEngineService on every alarm state change.
    */
-  async processAlarm(
-    alarm: AlarmInstance,
-    configs: NotificationConfig[],
-  ): Promise<void> {
+  async processAlarm(alarm: AlarmInstance, configs: NotificationConfig[]): Promise<void> {
     if (!configs || configs.length === 0) return;
 
     const now = Date.now();
@@ -237,9 +231,7 @@ export class NotificationService implements OnModuleDestroy {
       await transporter.sendMail({ from, to, subject, html: body });
       this.logger.log(`sendDirectEmail: delivered to=${to} subject="${subject}"`);
     } catch (error) {
-      this.logger.error(
-        `sendDirectEmail: delivery failed to=${to} — ${(error as Error).message}`,
-      );
+      this.logger.error(`sendDirectEmail: delivery failed to=${to} — ${(error as Error).message}`);
       throw error;
     }
   }
@@ -254,19 +246,25 @@ export class NotificationService implements OnModuleDestroy {
     const subject = `[SCADA ALARM] ${alarm.severity.toUpperCase()} — ${alarm.ruleName}`;
     const onTimeStr = new Date(alarm.onTime).toISOString();
 
-    const html = `
-      <h2 style="color:${this.severityColor(alarm.severity)}">
-        ${alarm.severity.toUpperCase()} Alarm: ${alarm.ruleName}
-      </h2>
-      <table style="border-collapse:collapse;font-family:monospace">
-        <tr><td><b>Message</b></td><td>${alarm.message}</td></tr>
-        <tr><td><b>Tag Value</b></td><td>${alarm.currentValue} (threshold: ${alarm.threshold})</td></tr>
-        <tr><td><b>Status</b></td><td>${alarm.status}</td></tr>
-        <tr><td><b>Group</b></td><td>${alarm.group ?? '—'}</td></tr>
-        <tr><td><b>Activated</b></td><td>${onTimeStr}</td></tr>
-        <tr><td><b>Alarm ID</b></td><td>${alarm.id}</td></tr>
-      </table>
-    `;
+    const html = renderEmail({
+      title: `${alarm.severity.toUpperCase()} Alarm`,
+      subtitle: alarm.ruleName,
+      tone: SEVERITY_TONE[alarm.severity],
+      preheader: alarm.message,
+      body: emailRows([
+        { label: 'Message', value: alarm.message },
+        {
+          label: 'Tag Value',
+          value: `${alarm.currentValue} (threshold: ${alarm.threshold})`,
+          large: true,
+        },
+        { label: 'Status', value: alarm.status },
+        { label: 'Group', value: alarm.group ?? '—' },
+        { label: 'Activated', value: onTimeStr },
+        { label: 'Alarm ID', value: alarm.id },
+      ]),
+      footerLines: ['SCADA runtime alarm notification.'],
+    });
 
     const from =
       this.configService.get<string>('SMTP_FROM') ?? 'SCADA Alarms <noreply@scada.local>';
@@ -283,9 +281,7 @@ export class NotificationService implements OnModuleDestroy {
         `sendEmail: delivered alarm=${alarm.id} severity=${alarm.severity} to=${recipient}`,
       );
     } catch (error) {
-      this.logger.error(
-        `sendEmail: delivery failed to=${recipient} — ${(error as Error).message}`,
-      );
+      this.logger.error(`sendEmail: delivery failed to=${recipient} — ${(error as Error).message}`);
       throw error;
     }
   }
@@ -388,16 +384,6 @@ export class NotificationService implements OnModuleDestroy {
   /* ---------------------------------------------------------------- */
   /*  Helpers                                                           */
   /* ---------------------------------------------------------------- */
-
-  private severityColor(severity: AlarmSeverity): string {
-    switch (severity) {
-      case 'critical': return '#dc2626';
-      case 'high':     return '#ea580c';
-      case 'warning':  return '#ca8a04';
-      case 'info':     return '#2563eb';
-      default:         return '#6b7280';
-    }
-  }
 
   private assertCanonicalCommandPathAllowed(action: string): void {
     if (this.configService.get<string>('NODE_ENV') !== 'production') {

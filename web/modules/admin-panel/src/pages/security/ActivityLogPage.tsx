@@ -19,14 +19,13 @@ import {
   Clock,
   MapPin,
   Monitor,
-  ChevronDown,
-  ChevronRight,
   AlertTriangle,
   Info,
   AlertCircle,
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -105,15 +104,18 @@ const ACTIVITY_PAGE_SIZE = 50;
  */
 const EMPTY_ACTIVITIES: readonly ActivityLog[] = [];
 
-async function fetchActivities(params: {
-  page?: number;
-  limit?: number;
-  category?: string;
-  severity?: string;
-  searchQuery?: string;
-  startDate?: string;
-  endDate?: string;
-}, signal?: AbortSignal): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
+async function fetchActivities(
+  params: {
+    page?: number;
+    limit?: number;
+    category?: string;
+    severity?: string;
+    searchQuery?: string;
+    startDate?: string;
+    endDate?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -165,9 +167,7 @@ async function fetchActivityStats(signal?: AbortSignal): Promise<ActivityStats> 
     uniqueUsers: stats.topUsers.length,
     uniqueIps: stats.topIPs.length,
     averageResponseTime: 0,
-    errorRate: stats.totalActivities > 0
-      ? (failedCount / stats.totalActivities) * 100
-      : 0,
+    errorRate: stats.totalActivities > 0 ? (failedCount / stats.totalActivities) * 100 : 0,
   };
 }
 
@@ -197,49 +197,49 @@ const getCategoryIcon = (category: ActivityCategory): React.ReactElement => {
 const getCategoryColor = (category: ActivityCategory): string => {
   switch (category) {
     case 'user_action':
-      return 'bg-blue-100 text-blue-800';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200';
     case 'system_event':
-      return 'bg-purple-100 text-purple-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'api_call':
-      return 'bg-green-100 text-green-800';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
     case 'data_access':
-      return 'bg-orange-100 text-orange-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'security_event':
-      return 'bg-red-100 text-red-800';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
     case 'configuration':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
 };
 
 const getSeverityIcon = (severity: ActivitySeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
-      return <XCircle className="w-4 h-4 text-red-600" />;
+      return <XCircle className="w-4 h-4 text-error-600 dark:text-error-400" />;
     case 'error':
-      return <AlertCircle className="w-4 h-4 text-orange-600" />;
+      return <AlertCircle className="w-4 h-4 text-accent-600 dark:text-accent-400" />;
     case 'warning':
-      return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
+      return <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'debug':
-      return <Info className="w-4 h-4 text-blue-600" />;
+      return <Info className="w-4 h-4 text-info-600 dark:text-info-400" />;
     default:
-      return <Info className="w-4 h-4 text-gray-600" />;
+      return <Info className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
 };
 
 const getSeverityColor = (severity: ActivitySeverity): string => {
   switch (severity) {
     case 'critical':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'error':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 border-accent-200 dark:border-accent-800';
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'debug':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
 };
 
@@ -275,170 +275,184 @@ const ActivityDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ activity, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Activity Details</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-600"
-            >
-              <XCircle className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Activity Details"
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Basic Info */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ID</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{activity.id}</p>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">ID</span>
-              <p className="text-sm text-gray-900 font-mono">{activity.id}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Timestamp</span>
-              <p className="text-sm text-gray-900">{formatDate(activity.createdAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Category</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
-              >
-                {getCategoryIcon(activity.category)}
-                {activity.category.replace('_', ' ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
-              >
-                {getSeverityIcon(activity.severity)}
-                {activity.severity}
-              </span>
-            </div>
-          </div>
-
-          {/* Action */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Action</span>
-            <p className="text-sm text-gray-900">{activity.action}</p>
-          </div>
-
-          {/* User Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">User</span>
-                <p className="text-sm text-gray-900">{activity.userName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Email</span>
-                <p className="text-sm text-gray-900">{activity.userEmail || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Tenant</span>
-                <p className="text-sm text-gray-900">{activity.tenantName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">IP Address</span>
-                <p className="text-sm text-gray-900 font-mono">{activity.ipAddress || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Location */}
-          {activity.geoLocation && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4" />
-                Location
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-gray-500">Country</span>
-                  <p className="text-sm text-gray-900">{activity.geoLocation.country || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">City</span>
-                  <p className="text-sm text-gray-900">{activity.geoLocation.city || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Target Entity */}
-          {activity.entityType && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Target Entity</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <span className="text-xs text-gray-500">Type</span>
-                  <p className="text-sm text-gray-900">{activity.entityType}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">ID</span>
-                  <p className="text-sm text-gray-900 font-mono">{activity.entityId}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Name</span>
-                  <p className="text-sm text-gray-900">{activity.entityName}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Status */}
-          <div className="flex items-center gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span
-                className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  activity.success
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {activity.success ? 'Success' : 'Failed'}
-              </span>
-            </div>
-            {activity.duration !== undefined && (
-              <div>
-                <span className="text-sm font-medium text-gray-500">Duration</span>
-                <span className="ml-2 text-sm text-gray-900">{activity.duration}ms</span>
-              </div>
-            )}
-          </div>
-
-          {/* Error Message */}
-          {activity.errorMessage && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
-              <p className="text-sm text-red-700">{activity.errorMessage}</p>
-            </div>
-          )}
-
-          {/* User Agent */}
-          {activity.userAgent && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">User Agent</span>
-              <p className="text-xs text-gray-600 font-mono break-all bg-gray-50 p-2 rounded">
-                {activity.userAgent}
-              </p>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100">
+            {formatDate(activity.createdAt)}
+          </p>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Category</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
           >
-            Close
-          </button>
+            {getCategoryIcon(activity.category)}
+            {activity.category.replace('_', ' ')}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Severity</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
+          >
+            {getSeverityIcon(activity.severity)}
+            {activity.severity}
+          </span>
         </div>
       </div>
-    </div>
+
+      {/* Action */}
+      <div>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Action</span>
+        <p className="text-sm text-gray-900 dark:text-gray-100">{activity.action}</p>
+      </div>
+
+      {/* User Info */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          User Information
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{activity.userName || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Email</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
+              {activity.userEmail || 'N/A'}
+            </p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
+              {activity.tenantName || 'N/A'}
+            </p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">IP Address</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+              {activity.ipAddress || 'N/A'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Location */}
+      {activity.geoLocation && (
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <MapPin className="w-4 h-4" />
+            Location
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Country</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {activity.geoLocation.country || 'N/A'}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">City</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {activity.geoLocation.city || 'N/A'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Entity */}
+      {activity.entityType && (
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            Target Entity
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{activity.entityType}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">ID</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+                {activity.entityId}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{activity.entityName}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status */}
+      <div className="flex items-center gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
+          <span
+            className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+              activity.success
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+            }`}
+          >
+            {activity.success ? 'Success' : 'Failed'}
+          </span>
+        </div>
+        {activity.duration !== undefined && (
+          <div>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Duration</span>
+            <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">
+              {activity.duration}ms
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Error Message */}
+      {activity.errorMessage && (
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-error-800 dark:text-error-200 mb-2">
+            Error Message
+          </h3>
+          <p className="text-sm text-error-700 dark:text-error-300">{activity.errorMessage}</p>
+        </div>
+      )}
+
+      {/* User Agent */}
+      {activity.userAgent && (
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">User Agent</span>
+          <p className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all bg-gray-50 dark:bg-gray-800 p-2 rounded">
+            {activity.userAgent}
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 };
 
@@ -448,7 +462,6 @@ const ActivityDetailModal: React.FC<{
 
 export const ActivityLogPage: React.FC = () => {
   const [selectedActivity, setSelectedActivity] = useState<ActivityLog | null>(null);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const limit = ACTIVITY_PAGE_SIZE;
 
@@ -507,16 +520,6 @@ export const ActivityLogPage: React.FC = () => {
     void statsQuery.refetch();
   };
 
-  const toggleRowExpand = (id: string): void => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
-
   const handleExport = (): void => {
     const csvContent = [
       ['ID', 'Timestamp', 'Category', 'Action', 'Severity', 'User', 'IP', 'Status'].join(','),
@@ -543,7 +546,7 @@ export const ActivityLogPage: React.FC = () => {
   if (loading && activities.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-info-600 dark:text-info-400" />
       </div>
     );
   }
@@ -560,6 +563,130 @@ export const ActivityLogPage: React.FC = () => {
     );
   }
 
+  const activityColumns: DataTableColumn<ActivityLog>[] = [
+    {
+      key: 'createdAt',
+      header: 'Timestamp',
+      render: (_value, activity) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {formatTimeAgo(activity.createdAt)}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {formatDate(activity.createdAt)}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
+        >
+          {getCategoryIcon(activity.category)}
+          {activity.category.replace('_', ' ')}
+        </span>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, activity) => (
+        <div className="text-sm text-gray-900 dark:text-gray-100 max-w-xs truncate">
+          {activity.action}
+        </div>
+      ),
+    },
+    {
+      key: 'userName',
+      header: 'User',
+      render: (_value, activity) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{activity.userName || '-'}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{activity.tenantName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'ipAddress',
+      header: 'IP Address',
+      render: (_value, activity) => (
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
+          {activity.ipAddress || '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
+        >
+          {getSeverityIcon(activity.severity)}
+          {activity.severity}
+        </span>
+      ),
+    },
+    {
+      key: 'success',
+      header: 'Status',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+            activity.success
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+              : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+          }`}
+        >
+          {activity.success ? 'Success' : 'Failed'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, activity) => (
+        <button
+          type="button"
+          onClick={() => setSelectedActivity(activity)}
+          className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
+          aria-label="View activity"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      ),
+    },
+  ];
+
+  const renderActivityDetails = (activity: ActivityLog): React.ReactNode => (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+      <div>
+        <span className="text-gray-500 dark:text-gray-400">Target:</span>{' '}
+        <span className="text-gray-900 dark:text-gray-100">
+          {activity.entityType} - {activity.entityName}
+        </span>
+      </div>
+      <div>
+        <span className="text-gray-500 dark:text-gray-400">Duration:</span>{' '}
+        <span className="text-gray-900 dark:text-gray-100">{activity.duration}ms</span>
+      </div>
+      <div>
+        <span className="text-gray-500 dark:text-gray-400">Location:</span>{' '}
+        <span className="text-gray-900 dark:text-gray-100">
+          {activity.geoLocation?.city}, {activity.geoLocation?.country}
+        </span>
+      </div>
+      <div>
+        <span className="text-gray-500 dark:text-gray-400">Tenant:</span>{' '}
+        <span className="text-gray-900 dark:text-gray-100">{activity.tenantName}</span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* One component decides banner-vs-full-page for every admin page
@@ -572,78 +699,82 @@ export const ActivityLogPage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Activity Log</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Monitor all system activities, user actions, and security events
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Activity Log"
+        description="Monitor all system activities, user actions, and security events"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-info-600 rounded-lg hover:bg-info-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Activity className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Activities</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Total Activities</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {(stats.totalActivities ?? 0).toLocaleString()}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <User className="w-5 h-5 text-green-600" />
+              <div className="p-2 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <User className="w-5 h-5 text-success-600 dark:text-success-400" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Unique Users</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.uniqueUsers ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Unique Users</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.uniqueUsers ?? 0}
+                </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Clock className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Clock className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Avg Response</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.averageResponseTime ?? 0}ms</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Avg Response</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.averageResponseTime ?? 0}ms
+                </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Error Rate</p>
-                <p className="text-2xl font-bold text-gray-900">{(stats.errorRate ?? 0).toFixed(1)}%</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Error Rate</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {(stats.errorRate ?? 0).toFixed(1)}%
+                </p>
               </div>
             </div>
           </div>
@@ -651,22 +782,22 @@ export const ActivityLogPage: React.FC = () => {
       )}
 
       {/* Search & Filters */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
             <input
               type="text"
               placeholder="Search by action, user, or IP..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           >
             <option value="all">All Categories</option>
             <option value="user_action">User Actions</option>
@@ -679,7 +810,7 @@ export const ActivityLogPage: React.FC = () => {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
           >
             <option value="all">All Severities</option>
             <option value="info">Info</option>
@@ -692,8 +823,8 @@ export const ActivityLogPage: React.FC = () => {
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 border rounded-lg ${
               showFilters
-                ? 'border-blue-500 text-blue-600 bg-blue-50'
-                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                ? 'border-info-500 text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             <Filter className="w-4 h-4" />
@@ -703,27 +834,27 @@ export const ActivityLogPage: React.FC = () => {
 
         {/* Advanced Filters */}
         {showFilters && (
-          <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-4 gap-4">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <span className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Start Date
               </span>
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
               />
             </div>
             <div>
-              <span className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 End Date
               </span>
               <input
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
               />
             </div>
           </div>
@@ -731,170 +862,39 @@ export const ActivityLogPage: React.FC = () => {
       </div>
 
       {/* Activity Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="w-8 px-4 py-3"></th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Timestamp
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  IP Address
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Severity
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {activities.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    No activities found
-                  </td>
-                </tr>
-              ) : (
-                activities.map((activity) => (
-                  <React.Fragment key={activity.id}>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleRowExpand(activity.id)}
-                          className="text-gray-500 hover:text-gray-600"
-                        >
-                          {expandedRows.has(activity.id) ? (
-                            <ChevronDown className="w-4 h-4" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatTimeAgo(activity.createdAt)}</div>
-                        <div className="text-xs text-gray-500">
-                          {formatDate(activity.createdAt)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
-                        >
-                          {getCategoryIcon(activity.category)}
-                          {activity.category.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900 max-w-xs truncate">
-                          {activity.action}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{activity.userName || '-'}</div>
-                        <div className="text-xs text-gray-500">{activity.tenantName}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-mono text-gray-600">
-                          {activity.ipAddress || '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
-                        >
-                          {getSeverityIcon(activity.severity)}
-                          {activity.severity}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            activity.success
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {activity.success ? 'Success' : 'Failed'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => setSelectedActivity(activity)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedRows.has(activity.id) && (
-                      <tr className="bg-gray-50">
-                        <td colSpan={9} className="px-8 py-4">
-                          <div className="grid grid-cols-4 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-500">Target:</span>{' '}
-                              <span className="text-gray-900">
-                                {activity.entityType} - {activity.entityName}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Duration:</span>{' '}
-                              <span className="text-gray-900">{activity.duration}ms</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Location:</span>{' '}
-                              <span className="text-gray-900">
-                                {activity.geoLocation?.city}, {activity.geoLocation?.country}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Tenant:</span>{' '}
-                              <span className="text-gray-900">{activity.tenantName}</span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <DataTable<ActivityLog>
+          data={activities}
+          columns={activityColumns}
+          keyExtractor={(activity) => activity.id}
+          emptyMessage="No activities found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          expandable
+          renderExpandedRow={renderActivityDetails}
+          className="rounded-none shadow-none"
+        />
 
         {/* Pagination */}
-        <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
+        <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
             Showing {activities.length} of {total} activities
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page === 1}
-              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+              className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
             >
               Previous
             </button>
-            <span className="text-sm text-gray-600">Page {page}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Page {page}</span>
             <button
               onClick={() => setPage(page + 1)}
               disabled={activities.length < limit}
-              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+              className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
             >
               Next
             </button>

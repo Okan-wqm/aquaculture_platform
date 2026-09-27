@@ -197,7 +197,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="evidence_judgment",
             suggested_prompt=f"validate F-001 evidence{nonce}",
             must_satisfy=[
-                {"id": "F-001-evidence", "criterion": "F-001 evidence is sufficient"},
+                {"id": "F-001-evidence", "description": "F-001 evidence is sufficient"},
             ],
             allowed_scope=["**"],
             convergence_id=f"conv-001{nonce}",
@@ -2168,7 +2168,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="primary_plan",
             suggested_prompt="draft architecture-first plan",
             must_satisfy=[
-                {"id": "sod-test", "criterion": "separation of duties enforced"},
+                {"id": "sod-test", "description": "separation of duties enforced"},
             ],
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-002",
@@ -2233,6 +2233,78 @@ class SubmitResultE2ETests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         joined = " ".join(result["reasons"])
         self.assertIn("envelope_unreadable", joined)
+
+    def _planner_submission(self, plan_content: dict) -> dict:
+        """Submit a challenger_plan envelope carrying ``plan_content``."""
+        from aria_kernel.plan_contract import render_plan_contract
+
+        request = create_agent_invocation_request(
+            target_agent="aria-challenger-planner",
+            role="challenger_plan",
+            suggested_prompt="write a competing plan " + plan_content["title"],
+            must_satisfy=[{"id": "MS-1", "description": "one falsifiable obligation"}],
+            allowed_scope=["**"],
+            convergence_id="plan-contract-seam",
+            target_sha=self.target_sha,
+            base_dir=self.tools,
+            plan_contract=render_plan_contract(self.tools),
+        )
+        claim = claim_request(
+            request_id=request["request_id"], agent_id="planner-worker-001", base_dir=self.tools,
+        )
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "challenger_plan",
+            "status": "submitted",
+            "satisfaction_matrix": [{"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["src.txt:1"]}],
+            "evidence_refs": ["src.txt:1"],
+            "plan_content": plan_content,
+        }
+        out_path = Path(request["expected_output_path"])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(envelope), encoding="utf-8")
+        transcript = self._transcript_artifact(request, claim)
+        return submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id=claim["agent_id"],
+            lease_token=claim["lease_token"],
+            output_path=out_path,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **self._binding_kwargs(request, transcript),
+        )
+
+    def test_a_planner_envelope_breaking_the_plan_contract_is_rejected_not_accepted(self) -> None:
+        """The plan contract is judged BEFORE acceptance.
+
+        Trial ten (2026-09-12): the first native CONVERGED plan carried no
+        `architectural_tier` and a plan-authored `npx nx run shell:test`;
+        nothing refused it until staging, when the plan was immutable. Had
+        the bridge refused it instead, the accepted-but-unbridged envelope
+        would have read as dead (ARIA-HIGH-080). A REJECTION here releases
+        the claim, and the reasons are the vocabulary the sealed prompt's
+        Plan contract section already taught the agent.
+        """
+        body = {
+            "schema_version": 1, "title": "contract-breaking", "summary": "s",
+            "affected_surfaces": [{"paths": ["src.txt"]}], "key_changes": ["k"],
+            "validation_commands": [{"cmd": "npx nx run shell:test"}],
+            "evidence_refs": ["src.txt:1"],
+        }
+        result = self._planner_submission(body)
+        self.assertEqual(result["status"], "rejected", result)
+        joined = " ".join(result["reasons"])
+        self.assertIn("plan_contract: plan_architectural_tier_missing", joined)
+        self.assertIn("plan_contract: plan_validation_command_not_declared:npx nx run shell:test", joined)
+
+        complete = {**body, "title": "contract-complete", "architectural_tier": 2,
+                    "validation_commands": [{"cmd": "nx affected --target=test"}]}
+        result = self._planner_submission(complete)
+        self.assertNotIn("plan_contract:", " ".join(result["reasons"]), result)
+        self.assertEqual(result["status"], "accepted", result)
 
 
 if __name__ == "__main__":

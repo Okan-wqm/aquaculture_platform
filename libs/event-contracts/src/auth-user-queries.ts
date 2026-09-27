@@ -26,6 +26,16 @@ export const AUTH_USER_QUERY_SUBJECTS = {
    * the gateway stitches display names from the federated `User` (display-only).
    */
   LIST_TENANT_USER_IDS: 'request.auth.user.listTenantUserIds',
+  /**
+   * MSGFIX-FAZ2 2.3: resolve a tenant user's authorization capabilities —
+   * platform role codes + the effective tenant-RBAC resourcePermissions set
+   * (exactly what a fresh JWT would carry, minus every PII claim). Consumed by
+   * messaging's AI chat bridge, which runs from a JetStream consumer (no HTTP
+   * request, no JWT) but must still authorize the SENDER before forwarding
+   * their content to ai-service (`ai_assistant:use` locally, persona tiers
+   * `ai_personas:<tier>` forwarded to ai-service).
+   */
+  RESOLVE_CALLER_CAPABILITIES: 'request.auth.user.resolveCallerCapabilities',
 } as const;
 
 /**
@@ -84,5 +94,40 @@ export interface ListTenantUserIdsQuery {
 export interface ListTenantUserIdsResult {
   success: boolean;
   userIds: string[];
+  error?: string;
+}
+
+/**
+ * MSGFIX-FAZ2 2.3: query for
+ * {@link AUTH_USER_QUERY_SUBJECTS.RESOLVE_CALLER_CAPABILITIES}.
+ *
+ * Tenant-scoped by construction: the responder loads the user with
+ * `where: { id, tenantId }`, so a userId that exists under ANOTHER tenant is
+ * reported exactly like a nonexistent one (`found: false`) — no cross-tenant
+ * capability probing.
+ */
+export interface ResolveCallerCapabilitiesQuery {
+  tenantId: string;
+  userId: string;
+  correlationId?: string;
+}
+
+/**
+ * Result — the caller's authorization capabilities ONLY (role codes and
+ * `resource:action` permission codes; both are catalogue constants, never
+ * PII). `roles` mirrors the JWT `roles` claim shape (`[user.role]`);
+ * `resourcePermissions` is the SAME effective set TokenService stamps into a
+ * fresh JWT (role base ∪ per-user overrides ∩ licensed capabilities).
+ *
+ * `found: false` + `active: false` mean "do not authorize" — callers MUST
+ * fail closed on either.
+ */
+export interface ResolveCallerCapabilitiesResult {
+  success: boolean;
+  found: boolean;
+  active: boolean;
+  roles: string[];
+  resourcePermissions: string[];
+  errorCode?: 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
   error?: string;
 }

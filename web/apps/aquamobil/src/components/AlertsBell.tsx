@@ -22,7 +22,7 @@ export function AlertsBell(): ReactElement {
     <button
       onClick={() => navigate('/alerts')}
       aria-label={ariaLabel}
-      className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors relative"
+      className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 dark:bg-gray-900/10 rounded-xl touch-feedback hover:bg-white/20 dark:hover:bg-gray-800/20 transition-colors relative"
     >
       <BellRing size={18} />
       {unacknowledgedCount > 0 && (

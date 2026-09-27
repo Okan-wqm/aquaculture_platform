@@ -109,26 +109,7 @@ def canonical_identity(repo_root: Path) -> str:
     this path emits a governance event so the audit trail names the
     degraded mode (see ``canonical_identity_source``).
     """
-    canonical_root = canonical_repo_root(repo_root)
-    raw_remote = ""
-    try:
-        raw_remote = subprocess.run(
-            ["git", "config", "--get", "remote.origin.url"],
-            cwd=canonical_root,
-            text=True,
-            capture_output=True,
-            check=False,
-        ).stdout.strip()
-    except OSError:
-        raw_remote = ""
-    normalized = canonicalize_remote_url(raw_remote)
-    if normalized:
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
-    root_sha = _git_root_commit_sha(canonical_root)
-    if root_sha:
-        return hashlib.sha256(f"local-root:{root_sha}".encode("utf-8")).hexdigest()[:16]
-    fallback = canonical_root.name or "unknown"
-    return hashlib.sha256(f"local-basename:{fallback}".encode("utf-8")).hexdigest()[:16]
+    return _canonical_identity_observation(repo_root)[0]
 
 
 def canonical_identity_source(repo_root: Path) -> dict[str, str]:
@@ -158,6 +139,16 @@ def canonical_identity_source(repo_root: Path) -> dict[str, str]:
     if root_sha:
         return {"source": "root_commit_sha", "normalized": f"local-root:{root_sha}"}
     return {"source": "basename", "normalized": f"local-basename:{canonical_root.name or 'unknown'}"}
+
+
+def _canonical_identity_observation(repo_root: Path) -> tuple[str, dict[str, str]]:
+    """Hash the same selected source returned to the provenance consumer.
+
+    The existing metadata subprocesses are sequential, not an atomic Git view.
+    The value and diagnostic nevertheless use one selection and one hash recipe.
+    """
+    source = canonical_identity_source(repo_root)
+    return hashlib.sha256(source["normalized"].encode("utf-8")).hexdigest()[:16], source
 
 
 def repo_hash(repo_root: Path) -> str:

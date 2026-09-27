@@ -3,6 +3,7 @@ import {
   Field,
   ID,
   Directive,
+  Float,
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
@@ -95,6 +96,32 @@ registerEnumType(SensorRole, {
   name: 'SensorRole',
   description: 'Role of sensor in parent-child hierarchy',
 });
+
+/**
+ * GraphQL projection of {@link SensorConnectionStatus}.
+ *
+ * SENSOR-MEDIUM-122 root fix: the entity used to expose connectionStatus as
+ * GraphQLJSON while RegisteredSensorType exposed this structured type, so the
+ * composed supergraph flipped between JSON and object depending on which of
+ * the two same-named `sensor` queries won composition — the exact drift the
+ * frontend contract gate hard-fails on. The JSONB keeps every field below
+ * (see the interface); the API surface is the canonical 4-field shape the
+ * live gateway and shared-ui codegen already serve.
+ */
+@ObjectType()
+export class SensorConnectionStatusType {
+  @Field()
+  isConnected!: boolean;
+
+  @Field(() => Date, { nullable: true })
+  lastTestedAt?: Date;
+
+  @Field({ nullable: true })
+  lastError?: string;
+
+  @Field(() => Float, { nullable: true })
+  latency?: number;
+}
 
 /**
  * Connection status interface for JSONB storage
@@ -267,7 +294,7 @@ export class Sensor {
   })
   protocolConfiguration?: Record<string, unknown>;
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  @Field(() => SensorConnectionStatusType, { nullable: true })
   @Column({ name: 'connection_status', type: 'jsonb', nullable: true })
   connectionStatus?: SensorConnectionStatus;
 

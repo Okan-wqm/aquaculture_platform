@@ -9,7 +9,15 @@
  * Tipli `t()` yalnız bilinen MessageKey kabul eder: yeni yüzeylerde hardcoded
  * string yapısal olarak imkânsızdır (FE-HIGH-020 deseni).
  */
-import { createContext, useContext, useMemo, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { en, type MessageKey } from './locales/en';
 import { tr } from './locales/tr';
@@ -19,6 +27,34 @@ export type SupportedLocale = 'en' | 'tr';
 export interface I18nContextValue {
   locale: SupportedLocale;
   t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+  /** Dili değiştirir; cihaz tercihini saklar ve `<html lang>` değerini taşır (FE-HIGH-089). */
+  setLocale: (locale: SupportedLocale) => void;
+}
+
+/** shared-ui ile aynı anahtar: bir cihazda yapılan seçim iki uygulamada da geçerlidir. */
+export const LOCALE_STORAGE_KEY = 'suderra.locale';
+const SUPPORTED: readonly SupportedLocale[] = ['tr', 'en'];
+
+export function isSupportedLocale(value: unknown): value is SupportedLocale {
+  return typeof value === 'string' && (SUPPORTED as readonly string[]).includes(value);
+}
+
+function getStoredLocale(): SupportedLocale | null {
+  try {
+    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    return isSupportedLocale(stored) ? stored : null;
+  } catch {
+    // localStorage özel pencerede veya SSR benzeri testlerde kapalı olabilir.
+    return null;
+  }
+}
+
+function persistLocale(locale: SupportedLocale): void {
+  try {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // Bellekteki seçim bu sayfa ömrü boyunca yine geçerlidir.
+  }
 }
 
 const MESSAGES: Record<SupportedLocale, Record<MessageKey, string>> = { en, tr };
@@ -26,16 +62,19 @@ const MESSAGES: Record<SupportedLocale, Record<MessageKey, string>> = { en, tr }
 const I18nContext = createContext<I18nContextValue | undefined>(undefined);
 
 export interface I18nProviderProps {
-  /** Aktif dil. Verilmezse tarayıcıdan sezilir; platform varsayılanı Türkçedir. */
+  /** Dili sabitler (test, tek dilli alt ağaç). Verilmezse cihaz tercihi, sonra tarayıcı, sonra Türkçe. */
   locale?: SupportedLocale;
   children: ReactNode;
 }
 
 function detectLocale(): SupportedLocale {
   if (typeof navigator === 'undefined') return 'tr';
-  const browserLang = navigator.language?.split('-')[0]?.toLowerCase();
-  if (browserLang === 'en') return 'en';
-  return 'tr';
+  const browserLang = navigator.language.split('-')[0]?.toLowerCase();
+  return isSupportedLocale(browserLang) ? browserLang : 'tr';
+}
+
+function resolveInitialLocale(): SupportedLocale {
+  return getStoredLocale() ?? detectLocale();
 }
 
 function interpolate(message: string, vars?: Record<string, string | number>): string {
@@ -47,9 +86,21 @@ function interpolate(message: string, vars?: Record<string, string | number>): s
   return result;
 }
 
-export function I18nProvider({ locale: localeProp, children }: I18nProviderProps): ReactNode {
-  const locale = localeProp ?? detectLocale();
-  const messages = MESSAGES[locale] ?? MESSAGES.tr;
+export function I18nProvider({ locale: pinnedLocale, children }: I18nProviderProps): ReactNode {
+  const [chosenLocale, setChosenLocale] = useState<SupportedLocale>(
+    () => pinnedLocale ?? resolveInitialLocale(),
+  );
+  const locale = pinnedLocale ?? chosenLocale;
+  const messages = MESSAGES[locale];
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  const setLocale = useCallback((next: SupportedLocale) => {
+    persistLocale(next);
+    setChosenLocale(next);
+  }, []);
 
   const t = useCallback(
     (key: MessageKey, vars?: Record<string, string | number>): string =>
@@ -57,7 +108,7 @@ export function I18nProvider({ locale: localeProp, children }: I18nProviderProps
     [messages],
   );
 
-  const value = useMemo<I18nContextValue>(() => ({ locale, t }), [locale, t]);
+  const value = useMemo<I18nContextValue>(() => ({ locale, t, setLocale }), [locale, t, setLocale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
@@ -73,6 +124,7 @@ export function useI18n(): I18nContextValue {
     locale: 'en',
     t: (key: MessageKey, vars?: Record<string, string | number>): string =>
       interpolate(en[key] ?? key, vars),
+    setLocale: () => undefined,
   };
 }
 

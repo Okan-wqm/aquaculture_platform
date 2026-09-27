@@ -441,8 +441,11 @@ class PlanCoverageGateTests(unittest.TestCase):
             "summary": "Coverage gate plan.",
             "affected_surfaces": [{"paths": ["libs/farm-shared/src/index.ts"]}],
             "key_changes": ["widen shared lib"],
-            "validation_commands": [{"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"}],
+            # Production-shaped: the canonical suite and the tier claim the
+            # plan contract requires before any body may converge.
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "evidence_refs": ["docs/aria/SPEC.md"],
+            "architectural_tier": 2,
         }
         if coverage_block is not None:
             plan["coverage"] = coverage_block

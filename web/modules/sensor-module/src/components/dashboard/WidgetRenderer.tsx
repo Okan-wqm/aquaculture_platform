@@ -53,7 +53,7 @@ export const WidgetRenderer: React.FC<WidgetRendererProps> = ({ config }) => {
       return <ProcessViewWidgetContent config={config} />;
     default:
       return (
-        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+        <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
           Bilinmeyen widget türü
         </div>
       );

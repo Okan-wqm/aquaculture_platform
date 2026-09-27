@@ -31,6 +31,17 @@ aria-kernel runtime restore-artifact --artifact-ref <artifact-id-or-uri>
 
 Restore verifies the artifact hash before reporting success.
 
+The original live index may already have been compacted. Lookup then uses verified native
+creation/archive history; restore preserves the original reference and appends a retention
+event without recreating the index. An ID or URI shared by multiple published versions is
+ambiguous and must not select the latest row automatically. Full-reference readers can still
+serve the exact retained version while a newer version occupies the hot URI. See the
+[retained-version contract](../runtime-artifact-contract.md#retained-runtime-versions-r1).
+
+This local sequential lookup contract does not establish cold log portability or concurrent
+eviction/reference closure; those remain the R2 and R3/R4 acceptance steps. No live retention
+or restoration was activated by the ordinary fixture checks.
+
 ## Rollback
 
 ```bash

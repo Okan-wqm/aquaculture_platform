@@ -24,11 +24,19 @@ import {
 } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import { Search as SearchIcon } from 'lucide-react';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
 /** Column identifiers supported by GenericStockTab. */
-export type StockTabColumn = 'itemName' | 'location' | 'lotNumber' | 'quantity' | 'expiry' | 'notes';
+export type StockTabColumn =
+  | 'itemName'
+  | 'location'
+  | 'lotNumber'
+  | 'quantity'
+  | 'expiry'
+  | 'notes';
 
 export interface StockTabProps {
   /** Which item type to query — determines the data source and pre-fill for action modals. */
@@ -84,10 +92,10 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
   // Distinct ITEMS below minimum — inventory rows are per lot/location, so a
   // row count would multiply one low feed by its number of lots.
   const lowStockCount = new Set(
-    items.map(item => item.itemId).filter(id => lowStockByItemId.has(id)),
+    items.map((item) => item.itemId).filter((id) => lowStockByItemId.has(id)),
   ).size;
 
-  const filtered = items.filter(item => {
+  const filtered = items.filter((item) => {
     const term = searchTerm.toLowerCase();
     return (
       (item.itemName || '').toLowerCase().includes(term) ||
@@ -112,6 +120,54 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  type StockRow = (typeof filtered)[number];
+  const stockColumns: DataTableColumn<StockRow>[] = [
+    ...columns.map(
+      (col): DataTableColumn<StockRow> => ({
+        key: col,
+        header: COLUMN_HEADERS[col],
+        className: getCellClassName(col),
+        render: (_value, item) => renderCell(col, item, lowStockByItemId.get(item.itemId)),
+      }),
+    ),
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      // Per-row actions: Adjust (count correction) and Write Off (waste disposal).
+      render: (_value, item) => (
+        <div className="flex gap-1 justify-end">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() =>
+              openModal({
+                movementType: MovementType.ADJUSTMENT,
+                itemId: item.itemId,
+                itemName: item.itemName,
+              })
+            }
+          >
+            Adjust
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() =>
+              openModal({
+                movementType: MovementType.WASTE,
+                itemId: item.itemId,
+                itemName: item.itemName,
+              })
+            }
+          >
+            Write Off
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Search + Add Stock header */}
@@ -121,126 +177,58 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
             type="text"
             placeholder={`Search ${itemLabel}...`}
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           />
-          <svg
-            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+          <SearchIcon
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
             aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          />
         </div>
 
         {/* Low-stock banner: items at/below their minimum — restock these first. */}
         {lowStockCount > 0 && (
-          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 whitespace-nowrap">
+          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 whitespace-nowrap">
             {lowStockCount} low stock
           </span>
         )}
 
         {/* Primary entry point for receiving new deliveries or recording manual
             stock additions. Pre-fills item type and movement type to IN. */}
-        <button
-          onClick={() => openModal({ movementType: MovementType.IN })}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
-        >
+        <Button variant="primary" onClick={() => openModal({ movementType: MovementType.IN })}>
           + Add Stock
-        </button>
+        </Button>
       </div>
 
       {/* Loading state */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error state */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load {itemLabel} stock.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load {itemLabel} stock.</p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Data table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {columns.map(col => (
-                  <th
-                    key={col}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
-                  >
-                    {COLUMN_HEADERS[col]}
-                  </th>
-                ))}
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.map(item => (
-                <tr
-                  key={item.id}
-                  className={`hover:bg-gray-50 ${hasExpiryColumn ? getExpiryRowClass(item.expiryDate) : ''}`}
-                >
-                  {columns.map(col => (
-                    <td key={col} className={getCellClassName(col)}>
-                      {renderCell(col, item, lowStockByItemId.get(item.itemId))}
-                    </td>
-                  ))}
-
-                  {/* Per-row actions: Adjust (count correction) and Write Off (waste disposal). */}
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex gap-1 justify-end">
-                      <button
-                        onClick={() =>
-                          openModal({
-                            movementType: MovementType.ADJUSTMENT,
-                            itemId: item.itemId,
-                            itemName: item.itemName,
-                          })
-                        }
-                        className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
-                      >
-                        Adjust
-                      </button>
-                      <button
-                        onClick={() =>
-                          openModal({
-                            movementType: MovementType.WASTE,
-                            itemId: item.itemId,
-                            itemName: item.itemName,
-                          })
-                        }
-                        className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
-                      >
-                        Write Off
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Empty state */}
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">
-              No {itemLabel} stock items found.
-            </div>
-          )}
-        </div>
+        <DataTable<StockRow>
+          data={filtered}
+          columns={stockColumns}
+          keyExtractor={(item) => item.id}
+          rowClassName={(item) => (hasExpiryColumn ? getExpiryRowClass(item.expiryDate) : '')}
+          emptyMessage={`No ${itemLabel} stock items found.`}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Stock movement modal — pre-filled with the tab's item type */}
@@ -262,13 +250,13 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 function getCellClassName(col: StockTabColumn): string {
   switch (col) {
     case 'itemName':
-      return 'px-6 py-4 text-sm font-medium text-gray-900';
+      return 'font-medium text-gray-900 dark:text-gray-100';
     case 'quantity':
-      return 'px-6 py-4 text-sm font-medium text-gray-900';
+      return 'font-medium text-gray-900 dark:text-gray-100';
     case 'lotNumber':
-      return 'px-6 py-4 text-sm text-gray-500 font-mono';
+      return 'text-gray-500 dark:text-gray-400 font-mono';
     default:
-      return 'px-6 py-4 text-sm text-gray-500';
+      return 'text-gray-500 dark:text-gray-400';
   }
 }
 
@@ -301,8 +289,8 @@ function renderCell(
             <span
               className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
                 lowStock.currentQuantity === 0
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
+                  ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
               }`}
               title={`${lowStock.currentQuantity} / min ${lowStock.minStock} ${lowStock.unit}`}
             >
@@ -329,12 +317,12 @@ function renderCell(
               the inventory list. Red = must be disposed/used immediately.
               Amber = plan to use within 30 days or risk waste. */}
           {item.expiryDate && isExpired(item.expiryDate) && (
-            <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">
+            <span className="ml-2 text-xs px-1.5 py-0.5 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded font-medium">
               EXPIRED
             </span>
           )}
           {item.expiryDate && isExpiringSoon(item.expiryDate) && (
-            <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">
+            <span className="ml-2 text-xs px-1.5 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded font-medium">
               EXPIRING SOON
             </span>
           )}

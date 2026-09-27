@@ -10,7 +10,15 @@
  */
 import React, { useState } from 'react';
 
-import { useCanMutate } from '@aquaculture/shared-ui';
+import {
+  useCanMutate,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 
 import {
   FinanceCategory,
@@ -67,9 +75,18 @@ export const CategoriesTab: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleArchive = async (category: FinanceCategory): Promise<void> => {
     setErrorMessage(null);
-    if (!window.confirm(`Archive category "${category.name}"? Existing entries keep it as history.`)) {
+    if (
+      !(await confirm({
+        title: `Archive category "${category.name}"?`,
+        message: 'Existing entries keep it as history.',
+        confirmText: 'Archive',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    ) {
       return;
     }
     try {
@@ -80,171 +97,181 @@ export const CategoriesTab: React.FC = () => {
   };
 
   const canArchive = (category: FinanceCategory): boolean =>
-    canArchiveCat && category.isActive && !category.computedRule && !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
+    canArchiveCat &&
+    category.isActive &&
+    !category.computedRule &&
+    !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
+
+  type CategoryRow = (typeof categories)[number];
+  const categoryRowColumns: DataTableColumn<CategoryRow>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, category) => (
+        <>
+          {renaming?.id === category.id ? (
+            <span className="flex items-center space-x-2">
+              <Input
+                value={renaming.name}
+                onChange={(e) => setRenaming({ id: category.id, name: e.target.value })}
+                autoFocus
+              />
+              <Button variant="ghost" onClick={handleRename}>
+                Save
+              </Button>
+              <Button variant="ghost" onClick={() => setRenaming(null)}>
+                Cancel
+              </Button>
+            </span>
+          ) : (
+            <>
+              {category.name}
+              {category.isSystem && (
+                <span className="ml-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-400">
+                  system
+                </span>
+              )}
+              {category.computedRule && (
+                <span className="ml-2 rounded bg-accent-100 dark:bg-accent-900/40 px-1.5 py-0.5 text-xs text-accent-700 dark:text-accent-300">
+                  {category.computedRule.percent}% rule
+                </span>
+              )}
+              {category.code && DERIVED_CODES.has(category.code) && (
+                <span className="ml-2 rounded bg-info-100 dark:bg-info-900/40 px-1.5 py-0.5 text-xs text-info-700 dark:text-info-300">
+                  auto-fed
+                </span>
+              )}
+              {!category.isActive && (
+                <span className="ml-2 rounded bg-warning-100 dark:bg-warning-900/40 px-1.5 py-0.5 text-xs text-warning-700 dark:text-warning-300">
+                  archived
+                </span>
+              )}
+            </>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'ledger',
+      header: 'Ledger',
+      render: (_value, category) =>
+        category.scope === 'FARM_OPEX' ? 'Operational cost' : 'Revenue',
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, category) => (category.kind === 'REVENUE' ? 'Revenue' : 'Expense'),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, category) => (
+        <span className="space-x-3">
+          {canUpdate && category.isActive && renaming?.id !== category.id && (
+            <Button
+              variant="ghost"
+              onClick={() => setRenaming({ id: category.id, name: category.name })}
+            >
+              Rename
+            </Button>
+          )}
+          {canArchive(category) && (
+            <Button variant="ghost" onClick={() => handleArchive(category)}>
+              Archive
+            </Button>
+          )}
+          {canRestore && !category.isActive && (
+            <Button variant="ghost" onClick={() => restoreCategory.mutate(category.id)}>
+              Restore
+            </Button>
+          )}
+        </span>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Create form — only for roles allowed to create categories */}
       {canCreate && (
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
-        <div className="flex-1 min-w-[200px]">
-          <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700">
-            New category name
-          </label>
-          <input
-            id="new-category-name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="e.g. Diesel fuel"
-          />
-        </div>
-        <div>
-          <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700">
-            Ledger
-          </label>
-          <select
-            id="new-category-scope"
-            value={newScope}
-            onChange={(e) => setNewScope(e.target.value as typeof newScope)}
-            className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="FARM_OPEX">Operational cost</option>
-            <option value="FARM_REVENUE">Revenue</option>
-          </select>
-        </div>
-        <button
-          type="submit"
-          disabled={createCategory.isPending || !newName.trim()}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+        <form
+          onSubmit={handleCreate}
+          className="flex flex-wrap items-end gap-3 rounded-lg bg-white dark:bg-gray-900 p-4 shadow"
         >
-          Add category
-        </button>
-        <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600">
-          <input
-            type="checkbox"
-            checked={includeArchived}
-            onChange={(e) => setIncludeArchived(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          <span>Show archived</span>
-        </label>
-      </form>
+          <div className="flex-1 min-w-[200px]">
+            <label
+              htmlFor="new-category-name"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              New category name
+            </label>
+            <Input
+              fullWidth
+              id="new-category-name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Diesel fuel"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="new-category-scope"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Ledger
+            </label>
+            <Select
+              options={[
+                { value: 'FARM_OPEX', label: 'Operational cost' },
+                { value: 'FARM_REVENUE', label: 'Revenue' },
+              ]}
+              id="new-category-scope"
+              value={newScope}
+              onChange={(e) => setNewScope(e.target.value as typeof newScope)}
+            />
+          </div>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={createCategory.isPending || !newName.trim()}
+          >
+            Add category
+          </Button>
+          <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600"
+            />
+            <span>Show archived</span>
+          </label>
+        </form>
       )}
 
       {errorMessage && (
-        <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded-md bg-error-50 dark:bg-error-900/20 p-3 text-sm text-error-700 dark:text-error-300"
+        >
           {errorMessage}
         </div>
       )}
 
       {/* Category list */}
-      <div className="overflow-hidden rounded-lg bg-white shadow">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {['Name', 'Ledger', 'Type', ''].map((h) => (
-                <th
-                  key={h}
-                  scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 bg-white">
-            {categoriesQuery.isLoading && (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-sm text-gray-500">
-                  Loading categories…
-                </td>
-              </tr>
-            )}
-            {categories.map((category) => (
-              <tr key={category.id} className={category.isActive ? '' : 'opacity-50'}>
-                <td className="px-4 py-3 text-sm text-gray-900">
-                  {renaming?.id === category.id ? (
-                    <span className="flex items-center space-x-2">
-                      <input
-                        value={renaming.name}
-                        onChange={(e) => setRenaming({ id: category.id, name: e.target.value })}
-                        className="rounded-md border-gray-300 text-sm shadow-sm"
-                        autoFocus
-                      />
-                      <button onClick={handleRename} className="text-sm font-medium text-blue-600">
-                        Save
-                      </button>
-                      <button onClick={() => setRenaming(null)} className="text-sm text-gray-500">
-                        Cancel
-                      </button>
-                    </span>
-                  ) : (
-                    <>
-                      {category.name}
-                      {category.isSystem && (
-                        <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                          system
-                        </span>
-                      )}
-                      {category.computedRule && (
-                        <span className="ml-2 rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700">
-                          {category.computedRule.percent}% rule
-                        </span>
-                      )}
-                      {category.code && DERIVED_CODES.has(category.code) && (
-                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
-                          auto-fed
-                        </span>
-                      )}
-                      {!category.isActive && (
-                        <span className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs text-yellow-700">
-                          archived
-                        </span>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {category.scope === 'FARM_OPEX' ? 'Operational cost' : 'Revenue'}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {category.kind === 'REVENUE' ? 'Revenue' : 'Expense'}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
-                  <span className="space-x-3">
-                    {canUpdate && category.isActive && renaming?.id !== category.id && (
-                      <button
-                        onClick={() => setRenaming({ id: category.id, name: category.name })}
-                        className="font-medium text-blue-600 hover:text-blue-800"
-                      >
-                        Rename
-                      </button>
-                    )}
-                    {canArchive(category) && (
-                      <button
-                        onClick={() => handleArchive(category)}
-                        className="font-medium text-red-600 hover:text-red-800"
-                      >
-                        Archive
-                      </button>
-                    )}
-                    {canRestore && !category.isActive && (
-                      <button
-                        onClick={() => restoreCategory.mutate(category.id)}
-                        className="font-medium text-green-600 hover:text-green-800"
-                      >
-                        Restore
-                      </button>
-                    )}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<CategoryRow>
+        data={categories}
+        columns={categoryRowColumns}
+        keyExtractor={(category) => category.id}
+        loading={categoriesQuery.isLoading}
+        loadingMessage="Loading categories…"
+        emptyMessage="No categories"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        rowClassName={(category) => (category.isActive ? '' : 'opacity-50')}
+      />
     </div>
   );
 };

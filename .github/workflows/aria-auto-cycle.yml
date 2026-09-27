@@ -124,7 +124,40 @@ permissions:
   pull-requests: read
 
 jobs:
+  # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
+  # only runner carrying [self-hosted, linux, claude] went offline on
+  # 2026-09-08 09:48Z; every scheduled run since queued with zero jobs and
+  # was CANCELLED ~12h later by the next schedule taking this concurrency
+  # group's single pending slot (cancel-in-progress: false keeps ONE pending
+  # run). No red, no error, no notification: green by absence. This hosted
+  # job refuses the run with a named reason unless an ONLINE runner carries
+  # every label the self-hosted job needs; the self-hosted job `needs` it,
+  # so a run is either dispatched or red within a minute. One definition
+  # for every self-hosted lane: .github/actions/require-self-hosted-runner
+  # (decision logic: aria-kernel/aria_kernel/runner_availability.py; wiring
+  # pinned by aria-kernel/tests/test_runner_availability.py).
+  runner-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: ./.github/actions/require-self-hosted-runner
+        with:
+          # Verbatim the self-hosted job's runs-on; the invariant test
+          # compares the two so they cannot drift apart.
+          required-labels: self-hosted,linux,claude
+          app-id: ${{ secrets.ARIA_GH_APP_ID }}
+          app-installation-id: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+
   cycle:
+    needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
     # Mode-aware sizing: a REAL observe burn-in is 30 kernel-guarded cycles at
     # ~2.5 min/cycle ≈ 80-90 min (run 28577469404 was cancelled mid-burn-in by
@@ -167,6 +200,27 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # The kernel reads this checkout's HISTORY, not only its tree: the
+          # twin's churn and co-change layers replay `git log -n400`, the
+          # incremental refresh asks whether the prior map's anchor commit
+          # exists, the executor's anchor gate asks the same of a previous
+          # run's commit, and intent context reads per-file logs.
+          # actions/checkout defaults to depth 1, and on this persistent
+          # workspace a depth-1 fetch RE-SHALLOWS a full clone, so the run
+          # that wrote the live map (2026-09-12) counted one commit: churn
+          # and co-change never reached their recurrence thresholds and an
+          # empty history layer was published as a healthy map, while every
+          # refresh was a full rebuild (`refresh.reason=unknown_anchor`).
+          # 0 = the whole history; on an already-shallow workspace the
+          # action fetches `--unshallow`. The kernel refuses a shallow
+          # checkout by name (`twin_history_unavailable_shallow`) and
+          # aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py
+          # pins this flag on every lane that runs the kernel. The
+          # aria/state store is NOT this checkout: the restore action
+          # materialises it through the kernel's own fetch (no depth) into a
+          # sibling worktree, and its history length is governed by
+          # aria-state-maintenance, not by this step.
+          fetch-depth: 0
           # Self-hosted workspace persists between ALL jobs (CI, executor,
           # this lane). A dispatch-triggered run inherits whatever the
           # previous job left behind; the mid-run preflight's

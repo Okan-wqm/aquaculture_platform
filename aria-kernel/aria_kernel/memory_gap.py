@@ -433,6 +433,19 @@ def assess_memory_continuity(
                 f"state_continuity_store_not_at_tip:head={descent.head or '<none>'} "
                 f"tip={descent.tip or '<unreadable>'}"
             )
+        elif current.get("prev_manifest_root") is None and current.get("prev_snapshot_id") is None:
+            # A probe names no predecessor at all, and the only reference is a
+            # COMMITTED anchor: the checkout describes a published state this
+            # workspace does not carry — no state-store worktree is checked
+            # out (`resolve_continuity_reference` consults anchors only then).
+            # "expected_prev=X got_prev=None" read as a broken chain and sent
+            # an operator into the manifest code (trial eleven, 2026-09-12);
+            # the actionable fact is the missing restore.
+            reasons.append(
+                "state_continuity_store_not_restored:"
+                f"anchor={reference_root}; the committed daily anchor names a published "
+                "state and no state-store worktree carries it; run `state checkout` first"
+            )
         else:
             reasons.append(
                 "state_continuity_chain_broken:"

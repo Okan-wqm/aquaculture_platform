@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS, FaultOverlay, MaintenanceOverlay } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const AnimatedConveyorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -52,10 +53,10 @@ const AnimatedConveyorSymbol: React.FC<EquipmentSymbolProps> = ({
 
       <g transform={`rotate(${rotation || 0} 70 40)`}>
         {/* Frame / support structure */}
-        <line x1={20} y1={55} x2={20} y2={70} stroke="#9ca3af" strokeWidth={2} />
-        <line x1={70} y1={58} x2={70} y2={70} stroke="#9ca3af" strokeWidth={2} />
-        <line x1={120} y1={55} x2={120} y2={70} stroke="#9ca3af" strokeWidth={2} />
-        <line x1={10} y1={70} x2={130} y2={70} stroke="#9ca3af" strokeWidth={1.5} />
+        <line x1={20} y1={55} x2={20} y2={70} stroke={themeColors.neutral[400]} strokeWidth={2} />
+        <line x1={70} y1={58} x2={70} y2={70} stroke={themeColors.neutral[400]} strokeWidth={2} />
+        <line x1={120} y1={55} x2={120} y2={70} stroke={themeColors.neutral[400]} strokeWidth={2} />
+        <line x1={10} y1={70} x2={130} y2={70} stroke={themeColors.neutral[400]} strokeWidth={1.5} />
 
         {/* Drive drum — left */}
         <g className={isRunning ? 'drum-left-spin' : undefined}>
@@ -162,9 +163,9 @@ const AnimatedConveyorSymbol: React.FC<EquipmentSymbolProps> = ({
             width={30}
             height={8}
             rx={2}
-            fill="#d97706"
+            fill={themeColors.warning[600]}
             fillOpacity={0.5}
-            stroke="#b45309"
+            stroke={themeColors.warning[700]}
             strokeWidth={1}
           />
         )}
@@ -183,7 +184,7 @@ const AnimatedConveyorSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={70} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text x={70} y={10} textAnchor="middle" fontSize={9} fill={themeColors.neutral[700]} fontFamily="sans-serif">
             {label}
           </text>
         )}

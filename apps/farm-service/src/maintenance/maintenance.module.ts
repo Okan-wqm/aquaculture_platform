@@ -57,6 +57,7 @@ import { ListSparePartsHandler } from './handlers/list-spare-parts.handler';
 import { ListLowStockAlertsHandler } from './handlers/list-low-stock-alerts.handler';
 import { ListSparePartsByEquipmentTypeHandler } from './handlers/list-spare-parts-by-equipment-type.handler';
 import { GetStockSummaryHandler } from './handlers/get-stock-summary.handler';
+import { MaintenanceAiQueryResponder } from './responders/maintenance-ai-query.responder';
 
 const WorkOrderQueryHandlers = [
   GetWorkOrderHandler,
@@ -88,13 +89,9 @@ const SparePartQueryHandlers = [
 ];
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([
-      WorkOrder,
-      MaintenanceSchedule,
-      SparePart,
-    ]),
-  ],
+  imports: [TypeOrmModule.forFeature([WorkOrder, MaintenanceSchedule, SparePart])],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [MaintenanceAiQueryResponder],
   providers: [
     // Services
     WorkOrderService,
@@ -115,11 +112,6 @@ const SparePartQueryHandlers = [
     // Spare-part query handlers
     ...SparePartQueryHandlers,
   ],
-  exports: [
-    TypeOrmModule,
-    WorkOrderService,
-    MaintenanceScheduleService,
-    SparePartService,
-  ],
+  exports: [TypeOrmModule, WorkOrderService, MaintenanceScheduleService, SparePartService],
 })
 export class MaintenanceModule {}

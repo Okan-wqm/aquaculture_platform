@@ -83,73 +83,79 @@ export function useThresholdCheck(): UseThresholdCheckReturn {
   /**
    * Check mortality against thresholds
    */
-  const checkMortality = useCallback(
-    (input: MortalityThresholdInput): ThresholdCheckResult => {
-      const { dailyRate, threeDayRate, sevenDayRate } = input;
+  const checkMortality = useCallback((input: MortalityThresholdInput): ThresholdCheckResult => {
+    const { dailyRate, threeDayRate, sevenDayRate } = input;
 
-      // Check worst case across all periods
-      let worstSeverity: ThresholdSeverity = 'normal';
-      let worstRate = 0;
-      let worstThreshold = 0;
-      let worstPeriod = '';
+    // Check worst case across all periods
+    let worstSeverity: ThresholdSeverity = 'normal';
+    let worstRate = 0;
+    let worstThreshold = 0;
+    let worstPeriod = '';
 
-      // Check daily rate
-      if (dailyRate !== undefined) {
-        const severity = calculateMortalitySeverity(dailyRate).toLowerCase() as ThresholdSeverity;
-        if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
-          worstSeverity = severity;
-          worstRate = dailyRate;
-          worstThreshold = MORTALITY_THRESHOLDS.DAILY.ELEVATED;
-          worstPeriod = 'daily';
-        }
+    // Check daily rate
+    if (dailyRate !== undefined) {
+      const severity = calculateMortalitySeverity(dailyRate).toLowerCase() as ThresholdSeverity;
+      if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
+        worstSeverity = severity;
+        worstRate = dailyRate;
+        worstThreshold = MORTALITY_THRESHOLDS.DAILY.ELEVATED;
+        worstPeriod = 'daily';
       }
+    }
 
-      // Check 3-day rate
-      if (threeDayRate !== undefined && threeDayRate > MORTALITY_THRESHOLDS.MULTI_DAY.THREE_DAY_HIGH) {
-        const severity: ThresholdSeverity = 'high';
-        if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
-          worstSeverity = severity;
-          worstRate = threeDayRate;
-          worstThreshold = MORTALITY_THRESHOLDS.MULTI_DAY.THREE_DAY_HIGH;
-          worstPeriod = '3-day';
-        }
+    // Check 3-day rate
+    if (
+      threeDayRate !== undefined &&
+      threeDayRate > MORTALITY_THRESHOLDS.MULTI_DAY.THREE_DAY_HIGH
+    ) {
+      const severity: ThresholdSeverity = 'high';
+      if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
+        worstSeverity = severity;
+        worstRate = threeDayRate;
+        worstThreshold = MORTALITY_THRESHOLDS.MULTI_DAY.THREE_DAY_HIGH;
+        worstPeriod = '3-day';
       }
+    }
 
-      // Check 7-day rate
-      if (sevenDayRate !== undefined && sevenDayRate > MORTALITY_THRESHOLDS.MULTI_DAY.SEVEN_DAY_CRITICAL) {
-        const severity: ThresholdSeverity = 'critical';
-        if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
-          worstSeverity = severity;
-          worstRate = sevenDayRate;
-          worstThreshold = MORTALITY_THRESHOLDS.MULTI_DAY.SEVEN_DAY_CRITICAL;
-          worstPeriod = '7-day';
-        }
+    // Check 7-day rate
+    if (
+      sevenDayRate !== undefined &&
+      sevenDayRate > MORTALITY_THRESHOLDS.MULTI_DAY.SEVEN_DAY_CRITICAL
+    ) {
+      const severity: ThresholdSeverity = 'critical';
+      if (getSeverityPriority(severity) > getSeverityPriority(worstSeverity)) {
+        worstSeverity = severity;
+        worstRate = sevenDayRate;
+        worstThreshold = MORTALITY_THRESHOLDS.MULTI_DAY.SEVEN_DAY_CRITICAL;
+        worstPeriod = '7-day';
       }
+    }
 
-      const requiresReport = dailyRate ? requiresImmediateReport(dailyRate) : false;
-      const exceeds = worstSeverity !== 'normal';
+    const requiresReport = dailyRate ? requiresImmediateReport(dailyRate) : false;
+    const exceeds = worstSeverity !== 'normal';
 
-      return {
-        severity: worstSeverity,
-        exceeds,
-        requiresReport: requiresReport || worstSeverity === 'critical' || worstSeverity === 'mass',
-        message: getmortalityMessage(worstSeverity, worstRate, worstPeriod),
-        color: getSeverityDisplayColor(worstSeverity),
-        threshold: exceeds ? worstThreshold : undefined,
-        percentageAbove: exceeds && worstThreshold > 0
+    return {
+      severity: worstSeverity,
+      exceeds,
+      requiresReport: requiresReport || worstSeverity === 'critical' || worstSeverity === 'mass',
+      message: getmortalityMessage(worstSeverity, worstRate, worstPeriod),
+      color: getSeverityDisplayColor(worstSeverity),
+      threshold: exceeds ? worstThreshold : undefined,
+      percentageAbove:
+        exceeds && worstThreshold > 0
           ? Math.round(((worstRate - worstThreshold) / worstThreshold) * 100)
           : undefined,
-      };
-    },
-    []
-  );
+    };
+  }, []);
 
   /**
    * Check sea lice against thresholds
    */
   const checkSeaLice = useCallback((input: SeaLiceThresholdInput): ThresholdCheckResult => {
     const { adultFemalePerFish } = input;
-    const severity = calculateSeaLiceSeverity(adultFemalePerFish).toLowerCase() as ThresholdSeverity;
+    const severity = calculateSeaLiceSeverity(
+      adultFemalePerFish,
+    ).toLowerCase() as ThresholdSeverity;
 
     const exceeds = severity !== 'normal';
     const threshold = exceeds ? SEA_LICE_THRESHOLDS.ALERT_LEVEL : undefined;
@@ -187,11 +193,11 @@ export function useThresholdCheck(): UseThresholdCheckReturn {
    */
   const getSeverityBadgeClasses = useCallback((severity: ThresholdSeverity): string => {
     const classes = {
-      normal: 'bg-green-100 text-green-800',
-      elevated: 'bg-yellow-100 text-yellow-800',
-      high: 'bg-orange-100 text-orange-800',
-      critical: 'bg-red-100 text-red-800',
-      mass: 'bg-red-200 text-red-900',
+      normal: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+      elevated: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+      high: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+      critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+      mass: 'bg-error-200 dark:bg-error-800/50 text-error-900 dark:text-error-100',
     };
     return classes[severity];
   }, []);
@@ -235,7 +241,9 @@ function getSeverityPriority(severity: ThresholdSeverity): number {
 /**
  * Get display color for severity
  */
-function getSeverityDisplayColor(severity: ThresholdSeverity): 'green' | 'yellow' | 'orange' | 'red' {
+function getSeverityDisplayColor(
+  severity: ThresholdSeverity,
+): 'green' | 'yellow' | 'orange' | 'red' {
   const colors: Record<ThresholdSeverity, 'green' | 'yellow' | 'orange' | 'red'> = {
     normal: 'green',
     elevated: 'yellow',
@@ -249,11 +257,7 @@ function getSeverityDisplayColor(severity: ThresholdSeverity): 'green' | 'yellow
 /**
  * Get mortality threshold message
  */
-function getmortalityMessage(
-  severity: ThresholdSeverity,
-  rate: number,
-  period: string
-): string {
+function getmortalityMessage(severity: ThresholdSeverity, rate: number, period: string): string {
   if (severity === 'normal') {
     return 'Mortality rate within acceptable limits';
   }

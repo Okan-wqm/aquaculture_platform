@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 const ECC_LEVEL_L = 1;
 
@@ -441,7 +442,7 @@ export const QrCode: React.FC<QrCodeProps> = ({ value, size = 192, className = '
       <div
         role="img"
         aria-label="MFA QR code unavailable"
-        className={`flex items-center justify-center bg-white text-xs text-gray-500 ${className}`}
+        className={`flex items-center justify-center bg-white dark:bg-gray-900 text-xs text-gray-500 dark:text-gray-400 ${className}`}
         style={{ width: size, height: size }}
       >
         Manual key required
@@ -469,8 +470,8 @@ export const QrCode: React.FC<QrCodeProps> = ({ value, size = 192, className = '
       className={className}
       shapeRendering="crispEdges"
     >
-      <rect width={viewBoxSize} height={viewBoxSize} fill="#ffffff" />
-      <path d={path} fill="#111827" />
+      <rect width={viewBoxSize} height={viewBoxSize} fill={colors.white} />
+      <path d={path} fill={colors.neutral[900]} />
     </svg>
   );
 };

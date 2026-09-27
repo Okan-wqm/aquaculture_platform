@@ -1,5 +1,5 @@
 /**
- * Chart Components Export
+ * Chart primitives — one engine (recharts), one palette (the theme).
  */
 
 export { AreaChart } from './AreaChart';
@@ -26,5 +26,9 @@ export type { ChartContainerProps } from './ChartContainer';
 export { ChartLegend } from './ChartLegend';
 export type { ChartLegendProps, LegendItem } from './ChartLegend';
 
-export { ChartTooltip } from './ChartTooltip';
-export type { ChartTooltipProps, TooltipItem } from './ChartTooltip';
+export { ChartTooltipContent } from './ChartTooltip';
+export type {
+  ChartTooltipContentProps,
+  ChartTooltipPayloadItem,
+  ChartTooltipFormatter,
+} from './ChartTooltip';

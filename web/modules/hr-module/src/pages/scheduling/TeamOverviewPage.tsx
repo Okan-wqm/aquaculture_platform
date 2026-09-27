@@ -4,20 +4,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import {
-  Users,
-  Calendar,
-  Printer,
-  Filter,
-  Coffee,
-  Umbrella,
-  AlertTriangle,
-} from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
-import {
-  WeekNavigator,
-  PrintScheduleButton,
-} from '../../components/scheduling';
+import { Users, Calendar, Printer, Filter, Coffee, Umbrella, AlertTriangle } from 'lucide-react';
+import { cn, PageHeader } from '@aquaculture/shared-ui';
+import { WeekNavigator, PrintScheduleButton } from '../../components/scheduling';
 import {
   useTeamWeeklyOverview,
   getWeekMonday,
@@ -45,10 +34,12 @@ interface DayCellProps {
 function DayCell({ entry, isWeekend }: DayCellProps) {
   if (!entry) {
     return (
-      <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
-      )}>
+      <td
+        className={cn(
+          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+          isWeekend && 'bg-gray-50 dark:bg-gray-800',
+        )}
+      >
         <span className="text-gray-300">-</span>
       </td>
     );
@@ -56,12 +47,14 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
 
   if (entry.entryType === 'off') {
     return (
-      <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
-      )}>
+      <td
+        className={cn(
+          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+          isWeekend && 'bg-gray-50 dark:bg-gray-800',
+        )}
+      >
         <div className="flex items-center justify-center">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-600 dark:text-gray-400">
             <Coffee className="h-3 w-3" />
             Tatil
           </span>
@@ -72,12 +65,14 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
 
   if (entry.entryType === 'leave') {
     return (
-      <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
-      )}>
+      <td
+        className={cn(
+          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+          isWeekend && 'bg-gray-50 dark:bg-gray-800',
+        )}
+      >
         <div className="flex items-center justify-center">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 rounded text-xs text-green-700">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-success-100 dark:bg-success-900/40 rounded text-xs text-success-700 dark:text-success-300">
             <Umbrella className="h-3 w-3" />
             Izin
           </span>
@@ -88,27 +83,36 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
 
   if (entry.entryType === 'holiday') {
     return (
-      <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100 bg-purple-50'
-      )}>
-        <span className="text-xs text-purple-700 font-medium">Resmi Tatil</span>
+      <td
+        className={cn(
+          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700 bg-accent-50',
+        )}
+      >
+        <span className="text-xs text-accent-700 dark:text-accent-300 font-medium">
+          Resmi Tatil
+        </span>
       </td>
     );
   }
 
   // Work day
-  const timeRange = entry.startTime && entry.endTime
-    ? `${entry.startTime.slice(0, 5)}-${entry.endTime.slice(0, 5)}`
-    : entry.shiftCode || '-';
+  const timeRange =
+    entry.startTime && entry.endTime
+      ? `${entry.startTime.slice(0, 5)}-${entry.endTime.slice(0, 5)}`
+      : entry.shiftCode || '-';
 
   return (
-    <td className={cn(
-      'px-2 py-3 text-center border-r border-gray-100',
-      isWeekend && 'bg-gray-50'
-    )}>
+    <td
+      className={cn(
+        'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+        isWeekend && 'bg-gray-50 dark:bg-gray-800',
+      )}
+    >
       <div className="text-xs">
-        <span className="font-medium text-blue-700">{entry.shiftCode || 'M'}</span>
-        <div className="text-gray-500 text-[10px]">{timeRange}</div>
+        <span className="font-medium text-info-700 dark:text-info-300">
+          {entry.shiftCode || 'M'}
+        </span>
+        <div className="text-gray-500 dark:text-gray-400 text-[10px]">{timeRange}</div>
       </div>
     </td>
   );
@@ -121,11 +125,11 @@ export function TeamOverviewPage() {
 
   const weekStartStr = formatDateISO(currentWeekStart);
 
-  const { data: overview, isLoading, error } = useTeamWeeklyOverview(
-    weekStartStr,
-    departmentFilter,
-    siteFilter
-  );
+  const {
+    data: overview,
+    isLoading,
+    error,
+  } = useTeamWeeklyOverview(weekStartStr, departmentFilter, siteFilter);
 
   // Calculate dates for header
   const headerDates = useMemo(() => {
@@ -142,63 +146,61 @@ export function TeamOverviewPage() {
   }, [currentWeekStart]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Users className="h-6 w-6 text-indigo-600" />
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title={
+            <>
+              <Users className="h-6 w-6 text-primary-600 dark:text-primary-400" />
               Takim Gorunumu
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Tum calisanlarin haftalik programlari
-            </p>
-          </div>
+            </>
+          }
+          description="Tum calisanlarin haftalik programlari"
+          actions={
+            <div className="flex items-center gap-4">
+              <WeekNavigator currentWeekStart={currentWeekStart} onChange={setCurrentWeekStart} />
 
-          <div className="flex items-center gap-4">
-            <WeekNavigator
-              currentWeekStart={currentWeekStart}
-              onChange={setCurrentWeekStart}
-            />
-
-            {overview && (
-              <PrintScheduleButton
-                overview={overview}
-                siteName="Site"
-                departmentName={departmentFilter}
-              />
-            )}
-          </div>
-        </div>
+              {overview && (
+                <PrintScheduleButton
+                  overview={overview}
+                  siteName="Site"
+                  departmentName={departmentFilter}
+                />
+              )}
+            </div>
+          }
+        />
       </div>
 
       {/* Stats Bar */}
       {overview && (
-        <div className="bg-white border-b border-gray-200 px-6 py-3">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-gray-400" />
-              <span className="text-sm text-gray-600">
-                <strong className="text-gray-900">{overview.totalEmployees}</strong> calisan
+              <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                <strong className="text-gray-900 dark:text-gray-100">
+                  {overview.totalEmployees}
+                </strong>{' '}
+                calisan
               </span>
             </div>
 
             {overview.daysSummary.map((day) => (
-              <div
-                key={day.dayOfWeek}
-                className="flex items-center gap-1.5 text-xs"
-              >
-                <span className="font-medium text-gray-500">
+              <div key={day.dayOfWeek} className="flex items-center gap-1.5 text-xs">
+                <span className="font-medium text-gray-500 dark:text-gray-400">
                   {getWeekdayShortTR(day.dayOfWeek)}:
                 </span>
-                <span className="text-blue-600">{day.workingCount}C</span>
-                <span className="text-gray-400">/</span>
-                <span className="text-gray-500">{day.offCount}T</span>
+                <span className="text-info-600 dark:text-info-400">{day.workingCount}C</span>
+                <span className="text-gray-400 dark:text-gray-500">/</span>
+                <span className="text-gray-500 dark:text-gray-400">{day.offCount}T</span>
                 {day.leaveCount > 0 && (
                   <>
-                    <span className="text-gray-400">/</span>
-                    <span className="text-green-600">{day.leaveCount}I</span>
+                    <span className="text-gray-400 dark:text-gray-500">/</span>
+                    <span className="text-success-600 dark:text-success-400">
+                      {day.leaveCount}I
+                    </span>
                   </>
                 )}
               </div>
@@ -210,39 +212,39 @@ export function TeamOverviewPage() {
       {/* Main Content */}
       <div className="p-6">
         {isLoading ? (
-          <div className="bg-white rounded-xl shadow-sm p-8">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8">
             <div className="animate-pulse space-y-4">
-              <div className="h-8 bg-gray-200 rounded w-full" />
+              <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-full" />
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-12 bg-gray-100 rounded w-full" />
+                <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded w-full" />
               ))}
             </div>
           </div>
         ) : error ? (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8 text-center">
+            <AlertTriangle className="h-12 w-12 text-error-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Veri yuklenemedi
             </h3>
-            <p className="text-gray-500">{String(error)}</p>
+            <p className="text-gray-500 dark:text-gray-400">{String(error)}</p>
           </div>
         ) : !overview?.employeePlans.length ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-12 text-center">
             <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Bu hafta icin plan bulunamadi
             </h3>
-            <p className="text-gray-500">
+            <p className="text-gray-500 dark:text-gray-400">
               Calisanlar icin haftalik plan olusturun.
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10 min-w-[180px]">
+                  <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 sticky left-0 bg-gray-50 dark:bg-gray-800 z-10 min-w-[180px]">
                       Calisan
                     </th>
                     {WEEKDAYS.map((day) => (
@@ -251,23 +253,23 @@ export function TeamOverviewPage() {
                         className={cn(
                           'text-center px-2 py-3 text-sm font-semibold min-w-[90px]',
                           day === 'saturday' || day === 'sunday'
-                            ? 'text-gray-500 bg-gray-100'
-                            : 'text-gray-700'
+                            ? 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
+                            : 'text-gray-700 dark:text-gray-300',
                         )}
                       >
                         <div>{headerDates[day].short}</div>
-                        <div className="text-xs font-normal text-gray-500">
+                        <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
                           {headerDates[day].date}
                         </div>
                       </th>
                     ))}
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Gun
                     </th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Saat
                     </th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Mesai
                     </th>
                   </tr>
@@ -280,15 +282,17 @@ export function TeamOverviewPage() {
                       <tr
                         key={emp.employeeId}
                         className={cn(
-                          'border-b border-gray-100 hover:bg-gray-50 transition-colors',
-                          idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
+                          'border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
+                          idx % 2 === 0
+                            ? 'bg-white dark:bg-gray-900'
+                            : 'bg-gray-50/30 dark:bg-gray-800/30',
                         )}
                       >
                         {/* Employee Name */}
                         <td className="px-4 py-3 sticky left-0 bg-inherit z-10">
                           <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                              <span className="text-xs font-medium text-indigo-600">
+                            <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
                                 {emp.employeeName
                                   .split(' ')
                                   .map((n) => n[0])
@@ -297,11 +301,11 @@ export function TeamOverviewPage() {
                               </span>
                             </div>
                             <div className="min-w-0">
-                              <div className="font-medium text-gray-900 truncate">
+                              <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
                                 {emp.employeeName}
                               </div>
                               {emp.position && (
-                                <div className="text-xs text-gray-500 truncate">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                                   {emp.position}
                                 </div>
                               )}
@@ -313,25 +317,19 @@ export function TeamOverviewPage() {
                         {WEEKDAYS.map((day) => {
                           const dayEntry = emp.days.find((d) => d.dayOfWeek === day);
                           const isWeekend = day === 'saturday' || day === 'sunday';
-                          return (
-                            <DayCell
-                              key={day}
-                              entry={dayEntry}
-                              isWeekend={isWeekend}
-                            />
-                          );
+                          return <DayCell key={day} entry={dayEntry} isWeekend={isWeekend} />;
                         })}
 
                         {/* Total Work Days */}
                         <td className="px-4 py-3 text-center">
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {emp.totalWorkDays}
                           </span>
                         </td>
 
                         {/* Total Hours */}
                         <td className="px-4 py-3 text-center">
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {formatMinutesAsHours(emp.totalMinutes)}
                           </span>
                         </td>
@@ -339,16 +337,18 @@ export function TeamOverviewPage() {
                         {/* Overtime */}
                         <td className="px-4 py-3 text-center">
                           {hasOvertime ? (
-                            <span className={cn(
-                              'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium',
-                              emp.overtimeMinutes > 300
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-amber-100 text-amber-700'
-                            )}>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium',
+                                emp.overtimeMinutes > 300
+                                  ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+                              )}
+                            >
                               +{formatMinutesAsHours(emp.overtimeMinutes)}
                             </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
                           )}
                         </td>
                       </tr>
@@ -358,25 +358,20 @@ export function TeamOverviewPage() {
 
                 {/* Summary Footer */}
                 <tfoot>
-                  <tr className="bg-indigo-50 border-t-2 border-indigo-200">
-                    <td className="px-4 py-3 font-semibold text-indigo-900 sticky left-0 bg-indigo-50 z-10">
+                  <tr className="bg-primary-50 dark:bg-primary-900/20 border-t-2 border-primary-200 dark:border-primary-800">
+                    <td className="px-4 py-3 font-semibold text-primary-900 dark:text-primary-100 sticky left-0 bg-primary-50 dark:bg-primary-900/20 z-10">
                       TOPLAM
                     </td>
                     {overview.daysSummary.map((day) => (
-                      <td
-                        key={day.dayOfWeek}
-                        className="px-2 py-3 text-center text-sm"
-                      >
-                        <div className="font-medium text-indigo-700">
+                      <td key={day.dayOfWeek} className="px-2 py-3 text-center text-sm">
+                        <div className="font-medium text-primary-700 dark:text-primary-300">
                           {day.workingCount} C
                         </div>
-                        <div className="text-xs text-indigo-500">
-                          {day.offCount} T
-                        </div>
+                        <div className="text-xs text-primary-500">{day.offCount} T</div>
                       </td>
                     ))}
                     <td colSpan={3} className="px-4 py-3 text-center">
-                      <span className="text-sm font-medium text-indigo-900">
+                      <span className="text-sm font-medium text-primary-900 dark:text-primary-100">
                         {overview.totalEmployees} Calisan
                       </span>
                     </td>
@@ -388,21 +383,21 @@ export function TeamOverviewPage() {
         )}
 
         {/* Legend */}
-        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-500">
+        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-500 dark:text-gray-400">
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-blue-100 border border-blue-200" />
+            <div className="w-4 h-4 rounded bg-info-100 dark:bg-info-900/40 border border-info-200 dark:border-info-800" />
             <span>Mesai</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-gray-100 border border-gray-200" />
+            <div className="w-4 h-4 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700" />
             <span>Tatil</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-green-100 border border-green-200" />
+            <div className="w-4 h-4 rounded bg-success-100 dark:bg-success-900/40 border border-success-200 dark:border-success-800" />
             <span>Izin</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-purple-100 border border-purple-200" />
+            <div className="w-4 h-4 rounded bg-accent-100 dark:bg-accent-900/40 border border-accent-200 dark:border-accent-800" />
             <span>Resmi Tatil</span>
           </div>
         </div>

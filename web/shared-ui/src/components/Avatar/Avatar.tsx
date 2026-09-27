@@ -21,14 +21,14 @@ const sizeClasses: Record<NonNullable<AvatarProps['size']>, string> = {
  * same color (no per-render randomness).
  */
 const bgPalette = [
-  'bg-blue-600',
-  'bg-emerald-600',
-  'bg-violet-600',
-  'bg-amber-600',
-  'bg-rose-600',
-  'bg-cyan-600',
-  'bg-indigo-600',
-  'bg-teal-600',
+  'bg-primary-600',
+  'bg-success-600',
+  'bg-accent-600',
+  'bg-warning-600',
+  'bg-error-600',
+  'bg-info-600',
+  'bg-neutral-600',
+  'bg-secondary-600',
 ];
 
 function bgForName(name: string): string {

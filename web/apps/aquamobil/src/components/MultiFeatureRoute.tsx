@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useFeatureAccess } from '@/utils/feature-access';
 
@@ -20,7 +21,7 @@ interface MultiFeatureRouteProps {
 function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
+      <Spinner size="lg" />
     </div>
   );
 }

@@ -124,6 +124,35 @@ configure_preserved_compose_interpolation() {
   export WALG_BACKUP_EPOCH WALG_SPACES_BUCKET SPACES_ENDPOINT SPACES_REGION
 }
 
+# An unhealthy verdict alone names no cause, and the deploy runner cannot reach
+# the host to ask. Docker retains the probe command and its last five results;
+# printing them turns the refusal into a diagnosis. Each probe's output is
+# JSON-quoted so a multi-line message stays one log line. The probes emit only
+# fixed messages, paths and counts, never credential values.
+report_preserved_container_health() {
+  local container="$1"
+  local probe_command
+  local probes
+  local probe
+
+  probe_command="$(docker inspect \
+    --format='{{with .Config.Healthcheck}}{{json .Test}}{{else}}none{{end}}' \
+    "${container}" 2>/dev/null || true)"
+  echo "  ${container} healthcheck: ${probe_command:-uninspectable}" >&2
+
+  probes="$(docker inspect \
+    --format='{{with .State.Health}}{{range .Log}}exit={{.ExitCode}} end={{.End}} output={{json .Output}}{{"\n"}}{{end}}{{end}}' \
+    "${container}" 2>/dev/null || true)"
+  if [ -z "${probes}" ]; then
+    echo "  ${container} retained no health probe results" >&2
+    return 0
+  fi
+  while IFS= read -r probe; do
+    [ -n "${probe}" ] || continue
+    echo "  ${container} probe ${probe}" >&2
+  done <<< "${probes}"
+}
+
 assert_preserved_migration_infrastructure() {
   local container
   local state
@@ -137,6 +166,7 @@ assert_preserved_migration_infrastructure() {
     read -r running health <<< "${state}"
     if [ "${running:-false}" != "true" ] || [ "${health:-missing}" != "healthy" ]; then
       echo "::error::Preserved infrastructure container ${container} is not healthy (running=${running:-missing} health=${health:-missing})" >&2
+      report_preserved_container_health "${container}"
       return 1
     fi
   done

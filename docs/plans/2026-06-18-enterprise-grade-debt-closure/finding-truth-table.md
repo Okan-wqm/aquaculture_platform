@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `333fc6a0e3df636c409bf67c0410b994ba69428510a16318a3c829d7b54d48e4`
+Registry tip: `d9f880aefb7723af98e775d08f9d5197a85ae3b60e077299a4404a8f05e3db45`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -245,12 +245,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
-| `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
-| `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
-| `ADMIN-CRITICAL-154`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
-| `ADMIN-CRITICAL-156`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
-| `ADMIN-CRITICAL-157`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 `ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and
@@ -932,4 +926,22 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `FARM-CRITICAL-332`: registry state is `RESOLVED` with closing commit
   `dd8fec13f`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-147`: registry state is `RESOLVED` with closing commit
+  `46565aaf8`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-150`: registry state is `RESOLVED` with closing commit
+  `ad322e1b3`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-151`: registry state is `RESOLVED` with closing commit
+  `014920fa4`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-154`: registry state is `RESOLVED` with closing commit
+  `3f90b8d0a`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-156`: registry state is `RESOLVED` with closing commit
+  `acafa70ce`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ADMIN-CRITICAL-157`: registry state is `RESOLVED` with closing commit
+  `6bcf14fcd`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

@@ -315,6 +315,56 @@ def acquire_remote_cas_lease(
     return next_lease
 
 
+def release_remote_cas_lease(
+    *,
+    base_dir: str | Path,
+    lease_id: str,
+    owner: str,
+) -> dict[str, Any]:
+    """Release the CAS lease ``lease_id`` held by ``owner`` — compare, then swap.
+
+    ARIA-HIGH-219 — the merge authority holds the lease for the span of one
+    merge call and gives it back when the call returns, so the next merge of
+    the same run is not refused by its own predecessor's lease. The lease is
+    rewritten with ``expires_at`` = now: stale, so the next acquisition reaps
+    it and advances the epoch fence exactly as it reaps an expired one. A
+    lease that is no longer the one this holder took (another owner reaped
+    it, or a later epoch replaced it) is left untouched and reported, never
+    released on someone else's behalf.
+    """
+    root = ensure_tools_dir(base_dir)
+    existing = _read_remote_cas_lease(root)
+    if existing is None or existing.lease_id != lease_id or existing.owner != owner:
+        append_tools_governance(
+            root,
+            "remote_cas_lease_release_skipped",
+            {
+                "lease_id": lease_id,
+                "owner": owner,
+                "current": asdict(existing) if existing is not None else None,
+            },
+        )
+        return {"released": False, "reason": "lease_not_held_by_owner"}
+    now = _utc_now().isoformat().replace("+00:00", "Z")
+    released = RemoteCasLease(
+        lease_id=existing.lease_id,
+        epoch=existing.epoch,
+        owner=existing.owner,
+        target_ref=existing.target_ref,
+        head_sha=existing.head_sha,
+        acquired_at=existing.acquired_at,
+        heartbeat_at=now,
+        expires_at=now,
+    )
+    _atomic_write_remote_cas_lease(_remote_cas_lease_path(root), released)
+    append_tools_governance(
+        root,
+        "remote_cas_lease_released",
+        {"lease_id": lease_id, "epoch": existing.epoch, "owner": owner},
+    )
+    return {"released": True, "lease_id": lease_id, "epoch": existing.epoch}
+
+
 def remote_cas_lease_state(base_dir: str | Path) -> dict[str, Any]:
     existing = _read_remote_cas_lease(base_dir)
     if existing is None:
@@ -463,5 +513,6 @@ __all__ = [
     "acquire_lease",
     "lease_state",
     "release_lease",
+    "release_remote_cas_lease",
     "remote_cas_lease_state",
 ]

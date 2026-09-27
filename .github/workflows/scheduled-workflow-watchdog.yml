@@ -54,10 +54,20 @@ jobs:
                 // incident — database-wal-archive-freshness (cron */5,
                 // threshold 1h) tripped this every hour. Judge the newest
                 // COMPLETED run, not the newest run.
-                per_page: 10,
+                //
+                // Fifty, not ten (ARIA-HIGH-206): aria-merge-runner wakes on
+                // every completed `CI - Affected` run and skips the red ones
+                // (below); a busy hour of PR builds must not push its own
+                // executed runs out of the window and read as "missing".
+                per_page: 50,
               });
+              // A run whose every job was skipped by its `if:` executed
+              // nothing: it is no verdict about the lane, exactly like a
+              // pre-job eviction below. A lane whose runs are ALL skipped
+              // still alarms as missing — it has never done its work.
               const completedRuns = response.data.workflow_runs.filter(
-                (candidate) => candidate.status === 'completed',
+                (candidate) =>
+                  candidate.status === 'completed' && candidate.conclusion !== 'skipped',
               );
               // A run cancelled BEFORE it ever created a job is not a verdict
               // about the lane — it is the concurrency group evicting a

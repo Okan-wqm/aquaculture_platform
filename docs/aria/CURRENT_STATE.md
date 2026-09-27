@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-09-26
+Date: 2026-09-27
 Target ref: `origin/main`
-Last verified ARIA authority hash: `1cd5e016dd68a313f427cf9dc63fe2857af07648ba6f3cace2383c4f3add1898`
+Last verified ARIA authority hash: `0efff652852da34eb4e50467363b84f365e009e07b49b83fc293195f600ba7b3`
 Status: post-snowball mainline hardening in progress
 
 ## Connected execution checkpoint
@@ -60,6 +60,14 @@ explicitly marked historical. Runtime behavior must not be inferred from stale p
 - Runner habitat memory budget (systemd drop-ins; `scripts/aria/provision_runner.sh` installs and
   drift-checks them): `scripts/aria/runner-habitat/systemd/`
 - Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
+- Merge lane runner (claim → merge queue): `aria-kernel/aria_kernel/auto_merge_runners.py`,
+  `.github/workflows/aria-readiness-claim.yml`, `.github/workflows/aria-merge-runner.yml`
+- L1 merge-lane grant: `aria-kernel/aria_kernel/runtime_profile.py::set_merge_lane_grant`
+  (operator CLI only; approval proven by the operator's GitHub act,
+  `aria-kernel/aria_kernel/operator_approval.py`)
+- Self-merge freeze (ARIA sets, only an operator lifts): `aria-kernel/aria_kernel/self_merge_freeze.py`
+- Self-revert of ARIA's own merges: `aria-kernel/aria_kernel/self_revert.py`
+- Human-merge marking for PRs outside L1: `aria-kernel/aria_kernel/risk_policy.py::HUMAN_MERGE_LABEL`
 - Enterprise risk policy owner: `aria-kernel/aria_kernel/risk_policy.py`
 - Enterprise autonomy unlock owner: `aria-kernel/aria_kernel/autonomy_unlock.py`
 - L3 policy approval owner: `aria-kernel/aria_kernel/policy_approval.py`

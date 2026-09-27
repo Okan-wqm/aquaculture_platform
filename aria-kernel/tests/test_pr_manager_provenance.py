@@ -26,9 +26,9 @@ from unittest.mock import patch
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.proposal import approve_proposal, record_proposal
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # The product file the synthetic proposal touches. One constant so the seeded
@@ -68,11 +68,7 @@ def _seed_workspace() -> tuple[Path, Path, str]:
     subprocess.run(["git", "commit", "-q", "-m", "proposal commit"], cwd=repo, check=True, capture_output=True)
     tools = tmp / "aria-tools"
     ensure_tools_dir(tools)
-    set_profile(
-        "strict",
-        operator_approval_ref="test:plan-022-c4",
-        base_dir=tools, set_by="operator",
-    )
+    operator_set_profile("strict", base_dir=tools)
     return tools, repo, base_sha
 
 

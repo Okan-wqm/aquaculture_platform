@@ -92,7 +92,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
             select_auto_merge_runner,
         )
 
-        runner = select_auto_merge_runner(profile="observe")
+        runner = select_auto_merge_runner(profile="observe", executes_merges=False)
         self.assertIsInstance(runner, NoOpAutoMergeRunner)
         result = runner(base_dir=str(self._tmpdir()), workspace_root=None)
         self.assertEqual(result["status"], "skipped")
@@ -105,7 +105,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
             select_auto_merge_runner,
         )
 
-        runner = select_auto_merge_runner(profile="standard")
+        runner = select_auto_merge_runner(profile="standard", executes_merges=False)
         self.assertIsInstance(runner, NoOpAutoMergeRunner)
 
     def test_i_v3_02_select_returns_noop_for_frozen(self) -> None:
@@ -114,7 +114,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
             select_auto_merge_runner,
         )
 
-        runner = select_auto_merge_runner(profile="frozen")
+        runner = select_auto_merge_runner(profile="frozen", executes_merges=False)
         self.assertIsInstance(runner, NoOpAutoMergeRunner)
 
     def test_i_v3_03_select_returns_real_for_strict(self) -> None:
@@ -123,7 +123,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
             select_auto_merge_runner,
         )
 
-        runner = select_auto_merge_runner(profile="strict")
+        runner = select_auto_merge_runner(profile="strict", executes_merges=True)
         self.assertIsInstance(runner, RealAutoMergeRunner)
         self.assertEqual(runner.profile, "strict")
 
@@ -164,6 +164,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
         try:
             runner = RealAutoMergeRunner(
                 profile="strict",
+                executes_merges=True,
                 adapter_factory=lambda: object(),
                 pr_enumerator=lambda adapter: [42],
                 readiness_claim_resolver=lambda adapter, pr_number, base_dir: "claim-42",
@@ -177,7 +178,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
     def test_i_v3_03_real_runner_missing_dependencies_blocks(self) -> None:
         from aria_kernel.auto_merge_runners import RealAutoMergeRunner
 
-        result = RealAutoMergeRunner(profile="strict")(
+        result = RealAutoMergeRunner(profile="strict", executes_merges=True)(
             base_dir="/tmp",
             workspace_root="/tmp",
         )
@@ -194,7 +195,7 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
         from aria_kernel.auto_merge_runners import select_auto_merge_runner
 
         with self.assertRaises(ValueError):
-            select_auto_merge_runner(profile="permissive")
+            select_auto_merge_runner(profile="permissive", executes_merges=True)
 
     def _tmpdir(self) -> Path:
         import tempfile

@@ -35,7 +35,6 @@ from aria_kernel.must_satisfy import (
     validate_must_satisfy,
     waiver_adjudication_obligation,
 )
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
 
 from tests.test_implementation_lifecycle_continuity import (
@@ -43,6 +42,7 @@ from tests.test_implementation_lifecycle_continuity import (
     drive_plan_to_converged,
     seed_reviewer_agent,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 def _call_name(call: ast.Call) -> str:
@@ -224,8 +224,7 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
         self.tools = root / "aria-tools"
         self.workspace = root / "workspace"
         seed_reviewer_agent(self.workspace)
-        set_profile("strict", operator_approval_ref="test:aria-high-104:must-satisfy",
-                    base_dir=self.tools, set_by="operator", scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         drive_plan_to_converged(
             plan_id="plan-104-shape", tools=self.tools, workspace_root=self.workspace,
             plan_content=converging_plan_content(
@@ -429,8 +428,7 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
         self.tools = root / "aria-tools"
         self.workspace = root / "workspace"
         seed_reviewer_agent(self.workspace)
-        set_profile("strict", operator_approval_ref="test:aria-high-104:banned-words",
-                    base_dir=self.tools, set_by="operator", scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         # The words are read from the SSoT the scan reads, never spelled here:
         # a file name built from one, a step and a waiver reason built from
         # three — the shape the verifier reproduced the refusal with.

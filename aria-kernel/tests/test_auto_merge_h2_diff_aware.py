@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import unittest
 
+from unittest.mock import patch
+
 from aria_kernel.auto_merge import evaluate_auto_merge
+from aria_kernel.change_paths import ChangePaths
 
 
 _LOW_RISK_PATH = "docs/notes.md"  # in allowed_low_risk_globs (docs/**)
@@ -29,9 +32,20 @@ def _base_pr_payload(**extras) -> dict:
         "base_branch": "main",
         "head_sha": "abc1234",
         "changed_files": [_LOW_RISK_PATH],
+        "changed_files_count": 1,
     }
     payload.update(extras)
     return payload
+
+
+def _git_holds_the_docs_edit():
+    """The checkout's git read of the fixture PR: its one docs edit.
+    ARIA-CRITICAL-215 — path risk is classified from the change git holds,
+    never from the platform's list; this module has no repository."""
+    return patch(
+        "aria_kernel.risk_policy.read_change_paths",
+        return_value=ChangePaths(base_rev="d" * 40, head_rev="abc1234", entries=(("M", _LOW_RISK_PATH),)),
+    )
 
 
 def _enabled_policy() -> dict:
@@ -55,12 +69,14 @@ def _base_github_payload(**extras) -> dict:
 
 class AutoMergeContentScanTests(unittest.TestCase):
     def test_low_risk_path_with_clean_diff_eligible(self) -> None:
-        decision = evaluate_auto_merge(
-            pr=_base_pr_payload(),
-            github=_base_github_payload(),
-            policy=_enabled_policy(),
-            diff_text="--- a/docs/notes.md\n+++ b/docs/notes.md\n+New paragraph\n",
-        )
+        with _git_holds_the_docs_edit():
+            decision = evaluate_auto_merge(
+                pr=_base_pr_payload(),
+                github=_base_github_payload(),
+                policy=_enabled_policy(),
+                diff_text="--- a/docs/notes.md\n+++ b/docs/notes.md\n+New paragraph\n",
+                workspace_root=".",
+            )
         self.assertTrue(decision["eligible"], decision["reasons"])
 
     def test_low_risk_path_with_ts_ignore_demoted_to_unknown(self) -> None:
@@ -74,6 +90,7 @@ class AutoMergeContentScanTests(unittest.TestCase):
                 "+// @ts-ignore — silenced\n"
                 "+const value: any = 1;\n"
             ),
+            workspace_root=None,
         )
         self.assertFalse(decision["eligible"])
         self.assertIn("unknown", decision["risk"]["risk_class"])
@@ -88,6 +105,7 @@ class AutoMergeContentScanTests(unittest.TestCase):
             github=_base_github_payload(),
             policy=_enabled_policy(),
             diff_text=None,
+            workspace_root=None,
         )
         self.assertFalse(decision["eligible"])
         self.assertTrue(any("auto_merge_requires_diff_content" in r for r in decision["reasons"]))
@@ -98,18 +116,20 @@ class AutoMergeContentScanTests(unittest.TestCase):
         # structural unified-diff check (`+++ b/` header required); the
         # fixture diff now carries a real header so the integrity gate
         # passes through to the suppression-scan + path-class layers.
-        decision = evaluate_auto_merge(
-            pr=_base_pr_payload(diff_text=(
-                "diff --git a/apps/x.ts b/apps/x.ts\n"
-                "--- a/apps/x.ts\n"
-                "+++ b/apps/x.ts\n"
-                "@@ -1 +1 @@\n"
-                "+const x = 1;\n"
-            )),
-            github=_base_github_payload(),
-            policy=_enabled_policy(),
-            diff_text=None,
-        )
+        with _git_holds_the_docs_edit():
+            decision = evaluate_auto_merge(
+                pr=_base_pr_payload(diff_text=(
+                    "diff --git a/apps/x.ts b/apps/x.ts\n"
+                    "--- a/apps/x.ts\n"
+                    "+++ b/apps/x.ts\n"
+                    "@@ -1 +1 @@\n"
+                    "+const x = 1;\n"
+                )),
+                github=_base_github_payload(),
+                policy=_enabled_policy(),
+                diff_text=None,
+                workspace_root=".",
+            )
         # diff is clean -> eligible.
         self.assertTrue(decision["eligible"], decision["reasons"])
 

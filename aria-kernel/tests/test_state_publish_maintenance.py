@@ -26,11 +26,13 @@ import hashlib
 import io
 import json
 import os
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from aria_kernel import state_store
 from aria_kernel.ledger import append_declared_jsonl
+from aria_kernel import state_compact
 from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY, compact_state
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
@@ -121,6 +123,123 @@ class MaintenanceLaneTestCase(StateStoreTestCase):
     def _committed_governance_rows(store, ref: str = "HEAD") -> list[dict]:
         blob = _git(store.root, "show", f"{ref}:tools/governance.jsonl")
         return [json.loads(line) for line in blob.splitlines() if line.strip()]
+
+
+class ThePublishBoundsTheCompactableLedgers(MaintenanceLaneTestCase):
+    """ARIA-MEDIUM-230 — a ledger over the trigger is compacted below the cap
+    BEFORE the snapshot is built, in the preamble every publisher runs; a
+    compaction that fails or cannot get under the cap refuses by name.
+
+    The live shape (2026-09-21..26): the nightly restored a 57.5 MB
+    raw-findings ledger of 34,500 rows for 3,253 findings, added a cycle,
+    and its publish was refused `state_commit_surface_too_large:raw_findings`
+    every night; the cycle-end compaction never ran. The thresholds are
+    scaled down here; their real relation is pinned below.
+    """
+
+    TRIGGER = 32 * 1024
+    CAP = 64 * 1024
+
+    def _seed_raw_findings(self, store, *, findings: int, copies: int) -> int:
+        """`copies` runs re-recording the same `findings` — the live shape:
+        every cycle re-records the whole finding universe. Legacy-inline rows
+        (the finding travels on the row), so the publish's pointer verifier
+        has nothing to dereference."""
+        from aria_kernel.feedback_store import evidence_hash_for_finding
+        from aria_kernel.ledger import rewrite_declared_jsonl
+
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        def finding(index: int) -> dict:
+            return {
+                "id": f"doc-staleness:missing:docs/{index}.md",
+                "rule": "doc_references_missing_path",
+                "path": f"docs/{index}.md",
+                "message": f"docs/{index}.md references a surface that is gone",
+                "severity": "medium",
+            }
+
+        rows = [
+            {
+                "schema_version": 1,
+                "recorded_at": stamp,
+                "tool_id": "doc-staleness-adapter",
+                "run_id": f"run-{copy}",
+                "cycle_id": f"cyc-{copy}",
+                "finding_id": finding(index)["id"],
+                "finding_fingerprint": f"sha256:{index:064d}",
+                "evidence_hash": evidence_hash_for_finding(finding(index)),
+                "status": "raw",
+                "reason_code": "legacy_inline_or_sample_only",
+                "finding": finding(index),
+            }
+            for copy in range(copies)
+            for index in range(findings)
+        ]
+        path = tools_root(store) / "raw-findings.jsonl"
+        rewrite_declared_jsonl(path, rows, expected_surface="raw_findings", migration_id="test_seed")
+        return path.stat().st_size
+
+    def _bounds(self, **overrides):
+        values = {"COMPACTION_TRIGGER_BYTES": self.TRIGGER, "SNAPSHOT_MAX_SURFACE_BLOB_BYTES": self.CAP}
+        values.update(overrides)
+        stack = ExitStack()
+        for name, value in values.items():
+            stack.enter_context(mock.patch.object(state_compact, name, value))
+        return stack
+
+    def test_raw_findings_over_the_trigger_is_compacted_below_the_cap_before_publish(self) -> None:
+        store = self._bound_store()
+        before = self._seed_raw_findings(store, findings=20, copies=30)
+        self.assertGreater(before, self.CAP)
+
+        with self._bounds():
+            result = self._publish(store, "snap-1", "cycle-1")
+
+        self.assertTrue(result["published"])
+        compaction = result["prepared"].compaction
+        self.assertEqual(compaction["status"], "compacted")
+        self.assertIn("raw_findings", compaction["oversized"])
+        published = _git(store.root, "show", "HEAD:tools/raw-findings.jsonl")
+        self.assertLessEqual(len(published.encode("utf-8")), self.CAP)
+        rows = [json.loads(line) for line in published.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 20, "one row per fingerprint survives")
+        # The compaction that bounded it is inside the commit it bounded.
+        self.assertTrue(any(
+            row.get("kind") == COMPACTED_EVENT for row in self._committed_governance_rows(store)
+        ))
+
+    def test_a_ledger_under_the_trigger_is_left_alone(self) -> None:
+        store = self._bound_store()
+        self._seed_raw_findings(store, findings=5, copies=2)
+        with self._bounds():
+            result = self._publish(store, "snap-1", "cycle-1")
+        self.assertTrue(result["published"])
+        self.assertEqual(result["prepared"].compaction["status"], "not_needed")
+
+    def test_a_failed_compaction_refuses_the_publish_by_name(self) -> None:
+        store = self._bound_store()
+        self._seed_raw_findings(store, findings=20, copies=30)
+        head = _git(store.root, "rev-parse", "HEAD").strip()
+        with self._bounds(), mock.patch.object(
+            state_compact, "compact_state", side_effect=OSError("archive write failed"),
+        ), self.assertRaises(StateStoreRefusal) as caught:
+            self._publish(store, "snap-1", "cycle-1")
+        self.assertIn("state_publish_compaction_failed:OSError:archive write failed", str(caught.exception))
+        self.assertEqual(_git(store.root, "rev-parse", "HEAD").strip(), head)
+
+    def test_a_ledger_compaction_cannot_bound_refuses_by_name(self) -> None:
+        """Distinct findings do not collapse; still over the cap is a refusal
+        naming the surface and its size, not a push the host rejects."""
+        store = self._bound_store()
+        self._seed_raw_findings(store, findings=200, copies=1)
+        head = _git(store.root, "rev-parse", "HEAD").strip()
+        with self._bounds(), self.assertRaises(StateStoreRefusal) as caught:
+            self._publish(store, "snap-1", "cycle-1")
+        message = str(caught.exception)
+        self.assertIn("state_publish_surface_unbounded:compactable_surface_over_publish_cap:raw_findings=", message)
+        self.assertIn(f">{self.CAP}", message)
+        self.assertEqual(_git(store.root, "rev-parse", "HEAD").strip(), head)
 
 
 class CompactionAttestsWhatItPrunes(MaintenanceLaneTestCase):

@@ -29,9 +29,9 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.genesis_lifecycle import current_lifecycle_state
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.operator_provenance import record_operator_approval
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 AGENT = "aria-bridge-candidate"
 FIXTURE_ID = "F900-BRIDGE"
@@ -46,12 +46,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c4d-"))
         self.tools = ensure_tools_dir(self.tmp / "aria-tools")
         # agent_evals + fixture-run surfaces are strict-profile writes.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:c4d-bridge",
-            base_dir=self.tools,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.tools)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)

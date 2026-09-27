@@ -85,7 +85,7 @@ def compute_auto_promote_token(
       consumed by ``tool_registry.transition_tool(..., auto_promote_token=<token>)``
       which re-verifies the MAC and the tool binding at consume time
       (ORPHAN-HIGH-787) and treats it as equivalent to
-      ``operator_approval=True`` ONLY when ``evidence_chains_valid=True``
+      a resolved ``operator_approval_ref`` ONLY when ``evidence_chains_valid=True``
       (literal predicate pinned by I-V6.4-04).
 
     Raises:

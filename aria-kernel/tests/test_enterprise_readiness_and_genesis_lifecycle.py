@@ -27,6 +27,7 @@ from aria_kernel.genesis_lifecycle import current_lifecycle_state, record_transi
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.published_artifacts import PublishedArtifacts
 
 
 class GenesisLifecycleReducerTests(unittest.TestCase):
@@ -89,21 +90,23 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         self.tools = Path(self.tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
         self._source_ref_cache: dict[str, dict] = {}
+        # ARIA-HIGH-218 — the rollback bundle is a published Actions artifact
+        # the verifier downloads; this store serves it.
+        self.artifacts = PublishedArtifacts(repo="example/aqua")
+        self.rollback_artifact_id = self.artifacts.publish(
+            {"rollback-aaaaaaaaaaaa.bundle": b"# v2 git bundle\nfixture\n"},
+        )
+        serving = self.artifacts.serve()
+        serving.start()
+        self.addCleanup(serving.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def _ready_claim(self, *, readiness_claim_id: str = "ready-42") -> dict:
         (self.tools / "evidence-bundle.json").write_text('{"ok":true}\n', encoding="utf-8")
-        (self.tools / "rollback-source.json").write_text('{"source":true}\n', encoding="utf-8")
-        (self.tools / "rollback-archive.json").write_text('{"archive":true}\n', encoding="utf-8")
-        (self.tools / "retention-source.json").write_text('{"source":true}\n', encoding="utf-8")
-        (self.tools / "retention-archive.json").write_text('{"archive":true}\n', encoding="utf-8")
         digest = self._sha(self.tools / "evidence-bundle.json")
-        rollback_source = self._sha(self.tools / "rollback-source.json")
-        rollback_archive = self._sha(self.tools / "rollback-archive.json")
-        retention_source = self._sha(self.tools / "retention-source.json")
-        retention_archive = self._sha(self.tools / "retention-archive.json")
+        published = self.artifacts.references(self.rollback_artifact_id, "rollback-aaaaaaaaaaaa.bundle")
         pr_number = 42
         repo = "example/aqua"
         target_ref = "refs/heads/main"
@@ -127,14 +130,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "head_sha": head_sha,
             "readiness_claim_id": readiness_claim_id,
         }
-        cas = {
-            **common,
-            "state": "fresh",
-            "lease_id": "lease-1",
-            "epoch": 1,
-            "expires_at": "2999-06-02T00:00:00Z",
-            "source_ledger_ref": self._source_ref("cas"),
-        }
         branch = {
             **common,
             "$schema": "aria/branch-protection-proof/v3",
@@ -149,6 +144,9 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "conversation_resolution_required": True,
             "ruleset_ids": [1],
             "bypass_actors": [],
+            # ARIA-HIGH-221 — main requires a squash merge queue.
+            "merge_queue_required": True,
+            "merge_queue_merge_method": "SQUASH",
             "force_push_disabled": True,
             "delete_branch_disabled": True,
             "source_ledger_ref": self._source_ref("branch"),
@@ -157,21 +155,15 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             **common,
             "validated": True,
             "rollback_proof_id": "rollback-1",
-            "source_uri": "rollback-source.json",
-            "archive_uri": "rollback-archive.json",
-            "source_sha256": rollback_source,
-            "archive_sha256": rollback_archive,
+            **published,
             "source_ledger_ref": self._source_ref("rollback"),
         }
         retention = {
             **common,
             "validated": True,
             "retention_proof_id": "retention-1",
-            "source_uri": "retention-source.json",
-            "archive_uri": "retention-archive.json",
-            "source_sha256": retention_source,
-            "archive_sha256": retention_archive,
-            "retention_days": 365,
+            **published,
+            "retention_days": 30,
             "source_ledger_ref": self._source_ref("retention"),
         }
         dlp = {
@@ -223,7 +215,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "evidence_bundle": {"path": "evidence-bundle.json"},
             "workflow_run_ids": ["123"],
             "artifact_refs": [artifact_ref],
-            "remote_cas_proof": cas,
             "rollback_proof": rollback,
             "retention_proof": retention,
             "waiver_ledger": {"open_expired_waivers": [], "source_ledger_ref": self._source_ref("waiver")},
@@ -262,7 +253,6 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
     def _record_ready_proofs(self, claim: dict) -> None:
         artifact_ref = claim["artifact_refs"][0]
         digest = artifact_ref["sha256"]
-        record_remote_cas_proof(claim["remote_cas_proof"], base_dir=self.tools)
         record_branch_protection_proof(claim["branch_protection_proof"], base_dir=self.tools)
         record_rollback_proof(claim["rollback_proof"], base_dir=self.tools)
         record_retention_proof(claim["retention_proof"], base_dir=self.tools)
@@ -353,7 +343,7 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             base_dir=self.tools,
         )
         self.assertFalse(verdict.valid)
-        self.assertIn("remote_cas_proof_required", verdict.failure_classes)
+        self.assertIn("rollback_proof_required", verdict.failure_classes)
         self.assertIn("artifact_refs_untrusted", verdict.failure_classes)
 
     def test_verify_rejects_missing_live_pr_head_and_target(self) -> None:
@@ -389,16 +379,34 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "duplicate_readiness_claim_id"):
             record_enterprise_readiness_claim(claim, base_dir=self.tools)
 
-    def test_remote_cas_proof_requires_source_ledger_ref(self) -> None:
+    def _cas_proof(self) -> dict:
+        # ARIA-HIGH-219 — the lease is taken at merge, not carried by the
+        # claim; its proof row is still bound to the claim it merged under.
         claim = self._ready_claim()
-        proof = dict(claim["remote_cas_proof"])
+        return {
+            **{key: claim[key] for key in (
+                "repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id",
+            )},
+            "state": "fresh",
+            "lease_id": "lease-1",
+            "epoch": 1,
+            "expires_at": "2999-06-02T00:00:00Z",
+            "source_ledger_ref": self._source_ref("cas"),
+        }
+
+    def test_the_claim_carries_no_lease(self) -> None:
+        claim = self._ready_claim()
+        self.assertNotIn("remote_cas_proof", claim)
+        self.assertTrue(evaluate_enterprise_readiness_claim(claim).valid)
+
+    def test_remote_cas_proof_requires_source_ledger_ref(self) -> None:
+        proof = self._cas_proof()
         proof.pop("source_ledger_ref")
         with self.assertRaisesRegex(GovernanceError, "requires_source_ledger_ref"):
             record_remote_cas_proof(proof, base_dir=self.tools)
 
     def test_source_ledger_ref_must_resolve_to_declared_row(self) -> None:
-        claim = self._ready_claim()
-        proof = dict(claim["remote_cas_proof"])
+        proof = self._cas_proof()
         proof["source_ledger_ref"] = {
             "surface": "ci_source",
             "ledger_path": "ci/source.jsonl",
@@ -479,7 +487,8 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
     def test_rollback_byte_mismatch_rejected(self) -> None:
         claim = self._ready_claim()
         self._record_ready_proofs(claim)
-        (self.tools / "rollback-source.json").write_text('{"mutated":true}\n', encoding="utf-8")
+        # The published artifact is not what the proofs pinned any more.
+        self.artifacts.replace_bytes(self.rollback_artifact_id, b"PK\x05\x06" + b"\x00" * 18)
         record_enterprise_readiness_claim(claim, base_dir=self.tools)
 
         class Adapter:

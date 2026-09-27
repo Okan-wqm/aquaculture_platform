@@ -41,6 +41,14 @@ can never ride the narrow lane.
    operator-approved scope, `blocked_globs` (secrets/billing/terraform/env)
    are checked before any lane, mixed-lane diffs classify `blocked`, and any
    path outside every lane classifies `blocked` (`risk_unknown_path`).
+
+   > **Amended 2026-09-26 (plan 037, `docs/aria/plans/037-merge-lane-review.md`).** The
+   > glob set above was wider than the operator-approved scope: it admitted edits to existing
+   > tests and paths no CI gate reaches. L1 is now an explicit allowlist in which every entry
+   > names the git statuses it admits: `docs/**/*.md` (added or modified) and unit-test files
+   > under `apps/`, `libs/` and `web/` (added only). A changed or deleted test is L2, a path with
+   > no known status is refused (`risk_change_status_unknown`), a rename is classified by its
+   > source and its target, and CODEOWNERS paths are never L1. `risk_policy.py` is the owner.
 2. **`auto_merge_candidate_lanes` stays `["L1"]`** — risk-L1 is the only
    auto-merge candidate class.
 3. **Activation is a deliberate operator ceremony, never a side effect.**

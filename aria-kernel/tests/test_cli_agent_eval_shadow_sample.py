@@ -21,8 +21,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from aria_kernel.cli import main as cli_main
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class CliShadowSampleTests(unittest.TestCase):
@@ -32,12 +32,7 @@ class CliShadowSampleTests(unittest.TestCase):
         ensure_tools_dir(self.tools)
         # sample_shadow_raw_findings writes governance events; needs
         # strict profile.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:plan-023-d1",
-            base_dir=self.tools,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.tools)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)

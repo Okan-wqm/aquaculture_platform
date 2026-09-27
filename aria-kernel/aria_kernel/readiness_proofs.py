@@ -54,6 +54,10 @@ BP_SNAPSHOTS_SURFACE = "enterprise_branch_protection_snapshots"
 BP_SNAPSHOTS_LEDGER_PATH = "enterprise/branch-protection-snapshots.jsonl"
 BP_SNAPSHOT_ROW_TYPE = "branch_protection_snapshot"
 BRANCH_PROTECTION_PROOF_SCHEMA = "aria/branch-protection-proof/v3"
+# ARIA-HIGH-210 — on-demand (PR-less) protection verdicts.
+BP_PROBES_SURFACE = "enterprise_branch_protection_probes"
+BP_PROBES_LEDGER_PATH = "enterprise/branch-protection-probes.jsonl"
+BP_PROBE_ROW_TYPE = "branch_protection_probe"
 
 # F5-d (ORPHAN-694) — remote-cas lease snapshot surface (family convention:
 # one snapshot ledger per proof family, matching the per-family proof
@@ -315,7 +319,88 @@ def _measured_protection_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "conversation_resolution_required": enabled("required_conversation_resolution"),
         "force_push_disabled": not enabled("allow_force_pushes"),
         "delete_branch_disabled": not enabled("allow_deletions"),
+        # ARIA-HIGH-221 — recorded, not required: the merge queue carries the
+        # up-to-date guarantee (preflight.REQUIRED_MERGE_QUEUE_METHOD).
+        "strict_up_to_date_required": (
+            isinstance(checks_block, dict) and checks_block.get("strict") is True
+        ),
     }
+
+
+def _measure_branch_protection(
+    *,
+    repo: str,
+    branch: str,
+    base_dir: str | Path | None,
+    probe: Any,
+    rules_probe: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Probe → snapshot row → the measured, binding-free proof body.
+
+    The one measurement both the PR-bound producer and the on-demand
+    probe run (ARIA-HIGH-210): returns ``(snapshot_row, proof_body)``.
+    Fails closed: no payload → no snapshot → GovernanceError.
+    """
+    from .preflight import merge_queue_reasons
+
+    if probe is None:
+        from .preflight import probe_branch_protection as probe
+    if rules_probe is None:
+        rules_probe = _probe_branch_rules
+
+    ok, reasons, payload = probe(branch=branch, repo=repo)
+    if payload is None:
+        raise GovernanceError(
+            f"branch_protection_probe_no_payload: {';'.join(reasons) or 'unknown'}"
+        )
+    root = ensure_tools_dir(base_dir)
+    snapshot = record_branch_protection_snapshot(
+        payload, repo=repo, branch=branch,
+        probe_ok=ok, probe_reasons=reasons, base_dir=root,
+    )
+    source_ledger_ref = ledger_ref_for_row(
+        surface=BP_SNAPSHOTS_SURFACE,
+        ledger_path=BP_SNAPSHOTS_LEDGER_PATH,
+        row_id=str(snapshot["row_id"]),
+        row_type=str(snapshot["row_type"]),
+        row=snapshot,
+    )
+    ruleset_ids, bypass_actors, merge_queue = rules_probe(repo=repo, branch=branch)
+    # ARIA-HIGH-207 — the bypass-actor verdict is part of the proof's own
+    # validity, named like every other probe reason: an unmeasured field
+    # (None) and a measured non-empty list are both red; only a measured
+    # empty list is green.
+    queue_reasons = merge_queue_reasons(merge_queue)
+    reasons = (*reasons, *_bypass_actor_reasons(bypass_actors), *queue_reasons)
+    measured = _measured_protection_fields(payload)
+    body: dict[str, Any] = {
+        "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
+        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS,
+        # the merge queue (ARIA-HIGH-221) AND the exact-checks comparison
+        # the claim gate will re-run — recorded here so a red proof names
+        # itself before any claim reads it.
+        "valid": bool(
+            ok
+            and bypass_actors == []
+            and not queue_reasons
+            and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
+        ),
+        "snapshot_hash": snapshot["payload_hash"],
+        "ruleset_ids": list(ruleset_ids),
+        "bypass_actors": None if bypass_actors is None else list(bypass_actors),
+        # ARIA-HIGH-221 — the queue main requires, measured from its rules.
+        "merge_queue_required": merge_queue is not None,
+        "merge_queue_merge_method": (
+            None if merge_queue is None else merge_queue.get("merge_method")
+        ),
+        "merge_queue_ruleset_id": (
+            None if merge_queue is None else merge_queue.get("ruleset_id")
+        ),
+        "probe_reasons": list(reasons),
+        "source_ledger_ref": source_ledger_ref,
+        **measured,
+    }
+    return snapshot, body
 
 
 def produce_branch_protection_proof(
@@ -333,8 +418,9 @@ def produce_branch_protection_proof(
     """Probe → snapshot row → measured proof row.
 
     ``probe`` defaults to ``preflight.probe_branch_protection`` (the ONE
-    probe, İ1); ``rules_probe`` supplies ``(ruleset_ids, bypass_actors)``
-    for the branch and defaults to the gh-api rules probe below. Both are
+    probe, İ1); ``rules_probe`` supplies ``(ruleset_ids, bypass_actors,
+    merge_queue)`` for the branch and defaults to the gh-api rules probe
+    below. Both are
     injectable so tests exercise the producer without network.
 
     Fails closed: no payload → no snapshot → no proof. A probe that
@@ -343,50 +429,17 @@ def produce_branch_protection_proof(
     the honest split between measurement and policy.
     """
     _require_binding(pr_number=pr_number, repo=repo, target_ref=target_ref, head_ref=head_ref, head_sha=head_sha)
-    if probe is None:
-        from .preflight import probe_branch_protection as probe
-    if rules_probe is None:
-        rules_probe = _probe_branch_rules
-
-    ok, reasons, payload = probe(branch=target_ref, repo=repo)
-    if payload is None:
-        raise GovernanceError(
-            f"branch_protection_probe_no_payload: {';'.join(reasons) or 'unknown'}"
-        )
     root = ensure_tools_dir(base_dir)
-    snapshot = record_branch_protection_snapshot(
-        payload, repo=repo, branch=target_ref,
-        probe_ok=ok, probe_reasons=reasons, base_dir=root,
+    snapshot, body = _measure_branch_protection(
+        repo=repo, branch=target_ref, base_dir=root, probe=probe, rules_probe=rules_probe,
     )
-    source_ledger_ref = ledger_ref_for_row(
-        surface=BP_SNAPSHOTS_SURFACE,
-        ledger_path=BP_SNAPSHOTS_LEDGER_PATH,
-        row_id=str(snapshot["row_id"]),
-        row_type=str(snapshot["row_type"]),
-        row=snapshot,
-    )
-    ruleset_ids, bypass_actors = rules_probe(repo=repo, branch=target_ref)
-    measured = _measured_protection_fields(payload)
     proof: dict[str, Any] = {
-        "$schema": BRANCH_PROTECTION_PROOF_SCHEMA,
         "repo": repo,
         "pr_number": pr_number,
         "target_ref": target_ref,
         "head_ref": head_ref,
         "head_sha": head_sha,
-        # valid is the probe verdict over REQUIRED_BRANCH_PROTECTION_FIELDS
-        # AND the exact-checks comparison the claim gate will re-run —
-        # recorded here so a red proof names itself before any claim reads it.
-        "valid": bool(
-            ok
-            and sorted(measured["required_checks"]) == sorted(REQUIRED_MERGE_STATUS_CHECKS)
-        ),
-        "snapshot_hash": snapshot["payload_hash"],
-        "ruleset_ids": list(ruleset_ids),
-        "bypass_actors": list(bypass_actors),
-        "probe_reasons": list(reasons),
-        "source_ledger_ref": source_ledger_ref,
-        **measured,
+        **body,
     }
     if readiness_claim_id is not None:
         proof["readiness_claim_id"] = readiness_claim_id
@@ -397,19 +450,91 @@ def produce_branch_protection_proof(
         "snapshot": snapshot,
         "proof": recorded,
         "valid": recorded.get("valid"),
-        "probe_reasons": list(reasons),
+        "probe_reasons": list(body["probe_reasons"]),
     }
 
 
-def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[list[int], list[dict[str, Any]]]:
-    """gh-api rules probe: (active ruleset ids, aggregated bypass actors).
+def probe_branch_protection_on_demand(
+    *,
+    repo: str,
+    branch: str = "main",
+    base_dir: str | Path | None = None,
+    probe: Any = None,
+    rules_probe: Any = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-210 — measure a branch's protection with no PR in hand.
+
+    Runs the claim producer's own measurement (``_measure_branch_protection``)
+    and judges it with the claim gate's own policy
+    (``branch_protection_policy_reasons``), so the operator sees, before any
+    PR exists, the exact verdict a readiness claim would receive. The result
+    is a declared observation row: a probe proves nothing about a PR head,
+    so it never enters the PR-bound proof ledger the claim gate binds to.
+    """
+    from .enterprise_readiness import branch_protection_policy_reasons
+
+    if not isinstance(repo, str) or not repo.strip():
+        raise GovernanceError("branch_protection_probe_binding_required:repo")
+    if not isinstance(branch, str) or not branch.strip():
+        raise GovernanceError("branch_protection_probe_binding_required:branch")
+    root = ensure_tools_dir(base_dir)
+    _snapshot, body = _measure_branch_protection(
+        repo=repo, branch=branch, base_dir=root, probe=probe, rules_probe=rules_probe,
+    )
+    policy_reasons = branch_protection_policy_reasons(body)
+    reasons = list(dict.fromkeys([*body["probe_reasons"], *policy_reasons]))
+    recorded_at = utc_now()
+    row = {
+        "schema_version": 1,
+        "recorded_at": recorded_at,
+        "row_id": f"bp-probe:{repo}:{branch}:{body['snapshot_hash'][len('sha256:'):][:12]}:{recorded_at}",
+        "row_type": BP_PROBE_ROW_TYPE,
+        "repo": repo,
+        "branch": branch,
+        "valid": not policy_reasons,
+        "reasons": reasons,
+        "proof": body,
+    }
+    return append_declared_jsonl(
+        root / BP_PROBES_LEDGER_PATH, row,
+        expected_surface=BP_PROBES_SURFACE,
+    )
+
+
+BYPASS_ACTORS_UNMEASURED = "bypass_actors_unmeasured"
+BYPASS_ACTORS_PRESENT = "bypass_actors_present"
+
+
+def _bypass_actor_reasons(bypass_actors: list[dict[str, Any]] | None) -> tuple[str, ...]:
+    if bypass_actors is None:
+        return (BYPASS_ACTORS_UNMEASURED,)
+    if bypass_actors:
+        return (BYPASS_ACTORS_PRESENT,)
+    return ()
+
+
+def _probe_branch_rules(
+    *, repo: str, branch: str, gh_cli: str = "gh",
+) -> tuple[list[int], list[dict[str, Any]] | None, dict[str, Any] | None]:
+    """gh-api rules probe: (active ruleset ids, aggregated bypass actors,
+    the merge-queue rule or None).
 
     Read-only, best-effort on the ID list (an empty result is recorded as
     empty and the claim gate decides), but a FAILURE to reach the API is
     an exception — silence must never read as "no bypass actors".
+
+    ARIA-HIGH-207 — GitHub omits ``bypass_actors`` from a ruleset detail
+    when the token cannot read it. A ruleset whose field is absent or not a
+    list makes the aggregate ``None`` (unmeasured), never ``[]``.
+
+    ARIA-HIGH-221 — the same listing carries the branch's ``merge_queue``
+    rule (``preflight.merge_queue_rule``); the preflight and the readiness
+    proof both read the queue from here.
     """
     import json
     import subprocess
+
+    from .preflight import merge_queue_rule
 
     proc = subprocess.run(
         [gh_cli, "api", f"repos/{repo}/rules/branches/{branch}"],
@@ -420,8 +545,11 @@ def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[
             f"branch_rules_probe_failed: {proc.stderr.strip().splitlines()[0][:200] if proc.stderr else '<empty>'}"
         )
     rules = json.loads(proc.stdout)
+    if not isinstance(rules, list):
+        raise GovernanceError("branch_rules_probe_failed: rules listing is not a list")
     ruleset_ids = sorted({int(rule["ruleset_id"]) for rule in rules if isinstance(rule, dict) and "ruleset_id" in rule})
     bypass_actors: list[dict[str, Any]] = []
+    unmeasured = False
     for ruleset_id in ruleset_ids:
         detail_proc = subprocess.run(
             [gh_cli, "api", f"repos/{repo}/rulesets/{ruleset_id}"],
@@ -430,9 +558,12 @@ def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[
         if detail_proc.returncode != 0:
             raise GovernanceError(f"ruleset_detail_probe_failed:{ruleset_id}")
         detail = json.loads(detail_proc.stdout)
-        for actor in detail.get("bypass_actors") or []:
-            bypass_actors.append(actor)
-    return ruleset_ids, bypass_actors
+        actors = detail.get("bypass_actors") if isinstance(detail, dict) else None
+        if not isinstance(actors, list):
+            unmeasured = True
+            continue
+        bypass_actors.extend(actors)
+    return ruleset_ids, (None if unmeasured else bypass_actors), merge_queue_rule(rules)
 
 
 # --------------------------------------------------------------------------
@@ -444,6 +575,13 @@ def _probe_branch_rules(*, repo: str, branch: str, gh_cli: str = "gh") -> tuple[
 # was a museum piece. This producer is its first caller: acquiring (or
 # same-owner refreshing) the lease IS the evidence, snapshotted to a
 # ledger row the proof's source ref resolves into.
+#
+# ARIA-HIGH-219 — its caller is the merge authority, at the point of merge
+# (`merge_authority.merge_pr_if_ready`, after the pre-merge perimeter and
+# immediately before the merge call). It used to run inside the claim
+# assembler, which put a five-minute lease inside a claim that is fixed per
+# (PR, head): every head whose required checks finished later than that
+# could never merge.
 # --------------------------------------------------------------------------
 
 
@@ -526,13 +664,28 @@ def produce_remote_cas_proof(
 #
 # WHY: `record_rollback_proof` / `record_retention_proof` had no producer,
 # and nothing in the repo ever BUILT a restore artifact — the claim's
-# "we can undo this merge" assertion had no bytes behind it. This
-# producer creates a REAL `git bundle` of the target ref, verifies it
-# with git's own verifier (the simulation is git, not a flag), archives
-# a byte-identical copy under the retention store, and mints both
-# proofs from measured digests. Equal source/archive sha256 pairs are
-# the faithful-archival proof; `git bundle verify` exit 0 is the
-# restore-simulation proof.
+# "we can undo this merge" assertion had no bytes behind it. The claim lane
+# creates a REAL `git bundle` of the target ref and verifies it with git's
+# own verifier (the simulation is git, not a flag).
+#
+# ARIA-HIGH-218 — and PUBLISHES it where the merge lane can re-hash it. The
+# bundle and its retention copy used to live under the tools root
+# (`enterprise/rollback-artifacts/`, `.archive/rollback/`), paths no state
+# surface declares, so they never reached aria/state and the merge lane's
+# verifier re-hashed files its host never had. A bundle of `main` is the
+# repository's whole history — too large for the state branch (the
+# snapshot's per-blob cap and GitHub's per-file limit) and forever in its
+# history — so it rides the `artifact` class's rule instead: the record
+# pins the sha256, the bytes live elsewhere. The claim lane uploads the
+# bundle as a GitHub Actions artifact (`aria-readiness-claim.yml`, retention
+# DEFAULT_ROLLBACK_RETENTION_DAYS), downloads it back through the API
+# (`actions_artifacts.fetch_actions_artifact`), and this producer proves the
+# PUBLISHED bytes: the bundle member of the downloaded zip must be the
+# bundle it built, `git bundle verify` runs on that member, and GitHub's own
+# retention for the artifact must cover the declared days. Both proofs name
+# the artifact by reference — `actions-artifact:<repo>/<id>` (the zip, its
+# sha256) and `...#<bundle>` (the bundle, its sha256) — and the merge lane
+# verifies them by download (`enterprise_readiness`).
 # --------------------------------------------------------------------------
 
 ROLLBACK_BUNDLES_SURFACE = "enterprise_rollback_bundles"
@@ -540,6 +693,9 @@ ROLLBACK_BUNDLES_LEDGER_PATH = "enterprise/rollback-bundles.jsonl"
 RETENTION_EVENTS_SURFACE = "retention_events"
 RETENTION_EVENTS_LEDGER_PATH = "retention/events.jsonl"
 DEFAULT_ROLLBACK_RETENTION_DAYS = 30
+# GitHub stamps an artifact's expiry from its upload; a retention that falls
+# short of the declared days by more than this is not the retention declared.
+_RETENTION_MEASUREMENT_TOLERANCE_DAYS = 1.0 / 24.0
 
 
 def _sha256_file(path: Path) -> str:
@@ -553,6 +709,125 @@ def _sha256_file(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def rollback_bundle_name(head_sha: str) -> str:
+    return f"rollback-{head_sha[:12]}.bundle"
+
+
+def build_rollback_bundle(
+    *,
+    target_ref: str,
+    head_sha: str,
+    workspace_root: str | Path,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    """Create and git-verify the bundle of ``target_ref`` the claim lane publishes.
+
+    Written to ``output_dir`` — the lane's RUNNER_TEMP directory, never the
+    tools root: the bytes are published as an Actions artifact, and only
+    their references and digests enter the ledgers.
+    """
+    import subprocess
+
+    if not isinstance(target_ref, str) or not target_ref.strip():
+        raise GovernanceError("rollback_bundle_target_ref_required")
+    if not isinstance(head_sha, str) or len(head_sha) < 12:
+        raise GovernanceError("rollback_bundle_head_sha_required")
+    workspace = Path(workspace_root).resolve()
+    directory = Path(output_dir).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    bundle_path = directory / rollback_bundle_name(head_sha)
+    create = subprocess.run(
+        ["git", "bundle", "create", str(bundle_path), target_ref],
+        cwd=workspace, capture_output=True, text=True, check=False,
+    )
+    if create.returncode != 0 or not bundle_path.exists():
+        raise GovernanceError(
+            f"rollback_bundle_create_failed: {create.stderr.strip().splitlines()[-1][:200] if create.stderr else create.returncode}"
+        )
+    _git_bundle_verify(bundle_path, workspace)
+    return {
+        "bundle_name": bundle_path.name,
+        "bundle_path": bundle_path.as_posix(),
+        "bundle_sha256": _sha256_file(bundle_path),
+        "target_ref": target_ref,
+        "head_sha": head_sha,
+    }
+
+
+def _git_bundle_verify(bundle_path: Path, workspace: Path) -> str:
+    import subprocess
+
+    verify = subprocess.run(
+        ["git", "bundle", "verify", str(bundle_path)],
+        cwd=workspace, capture_output=True, text=True, check=False,
+    )
+    if verify.returncode != 0:
+        raise GovernanceError(
+            f"rollback_bundle_verify_failed: {verify.stderr.strip().splitlines()[-1][:200] if verify.stderr else verify.returncode}"
+        )
+    return (verify.stderr or verify.stdout or "").strip()[-400:]
+
+
+def fetch_published_artifact(
+    *,
+    repo: str,
+    artifact_id: str,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    """Download a published artifact through the API and keep a local copy.
+
+    The claim lane's download step: the zip lands in ``output_dir`` beside a
+    JSON record of what GitHub said the artifact is; the claim assembler
+    reads the pair back with :func:`load_published_artifact`. One download
+    implementation (``actions_artifacts.fetch_actions_artifact``) serves this
+    step and the merge lane's verifier.
+    """
+    import json
+
+    from . import actions_artifacts
+
+    fetched = actions_artifacts.fetch_actions_artifact(repo=repo, artifact_id=str(artifact_id))
+    directory = Path(output_dir).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    zip_path = directory / f"artifact-{fetched.artifact_id}.zip"
+    zip_path.write_bytes(fetched.zip_bytes)
+    record = {
+        "repo": fetched.repo,
+        "artifact_id": fetched.artifact_id,
+        "name": fetched.name,
+        "created_at": fetched.created_at,
+        "expires_at": fetched.expires_at,
+        "workflow_run_id": fetched.workflow_run_id,
+        "zip_path": zip_path.as_posix(),
+        "zip_sha256": fetched.zip_sha256,
+    }
+    (directory / f"artifact-{fetched.artifact_id}.json").write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+    )
+    return record
+
+
+def load_published_artifact(record: dict[str, Any]) -> Any:
+    """The downloaded artifact a :func:`fetch_published_artifact` record names."""
+    from .actions_artifacts import FetchedArtifact
+
+    zip_path = Path(str(record.get("zip_path") or ""))
+    if not zip_path.is_file():
+        raise GovernanceError(f"published_artifact_zip_missing:{zip_path}")
+    fetched = FetchedArtifact(
+        repo=str(record.get("repo") or ""),
+        artifact_id=str(record.get("artifact_id") or ""),
+        name=str(record.get("name") or ""),
+        created_at=str(record.get("created_at") or ""),
+        expires_at=str(record.get("expires_at") or ""),
+        workflow_run_id=str(record.get("workflow_run_id") or ""),
+        zip_bytes=zip_path.read_bytes(),
+    )
+    if fetched.zip_sha256 != record.get("zip_sha256"):
+        raise GovernanceError(f"published_artifact_zip_changed:{zip_path}")
+    return fetched
+
+
 def produce_rollback_and_retention_proofs(
     *,
     pr_number: int,
@@ -562,59 +837,66 @@ def produce_rollback_and_retention_proofs(
     head_sha: str,
     readiness_claim_id: str,
     workspace_root: str | Path,
+    bundle: dict[str, Any],
+    published: Any,
     retention_days: int = DEFAULT_ROLLBACK_RETENTION_DAYS,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build, verify, archive and prove the merge's undo artifact.
+    """Prove the PUBLISHED undo artifact and record both proofs by reference.
 
+    ``bundle`` is what :func:`build_rollback_bundle` built (its name and
+    sha256); ``published`` is the Actions artifact carrying it, as downloaded
+    back through the API (``actions_artifacts.FetchedArtifact``).
     ``readiness_claim_id`` is REQUIRED (not optional as in the other
     families): the rollback-bundle ledger row demands it, so F5-g
     pre-allocates the claim id deterministically and threads it here
     before the claim row itself is minted.
     """
-    import shutil
-    import subprocess
+    import hashlib
+    import tempfile
+
+    from .actions_artifacts import actions_artifact_uri, artifact_member
 
     _require_binding(pr_number=pr_number, repo=repo, target_ref=target_ref, head_ref=head_ref, head_sha=head_sha)
     if not isinstance(readiness_claim_id, str) or not readiness_claim_id.strip():
         raise GovernanceError("rollback_proof_readiness_claim_id_required")
     if not isinstance(retention_days, int) or isinstance(retention_days, bool) or retention_days <= 0:
         raise GovernanceError("retention_days_must_be_positive_int")
+    bundle_name = str(bundle.get("bundle_name") or "")
+    bundle_sha256 = str(bundle.get("bundle_sha256") or "")
+    if bundle_name != rollback_bundle_name(head_sha) or not bundle_sha256.startswith("sha256:"):
+        raise GovernanceError("rollback_bundle_identity_required")
     root = ensure_tools_dir(base_dir)
     workspace = Path(workspace_root).resolve()
 
-    bundle_dir = root / "enterprise" / "rollback-artifacts"
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path = bundle_dir / f"rollback-{head_sha[:12]}.bundle"
-    create = subprocess.run(
-        ["git", "bundle", "create", str(bundle_path), target_ref],
-        cwd=workspace, capture_output=True, text=True, check=False,
-    )
-    if create.returncode != 0 or not bundle_path.exists():
+    # The published member must BE the bundle the lane built, byte for byte.
+    member_bytes = artifact_member(published, bundle_name)
+    source_sha256 = "sha256:" + hashlib.sha256(member_bytes).hexdigest()
+    if source_sha256 != bundle_sha256:
         raise GovernanceError(
-            f"rollback_bundle_create_failed: {create.stderr.strip().splitlines()[-1][:200] if create.stderr else create.returncode}"
+            f"rollback_artifact_member_mismatch: built={bundle_sha256} published={source_sha256}"
         )
-    verify = subprocess.run(
-        ["git", "bundle", "verify", str(bundle_path)],
-        cwd=workspace, capture_output=True, text=True, check=False,
-    )
-    if verify.returncode != 0:
+    # The restore simulation runs on the PUBLISHED bytes, not the local copy.
+    with tempfile.TemporaryDirectory(prefix="aria-rollback-verify-") as scratch:
+        published_bundle = Path(scratch) / bundle_name
+        published_bundle.write_bytes(member_bytes)
+        verifier_output_tail = _git_bundle_verify(published_bundle, workspace)
+    measured_retention = published.retention_days()
+    if measured_retention + _RETENTION_MEASUREMENT_TOLERANCE_DAYS < retention_days:
         raise GovernanceError(
-            f"rollback_bundle_verify_failed: {verify.stderr.strip().splitlines()[-1][:200] if verify.stderr else verify.returncode}"
+            f"rollback_artifact_retention_short: measured={measured_retention:.2f}d "
+            f"declared={retention_days}d"
         )
-    source_sha256 = _sha256_file(bundle_path)
-
-    # Claim ids carry ':'; a path segment with ':' round-trips through
-    # file:// URIs as %3A and breaks any consumer that joins the two.
-    safe_claim_segment = readiness_claim_id.replace(":", "-")
-    archive_path = root / ".archive" / "rollback" / safe_claim_segment / bundle_path.name
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(bundle_path, archive_path)
-    archive_sha256 = _sha256_file(archive_path)
-    if archive_sha256 != source_sha256:
-        raise GovernanceError(
-            f"rollback_archive_digest_mismatch: source={source_sha256} archive={archive_sha256}"
-        )
+    archive_sha256 = published.zip_sha256
+    source_uri = actions_artifact_uri(published.repo, published.artifact_id, bundle_name)
+    archive_uri = actions_artifact_uri(published.repo, published.artifact_id)
+    publication = {
+        "artifact_id": published.artifact_id,
+        "artifact_name": published.name,
+        "artifact_repo": published.repo,
+        "artifact_expires_at": published.expires_at,
+        "artifact_workflow_run_id": published.workflow_run_id,
+    }
 
     binding = {
         "repo": repo,
@@ -624,10 +906,6 @@ def produce_rollback_and_retention_proofs(
         "head_sha": head_sha,
         "readiness_claim_id": readiness_claim_id,
     }
-    # The claim verifier RE-READS these uris relative to the tools root and
-    # re-hashes the bytes — absolute paths and file:// schemes are rejected.
-    source_uri = bundle_path.relative_to(root).as_posix()
-    archive_uri = archive_path.relative_to(root).as_posix()
     from .rollback_bundle import record_rollback_bundle, record_rollback_simulation
 
     bundle_row = record_rollback_bundle(
@@ -637,6 +915,7 @@ def produce_rollback_and_retention_proofs(
             "rollback_plan_sha256": source_sha256,
             "source_uri": source_uri,
             "archive_uri": archive_uri,
+            **publication,
         },
         base_dir=root,
     )
@@ -647,7 +926,8 @@ def produce_rollback_and_retention_proofs(
             "rollback_bundle_id": bundle_row["rollback_bundle_id"],
             "status": "passed",
             "verifier": "git bundle verify",
-            "verifier_output_tail": (verify.stderr or verify.stdout or "").strip()[-400:],
+            "verifier_input": source_uri,
+            "verifier_output_tail": verifier_output_tail,
         },
         base_dir=root,
     )
@@ -669,6 +949,7 @@ def produce_rollback_and_retention_proofs(
             "archive_uri": archive_uri,
             "source_sha256": source_sha256,
             "archive_sha256": archive_sha256,
+            **publication,
             "source_ledger_ref": bundle_ref,
         },
         base_dir=root,
@@ -684,6 +965,8 @@ def produce_rollback_and_retention_proofs(
             "artifact_uri": archive_uri,
             "artifact_sha256": archive_sha256,
             "retention_days": retention_days,
+            "measured_retention_days": round(measured_retention, 4),
+            **publication,
             **binding,
         },
         expected_surface=RETENTION_EVENTS_SURFACE,
@@ -705,6 +988,7 @@ def produce_rollback_and_retention_proofs(
             "archive_uri": archive_uri,
             "source_sha256": source_sha256,
             "archive_sha256": archive_sha256,
+            **publication,
             "source_ledger_ref": retention_ref,
         },
         base_dir=root,
@@ -1076,6 +1360,20 @@ def allocate_readiness_claim_id(*, pr_number: int, head_sha: str) -> str:
     return f"claim:{pr_number}:{head_sha[:12]}"
 
 
+def _recorded_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | None:
+    """The claim row already recorded under ``readiness_claim_id``, if any."""
+    path = root / "enterprise" / "readiness-claims.jsonl"
+    if not path.exists():
+        return None
+    return next(
+        (
+            row for row in load_declared_jsonl(path, expected_surface="enterprise_readiness_claims")
+            if row.get("readiness_claim_id") == readiness_claim_id
+        ),
+        None,
+    )
+
+
 def produce_readiness_claim(
     *,
     pr_number: int,
@@ -1090,8 +1388,9 @@ def produce_readiness_claim(
     artifact: dict[str, Any],
     surface_paths: dict[str, list[str | Path]],
     workspace_root: str | Path,
+    rollback_bundle: dict[str, Any],
+    rollback_artifact: Any,
     retention_days: int = DEFAULT_ROLLBACK_RETENTION_DAYS,
-    owner: str | None = None,
     base_dir: str | Path | None = None,
     probe: Any = None,
     rules_probe: Any = None,
@@ -1099,9 +1398,19 @@ def produce_readiness_claim(
 ) -> dict[str, Any]:
     """Assemble and record the enterprise readiness claim for one PR head.
 
+    ``rollback_bundle`` / ``rollback_artifact`` — the bundle the lane built
+    and the Actions artifact that publishes it, downloaded back through the
+    API (ARIA-HIGH-218); the rollback and retention proofs name the
+    published artifact, never a local path.
+
     Raises GovernanceError with the full reason list when ANY family's
     evidence fails — a partial claim is never recorded, because a claim
     row the verifier would reject is audit theater with a row id.
+
+    ARIA-HIGH-219 — the claim is durable and one per (PR, head): it holds
+    no lease, and a head that already has its claim gets that claim back
+    (``already_recorded``) with no evidence re-produced, so a re-run of the
+    claim lane for the same head is a no-op rather than a duplicate refusal.
     """
     root = ensure_tools_dir(base_dir)
     readiness_claim_id = allocate_readiness_claim_id(pr_number=pr_number, head_sha=head_sha)
@@ -1109,6 +1418,14 @@ def produce_readiness_claim(
         pr_number=pr_number, repo=repo, target_ref=target_ref,
         head_ref=head_ref, head_sha=head_sha,
     )
+    existing = _recorded_claim(root, readiness_claim_id)
+    if existing is not None:
+        return {
+            "readiness_claim_id": readiness_claim_id,
+            "claim": existing,
+            "already_recorded": True,
+            "workflow_run_ids": list(existing.get("workflow_run_ids") or []),
+        }
 
     workflow_report = produce_workflow_run_proofs(**binding, readiness_claim_id=readiness_claim_id, base_dir=root)
     # Only LEDGER-PROVEN runs enter the claim: the verifier cross-checks
@@ -1133,12 +1450,10 @@ def produce_readiness_claim(
         **binding, readiness_claim_id=readiness_claim_id, base_dir=root,
         probe=probe, rules_probe=rules_probe,
     )
-    cas_report = produce_remote_cas_proof(
-        **binding, readiness_claim_id=readiness_claim_id, owner=owner, base_dir=root,
-    )
     rollback_report = produce_rollback_and_retention_proofs(
         **binding, readiness_claim_id=readiness_claim_id,
-        workspace_root=workspace_root, retention_days=retention_days, base_dir=root,
+        workspace_root=workspace_root, bundle=rollback_bundle,
+        published=rollback_artifact, retention_days=retention_days, base_dir=root,
     )
     token_report = produce_token_proof(
         **binding, readiness_claim_id=readiness_claim_id,
@@ -1253,7 +1568,6 @@ def produce_readiness_claim(
         "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
         "workflow_run_ids": sorted(run_ids),
         "artifact_refs": [dict(artifact_ref_row)],
-        "remote_cas_proof": cas_report["proof"],
         "rollback_proof": rollback_report["rollback_proof"],
         "retention_proof": rollback_report["retention_proof"],
         "waiver_ledger": {
@@ -1268,11 +1582,11 @@ def produce_readiness_claim(
     return {
         "readiness_claim_id": readiness_claim_id,
         "claim": recorded,
+        "already_recorded": False,
         "workflow_run_ids": sorted(run_ids),
         "family_reports": {
             "workflow_runs": workflow_report,
             "branch_protection": {"valid": bp_report["proof"].get("valid")},
-            "remote_cas": {"lease_id": cas_report["lease_id"], "epoch": cas_report["epoch"]},
             "rollback_retention": {"bundle": rollback_report["rollback_bundle_id"]},
             "token": {"mode": token_report["token_mode"], "valid": token_report["valid"]},
             "dlp": {"status": dlp_report["status"], "finding_count": dlp_report["finding_count"]},

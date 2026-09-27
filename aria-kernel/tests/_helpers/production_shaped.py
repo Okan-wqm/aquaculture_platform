@@ -46,6 +46,7 @@ from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
 
 from .git_fixtures import make_repo_with_initial_commit
+from .operator_acts import operator_set_profile
 
 _ARIA_POC = Path(__file__).resolve().parents[2].parent / "tools" / "aria-poc"
 
@@ -334,7 +335,6 @@ def production_staged_implementation_request(
     plan_id: str,
     allowed_path: str,
     cycle_id: str = "cycle-implementation-fixture",
-    operator_approval_ref: str = "test:staged-implementation-request",
     extra_allowed_paths: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """An implementation envelope minted by production's one producer, STAGED.
@@ -359,12 +359,8 @@ def production_staged_implementation_request(
     """
     from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
     from aria_kernel.ledger import load_declared_jsonl
-    from aria_kernel.runtime_profile import set_profile
 
-    set_profile(
-        "strict", operator_approval_ref=operator_approval_ref, base_dir=tools_dir,
-        set_by="operator", scheduler_ceiling="strict",
-    )
+    operator_set_profile("strict", base_dir=tools_dir, scheduler_ceiling="strict")
     plan = production_converged_plan(
         tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
         affected_paths=[allowed_path, *extra_allowed_paths], evidence_refs=[f"{allowed_path}:1"],

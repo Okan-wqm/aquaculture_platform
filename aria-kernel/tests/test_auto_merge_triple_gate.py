@@ -23,15 +23,15 @@ from aria_kernel.change_ledger import (
     emit_change_validated,
 )
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.validation_runs_ledger import record_validation_run
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class AutoMergeTripleGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-d4-"))
         self.base = self.tmp / "aria-tools"
-        set_profile("strict", operator_approval_ref="t", base_dir=self.base)
+        operator_set_profile("strict", base_dir=self.base)
         self.log = self.tmp / "log.txt"
         self.log.write_text("ok\n", encoding="utf-8")
 

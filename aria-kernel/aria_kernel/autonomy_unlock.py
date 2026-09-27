@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,20 @@ ACCEPTANCE_EVENT_TYPES: frozenset[str] = frozenset({
 # single skipped night, without accepting a hole big enough to mean the
 # lane stopped. ORPHAN-HIGH-530's outage was seventeen days.
 MAX_ACCEPTANCE_GAP_HOURS = 72
+
+
+def unlock_clock() -> datetime:
+    """THE evaluation time of every unlock verdict ARIA acts on (ARIA-HIGH-223).
+
+    The staleness half of the continuity rule needs one, and the merge
+    gate's own evaluation passed none: ``verdict_from_rows`` defaulted
+    ``now`` to None and skipped the check, so thirty cycles that ended a
+    month ago still unlocked L1. ``now`` is now REQUIRED there, and every
+    caller that evaluates for real — the merge gate and the scheduler
+    (``evaluate_autonomy_unlock``), the mock ladder, the evidence status —
+    takes its clock from here.
+    """
+    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -97,10 +111,25 @@ def record_acceptance_event(
     )
 
 
+# Requirement key (the policy's vocabulary) -> the acceptance event it
+# counts. One table, read by both the counts and the continuity window, so
+# the rows a threshold counts and the rows whose continuity is checked
+# cannot drift apart.
+_REQUIREMENT_EVENT_TYPES: dict[str, str] = {
+    "observe_successes": "observe_success",
+    "l1_autonomous_successes": "l1_autonomous_success",
+    "l2_supervised_successes": "l2_supervised_success",
+    "l2_autonomous_successes": "l2_autonomous_success",
+    "l3_approval_successes": "l3_approval_success",
+    "rollback_successes": "rollback_success",
+}
+
+
 def _continuity_reasons(
     rows: list[dict[str, Any]],
     *,
-    now: datetime | None,
+    requirements: dict[str, int],
+    now: datetime,
     max_gap_hours: int,
 ) -> list[str]:
     """Refusals for evidence that is COUNTED but not CONSECUTIVE.
@@ -114,16 +143,44 @@ def _continuity_reasons(
     accumulated evidence stayed valid the whole time and would have gone
     on unlocking as if operation had been continuous.
 
+    ARIA-HIGH-223 — the window this measures. The claim is about the N
+    rows the lane's thresholds COUNT, so the chain is built from exactly
+    those rows (the lane's required event types, success status) and
+    split wherever two neighbours are more than ``max_gap_hours`` apart.
+    The evidence window is a gap-free run; the lane is continuous when
+    one run meets every threshold on its own. Two consequences, both the
+    design's and neither an exemption:
+
+    - a gap BEFORE or AFTER a qualifying run is history, not a hole in
+      the evidence. Thirty consecutive cycles stay thirty consecutive
+      cycles when a later row arrives ten days on; checking every pair of
+      rows forever made any late row — a ``rollback_success`` from
+      ``self_revert`` — invalidate L1 permanently;
+    - a row the lane does not count is not in the chain at all, so it
+      cannot bridge a gap between the rows that are.
+
+    A gap is reported only when no run qualifies, and then every gap that
+    splits the chain is named: those are exactly what stands between the
+    counted total and a consecutive one.
+
     This is deliberately NOT a second watchdog. Detection already exists
     and works; the missing half was a consumer, and the rows carry their
     own timestamps, so the question is answerable from ARIA's own ledger
     with no GitHub call and nothing to keep in sync.
 
-    An empty ledger produces no reason here: there is nothing to be
+    An empty chain produces no reason here: there is nothing to be
     discontinuous about, and the threshold refusal is the honest one.
     """
-    stamps: list[datetime] = []
+    counted_types = {
+        _REQUIREMENT_EVENT_TYPES[key]
+        for key in requirements
+        if key in _REQUIREMENT_EVENT_TYPES
+    }
+    chain: list[tuple[datetime, str]] = []
     for index, row in enumerate(rows):
+        event_type = row.get("event_type")
+        if row.get("status") != "success" or event_type not in counted_types:
+            continue
         raw = row.get("recorded_at")
         parsed = _parse_stamp(raw) if isinstance(raw, str) else None
         if parsed is None:
@@ -135,42 +192,67 @@ def _continuity_reasons(
                 f"autonomy_unlock_continuity_row_undateable:index={index}:"
                 f"recorded_at={raw!r}"
             ]
-        stamps.append(parsed)
-    if not stamps:
+        chain.append((parsed, str(event_type)))
+    if not chain:
         return []
 
-    stamps.sort()
-    reasons: list[str] = []
+    chain.sort(key=lambda item: item[0])
     limit = timedelta(hours=max_gap_hours)
-    for earlier, later in zip(stamps, stamps[1:]):
-        gap = later - earlier
-        if gap > limit:
+    runs: list[list[str]] = [[chain[0][1]]]
+    gaps: list[tuple[datetime, datetime]] = []
+    for (earlier, _), (later, event_type) in zip(chain, chain[1:]):
+        if later - earlier > limit:
+            gaps.append((earlier, later))
+            runs.append([event_type])
+        else:
+            runs[-1].append(event_type)
+
+    reasons: list[str] = []
+    if not any(_run_meets(run, requirements) for run in runs):
+        for earlier, later in gaps:
+            gap = later - earlier
             reasons.append(
                 "autonomy_unlock_continuity_gap:"
                 f"{int(gap.total_seconds() // 3600)}h>{max_gap_hours}h "
                 f"between {earlier.strftime('%Y-%m-%dT%H:%M:%SZ')} and "
                 f"{later.strftime('%Y-%m-%dT%H:%M:%SZ')}"
             )
-    if now is not None:
-        # The same rule applied to the open end. Thirty perfect cycles
-        # that all ended a month ago describe a system that WAS stable,
-        # which is not the claim an unlock rests on.
-        since = now - stamps[-1]
-        if since > limit:
-            reasons.append(
-                "autonomy_unlock_continuity_stale:"
-                f"{int(since.total_seconds() // 3600)}h>{max_gap_hours}h "
-                f"since {stamps[-1].strftime('%Y-%m-%dT%H:%M:%SZ')}"
-            )
+    # The same rule applied to the open end. Thirty perfect cycles that all
+    # ended a month ago describe a system that WAS stable, which is not the
+    # claim an unlock rests on. Unconditional (ARIA-HIGH-223): it used to
+    # run only when a caller remembered to pass a clock, and the merge gate
+    # did not.
+    latest = chain[-1][0]
+    since = now - latest
+    if since > limit:
+        reasons.append(
+            "autonomy_unlock_continuity_stale:"
+            f"{int(since.total_seconds() // 3600)}h>{max_gap_hours}h "
+            f"since {latest.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
     return reasons
+
+
+def _run_meets(run: list[str], requirements: dict[str, int]) -> bool:
+    """True when this gap-free run satisfies every threshold by itself.
+
+    A requirement key with no event type is never met — the threshold
+    refusal names it, and no run can stand in for a count that has no
+    rows to be made of.
+    """
+    for key, required in requirements.items():
+        event_type = _REQUIREMENT_EVENT_TYPES.get(key)
+        if event_type is None or run.count(event_type) < required:
+            return False
+    return True
 
 
 def verdict_from_rows(
     rows: list[dict[str, Any]],
     *,
     lane: str,
+    now: datetime,
     policy: dict[str, Any] | None = None,
-    now: datetime | None = None,
     max_gap_hours: int = MAX_ACCEPTANCE_GAP_HOURS,
 ) -> AutonomyUnlockVerdict:
     """Compute an unlock verdict from already-loaded acceptance-event rows.
@@ -179,6 +261,10 @@ def verdict_from_rows(
     SEPARATE mock-mode ledger with the IDENTICAL counting + threshold logic,
     without the real ``evaluate_autonomy_unlock`` ever reading the mock ledger.
     The real and mock paths thus share one rule and one policy, but two ledgers.
+
+    ``now`` is the evaluation time and has no default (ARIA-HIGH-223): a
+    verdict computed without one is a verdict that skipped the staleness
+    half of the rule. Callers that act take it from :func:`unlock_clock`.
     """
     if lane not in {"L1", "L2", "L3"}:
         return AutonomyUnlockVerdict(
@@ -190,14 +276,10 @@ def verdict_from_rows(
         )
     active = load_autonomy_unlock_policy(policy)
     counts = {
-        "observe_successes": _count(rows, "observe_success"),
-        "l1_autonomous_successes": _count(rows, "l1_autonomous_success"),
-        "l2_supervised_successes": _count(rows, "l2_supervised_success"),
-        "l2_autonomous_successes": _count(rows, "l2_autonomous_success"),
-        "l3_approval_successes": _count(rows, "l3_approval_success"),
-        "rollback_successes": _count(rows, "rollback_success"),
-        "critical_violations": _count(rows, "critical_violation", status="violation"),
+        key: _count(rows, event_type)
+        for key, event_type in _REQUIREMENT_EVENT_TYPES.items()
     }
+    counts["critical_violations"] = _count(rows, "critical_violation", status="violation")
     requirements = {
         str(key): int(value)
         for key, value in (active["lane_requirements"][lane] or {}).items()
@@ -205,12 +287,14 @@ def verdict_from_rows(
     reasons: list[str] = []
     if counts["critical_violations"] != 0:
         reasons.append("autonomy_unlock_critical_violation_present")
-    # Continuity over the SUCCESS rows the thresholds count. A violation
-    # row is not part of the "consecutive clean cycles" claim, so its
-    # timestamp must not be able to bridge a gap between them.
+    # Continuity over the SUCCESS rows this lane's thresholds count, and
+    # only those (ARIA-HIGH-223). A violation row is not part of the
+    # "consecutive clean cycles" claim, and neither is a success the lane
+    # does not count, so neither timestamp can bridge a gap between them.
     reasons.extend(
         _continuity_reasons(
-            [row for row in rows if str(row.get("status")) == "success"],
+            rows,
+            requirements=requirements,
             now=now,
             max_gap_hours=max_gap_hours,
         )
@@ -245,7 +329,7 @@ def evaluate_autonomy_unlock(
         ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
         expected_surface="enterprise_acceptance_events",
     )
-    return verdict_from_rows(rows, lane=lane, policy=policy)
+    return verdict_from_rows(rows, lane=lane, now=unlock_clock(), policy=policy)
 
 
 def assert_autonomy_unlocked(
@@ -414,4 +498,5 @@ __all__ = [
     "verdict_from_rows",
     "load_autonomy_unlock_policy",
     "record_acceptance_event",
+    "unlock_clock",
 ]

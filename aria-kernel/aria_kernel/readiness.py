@@ -11,7 +11,7 @@ from .feedback_store import (
 )
 from .fixture_runner import latest_fixture_status
 from .runs_reader import read_runs_rows
-from .tool_health import compute_metrics, runs_path
+from .tool_health import compute_metrics, current_emission_scope, runs_path
 from .tool_registry import GovernanceError, effective_freshness_window_hours, get_tool
 
 
@@ -41,7 +41,11 @@ def adapter_active_readiness(
     fixture_status = latest_fixture_status(tool_id, base_dir=base_dir)
     fixture_pass = fixture_status["current_tool_passed"]
     semantic_required = tool_id in SEMANTIC_FIXTURE_REQUIRED_TOOLS
-    metrics = compute_metrics(tool, runs, base_dir=base_dir)
+    # ARIA-MEDIUM-229 — one scope for the whole gate: precision AND the
+    # sample-size floor below measure the findings the version in force
+    # emits (its latest ok run), never judgments of findings it retired.
+    scope = current_emission_scope(tool_id, runs, base_dir=base_dir)
+    metrics = compute_metrics(tool, runs, base_dir=base_dir, emission_scope=scope)
     precision = float(metrics.get("precision", 0.0))
     precision_status = str(metrics.get("precision_status") or "unjudged")
     precision_min = float(tool.get("health_thresholds", {}).get("precision_min", 0.85))
@@ -73,16 +77,23 @@ def adapter_active_readiness(
     # tool-scoped (read_runs_rows above), so the join is a set membership.
     recorded_run_ids = {str(run.get("run_id") or "") for run in runs}
     recorded_run_ids.discard("")
-    anchor_judged = len({
-        key for key in anchor_group_keys(tool_id=tool_id, base_dir=base_dir)
-        if key[0] in recorded_run_ids
-    })
-    operator_judged = len({
-        key for key in operator_group_keys(tool_id=tool_id, base_dir=base_dir)
-        if key[0] in recorded_run_ids
-    })
+
+    # ARIA-MEDIUM-229 — the floor counts the SCOPED set: judgments of the
+    # findings the version in force emits. The unscoped count is kept only
+    # to NAME the refusal: a floor that retired judgments alone would have
+    # met is a different fact from a floor nothing ever approached.
+    def _volume(keys: set[tuple[str, str, str]]) -> int:
+        return len({key for key in keys if key[0] in recorded_run_ids})
+
+    anchor_judged = _volume(anchor_group_keys(tool_id=tool_id, base_dir=base_dir, in_scope=scope.covers))
+    operator_judged = _volume(operator_group_keys(tool_id=tool_id, base_dir=base_dir, in_scope=scope.covers))
+    anchor_judged_all = _volume(anchor_group_keys(tool_id=tool_id, base_dir=base_dir))
+    operator_judged_all = _volume(operator_group_keys(tool_id=tool_id, base_dir=base_dir))
     precision_anchored = (
         operator_judged > 0 or anchor_judged >= ANCHOR_PROMOTION_MIN_JUDGMENTS
+    )
+    anchored_only_by_retired_judgments = not precision_anchored and (
+        operator_judged_all > 0 or anchor_judged_all >= ANCHOR_PROMOTION_MIN_JUDGMENTS
     )
 
     blockers: list[str] = []
@@ -120,6 +131,8 @@ def adapter_active_readiness(
     if zero_finding_lane:
         if zero_finding_runs < 5:
             blockers.append("last_5_runs_not_zero_finding")
+    elif anchored_only_by_retired_judgments:
+        blockers.append("precision_not_anchor_judged_on_current_emissions")
     elif not precision_anchored:
         blockers.append("precision_not_anchor_judged")
     elif precision < precision_min:
@@ -150,6 +163,13 @@ def adapter_active_readiness(
         "anchor_judged_min": ANCHOR_PROMOTION_MIN_JUDGMENTS,
         "operator_judged_count": operator_judged,
         "precision_anchored": precision_anchored,
+        "precision_scope": {
+            **dict(metrics.get("precision_scope") or {}),
+            "run_id": scope.run_id,
+            "emitted_fingerprints": len(scope.fingerprints),
+            "anchor_judged_retired": anchor_judged_all - anchor_judged,
+            "operator_judged_retired": operator_judged_all - operator_judged,
+        },
         "operator_judged_precision": precision if precision_status in ("human_judged", "mixed_judged") else None,
         "precision_min": precision_min,
         "critical_false_positives": critical_false_positives,

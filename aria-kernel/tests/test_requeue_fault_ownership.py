@@ -19,7 +19,9 @@ import unittest
 from typing import Any
 
 from aria_kernel.agent_invocations import (
+    CONTRACT_VIOLATION_RELEASE_REASONS,
     DEFAULT_MAX_REQUEUES,
+    FREE_CONTRACT_VIOLATIONS,
     HARNESS_FAULT_RELEASE_REASONS,
     REQUEST_FAULT_RELEASE_REASONS,
     _request_fault_requeue_count,
@@ -193,6 +195,116 @@ class DerivationHealsRetroactivelyTest(unittest.TestCase):
         rows = _requeue("R", "claude_cli_exit_1", 2) + _requeue("R", "claude_cli_exit_143", 1)
 
         self.assertEqual(_request_fault_requeue_count(rows, "R"), 0)
+
+
+class ContractViolationsAreBoundedTest(unittest.TestCase):
+    """ARIA-MEDIUM-225 — every retry path is bounded.
+
+    A contract violation (the agent's answer failed the role's shape
+    contract before submit) is harness-priced because ONE says nothing
+    about the request. Priced that way forever, an adjudicator that never
+    writes a readable `details.adjudication` block was requeued forever:
+    no budget ever moved, and every retry was another model call.
+    """
+
+    def test_the_class_is_harness_priced(self) -> None:
+        self.assertEqual(
+            CONTRACT_VIOLATION_RELEASE_REASONS,
+            frozenset({
+                "judge_verdict_contract_violation",
+                "self_change_contract_violation",
+                "adjudication_contract_violation",
+            }),
+        )
+        self.assertLessEqual(CONTRACT_VIOLATION_RELEASE_REASONS, HARNESS_FAULT_RELEASE_REASONS)
+
+    def test_violations_are_free_only_up_to_the_bound(self) -> None:
+        for reason in sorted(CONTRACT_VIOLATION_RELEASE_REASONS):
+            with self.subTest(reason=reason):
+                free = _requeue("R", reason, FREE_CONTRACT_VIOLATIONS)
+                self.assertEqual(_request_fault_requeue_count(free, "R"), 0)
+                charged = _requeue("R", reason, FREE_CONTRACT_VIOLATIONS + 1)
+                self.assertEqual(_request_fault_requeue_count(charged, "R"), 1)
+
+    def test_a_request_that_keeps_violating_reaches_the_human(self) -> None:
+        rows = _requeue(
+            "R", "adjudication_contract_violation",
+            FREE_CONTRACT_VIOLATIONS + DEFAULT_MAX_REQUEUES + 1,
+        )
+        self.assertGreater(_request_fault_requeue_count(rows, "R"), DEFAULT_MAX_REQUEUES)
+
+    def test_the_bound_is_per_request(self) -> None:
+        rows = (
+            _requeue("R", "adjudication_contract_violation", FREE_CONTRACT_VIOLATIONS)
+            + _requeue("S", "adjudication_contract_violation", FREE_CONTRACT_VIOLATIONS)
+        )
+        self.assertEqual(_request_fault_requeue_count(rows, "R"), 0)
+        self.assertEqual(_request_fault_requeue_count(rows, "S"), 0)
+
+    def test_other_harness_faults_stay_free(self) -> None:
+        rows = _requeue("R", "provider_quota_unavailable:anthropic", 10)
+        self.assertEqual(_request_fault_requeue_count(rows, "R"), 0)
+
+
+class ContractViolationReleaseEscalatesTest(unittest.TestCase):
+    """The same bound through the real release path, not the counter alone:
+    `release_claim` decides the requeue row it writes, and that row is what
+    every later derivation reads."""
+
+    def test_repeated_adjudication_contract_violations_escalate(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from aria_kernel.agent_invocations import (
+            claim_request,
+            create_agent_invocation_request,
+            derive_request_state,
+            release_claim,
+        )
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = ensure_tools_dir(Path(tmp) / "aria-tools")
+            request = create_agent_invocation_request(
+                target_agent="aria-evidence-judge",
+                role="human_required_adjudication",
+                suggested_prompt="adjudicate the escalation",
+                must_satisfy=[{"id": "adjudicate", "description": "verdict with evidence"}],
+                allowed_scope=["human-required:AIR-x"],
+                base_dir=tools,
+            )
+            request_id = str(request["request_id"])
+            attempts = FREE_CONTRACT_VIOLATIONS + DEFAULT_MAX_REQUEUES + 1
+            states: list[str] = []
+            for attempt in range(attempts):
+                claim = claim_request(
+                    request_id=request_id, agent_id=f"ci-executor:gha-{attempt}", base_dir=tools,
+                )
+                release_claim(
+                    claim_id=claim["claim_id"],
+                    agent_id=f"ci-executor:gha-{attempt}",
+                    lease_token=claim["lease_token"],
+                    reason="adjudication_contract_violation",
+                    base_dir=tools,
+                )
+                states.append(derive_request_state(request_id=request_id, base_dir=tools))
+            self.assertEqual(states[:-1], ["REQUEUED"] * (attempts - 1))
+            self.assertEqual(states[-1], "HUMAN_REQUIRED")
+            claims = load_declared_jsonl(
+                tools / "agent-invocations" / "claims.jsonl",
+                expected_surface="agent_invocation_claims",
+            )
+            requeues = [row for row in claims if row.get("event") in ("requeued", "human_required")]
+            # Free, free, then charged 1, 2, 3 — the third charge crosses.
+            self.assertEqual(
+                [row["requeue_count"] for row in requeues],
+                [0] * FREE_CONTRACT_VIOLATIONS + list(range(1, DEFAULT_MAX_REQUEUES + 2)),
+            )
+            self.assertEqual(
+                [row["event"] for row in requeues],
+                ["requeued"] * (attempts - 1) + ["human_required"],
+            )
 
 
 if __name__ == "__main__":

@@ -287,13 +287,20 @@ class IncrementalLearningTests(unittest.TestCase):
         # be a pin that can never fail; the zero-finding lane bypasses the
         # judged-precision question entirely, which is what is pinned here.
         self.assertNotIn("precision_not_anchor_judged", report["reports"][0]["blocked_by"])
-        promoted = promote_tool(
-            "learning-adapter",
-            "ACTIVE",
-            reason="operator approved zero-finding adapter",
-            operator_approval_ref="ops-zero-ack",
-            base_dir=self.tools_dir,
-        )
+        # ARIA-HIGH-209 / ARIA-CRITICAL-216 — the approval ref resolves to an
+        # operator's GitHub act (faked; never the network).
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            promoted = promote_tool(
+                "learning-adapter",
+                "ACTIVE",
+                reason="operator approved zero-finding adapter",
+                operator_approval_ref=github.approve(
+                    "tool_promote", {"tool": "learning-adapter", "target": "ACTIVE"},
+                ),
+                base_dir=self.tools_dir,
+            )
         self.assertEqual(promoted["status"], "ACTIVE")
 
     def test_noisy_adapter_readiness_uses_stable_runs_not_zero_raw_findings(self):

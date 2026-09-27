@@ -1,140 +1,131 @@
-<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. For live ARIA runtime authority, see docs/aria/CURRENT_STATE.md and executable contracts. Snowball branch-protection instructions below are compatibility material unless reaffirmed there. -->
+<!-- ARIA-CURRENT-STATE-NOTICE: Operator runbook, kept to the code it names.
+Live ARIA runtime authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
-# Runbook — ARIA GitHub App Setup (V9.0-C precondition)
+# Runbook — ARIA GitHub App
 
-**Owner:** Operator (Okan)
-**Phase:** Plan ARIA-V9 + V10 v3 — V9.0-C precondition (post-code-only scope)
-**Status:** OPEN — required BEFORE the autonomous profile's 20-cycle endurance gate (Phase 10.3-B). Optional during V9 5-cycle smoke (Phase 10.3-A); operator-PAT fallback mode acceptable.
+**Owner:** ARIA operator
+**Related:** ARIA-HIGH-206, ARIA-HIGH-208, ARIA-HIGH-213 (plan 036, step 3 and step 5)
 
-## Why this runbook exists
+## Why
 
-V9 ships ARIA's first WRITER agent (`aria-implementer` with `Edit + Write + Bash` tools, autonomous PR opener). Security-reviewer audit (CRIT-001 / CRIT-002) flagged that the operator's `GH_TOKEN` (per-memory: stored at `/root/.config/gh/environment.sh`, `repo`-full scope) is too broad for an LLM-driven writer:
+Every credential ARIA uses to write to GitHub is an installation token of one GitHub App, minted
+per use by `aria-kernel/aria_kernel/gh_token_factory.py` (`mint_installation_token`, Mode A). It
+merges ARIA's PRs, and it is the author of every PR ARIA opens. A PR opened with the job token
+leaves its workflows in `action_required`, so the merge chain never starts. The lanes therefore set
+`ARIA_REQUIRE_MODE_A=true`: without the App, the mint refuses by name instead of falling back to a
+PAT or the job token (Mode B).
 
-- Full `repo` scope = push to ANY branch including `main`, modify branch protection, install webhooks, exfiltrate every secret in repo settings
-- Plan v3 mitigation: two-token model:
-  1. Long-lived operator PAT — preflight ONLY (read branch protection)
-  2. Per-request scoped installation token via a GitHub App — never passed to
-     `aria-implementer`: since ARIA-HIGH-124 the EXECUTOR mints it where it consumes it (the
-     delivery's push and `gh pr create`, after the contained gate; round 6) and revokes it the
-     moment the PR is open. GitHub expires an installation token exactly one hour after the
-     mint whatever the caller asks (the endpoint has no `expires_in`) — the lease carries that
-     horizon as `provider_expiry` and the delivery's own window is a few minutes inside it;
-     scoped to `pull_requests:write + contents:write` (+ `administration:read` for the
-     readiness probe)
+## 1. App permissions
 
-V9.0-C kernel code ships the FACTORY (`aria_kernel/gh_token_factory.py`) with TWO operating modes:
+GitHub → Settings → Developer settings → GitHub Apps → the ARIA App → Permissions & events.
+Webhook off. Repository permissions, exactly:
 
-- **Mode A — GH App configured** (production-correct, this runbook's target state)
-- **Mode B — operator-PAT fallback** (V9.0-C SHIM; works but emits `installation_token_fallback_active` governance event on every mint)
+| Permission      | Access         | Used for                                                         |
+| --------------- | -------------- | ---------------------------------------------------------------- |
+| Contents        | Read and write | pushing ARIA branches, squash merges                             |
+| Pull requests   | Read and write | opening and merging ARIA PRs                                     |
+| Administration  | Read-only      | branch-protection proof, self-hosted runner roster preflight     |
+| Metadata        | Read-only      | required by every App                                            |
+| Checks          | Read-only      | required-checks gate in the merge lane                           |
+| Commit statuses | Read-only      | required-checks gate in the merge lane                           |
+| Issues          | Read-only      | watchdog merge freeze (`watchdog_freeze`) read by the merge lane |
+| Actions         | Read-only      | rollback bundle artifact downloaded by the merge lane's verifier |
+| Everything else | No access      |                                                                  |
 
-The V10.3-A 5-cycle smoke runs in Mode B (acceptable — dry-run, no merges). The V10.3-B 20-cycle endurance gate requires Mode A.
+The token sets are named in the factory: `DEFAULT_INSTALLATION_TOKEN_PERMISSIONS` (contents,
+pull requests, administration), `MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS` (default plus checks,
+statuses, issues, actions) and `RUNNER_STATUS_PERMISSIONS` (administration only). A mint that asks
+for a permission the installation has not granted fails with HTTP 422.
 
-## Mode A setup steps (operator-side, ~30 min)
+## 2. Accept the permissions on the installation
 
-### 1. Create the GitHub App
+Changing an App's permissions does not change its installation. As the repository owner: GitHub →
+Settings → Applications → Installed GitHub Apps → the ARIA App → Configure, then review and accept
+the requested permissions. The installation must cover `Okan-wqm/aquaculture_platform`. Until the
+request is accepted, the merge lane's mint fails with HTTP 422.
 
-1. Navigate to https://github.com/settings/apps → "New GitHub App"
-2. Name: `aria-implementer-{your-suffix}` (must be globally unique; pick something like `aria-implementer-okan`)
-3. Homepage URL: `https://github.com/Okan-wqm/aquaculture_platform`
-4. Webhook: **disable** (uncheck "Active") — ARIA polls, no webhook needed
-5. Permissions (repository scope):
-   - **Pull requests:** Read and write
-   - **Contents:** Read and write
-   - **Metadata:** Read-only (required by all GitHub Apps)
-   - Everything else: **No access**
-6. "Where can this app be installed?" — **Only on this account**
-7. Click "Create GitHub App"
+## 3. Repository secrets
 
-### 2. Generate + install the app's private key
+Repository → Settings → Secrets and variables → Actions → Repository secrets:
 
-1. On the new app's settings page, scroll to "Private keys" → "Generate a private key"
-2. Save the downloaded `.pem` file to a secure location: `~/.config/aria/gh-app-private-key.pem`
-3. `chmod 600 ~/.config/aria/gh-app-private-key.pem`
-
-### 3. Install the app on this repo
-
-1. On the app settings page, click "Install App" in the left sidebar
-2. Pick "Only select repositories" → choose `aquaculture_platform`
-3. Click Install
-4. Note the installation ID from the URL: `https://github.com/settings/installations/<INSTALLATION_ID>`
-
-### 4. Configure environment
-
-Append to `/root/.config/gh/environment.sh` (the file the operator's session already sources):
+| Secret                        | Value                                                                |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `ARIA_GH_APP_ID`              | the App ID (App settings page)                                       |
+| `ARIA_GH_APP_INSTALLATION_ID` | the number in `https://github.com/settings/installations/<id>`       |
+| `ARIA_GH_APP_PRIVATE_KEY`     | the full PEM, `-----BEGIN` and `-----END` lines included, not a path |
 
 ```bash
-# Plan ARIA-V9.0-C GitHub App credentials (runbook docs/runbooks/aria-github-app-setup.md)
-export ARIA_GH_APP_ID="<your-app-id-from-app-settings-page>"
-export ARIA_GH_APP_INSTALLATION_ID="<installation-id-from-step-3>"
-export ARIA_GH_APP_PRIVATE_KEY_PATH="$HOME/.config/aria/gh-app-private-key.pem"
-
-# gh CLI auto-detects these envvars and mints the JWT internally.
-# Verify after sourcing:
-#   gh api /app/installations/$ARIA_GH_APP_INSTALLATION_ID
-# should return the installation record.
+gh secret set ARIA_GH_APP_ID --body '<app-id>'
+gh secret set ARIA_GH_APP_INSTALLATION_ID --body '<installation-id>'
+gh secret set ARIA_GH_APP_PRIVATE_KEY < aria-app.private-key.pem
 ```
 
-### 5. Add the required branch protection rules on `snowball`
+Each consuming step writes the PEM into a 0600 file under `$RUNNER_TEMP`, outside the workspace,
+and points `ARIA_GH_APP_PRIVATE_KEY_PATH` at it. `.github/provisioned-secrets.json` lists every
+workflow that reads the three secrets.
 
-The V9.0-C preflight (`aria_kernel/preflight.py`) asserts 4 rules on `snowball` before allowing the autonomous profile. Configure via the GitHub UI:
+## 4. Where the App is used
 
-Settings → Branches → Branch protection rules → Add rule (pattern: `snowball`):
+- `aria-readiness-claim.yml` — mints a token for the branch-protection proof in the readiness
+  claim.
+- `aria-merge-runner.yml` — mints the merge token with `MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS`
+  and revokes it on exit. Runs after `aria-readiness-claim`, after a green `CI - Affected` run of a
+  pull request, and hourly.
+- `aria-auto-cycle.yml` and `aria-agent-executor.yml` — the delivering steps hand the App to the
+  delivery hold (`delivery_credentials`), which mints a token for each push and `gh pr create`
+  and revokes it after. The executor opens implementation PRs, the cycle opens self-revert PRs.
+- Every self-hosted lane's `runner-preflight` job (`.github/actions/require-self-hosted-runner`)
+  mints an administration-read token to read the runner roster.
 
-- [x] **Require a pull request before merging**
-- [x] **Require approvals: 1** (operator review even for ARIA PRs)
-- [x] **Require status checks to pass before merging**
-- [x] **Require branches to be up to date before merging** ← `required_status_checks.strict = true`
-- [x] **Require signed commits** ← `required_signatures.enabled = true`
-- [x] **Require linear history**
-- [x] **Restrict who can push to matching branches** → add `aria-implementer-okan` (the GitHub App's bot account) AND `Okan-wqm` ← `restrictions.users = [...]` non-empty
-- [x] **Do not allow bypassing the above settings** ← `enforce_admins.enabled = true`
+## 5. `ARIA_REQUIRE_MODE_A`
 
-### 6. Verify
+Each step above sets `ARIA_REQUIRE_MODE_A: 'true'`. With it, a missing
+`ARIA_GH_APP_INSTALLATION_ID` fails the mint with
+`ARIA_REQUIRE_MODE_A=true but ARIA_GH_APP_INSTALLATION_ID is unset; Mode B fallback FORBIDDEN`.
+Do not remove it to get a run green: the fallback token is the job token or a PAT, and a PR it
+opens never reaches the merge chain. Fix the App, its installation or the secrets instead.
+
+## 6. Branch protection on `main` (O1b)
+
+The merge gate's proofs expect this shape. Classic protection on `main`:
+
+- the 4 required checks `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority` and
+  `build-status`, each pinned to the GitHub Actions app (SSoT:
+  `.github/manifests/main-required-status-checks.json`);
+- signed commits required;
+- pull request required with 0 approvals and Code Owners review required;
+- conversation resolution required;
+- `enforce_admins` on;
+- force pushes and deletions blocked.
+
+In addition, at least one active ruleset targets `main` with `bypass_actors: []` (an empty list,
+not absent or `null`), and a ruleset on `main` requires a **merge queue** with the **squash** merge
+method (ARIA-HIGH-221, operator decision 2026-09-26). The kernel reads the queue from
+`rules/branches/main` (a `merge_queue` rule with `merge_method: SQUASH`); the preflight and every
+readiness claim refuse a `main` without one (`merge_queue_required`,
+`branch_protection_merge_queue_method_must_be_squash`).
+
+"Require branches to be up to date" (`strict`) is not what makes a merge safe here: an ARIA PR's
+evidence is bound to its head, and updating the branch would move that head. The queue tests the
+change on top of current `main` in a merge group instead, and both workflows that produce the
+required checks run on `merge_group`. The kernel neither requires nor refuses `strict`; it records
+it (`strict_up_to_date_required`). The manifest above still pins `strict: true`, as its own gate
+(`tools/gates/required-status-checks.ts`) and `postgres-dr-bootstrap-candidate.yml` check; that pin
+is outside the merge lane.
+
+The merge lane's `gh pr merge --squash --match-head-commit` therefore usually **enqueues** the PR.
+The lane records `enqueued`. On its next run it settles the entry: into `merged` when the queue
+merged the PR at that head, or into `dequeued` when the queue removed it or the PR closed or moved.
+A dequeued PR is a candidate again once its head holds a claim.
+
+## 7. Verify
 
 ```bash
-# 1. Source the env
-source /root/.config/gh/environment.sh
-
-# 2. Test app token mint
-gh api -X POST /app/installations/$ARIA_GH_APP_INSTALLATION_ID/access_tokens \
-  -f permissions[pull_requests]=write \
-  -f permissions[contents]=write
-
-# Should return {"token": "ghs_...", "expires_at": "<one hour from now — GitHub's own horizon>"}
-
-# 3. Test preflight
-PYTHONPATH=aria-kernel python3 -c "
-from aria_kernel.preflight import verify_preflight
-v = verify_preflight(profile='autonomous', workspace_root='.')
-print('valid =', v.valid)
-print('reasons =', v.reasons)
-print('gh_app_installation =', v.gh_app_installation)
-print('immutable_paths_count =', v.immutable_paths_count)
-print('bash_allowlist_count =', v.bash_allowlist_count)
-"
+gh api repos/Okan-wqm/aquaculture_platform/branches/main/protection
+gh api repos/Okan-wqm/aquaculture_platform/rules/branches/main
+gh workflow run aria-merge-runner.yml
 ```
 
-`valid == True` is the operator-visible signal that the runbook is complete.
-
-## Mode B fallback (no GH App yet)
-
-If you want to run V9 5-cycle smoke before the GH App is set up, no setup is required — `mint_installation_token` falls back to `GH_TOKEN` and `mint_signing_key` works as long as `ssh-keygen` is on PATH.
-
-Caveats in fallback mode:
-- Every cycle emits `installation_token_fallback_active` governance event — expected
-- Token scope = operator PAT scope (broad); review `aria-implementer`'s diff manually before approving merge
-- 20-cycle endurance (10.3-B) under autonomous profile WILL fail preflight in fallback mode — that gate requires Mode A
-
-## Rollback
-
-To revert to Mode B without uninstalling the GH App, comment out the `export ARIA_GH_APP_INSTALLATION_ID=` line in `environment.sh` and re-source. Preflight will fall back without any kernel code change.
-
-## Related invariants
-
-- `aria-kernel/tests/invariants/v9/test_phase_v9_0_c_preflight.py::test_i_v9_preflight_*` — preflight contract pins
-- `aria-kernel/tests/invariants/v9/test_phase_v9_0_c_gh_token_factory.py::test_i_v9_token_factory_*` — signing key + token mint contracts
-- `aria_kernel/preflight.py::REQUIRED_BRANCH_PROTECTION_FIELDS` — the 4 required rules SSoT
-
-## Audit log
-
-Each operator action on this runbook should land a row in `aria-tools/operator-feedback.jsonl` (V9.0-A `OPERATOR_FEEDBACK` PlanCandidateSource) with signature. Until V9.4 ships the signed-feedback enforcement, operator may simply record completion in `aria-findings/F-015.json` `subfindings` → `F-015-V9-0-C-runbook` status update.
+The merge-runner run must pass "Run the merge lane" without an HTTP 422 or a Mode A refusal. With
+no PR holding a readiness claim it merges nothing and still succeeds. The rules listing must show a
+`merge_queue` rule with `"merge_method": "SQUASH"`.

@@ -34,7 +34,7 @@ from aria_kernel.state_snapshot import build_snapshot
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     StateStoreRefusal,
-    prepare_and_publish_state,
+    publish_with_contention_replay,
     prepare_publishable_snapshot,
     publish_state,
     read_published_snapshot,
@@ -62,7 +62,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
     def _published_store(self):
         store = self._bound_store()
         self._seed_surface(store, '{"row": 1}\n')
-        result = prepare_and_publish_state(
+        result = publish_with_contention_replay(
             store,
             snapshot_id="snap-1",
             cycle_id="cycle-1",
@@ -86,7 +86,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
         stray = tools_root(store) / "pressure" / "hand-removed.json"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_text("{}\n", encoding="utf-8")
-        result = prepare_and_publish_state(
+        result = publish_with_contention_replay(
             store,
             snapshot_id="snap-with-stray",
             cycle_id="cycle-with-stray",
@@ -202,7 +202,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         base_rows = len(self._committed_governance_rows(store))
 
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}):
-            result = prepare_and_publish_state(
+            result = publish_with_contention_replay(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -239,7 +239,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
 
         # The next publish needs no acknowledgment and records nothing.
         with _EnvPatch({BOOTSTRAP_ACK_ENV: None}):
-            again = prepare_and_publish_state(
+            again = publish_with_contention_replay(
                 store,
                 snapshot_id="snap-4",
                 cycle_id="cycle-4",
@@ -277,7 +277,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), mock.patch.object(
             ledger_inline, "INLINE_ROW_FIELD_MAX_BYTES", 8
         ):
-            result = prepare_and_publish_state(
+            result = publish_with_contention_replay(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -294,7 +294,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
 
 class TheSingleAttemptPublishHoldsOneLock(ContinuityGateTestCase):
     def test_nothing_can_take_the_lifecycle_lock_between_preamble_and_publish(self) -> None:
-        """`prepare_and_publish_state` — what `state publish` runs — holds
+        """`publish_with_contention_replay` — what `state publish` runs — holds
         the store's lifecycle lock from before the preamble's index mutation
         until the publish has pushed. Probed from another thread at the one
         instant that used to be unguarded: after the preamble returned and
@@ -325,7 +325,7 @@ class TheSingleAttemptPublishHoldsOneLock(ContinuityGateTestCase):
         with mock.patch.object(
             state_store, "prepare_publishable_snapshot", side_effect=preamble_then_probe
         ):
-            result = prepare_and_publish_state(
+            result = publish_with_contention_replay(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",

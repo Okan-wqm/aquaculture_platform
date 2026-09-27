@@ -1,0 +1,31 @@
+{
+  "name": "semantic-reference-roles",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": ["tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/reference-roles/docs"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 4
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-212 doc-staleness reference roles (aria/state operator feedback: 19 TP / 27 FP on the pre-role adapter)",
+    "gold_set": {
+      "true_positive_count": 4,
+      "known_false_positive_count": 9,
+      "true_positive_shapes": [
+        "plain_present_tense_claim",
+        "change_target_evidenced_elsewhere",
+        "line_pinned_evidence",
+        "modify_verb"
+      ],
+      "false_positive_classes": [
+        "creation_marker",
+        "proposal",
+        "absence_asserted",
+        "change_target_never_evidenced"
+      ]
+    }
+  }
+}

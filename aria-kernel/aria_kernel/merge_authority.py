@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .auto_merge import (
     GitHubAdapter,
@@ -10,8 +10,11 @@ from .auto_merge import (
     _merge_if_green_with_executor,
     collect_github_snapshot,
     evaluate_auto_merge,
+    human_merge_decision,
+    merge_outcome,
     record_pr_lifecycle,
 )
+from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
 from .implementation_safety import GATE_PRE_MERGE, HardFailContext, run_hard_fail_checks
@@ -20,10 +23,16 @@ from .incident_ledger import (
     finalize_merge_incident,
     record_merge_failed_incident,
 )
+from .ledger import load_declared_jsonl
 from .policy_approval import verify_policy_approval
+from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
-from .runtime_profile import enforce_profile_for_action
+from .runtime_profile import (
+    assert_merge_authority_available,
+    assert_merge_authorized,
+    get_merge_lane_grant,
+)
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .self_merge_freeze import assert_self_merge_not_frozen
@@ -40,8 +49,14 @@ def merge_pr_if_ready(
     diff_text: str | None = None,
     readiness_claim_id: str | None = None,
     workspace_root: str | Path | None = None,
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single real-merge authority for ARIA-governed PRs.
+
+    ``intent_publisher`` publishes the store with the ``merge_intent`` row
+    recorded immediately before the merge call (ARIA-HIGH-222); the merge
+    lane passes :func:`state_store_intent_publisher`. Without one, or when
+    the publish does not land, no merge is attempted.
 
     ``auto_merge.merge_if_green`` remains evaluation-only. This wrapper owns
     the real merge boundary: attempts must pass the runtime-profile gate,
@@ -50,7 +65,11 @@ def merge_pr_if_ready(
     eligibility, the change-ledger triple gate, and a final live re-evaluation
     immediately before invoking ``adapter.merge_pr``.
     """
-    profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ARIA-HIGH-205 — merge authority is `autonomous` or an operator's
+    # merge-lane grant (runtime_profile). Refused here, before any merge work,
+    # when neither exists; the lane the grant must cover is checked against
+    # the MEASURED risk lane below, once the risk decision has computed it.
+    profile = assert_merge_authority_available(base_dir=base_dir)
     # ARIA-HIGH-203 — the auto-merge master switch IS this gate. The policy's
     # `enabled` flag defaults to False (auto_merge.DEFAULT_POLICY) so an
     # evaluation outside merge authority is never eligible, and the runner
@@ -73,6 +92,28 @@ def merge_pr_if_ready(
     live_pr = adapter.get_pr(pr_number)
     if not isinstance(live_pr, dict) or not live_pr:
         raise GovernanceError("merge_authority_live_pr_required")
+    # ARIA-MEDIUM-226 — a PR that is no longer open is not a merge
+    # candidate. The candidate set is every PR that ever held a readiness
+    # claim, so without this every merged or closed PR was evaluated on
+    # every run: a risk decision, a lifecycle observation and a decision
+    # row each time, for a PR nothing could merge. Named, and nothing is
+    # written; an unobserved state is refused rather than read as open.
+    pr_state = str(live_pr.get("state") or "").strip().upper()
+    if not pr_state:
+        raise GovernanceError("merge_authority_pr_state_unobserved")
+    if pr_state != "OPEN":
+        return {
+            "decision": "skipped_pr_not_open",
+            "eligible": False,
+            "pr_number": pr_number,
+            "pr_state": pr_state,
+            "reasons": [f"pr_not_open:{pr_state}"],
+        }
+    # ARIA-HIGH-211 — a PR marked for a person's merge is not this lane's
+    # candidate: named, not evaluated, before any gate writes a row for it.
+    human_merge = human_merge_decision(pr_number, base_dir=base_dir, live_pr=live_pr)
+    if human_merge is not None:
+        return human_merge
     head_sha = _head_sha(live_pr)
     if not head_sha:
         raise GovernanceError("merge_authority_head_sha_required")
@@ -80,10 +121,16 @@ def merge_pr_if_ready(
     # self-merge before opening the revert. While frozen, the only PR this
     # authority merges is that registered, purity-proven revert at its exact
     # head; everything else waits for an operator's recorded unfreeze.
-    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, base_dir=base_dir)
+    # ARIA-MEDIUM-227 — the freeze's GitHub notice is read through this
+    # adapter too, so a freeze the cycle has not yet published stops merges.
+    assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, adapter=adapter, base_dir=base_dir)
 
+    # ARIA-CRITICAL-214 — the change is classified as the checkout's git
+    # holds it (rename sources included), never from the platform's
+    # rename-blind, 100-entry file list alone.
     risk = record_risk_decision_for_pr(
         live_pr,
+        workspace_root=workspace_root,
         base_dir=base_dir,
         cycle_id=cycle_id,
     )
@@ -93,6 +140,7 @@ def merge_pr_if_ready(
             + "; ".join(str(item) for item in risk.get("reason_codes") or [])
         )
     lane = str(risk.get("lane") or "")
+    assert_merge_authorized(lane=lane, base_dir=base_dir)
     unlock = assert_autonomy_unlocked(lane=lane, base_dir=base_dir)
     policy_approval: dict[str, Any] | None = None
     if lane == "L3":
@@ -131,6 +179,8 @@ def merge_pr_if_ready(
         base_dir=base_dir,
     )
 
+    # ARIA-CRITICAL-215 — both eligibility evaluations read the PR's change
+    # from the same checkout through the same reader as the risk decision.
     decision = _merge_if_green_with_executor(
         adapter=adapter,
         pr_number=pr_number,
@@ -139,6 +189,7 @@ def merge_pr_if_ready(
         cycle_id=cycle_id,
         dry_run=True,
         diff_text=diff_text,
+        workspace_root=workspace_root,
     )
     result = decision
     if decision.get("eligible"):
@@ -183,6 +234,7 @@ def merge_pr_if_ready(
                 cycle_id=cycle_id,
                 dry_run=True,
                 diff_text=fresh_diff,
+                workspace_root=workspace_root,
             )
             latest_head_sha = fresh_decision.get("head_sha")
             if not fresh_decision.get("eligible"):
@@ -218,20 +270,16 @@ def merge_pr_if_ready(
                 # Bind the final live PR observation to native implementation
                 # evidence after head re-evaluation. Missing roots or joins
                 # remain explicit gaps; the existing registry owns refusal.
-                perimeter_context = _capture_pre_merge_context(
+                # ARIA-HIGH-217 — evaluated on the PR head (the workspace the
+                # perimeter reads), and it only evaluates: the expert-review
+                # requests it used to create here are made at claim time
+                # (request_implementation_expert_review), so a panel exists
+                # before the merge lane asks whether it agreed.
+                perimeter_context, hard_fail_report = _evaluate_pre_merge_perimeter(
                     workspace_root=workspace_root,
                     base_dir=base_dir,
                     pr=fresh_pr,
                     diff_text=fresh_diff,
-                )
-                hard_fail_report = run_hard_fail_checks(
-                    perimeter_context, gate=GATE_PRE_MERGE,
-                )
-                from .expert_review_gate import _ensure_implementation_expert_requests
-
-                _ensure_implementation_expert_requests(
-                    perimeter_context, hard_fail_report,
-                    base_dir=base_dir, cycle_id=cycle_id,
                 )
                 if not hard_fail_report.passed:
                     result = dict(decision)
@@ -252,61 +300,95 @@ def merge_pr_if_ready(
                     )
                     _append_decision(base_dir, result)
                 else:
-                    merge_kwargs: dict[str, Any] = {
-                        "method": "squash",
-                        "expected_head_sha": head_sha,
-                    }
-                    authority_token = f"merge-authority:{pr_number}:{head_sha}"
-                    armed = False
-                    if hasattr(adapter, "arm_merge_authority"):
-                        adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
-                        merge_kwargs["authority_token"] = authority_token
-                        armed = True
+                    # ARIA-HIGH-219 — mutual exclusion is taken HERE, at the
+                    # point of merge, after every gate and the perimeter have
+                    # passed: one writer per target ref for the span of one
+                    # merge call. The readiness claim carries no lease — it is
+                    # durable and bound to its head.
                     try:
-                        merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
-                    except Exception as exc:  # pragma: no cover - exercised by adapter fakes
-                        record_merge_failed_incident(
+                        merge_lease = _acquire_merge_lease(
                             pr=fresh_pr,
+                            pr_number=pr_number,
+                            head_sha=head_sha,
                             readiness_claim_id=readiness_claim_id,
-                            reason=str(exc),
                             base_dir=base_dir,
                         )
+                    except GovernanceError as exc:
                         result = dict(decision)
                         result.update(
                             {
                                 "recorded_at": utc_now(),
-                                "decision": "failed",
+                                "decision": "blocked",
                                 "eligible": False,
-                                "reasons": [str(exc)],
+                                "reasons": ["merge_lease_unavailable", str(exc)],
+                                "stage": "merge_lease",
                             },
                         )
                         _append_decision(base_dir, result)
                     else:
-                        result = dict(decision)
-                        result.update(
-                            {
-                                "recorded_at": utc_now(),
-                                "decision": "merged",
-                                "eligible": True,
-                                "merge_result": merge_result,
-                            },
-                        )
-                        _append_decision(base_dir, result)
-                        finalize_merge_incident(
-                            pr=fresh_pr,
-                            readiness_claim_id=readiness_claim_id,
-                            merge_result=merge_result,
-                            base_dir=base_dir,
-                        )
-                        record_pr_lifecycle(
-                            fresh_pr,
-                            event="merged",
-                            base_dir=base_dir,
-                            cycle_id=cycle_id,
-                        )
-                    finally:
-                        if armed and hasattr(adapter, "clear_merge_authority"):
-                            adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                        try:
+                            intent_refusal = _publish_merge_intent(
+                                intent_publisher,
+                                decision=decision,
+                                pr_number=pr_number,
+                                head_sha=head_sha,
+                                readiness_claim_id=readiness_claim_id,
+                                merge_lease=_lease_summary(merge_lease),
+                                base_dir=base_dir,
+                                cycle_id=cycle_id,
+                            )
+                            if intent_refusal is not None:
+                                result = intent_refusal
+                            else:
+                                merge_kwargs: dict[str, Any] = {
+                                    "method": "squash",
+                                    "expected_head_sha": head_sha,
+                                }
+                                authority_token = f"merge-authority:{pr_number}:{head_sha}"
+                                armed = False
+                                if hasattr(adapter, "arm_merge_authority"):
+                                    adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
+                                    merge_kwargs["authority_token"] = authority_token
+                                    armed = True
+                                try:
+                                    merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
+                                except Exception as exc:  # pragma: no cover - exercised by adapter fakes
+                                    record_merge_failed_incident(
+                                        pr=fresh_pr,
+                                        readiness_claim_id=readiness_claim_id,
+                                        reason=str(exc),
+                                        base_dir=base_dir,
+                                    )
+                                    result = dict(decision)
+                                    result.update(
+                                        {
+                                            "recorded_at": utc_now(),
+                                            "decision": "failed",
+                                            "eligible": False,
+                                            "reasons": [str(exc)],
+                                            "merge_lease": _lease_summary(merge_lease),
+                                        },
+                                    )
+                                    _append_decision(base_dir, result)
+                                else:
+                                    result = _record_merge_result(
+                                        decision=decision,
+                                        merge_result=merge_result,
+                                        merge_lease=merge_lease,
+                                        fresh_pr=fresh_pr,
+                                        readiness_claim_id=readiness_claim_id,
+                                        base_dir=base_dir,
+                                        cycle_id=cycle_id,
+                                    )
+                                finally:
+                                    if armed and hasattr(adapter, "clear_merge_authority"):
+                                        adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                        finally:
+                            release_remote_cas_lease(
+                                base_dir=ensure_tools_dir(base_dir),
+                                lease_id=merge_lease["lease_id"],
+                                owner=str(merge_lease["proof"]["owner"]),
+                            )
     append_tools_governance(
         ensure_tools_dir(base_dir),
         "merge_authority_decision",
@@ -325,9 +407,296 @@ def merge_pr_if_ready(
             "cycle_id": cycle_id,
             "readiness_claim_id": readiness_claim_id,
             "readiness_failure_classes": list(readiness.failure_classes),
+            # ARIA-MEDIUM-226 — the operator grant this decision ran under:
+            # lane, expiry and the approval that gave it (None under a
+            # profile that holds pr_merge itself).
+            "merge_lane_grant": _grant_in_force(base_dir),
         },
     )
     return result
+
+
+def _record_merge_result(
+    *,
+    decision: dict[str, Any],
+    merge_result: dict[str, Any],
+    merge_lease: dict[str, Any],
+    fresh_pr: dict[str, Any],
+    readiness_claim_id: str,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+) -> dict[str, Any]:
+    """Record what the merge call did, as the adapter measured it.
+
+    ARIA-HIGH-221 — main requires a merge queue, so the call usually
+    ENQUEUES: the PR is tested on top of current main in a merge group and
+    merged by the queue later, or removed from it. ``merged`` is recorded
+    only when the result says the PR merged; ``enqueued`` when it entered
+    (or is armed to enter) the queue — settled into ``merged`` or
+    ``dequeued`` by :func:`reconcile_enqueued_merges` on a later run; any
+    other result is ``failed`` (``merge_result_unconfirmed``), never a merge.
+    """
+    result = dict(decision)
+    result.update({
+        "recorded_at": utc_now(),
+        "merge_result": merge_result,
+        "merge_lease": _lease_summary(merge_lease),
+    })
+    if merge_result.get("merged") is True:
+        result.update({"decision": "merged", "eligible": True})
+        _append_decision(base_dir, result)
+        finalize_merge_incident(
+            pr=fresh_pr,
+            readiness_claim_id=readiness_claim_id,
+            merge_result=merge_result,
+            base_dir=base_dir,
+        )
+        record_pr_lifecycle(fresh_pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        return result
+    if merge_result.get("enqueued") is True:
+        result.update({"decision": "enqueued", "eligible": True})
+        _append_decision(base_dir, result)
+        return result
+    reason = "merge_result_unconfirmed"
+    record_merge_failed_incident(
+        pr=fresh_pr,
+        readiness_claim_id=readiness_claim_id,
+        reason=reason,
+        base_dir=base_dir,
+    )
+    result.update({"decision": "failed", "eligible": False, "reasons": [reason]})
+    _append_decision(base_dir, result)
+    return result
+
+
+_ENQUEUE_SETTLED = frozenset({"merged", "dequeued"})
+
+
+def _unsettled_enqueued(base_dir: str | Path | None) -> dict[tuple[int, str], dict[str, Any]]:
+    """``{(PR, head): enqueued row}`` for every enqueue no row has settled yet."""
+    path = ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl"
+    if not path.exists():
+        return {}
+    pending: dict[tuple[int, str], dict[str, Any]] = {}
+    for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
+        number, head_sha = row.get("pr_number"), row.get("head_sha")
+        if not isinstance(number, int) or not isinstance(head_sha, str):
+            continue
+        if row.get("decision") == "enqueued":
+            pending[(number, head_sha)] = row
+        elif row.get("decision") in _ENQUEUE_SETTLED:
+            pending.pop((number, head_sha), None)
+    return pending
+
+
+def pending_enqueued_heads(base_dir: str | Path | None) -> set[tuple[int, str]]:
+    """(PR, head) pairs ARIA enqueued that the queue has not yet settled."""
+    return set(_unsettled_enqueued(base_dir))
+
+
+def reconcile_enqueued_merges(
+    *,
+    adapter: Any,
+    base_dir: str | Path | None,
+    cycle_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Settle what the merge queue did with each PR ARIA enqueued.
+
+    ARIA-HIGH-221 — an ``enqueued`` decision is not a merge. The lane
+    measures each unsettled one on its next run: merged at the enqueued head
+    → the ``merged`` decision, the incident finalization and the lifecycle
+    row a direct merge records; still queued (or armed) at that head →
+    nothing; anything else (the queue removed it, the PR closed or moved to
+    another head) → ``dequeued``, and the PR is a candidate again once its
+    head holds a claim. An adapter that observes nothing settles nothing.
+    """
+    settled: list[dict[str, Any]] = []
+    for (number, head_sha), entry in sorted(_unsettled_enqueued(base_dir).items()):
+        state = adapter.get_merge_state(number)
+        if state is None:
+            continue
+        outcome = merge_outcome(state, expected_head_sha=head_sha, method="squash")
+        if outcome["enqueued"] is True:
+            continue
+        base_row = {
+            key: entry.get(key)
+            for key in ("pr_number", "head_sha", "readiness_claim_id", "risk_lane", "change_id")
+            if key in entry
+        }
+        base_row.update({
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "enqueued_row_hash": entry.get("ledger_hash"),
+            "merge_result": {**outcome, "via": "merge_queue"},
+        })
+        if outcome["merged"] is True:
+            row = {**base_row, "decision": "merged", "eligible": True}
+            _append_decision(base_dir, row)
+            pr = adapter.get_pr(number)
+            finalize_merge_incident(
+                pr=pr,
+                readiness_claim_id=str(entry.get("readiness_claim_id") or ""),
+                merge_result=row["merge_result"],
+                base_dir=base_dir,
+            )
+            record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        else:
+            observed = str(state.get("state") or "")
+            if state.get("head_sha") != head_sha:
+                reason = f"dequeued_head_changed:{state.get('head_sha')}"
+            elif observed == "OPEN":
+                reason = "dequeued_removed_from_merge_queue"
+            else:
+                reason = f"dequeued_pr_{observed.lower() or 'unobserved'}"
+            row = {**base_row, "decision": "dequeued", "eligible": False, "reasons": [reason]}
+            _append_decision(base_dir, row)
+        settled.append(row)
+    return settled
+
+
+def _grant_in_force(base_dir: str | Path | None) -> dict[str, Any] | None:
+    grant = get_merge_lane_grant(base_dir=base_dir)
+    if grant is None:
+        return None
+    return {
+        "lane": grant.get("lane"),
+        "expires_at": grant.get("expires_at"),
+        "operator_approval_ref": grant.get("operator_approval_ref"),
+    }
+
+
+def _publish_merge_intent(
+    intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    *,
+    decision: dict[str, Any],
+    pr_number: int,
+    head_sha: str,
+    readiness_claim_id: str,
+    merge_lease: dict[str, Any],
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+) -> dict[str, Any] | None:
+    """Record and PUBLISH the intent to merge, before the merge call.
+
+    ARIA-HIGH-222 — the merge's own decision row is written after the call
+    returns and reaches aria/state only when the lane publishes at its end.
+    A lane that lost that publish (a race, a runner that died) merged a PR
+    nothing recorded, and self-revert, which acts only on ARIA's own merges,
+    could never see it. The ``merge_intent`` row names the PR, the head and
+    the claim, and is on the published tip before the merge is attempted,
+    so a merge can never be invisible: an intent whose PR later merged at
+    that head is an ARIA merge (``self_revert``). Returns the blocked
+    decision when the intent could not be published — then no merge call is
+    made — and ``None`` when it was.
+    """
+    from .state_store import StateStoreError
+
+    intent = dict(decision)
+    intent.update(
+        {
+            "recorded_at": utc_now(),
+            "decision": "merge_intent",
+            "eligible": True,
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            "readiness_claim_id": readiness_claim_id,
+            "merge_lease": merge_lease,
+            "cycle_id": cycle_id,
+        },
+    )
+    _append_decision(base_dir, intent)
+    reason: str | None = None
+    if intent_publisher is None:
+        reason = "merge_intent_publisher_required"
+    else:
+        try:
+            publication = intent_publisher(intent)
+        except (GovernanceError, StateStoreError) as exc:
+            reason = f"merge_intent_unpublished:{exc.__class__.__name__}:{exc}"
+        else:
+            if not isinstance(publication, dict) or publication.get("published") is not True:
+                reason = "merge_intent_unpublished:" + str(
+                    (publication or {}).get("reason") if isinstance(publication, dict) else publication
+                )
+    if reason is None:
+        return None
+    refusal = dict(decision)
+    refusal.update(
+        {
+            "recorded_at": utc_now(),
+            "decision": "blocked",
+            "eligible": False,
+            "reasons": [reason],
+            "stage": "merge_intent",
+            "merge_lease": merge_lease,
+        },
+    )
+    _append_decision(base_dir, refusal)
+    return refusal
+
+
+def state_store_intent_publisher(
+    *,
+    repo_root: str | Path,
+    run_label: str,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """The merge lane's intent publisher: the store under ``repo_root``,
+    published through the contention-replay orchestrator every lane uses."""
+    from .state_store import open_state_store, publish_with_contention_replay
+    from .workspace import canonical_identity
+
+    root = Path(repo_root).resolve()
+
+    def publish(intent: dict[str, Any]) -> dict[str, Any]:
+        store = open_state_store(root)
+        return publish_with_contention_replay(
+            store,
+            snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",
+            cycle_id=f"merge-intent-{run_label}",
+            lane="merge",
+            repo_hash=canonical_identity(root),
+        )
+
+    return publish
+
+
+def _acquire_merge_lease(
+    *,
+    pr: dict[str, Any],
+    pr_number: int,
+    head_sha: str,
+    readiness_claim_id: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Take the CAS lease one merge call runs under (ARIA-HIGH-219).
+
+    Recorded as a remote-CAS proof bound to the readiness claim the merge
+    runs under, and released by the caller once the call returns, so the
+    next candidate of the same run takes its own lease. A fresh lease
+    another merger holds raises ``remote_cas_lease_blocked`` — the caller
+    refuses the merge by name with no merge side effect.
+    """
+    return produce_remote_cas_proof(
+        pr_number=pr_number,
+        repo=_first_string(pr, "repository", "repo", "repo_full_name"),
+        target_ref=_base_branch(pr) or "",
+        head_ref=_first_string(pr, "head_ref", "headRefName"),
+        head_sha=head_sha,
+        readiness_claim_id=readiness_claim_id,
+        base_dir=base_dir,
+    )
+
+
+def _lease_summary(lease: dict[str, Any]) -> dict[str, Any]:
+    return {"lease_id": lease["lease_id"], "epoch": lease["epoch"]}
+
+
+def _first_string(pr: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = pr.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
 
 
 def _head_sha(pr: dict[str, Any]) -> str:
@@ -344,6 +713,116 @@ def _base_branch(pr: dict[str, Any]) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _evaluate_pre_merge_perimeter(
+    *,
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+    pr: dict[str, Any],
+    diff_text: str | None,
+    while_shaped: Callable[[HardFailContext, Any], Any] | None = None,
+) -> tuple[HardFailContext, Any]:
+    """Capture and check the pre-merge perimeter ON THE PR HEAD.
+
+    ARIA-HIGH-217 — the capture reads a committed snapshot at the PR head,
+    and the branch-tip lock reads HEAD, the PR branch and the base branch.
+    The lanes run from a checkout of ``main``, where neither can ever hold,
+    so the perimeter is evaluated in the workspace
+    ``merge_lane_workspace.pr_head_workspace`` shapes. That is the given
+    workspace itself when it already stands on the head, otherwise a
+    throwaway worktree of it. ``while_shaped(context, report)`` runs before
+    the shaped workspace is removed. A workspace that cannot be shaped is a
+    named gap (``merge_lane_workspace_unavailable:<why>``). A PR observation
+    too incomplete to shape one is left to the capture, which names it
+    (``pr_commit_identity_unavailable``).
+    """
+    from .implementation_safety import _PreMergeEvidence
+    from .merge_lane_workspace import (
+        MergeLaneWorkspaceRefusal,
+        pr_head_workspace,
+        pr_workspace_identity,
+    )
+
+    def evaluate(root: str | Path | None) -> tuple[HardFailContext, Any]:
+        context = _capture_pre_merge_context(
+            workspace_root=root, base_dir=base_dir, pr=pr, diff_text=diff_text,
+        )
+        report = run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
+        if while_shaped is not None:
+            while_shaped(context, report)
+        return context, report
+
+    if workspace_root is None:
+        return evaluate(None)
+    try:
+        pr_workspace_identity(pr)
+    except MergeLaneWorkspaceRefusal:
+        return evaluate(workspace_root)
+    try:
+        with pr_head_workspace(source_root=workspace_root, pr=pr) as shaped:
+            return evaluate(shaped)
+    except MergeLaneWorkspaceRefusal as exc:
+        context = HardFailContext(
+            diff_text=diff_text,
+            base_branch=_base_branch(pr),
+            pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
+            pre_merge_evidence=_PreMergeEvidence((f"merge_lane_workspace_unavailable:{exc}",)),
+        )
+        return context, run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
+
+
+def request_implementation_expert_review(
+    *,
+    adapter: Any,
+    pr_number: int,
+    base_dir: str | Path | None,
+    workspace_root: str | Path,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Request the expert panel's review of a PR's implementation, at claim time.
+
+    ARIA-HIGH-217 — the requests used to be made inside the merge
+    authority's perimeter, which never passed from the merge lane's
+    checkout of ``main``, so no panel was ever requested and the
+    expert-consensus predicate could never pass. The readiness-claim lane
+    now calls this once the PR's CI is green. It evaluates the same
+    perimeter on the PR head and requests the review when the implementation
+    checks hold (``expert_review_gate.request_implementation_expert_reviews``).
+    Request ids derive from the implementation binding, so a repeat for the
+    same head returns the same requests.
+    """
+    from .expert_review_gate import request_implementation_expert_reviews
+
+    pr = adapter.get_pr(pr_number)
+    state = str(pr.get("state") or "").upper()
+    result: dict[str, Any] = {
+        "pr_number": pr_number,
+        "head_sha": _head_sha(pr),
+        "requested": [],
+    }
+    if state != "OPEN":
+        result["reasons"] = [f"pr_not_open:{state or 'unobserved'}"]
+        return result
+    requested: list[str] = []
+
+    def request(context: HardFailContext, report: Any) -> None:
+        requested.extend(request_implementation_expert_reviews(
+            context, report, base_dir=base_dir, cycle_id=cycle_id,
+        ))
+
+    _context, report = _evaluate_pre_merge_perimeter(
+        workspace_root=workspace_root,
+        base_dir=base_dir,
+        pr=pr,
+        diff_text=adapter.get_pr_diff(pr_number),
+        while_shaped=request,
+    )
+    result["requested"] = requested
+    result["perimeter"] = {
+        item.name: {"passed": item.passed, "reason": item.reason} for item in report.results
+    }
+    return result
 
 
 def _capture_pre_merge_context(
@@ -366,6 +845,7 @@ def _capture_pre_merge_context(
 
     from . import agent_invocations as _invocations
     from . import plan_convergence as _plans
+    from .change_paths import read_change_paths as _read_change_paths
     from .implementation_safety import _PreMergeEvidence
     from .ledger import LedgerIntegrityError as _LedgerIntegrityError
     from .ledger import _verify_jsonl_from_text
@@ -408,15 +888,25 @@ def _capture_pre_merge_context(
         reason = "pr_commit_identity_unavailable"
         number = pr.get("number")
         head_sha = _head_sha(pr)
-        base_sha = pr.get("base_sha") or pr.get("baseRefOid")
+        live_base_sha = pr.get("base_sha") or pr.get("baseRefOid")
         if (
             type(number) is not int or number <= 0
-            or not isinstance(base_sha, str)
-            or _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None
+            or not isinstance(live_base_sha, str)
+            or _re.fullmatch(r"[0-9a-f]{40}", live_base_sha) is None
             or _re.fullmatch(r"[0-9a-f]{40}", head_sha) is None
-            or _git(workspace, "rev-parse", "--verify", base_sha + "^{commit}").strip() != base_sha
+            or _git(workspace, "rev-parse", "--verify", live_base_sha + "^{commit}").strip() != live_base_sha
             or _git(workspace, "rev-parse", "--verify", head_sha + "^{commit}").strip() != head_sha
         ):
+            raise GovernanceError(reason)
+        # ARIA-HIGH-221 — the evidence is bound to the implementation: its
+        # head and the base it was made on. Main merges through a merge
+        # queue and keeps moving while the PR waits, so the PR's live base
+        # is main's tip, not that base. The implementation base is where
+        # the head forked from the live base — the base the implementation
+        # ledger names whenever main still contains it — and every join
+        # below is against it; the live base is recorded beside it.
+        base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
+        if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
             raise GovernanceError(reason)
 
         sources = {
@@ -522,9 +1012,10 @@ def _capture_pre_merge_context(
         if snapshot.get("base_commit_sha") != head_sha or snapshot.get("unknown_count") != 0:
             raise GovernanceError(reason)
         reason = "committed_paths_unavailable"
-        changed_paths = sorted(filter(None, _git(
-            workspace, "diff", "--name-only", "-z", base_sha, head_sha,
-        ).split("\0")))
+        # ARIA-CRITICAL-214 — the one reader of a change's paths (rename
+        # sources kept), the same one the delivery recorded
+        # actual_affected_files with.
+        changed_paths = list(_read_change_paths(workspace, base_sha, head_sha).paths)
         if changed_paths != sorted(committed.get("actual_affected_files") or []):
             raise GovernanceError(reason)
 
@@ -601,6 +1092,7 @@ def _capture_pre_merge_context(
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
+                live_base_sha=live_base_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
                 **expert_observation, **feedback_observation, **budget_observation,
@@ -1034,4 +1526,9 @@ def _join_pre_merge_implementation(
         return {}, (reason,)
 
 
-__all__ = ["merge_pr_if_ready"]
+__all__ = [
+    "merge_pr_if_ready",
+    "pending_enqueued_heads",
+    "reconcile_enqueued_merges",
+    "request_implementation_expert_review",
+]

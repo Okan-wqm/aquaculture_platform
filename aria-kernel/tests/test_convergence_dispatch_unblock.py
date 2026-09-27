@@ -44,32 +44,21 @@ class RoleScopedIdentityTests(unittest.TestCase):
         # ARIA-HIGH-193 — the gate reads each seat's principal from the
         # REQUEST ledger (the agent it was minted for); the claimant is one
         # executor run for every seat, the live shape.
-        import json
         import tempfile
 
         from aria_kernel.independence_check import (
             RoundDispatch,
             verify_principal_disjointness,
         )
+        from tests._helpers.independence_seats import seed_bound_seats
 
         def _run(targets: dict[str, str]) -> tuple[bool, list[str]]:
             with tempfile.TemporaryDirectory() as tmp:
                 base = Path(tmp)
-                (base / "agent-invocations").mkdir(parents=True)
-                claims = [
-                    {"request_id": f"AIR-{role}", "claim_id": f"c-{role}", "agent_id": "ci-executor:gha-1"}
-                    for role in targets
-                ]
-                requests = [
-                    {"request_id": f"AIR-{role}", "target_agent": target}
+                seed_bound_seats(base, [
+                    {"request_id": f"AIR-{role}", "claim_id": f"c-{role}", "target_agent": target}
                     for role, target in targets.items()
-                ]
-                (base / "agent-invocations" / "claims.jsonl").write_text(
-                    "\n".join(json.dumps(r) for r in claims) + "\n", encoding="utf-8"
-                )
-                (base / "agent-invocations" / "requests.jsonl").write_text(
-                    "\n".join(json.dumps(r) for r in requests) + "\n", encoding="utf-8"
-                )
+                ])
                 dispatches = [
                     RoundDispatch(role=role, request_id=f"AIR-{role}", revision_id=f"rev-{role}", agent_text="t")
                     for role in targets

@@ -28,6 +28,7 @@ from aria_kernel.plan_convergence import (
 )
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.operator_acts import operator_set_profile
 
 
 class PlanConvergenceTests(unittest.TestCase):
@@ -738,7 +739,6 @@ class PlanConvergenceTests(unittest.TestCase):
         from aria_kernel.governance_reader import read_governance_rows
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_round_controller import advance_plan_rounds
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git, make_local_git_repo
 
@@ -761,7 +761,7 @@ class PlanConvergenceTests(unittest.TestCase):
         _git(["add", "."], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: event schema before regression"], cwd=self.root)
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)
-        set_profile("strict", operator_approval_ref="test:native-spine-round", base_dir=self.tools_dir)
+        operator_set_profile("strict", base_dir=self.tools_dir)
         plan_id = "plan-1"
         body = {
             "schema_version": 1, "title": "Preserve the actual event schema contract",
@@ -964,7 +964,6 @@ class PlanConvergenceTests(unittest.TestCase):
         from aria_kernel.governance_reader import read_governance_rows
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_round_controller import advance_plan_rounds
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git, make_local_git_repo
 
@@ -987,7 +986,7 @@ class PlanConvergenceTests(unittest.TestCase):
         _git(["add", "."], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: event schema before regression"], cwd=self.root)
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)
-        set_profile("strict", operator_approval_ref="test:native-spine-round", base_dir=self.tools_dir)
+        operator_set_profile("strict", base_dir=self.tools_dir)
         plan_id = "plan-1"
         body = {
             "schema_version": 1, "title": "Preserve the actual event schema contract",

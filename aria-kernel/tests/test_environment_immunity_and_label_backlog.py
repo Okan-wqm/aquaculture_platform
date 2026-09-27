@@ -83,16 +83,16 @@ class IoErrorClassificationTests(unittest.TestCase):
 
 class SeedingBacklogTests(unittest.TestCase):
     def _seed(self, root: Path, tool_id: str, fingerprints: list[str]) -> None:
-        from aria_kernel.calibration_bootstrap import record_seeding_finding
+        from aria_kernel.calibration_bootstrap import record_seeding_findings
 
         for fp in fingerprints:
-            record_seeding_finding(
+            record_seeding_findings(
                 tool_id=tool_id,
-                finding={
+                findings=[{
                     "finding_fingerprint": fp,
                     "path": "apps/farm-service/src/x.ts",
                     "message": "m",
-                },
+                }],
                 base_dir=root,
             )
 

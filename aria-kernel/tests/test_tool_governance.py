@@ -58,7 +58,7 @@ def register_active_for_test(tool, base_dir):
     the lifecycle: SHADOW first-register, then transition_tool() with
     synthetic gate values that satisfy the ACTIVE precondition checks.
     Production callers cannot call this helper — it lives in the test
-    namespace only and uses operator_approval=True / precision=1.0 /
+    namespace only and uses a faked operator GitHub act / precision=1.0 /
     evidence_chains_valid=True purely for fixture wiring.
 
     For initial-lifecycle states (DRAFT/SANDBOX/SHADOW) and intentional
@@ -85,16 +85,24 @@ def register_active_for_test(tool, base_dir):
             "test fixture quarantine",
             base_dir=base_dir,
         )
-    return transition_tool(
-        tool["tool_id"],
-        target_status=target,
-        reason="test fixture promotion",
-        precision=1.0,
-        critical_false_positives=0,
-        evidence_chains_valid=True,
-        operator_approval=True,
-        base_dir=base_dir,
-    )
+    # ARIA-CRITICAL-216 — the promotion is an operator's GitHub act (faked).
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        return transition_tool(
+            tool["tool_id"],
+            target_status=target,
+            reason="test fixture promotion",
+            precision=1.0,
+            critical_false_positives=0,
+            evidence_chains_valid=True,
+            operator_approval_ref=github.approve(
+                "tool_promote", {"tool": tool["tool_id"], "target": target},
+            ),
+            base_dir=base_dir,
+        )
+
+
 
 
 def valid_tool(**overrides):
@@ -672,8 +680,14 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual({item["rule"] for item in sample["items"]}, {"a", "b"})
 
     def test_operator_feedback_store_contributes_to_health_metrics(self):
+        # ARIA-MEDIUM-229 — precision is measured on the findings the version
+        # in force emits, so both runs emit the finding the operator judged
+        # (keyed through the version's own finding id: the row carries no
+        # fingerprint).
+        finding = {"id": "finding-1", "rule": "r", "path": "apps/farm-service/src/app.module.ts",
+                   "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]}
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)
-        record_run(valid_run(run_id="feedback-run"), base_dir=self.tools_dir)
+        record_run(valid_run(run_id="feedback-run", raw_findings=[finding]), base_dir=self.tools_dir)
         record_operator_feedback(
             tool_id="ts-adapter",
             run_id="feedback-run",
@@ -683,7 +697,7 @@ class ToolGovernanceTests(unittest.TestCase):
             note="operator rejected",
             base_dir=self.tools_dir,
         )
-        decision = record_run(valid_run(run_id="after-feedback"), base_dir=self.tools_dir)
+        decision = record_run(valid_run(run_id="after-feedback", raw_findings=[finding]), base_dir=self.tools_dir)
         self.assertEqual(decision["metrics"]["judged_samples"], 1)
         self.assertEqual(decision["metrics"]["precision"], 0.0)
 

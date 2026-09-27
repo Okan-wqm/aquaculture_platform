@@ -18,6 +18,18 @@ def promote_tool(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
+    # ARIA-HIGH-209 / ARIA-CRITICAL-216 — a supplied ref is authority only
+    # once it resolves to an operator's GitHub act. Its grammar is refused
+    # here, before any gate runs; transition_tool resolves the act itself
+    # (and consumes it, once) at the point of transition and records it.
+    operator_ref = (operator_approval_ref or "").strip()
+    if operator_ref:
+        from .operator_approval import OperatorApprovalUnrecorded, parse_github_approval_ref
+
+        try:
+            parse_github_approval_ref(operator_ref, surface="tool_promote")
+        except OperatorApprovalUnrecorded as exc:
+            raise GovernanceError(f"tool_transition_approval_unrecorded:{exc}") from exc
     fixture_status = latest_fixture_status(tool_id, base_dir=base_dir)
     fixture_passed = fixture_status["current_tool_passed"]
     if target_status == "SHADOW" and tool["status"] == "CALIBRATE" and not fixture_passed:
@@ -46,7 +58,7 @@ def promote_tool(
         # invented string.
         auto_promote_token: str | None = None
         panel_pending = False
-        if operator_approval_ref:
+        if operator_ref:
             pass
         elif panel_approval_ref:
             from .promotion_veto import tool_scope_touches_kernel
@@ -99,7 +111,7 @@ def promote_tool(
             target_status,
             reason=reason,
             base_dir=base_dir,
-            operator_approval=bool(operator_approval_ref),
+            operator_approval_ref=operator_approval_ref,
             auto_promote_token=auto_promote_token,
             precision=1.0 if readiness["zero_finding_lane"] else readiness["precision"],
             critical_false_positives=readiness["critical_false_positives"],
@@ -111,6 +123,7 @@ def promote_tool(
         reason=reason,
         base_dir=base_dir,
         fixture_suite_passed=fixture_passed,
+        operator_approval_ref=operator_approval_ref,
     )
 
 

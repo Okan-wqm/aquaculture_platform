@@ -39,7 +39,7 @@ class PromoteToolTokenPathTests(unittest.TestCase):
 
     def test_eligible_token_reaches_transition(self) -> None:
         """When the policy gates pass, the token flows into transition_tool
-        as the autonomous authority (operator_approval stays False)."""
+        as the autonomous authority (no operator approval ref is passed)."""
         captured: dict = {}
 
         def fake_transition(tool_id, target, **kwargs):
@@ -66,12 +66,16 @@ class PromoteToolTokenPathTests(unittest.TestCase):
                 )
         self.assertEqual(result["status"], "ACTIVE")
         self.assertEqual(captured["auto_promote_token"], "deadbeef" * 8)
-        self.assertFalse(captured["operator_approval"])
+        self.assertIsNone(captured["operator_approval_ref"])
         self.assertEqual(captured["precision"], 0.97)
 
     def test_operator_ref_path_never_computes_a_token(self) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            # ARIA-HIGH-209 — the ref must resolve to a recorded operator act.
+            append_tools_governance(root, "operator_action", {"event_id": "APPROVAL-1"})
             with patch("aria_kernel.promotion.get_tool",
                        return_value={"tool_id": "adapter-x", "status": "SHADOW", "kind": "adapter"}), \
                  patch("aria_kernel.promotion.latest_fixture_status",
@@ -88,7 +92,7 @@ class PromoteToolTokenPathTests(unittest.TestCase):
                        return_value={"tool_id": "adapter-x", "status": "ACTIVE"}):
                 promote_tool(
                     "adapter-x", "ACTIVE", reason="op",
-                    operator_approval_ref="APPROVAL-1", base_dir=root,
+                    operator_approval_ref="gh:Okan-wqm/aquaculture_platform#1/comment/1", base_dir=root,
                 )
 
 

@@ -44,6 +44,7 @@ from aria_kernel.implementation_delivery import (
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POC_DIR = _REPO_ROOT / "tools" / "aria-poc"
@@ -204,7 +205,8 @@ class RefusalTests(unittest.TestCase):
         # never executes, and the `admission` — the job's window, the
         # validation sandbox — is decided before anything runs at all.
         self.assertEqual(DELIVERY_STAGES, ("branch_publication", "commit_identity", "admission", "change_ledger",
-                                           "result_admissible", "apply_gate", "credential", "push", "pr_open"))
+                                           "result_admissible", "apply_gate", "change_validated", "credential",
+                                           "push", "pr_open"))
         self.assertEqual(delivery.ADMISSION_STAGE, "admission")
         # (round 6) the credential is minted AFTER the gate and BEFORE the
         # push — where it is consumed; a lane that cannot mint there is the
@@ -561,6 +563,12 @@ class AdmissionTests(_DeliveredBranch):
         )
         from aria_kernel.validation_env import build_validation_env
 
+        # The rust homes this test names are the fake HOME's: the host's own
+        # RUSTUP_HOME / CARGO_HOME / RUSTUP_TOOLCHAIN would outrank them (the
+        # room honours an explicit home, asserted below), so they are not
+        # inherited from the runner that happens to host the suite.
+        ambient = {name: value for name, value in os.environ.items()
+                   if name not in ("RUSTUP_HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN")}
         node = self.root / "toolchain" / "node" / "bin"
         node.mkdir(parents=True)
         (node / "npx").write_text("#!/bin/sh\necho npx\n", encoding="utf-8")
@@ -568,7 +576,7 @@ class AdmissionTests(_DeliveredBranch):
         self.assertEqual(SANDBOX_TMP_MOUNT, ("--perms", "1777", "--tmpfs", "/tmp"))
         # No Cargo.toml: no toolchain declared, nothing rust-shaped in the argv.
         self.assertEqual(validation_toolchains_for(self.repo), ())
-        environment = build_validation_env({**os.environ, "PATH": f"{node}:{os.defpath}"}).env
+        environment = build_validation_env({**ambient, "PATH": f"{node}:{os.defpath}"}).env
         argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
                                           git=None, environment=environment, store=self.tools)
         tmp_at = argv.index("--perms")
@@ -587,7 +595,7 @@ class AdmissionTests(_DeliveredBranch):
         for name in ("cargo", "rustc"):
             (cargo_bin / name).write_text("#!/bin/sh\necho " + name + "\n", encoding="utf-8")
             (cargo_bin / name).chmod(0o755)
-        with_rust = build_validation_env({**os.environ, "HOME": str(home), "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
+        with_rust = build_validation_env({**ambient, "HOME": str(home), "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
         argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
                                           git=None, environment=with_rust, store=self.tools)
         ro = [argv[i + 1] for i, t in enumerate(argv) if t == "--ro-bind"]
@@ -595,6 +603,16 @@ class AdmissionTests(_DeliveredBranch):
         self.assertIn(str(home / ".rustup"), ro)
         self.assertEqual(argv[argv.index("RUSTUP_HOME") + 1], str(home / ".rustup"))
         self.assertEqual(argv[argv.index("CARGO_HOME") + 1], str(home / ".cargo"))
+        # An explicit RUSTUP_HOME is the operator's and outranks HOME: that
+        # home is the one bound and named.
+        explicit = self.root / "rustup-elsewhere"
+        (explicit / "toolchains").mkdir(parents=True)
+        with_explicit = build_validation_env({**ambient, "HOME": str(home), "RUSTUP_HOME": str(explicit),
+                                              "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
+        explicit_argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                                   git=None, environment=with_explicit, store=self.tools)
+        self.assertEqual(explicit_argv[explicit_argv.index("RUSTUP_HOME") + 1], str(explicit))
+        self.assertIn(str(explicit), [explicit_argv[i + 1] for i, t in enumerate(explicit_argv) if t == "--ro-bind"])
         self.assertNotIn(str(self.tools), ro)
         # The host's shape the suites walk (`/var/log`): an empty directory
         # inside, never the host's logs.
@@ -660,11 +678,10 @@ class AdmissionTests(_DeliveredBranch):
         import sys
 
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.validation import run_validation_commands
         from aria_kernel.validation_runs_ledger import _validation_log_path, verify_validation_run
 
-        set_profile("strict", operator_approval_ref="test:wrapper", base_dir=self.tools, set_by="operator", scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         emit_change_planned(
             plan_id="plan-w", finding_id="F-1", intended_affected_files=["src/app.ts"],
             intended_validation_refs=["npm run type-check"], architectural_tier=1, base_dir=self.tools,
@@ -858,6 +875,108 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         self.assertNotIn("uncovered_intended_dispositions", parameters)
 
 
+class ARefusedChangeValidatedStopsThePrTests(_DeliveredBranch):
+    """ARIA-MEDIUM-231 — the validated row closes the chain BEFORE anything
+    external, and its refusal stops the delivery by name.
+
+    ARIA-HIGH-196 wrote `change_validated` after the commit row and, on a
+    refusal, recorded `change_validated_refused` and delivered the PR
+    anyway. Here the delivery runs its real ledger steps — scope verdict,
+    commit row, validated row — on a kernel-signed tip; only the host-bound
+    collaborators (the admission's sandbox, the contained gate, the
+    envelope's judgment) are stood in for, and the gate records the one
+    thing production's staging also records: green runs at the BASE under
+    this change id. None of them is about the tip, so the row is refused,
+    and no credential is minted, nothing is pushed and no PR is opened.
+    """
+
+    def setUp(self) -> None:
+        from aria_kernel.agent_invocations import claim_request
+        from aria_kernel.change_ledger import emit_change_planned
+        from tests._helpers.production_shaped import production_implementation_request
+
+        super().setUp()
+        self.request = production_implementation_request(
+            tools_dir=self.tools, workspace_root=self.repo, plan_id="plan-validated",
+            allowed_path="src/app.ts", base_sha=self.base,
+        )
+        self.claim = claim_request(request_id=self.request["request_id"], agent_id="aria-implementer", base_dir=self.tools)
+        planned = emit_change_planned(
+            plan_id="plan-validated", finding_id="F-validated", intended_affected_files=["src/app.ts"],
+            intended_validation_refs=[], architectural_tier=1, base_dir=self.tools,
+        )
+        self.ids = {**self.ids, "change_id": planned["change_id"]}
+        self.output = Path(self.request["expected_output_path"])
+        self.output.parent.mkdir(parents=True, exist_ok=True)
+        self.output.write_text("{}", encoding="utf-8")
+
+    def _green_baseline(self) -> None:
+        from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
+        from aria_kernel.validation_runs_ledger import record_validation_run
+
+        log = self.root / "baseline.log"
+        log.write_text("ok\n", encoding="utf-8")
+        for command in CANONICAL_VALIDATION_COMMANDS:
+            record_validation_run(
+                change_id=self.ids["change_id"], cmd=command, exit_code=0, duration_ms=1,
+                log_path=str(log), commit_sha=self.base, runner_identity="aria-kernel:stage:plan-validated",
+                change_author_identity="agent:aria-implementer",
+                started_at="2026-09-26T00:00:00+00:00", completed_at="2026-09-26T00:00:01+00:00",
+                base_dir=self.tools,
+            )
+
+    def test_a_refused_change_validated_stops_the_delivery_before_the_credential_push_and_pr(self) -> None:
+        from types import SimpleNamespace
+
+        from aria_kernel import agent_invocations, apply_engine, pr_manager
+        from aria_kernel.change_ledger import get_change_chain
+
+        self._green_baseline()
+        admitted = SimpleNamespace(undecided=False, admitted=True, rejection_codes=(), reasons=())
+        held: list[object] = []
+        opened: list[object] = []
+
+        def hold(**kwargs):  # noqa: ANN003 - the factory's keyword shape
+            held.append(kwargs)
+            raise AssertionError("a credential was minted for a chain that did not validate")
+
+        with mock.patch.object(delivery, "delivery_admission_refusal", return_value=None), \
+                mock.patch.object(delivery, "validation_sandbox_for", return_value=object()), \
+                mock.patch.object(agent_invocations, "judge_claim_submission", return_value=admitted), \
+                mock.patch.object(apply_engine, "run_apply_gate",
+                                  return_value={"status": "ready_for_pr", "validation_gate_ref": "sha256:" + "d" * 64}), \
+                mock.patch.object(delivery, "_gate_validation_results", return_value=()), \
+                mock.patch.object(delivery, "hold_delivery_credentials", side_effect=hold), \
+                mock.patch.object(pr_manager, "open_pr_for_action", side_effect=lambda **kw: opened.append(kw)):
+            refused = self._deliver(
+                request_id=self.request["request_id"], claim_id=self.claim["claim_id"],
+                agent_id=self.claim["agent_id"], envelope={}, output_path=self.output,
+            )
+
+        self.assertEqual(refused.stage, delivery.CHANGE_VALIDATED_STAGE, refused.reason)
+        self.assertTrue(refused.reason.startswith("change_validated_refused:"), refused.reason)
+        self.assertNotIn(refused.stage, delivery.HOST_STAGES)
+        self.assertEqual(held, [])
+        self.assertEqual(opened, [])
+        self.assertFalse((self.tools / "recovery").exists(), "a push intent was recorded")
+        self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
+        chain = get_change_chain(change_id=self.ids["change_id"], base_dir=self.tools)
+        self.assertEqual(chain["committed"]["commit_sha"], self.tip)
+        self.assertIsNone(chain["validated"])
+        refusals = [
+            row for row in load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+            if row.get("kind") == "change_validated_refused"
+        ]
+        self.assertEqual([row["details"]["change_id"] for row in refusals], [self.ids["change_id"]])
+
+    def test_the_stage_runs_after_the_gate_and_before_anything_external(self) -> None:
+        stages = DELIVERY_STAGES
+        self.assertLess(stages.index("apply_gate"), stages.index(delivery.CHANGE_VALIDATED_STAGE))
+        self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("credential"))
+        self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("push"))
+        self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("pr_open"))
+
+
 class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
     """ARIA-HIGH-124 (round 4) — a validation command that hits its ceiling
     is STOPPED, contained or not.
@@ -880,7 +999,6 @@ class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
         from aria_kernel.change_ledger import emit_change_planned
         from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.ledger import load_declared_jsonl as _load
-        from aria_kernel.runtime_profile import set_profile
 
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
@@ -908,8 +1026,7 @@ class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
         )
         npm.chmod(0o755)
         self.addCleanup(self._kill_survivors)
-        set_profile("strict", operator_approval_ref="test:timeout", base_dir=self.tools, set_by="operator",
-                    scheduler_ceiling="strict")
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         emit_change_planned(
             plan_id="plan-timeout", finding_id="F-1", intended_affected_files=["src/app.ts"],
             intended_validation_refs=["npm run type-check"], architectural_tier=1, base_dir=self.tools,

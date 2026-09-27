@@ -23,7 +23,6 @@ fixtures, which omitted ``agent_id`` entirely:
 """
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,28 +30,23 @@ from pathlib import Path
 from . import _helpers  # noqa: F401
 
 from aria_kernel import independence_check, secret_scrub
+from aria_kernel.ledger import append_declared_jsonl
+from tests._helpers.independence_seats import EXECUTOR_CARRIER, seed_bound_seats
 
 
 # ARIA-HIGH-193 — a seat's principal is the agent its REQUEST was minted for
 # (`target_agent`); the claimant is the executor process that carried it. Every
 # fixture seat is carried by ONE executor run, the live shape, so a test only
 # passes or fails on the principal the kernel minted.
-_CARRIER = "ci-executor:gha-1"
+#
+# ARIA-MEDIUM-225 — and each seat is recorded the whole way: an accepted
+# result naming a sealed response stamped with the seat's agent and the
+# route that ran it, because the principal is now bound through those.
+_CARRIER = EXECUTOR_CARRIER
 
 
 def _seed_seats(base: Path, rows: list[dict]) -> None:
-    d = base / "agent-invocations"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "claims.jsonl").write_text(
-        "\n".join(json.dumps({"request_id": r["request_id"], "claim_id": r["claim_id"],
-                              "agent_id": _CARRIER}) for r in rows) + "\n",
-        encoding="utf-8",
-    )
-    (d / "requests.jsonl").write_text(
-        "\n".join(json.dumps({"request_id": r["request_id"], "target_agent": r["target_agent"]})
-                  for r in rows) + "\n",
-        encoding="utf-8",
-    )
+    seed_bound_seats(base, rows, carrier=_CARRIER)
 
 
 class TestVerifyClaimDisjointness(unittest.TestCase):
@@ -145,10 +139,11 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
             self._seed_claims(base, [
                 {"request_id": "REQ-P", "claim_id": "claim-1", "target_agent": "agent-p"},
             ])
-            (base / "agent-invocations" / "claims.jsonl").write_text(
-                json.dumps({"request_id": "REQ-P", "claim_id": "claim-1", "agent_id": _CARRIER}) + "\n"
-                + json.dumps({"request_id": "REQ-C", "claim_id": "claim-2", "agent_id": _CARRIER}) + "\n",
-                encoding="utf-8",
+            # A claim for REQ-C with no request row behind it.
+            append_declared_jsonl(
+                base / "agent-invocations" / "claims.jsonl",
+                {"request_id": "REQ-C", "claim_id": "claim-2", "agent_id": _CARRIER},
+                expected_surface="agent_invocation_claims",
             )
             ok, reasons = independence_check.verify_principal_disjointness(
                 dispatches=self._three_role_claims(base)[:2], base_dir=base,

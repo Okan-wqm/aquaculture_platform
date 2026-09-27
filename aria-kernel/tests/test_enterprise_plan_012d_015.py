@@ -29,12 +29,12 @@ from aria_kernel import (
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
 from aria_kernel.fixture_runner import run_fixture_suite
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
-from aria_kernel.runtime_profile import set_profile
 from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     seed_validation_provenance,
 )
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # The product file the synthetic proposal touches. One constant so the branch
@@ -65,12 +65,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         # raises. The runtime profile gate would otherwise short-circuit
         # the test by raising profile_violation FIRST. Setting strict
         # preserves the original assertion target (missing validation gate).
-        set_profile(
-            "strict",
-            operator_approval_ref="test:plan-020-phase-1.B:enterprise-012d",
-            base_dir=self.tools_dir,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.tools_dir)
 
     def tearDown(self):
         self.tmp.cleanup()

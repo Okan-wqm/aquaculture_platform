@@ -43,7 +43,13 @@ REQUIRED_READINESS_FIELDS: tuple[str, ...] = (
     "head_sha",
     "workflow_run_ids",
     "artifact_refs",
-    "remote_cas_proof",
+    # ARIA-HIGH-219 — no "remote_cas_proof": the CAS lease lives five
+    # minutes and a claim is fixed per (PR, head), so a claim that carried
+    # its lease died before a slower required check could turn green, and
+    # its head could never be claimed again. A claim is durable; it is
+    # valid while the live PR head is the head it names (the live binding
+    # in verify_enterprise_readiness), and mutual exclusion is taken by
+    # merge_authority.merge_pr_if_ready immediately before the merge call.
     "rollback_proof",
     "retention_proof",
     "waiver_ledger",
@@ -157,7 +163,6 @@ def evaluate_enterprise_readiness_claim(claim: dict[str, Any]) -> EnterpriseRead
                 reasons.append(f"artifact_ref_workflow_run_unbound:{index}:{artifact.produced_by_workflow_run_id}")
                 failures.append("artifact_refs_untrusted")
 
-    _evaluate_remote_cas(claim, reasons, failures)
     _evaluate_branch_protection(claim, reasons, failures)
     _evaluate_retention_or_rollback(claim, "rollback_proof", "rollback_proof_id", reasons, failures)
     _evaluate_retention_or_rollback(claim, "retention_proof", "retention_proof_id", reasons, failures)
@@ -463,7 +468,14 @@ def verify_enterprise_readiness(
     adapter: Any,
     readiness_claim_id: str,
     base_dir: str | Path | None = None,
+    artifact_fetcher: Any = None,
 ) -> EnterpriseReadinessVerdict:
+    """Verify the claim against its ledgers, the live PR and the published evidence.
+
+    ``artifact_fetcher`` downloads a published Actions artifact
+    (``actions_artifacts.fetch_actions_artifact`` when omitted): the
+    rollback and retention proofs are verified by download (ARIA-HIGH-218).
+    """
     if not isinstance(readiness_claim_id, str) or not readiness_claim_id.strip():
         raise GovernanceError("readiness_claim_id_required")
     root = ensure_tools_dir(base_dir)
@@ -501,11 +513,11 @@ def verify_enterprise_readiness(
     _compare_live_field(live_pr, claim, ("head_ref", "headRefName", "head_branch"), "head_ref", "readiness_live_head_ref_mismatch", reasons, failures)
     _compare_live_field(live_pr, claim, ("head_sha", "headRefOid", "head"), "head_sha", "readiness_live_head_sha_mismatch", reasons, failures, require_full_sha=True)
 
-    _verify_cas_ledger(root, claim, reasons, failures)
     _verify_waiver_ledger(root, claim, reasons, failures)
     _verify_branch_protection_ledger(root, claim, reasons, failures)
-    _verify_retention_or_rollback_ledger(root, claim, "rollback_proof", "enterprise/rollback-proofs.jsonl", "enterprise_rollback_proofs", "rollback_proof_required", reasons, failures)
-    _verify_retention_or_rollback_ledger(root, claim, "retention_proof", "enterprise/retention-proofs.jsonl", "enterprise_retention_proofs", "retention_proof_required", reasons, failures)
+    downloads = _PublishedArtifactDownloads(artifact_fetcher)
+    _verify_retention_or_rollback_ledger(root, claim, "rollback_proof", "enterprise/rollback-proofs.jsonl", "enterprise_rollback_proofs", "rollback_proof_required", reasons, failures, downloads)
+    _verify_retention_or_rollback_ledger(root, claim, "retention_proof", "enterprise/retention-proofs.jsonl", "enterprise_retention_proofs", "retention_proof_required", reasons, failures, downloads)
     _verify_workflow_run_ledger(root, claim, reasons, failures)
     _verify_artifact_ledger(root, claim, reasons, failures)
     _verify_dlp_token_ledger(root, claim, "dlp_proof", "enterprise/dlp-proofs.jsonl", "enterprise_dlp_proofs", "dlp_proof_required", reasons, failures)
@@ -535,32 +547,6 @@ def source_ledger_ref_from_row(
     )
 
 
-def _evaluate_remote_cas(claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
-    proof = claim.get("remote_cas_proof")
-    if not isinstance(proof, dict):
-        reasons.append("remote_cas_proof_required")
-        failures.append("remote_cas_proof_required")
-        return
-    _require_common_binding(claim, proof, "remote_cas", reasons, failures)
-    if proof.get("state") != "fresh":
-        reasons.append("remote_cas_proof_not_fresh")
-        failures.append("remote_cas_proof_required")
-    if not isinstance(proof.get("lease_id"), str) or not proof.get("lease_id", "").strip():
-        reasons.append("remote_cas_lease_id_required")
-        failures.append("remote_cas_binding_required")
-    if not isinstance(proof.get("epoch"), int) or proof.get("epoch") < 0:
-        reasons.append("remote_cas_epoch_required")
-        failures.append("remote_cas_binding_required")
-    expires_at = proof.get("expires_at")
-    if not isinstance(expires_at, str) or not expires_at.strip():
-        reasons.append("remote_cas_expiry_required")
-        failures.append("remote_cas_binding_required")
-    elif not _expiry_is_future(expires_at):
-        reasons.append("remote_cas_expiry_must_be_future")
-        failures.append("remote_cas_binding_required")
-    _require_source_ledger_ref(proof.get("source_ledger_ref"), "remote_cas", reasons, failures, "remote_cas_proof_required")
-
-
 def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
     proof = claim.get("branch_protection_proof")
     if not isinstance(proof, dict):
@@ -568,29 +554,37 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
         failures.append("branch_protection_required")
         return
     _require_common_binding(claim, proof, "branch_protection", reasons, failures)
+    for reason in branch_protection_policy_reasons(proof):
+        reasons.append(reason)
+        failures.append("branch_protection_required")
+
+
+def branch_protection_policy_reasons(proof: dict[str, Any]) -> list[str]:
+    """Every binding-free reason the claim gate refuses a protection proof for.
+
+    ARIA-HIGH-210 — the ONE protection policy: the claim gate applies it to a
+    PR-bound proof, and ``readiness probe-branch-protection`` applies it to
+    an on-demand measurement, so the operator's verdict cannot drift from the
+    verdict a claim will receive.
+    """
+    reasons: list[str] = []
     if proof.get("$schema") != BRANCH_PROTECTION_SCHEMA:
         reasons.append("branch_protection_proof_schema_must_be_v3")
-        failures.append("branch_protection_required")
     if proof.get("valid") is not True:
         reasons.append("branch_protection_proof_invalid")
-        failures.append("branch_protection_required")
     if not _is_sha256_digest(str(proof.get("snapshot_hash") or "")):
         reasons.append("branch_protection_snapshot_hash_required")
-        failures.append("branch_protection_required")
     checks = proof.get("required_checks")
     exact_checks = proof.get("exact_required_checks")
     if not isinstance(checks, list) or not checks or not all(isinstance(item, str) and item.strip() for item in checks):
         reasons.append("branch_protection_required_checks_required")
-        failures.append("branch_protection_required")
     if (
         not isinstance(exact_checks, list)
         or sorted(str(item) for item in exact_checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS)
     ):
         reasons.append("branch_protection_exact_required_checks_mismatch")
-        failures.append("branch_protection_required")
     if isinstance(checks, list) and sorted(str(item) for item in checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS):
         reasons.append("branch_protection_required_checks_mismatch")
-        failures.append("branch_protection_required")
     for field_name in (
         "signed_commits_required",
         "reviews_required",
@@ -600,7 +594,6 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
     ):
         if proof.get(field_name) is not True:
             reasons.append(f"branch_protection_{field_name}_required")
-            failures.append("branch_protection_required")
     # ARIA-HIGH-201 — the review requirements are measured facts. Owned
     # paths must need their owner (L1 excludes every CODEOWNERS path, so an
     # owner review never blocks an ARIA L1 merge); the approving count must
@@ -608,20 +601,32 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
     # a person, and the proof records which it is rather than implying it.
     if proof.get("code_owner_reviews_required") is not True:
         reasons.append("branch_protection_code_owner_reviews_required")
-        failures.append("branch_protection_required")
     approving = proof.get("required_approving_review_count")
     if not isinstance(approving, int) or isinstance(approving, bool) or approving < 0:
         reasons.append("branch_protection_required_approving_review_count_unmeasured")
-        failures.append("branch_protection_required")
     ruleset_ids = proof.get("ruleset_ids")
     if not isinstance(ruleset_ids, list) or not ruleset_ids:
         reasons.append("branch_protection_ruleset_ids_required")
-        failures.append("branch_protection_required")
+    # ARIA-HIGH-221 — main requires a squash merge queue (operator decision
+    # 2026-09-26): the queue tests the change on current main and leaves the
+    # PR head, which every proof is bound to, unchanged. Strict up-to-date
+    # is not required; it is recorded (`strict_up_to_date_required`).
+    from .preflight import REQUIRED_MERGE_QUEUE_METHOD
+
+    if proof.get("merge_queue_required") is not True:
+        reasons.append("branch_protection_merge_queue_required")
+    elif proof.get("merge_queue_merge_method") != REQUIRED_MERGE_QUEUE_METHOD:
+        reasons.append("branch_protection_merge_queue_method_must_be_squash")
+    # ARIA-HIGH-207 — an absent or non-list field is unmeasured, which is
+    # its own named failure; only a measured empty list passes.
     bypass_actors = proof.get("bypass_actors")
-    if bypass_actors not in ([], ()):
+    if not isinstance(bypass_actors, (list, tuple)):
+        reasons.append("branch_protection_bypass_actors_unmeasured")
+    elif bypass_actors:
         reasons.append("branch_protection_bypass_actors_forbidden")
-        failures.append("branch_protection_required")
-    _require_source_ledger_ref(proof.get("source_ledger_ref"), "branch_protection", reasons, failures, "branch_protection_required")
+    if not _source_ref_valid(proof.get("source_ledger_ref")):
+        reasons.append("branch_protection_source_ledger_ref_required")
+    return reasons
 
 
 def _evaluate_retention_or_rollback(
@@ -647,6 +652,14 @@ def _evaluate_retention_or_rollback(
         if not isinstance(proof.get(field_name), str) or not proof.get(field_name, "").strip():
             reasons.append(f"{proof_name}_{field_name}_required")
             failures.append(f"{proof_name}_required")
+    # ARIA-HIGH-218 — the merge lane verifies these bytes on another runner,
+    # so they must name a publication it can download: the archive is the
+    # Actions artifact, the source is the bundle member inside it. A path
+    # under the claim lane's tools root reaches no other host.
+    reference = _published_rollback_reference(proof)
+    if reference is None:
+        reasons.append(f"{proof_name}_uri_not_published")
+        failures.append(f"{proof_name}_required")
     for field_name in ("source_sha256", "archive_sha256"):
         if not _is_sha256_digest(str(proof.get(field_name) or "")):
             reasons.append(f"{proof_name}_{field_name}_required")
@@ -754,32 +767,6 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
     _require_source_ledger_ref(proof.get("source_ledger_ref"), proof_name, reasons, failures, failure)
 
 
-def _verify_cas_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
-    cas = claim.get("remote_cas_proof") if isinstance(claim.get("remote_cas_proof"), dict) else {}
-    rows = load_declared_jsonl(
-        root / "enterprise" / "remote-cas-proofs.jsonl",
-        expected_surface="enterprise_remote_cas_proofs",
-    )
-    match = next(
-        (
-            row for row in reversed(rows)
-            if _row_common_matches(row, claim)
-            and str(row.get("lease_id") or "") == str(cas.get("lease_id") or "")
-            and int(row.get("epoch") or -1) == int(cas.get("epoch") or -2)
-            and str(row.get("expires_at") or "") == str(cas.get("expires_at") or "")
-            and str(row.get("state") or "") == "fresh"
-            and _source_ref_matches(root, row, cas.get("source_ledger_ref"))
-        ),
-        None,
-    )
-    if match is None:
-        reasons.append("remote_cas_proof_not_ledger_bound")
-        failures.append("remote_cas_proof_required")
-    elif not _expiry_is_future(str(match.get("expires_at") or "")):
-        reasons.append("remote_cas_ledger_expiry_must_be_future")
-        failures.append("remote_cas_proof_required")
-
-
 def _verify_waiver_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
     waiver = claim.get("waiver_ledger")
     if isinstance(waiver, dict):
@@ -858,6 +845,41 @@ def _verify_branch_protection_ledger(root: Path, claim: dict[str, Any], reasons:
         failures.append("branch_protection_required")
 
 
+def _published_rollback_reference(proof: dict[str, Any]) -> tuple[str, str, str] | None:
+    """``(repo, artifact_id, member)`` when the proof names one published
+    artifact coherently: the archive is the artifact, the source is a member
+    of that same artifact. ``None`` otherwise."""
+    from .actions_artifacts import parse_actions_artifact_uri
+
+    try:
+        archive_repo, archive_id, archive_member = parse_actions_artifact_uri(str(proof.get("archive_uri") or ""))
+        source_repo, source_id, member = parse_actions_artifact_uri(str(proof.get("source_uri") or ""))
+    except GovernanceError:
+        return None
+    if archive_member is not None or member is None or (archive_repo, archive_id) != (source_repo, source_id):
+        return None
+    return archive_repo, archive_id, member
+
+
+class _PublishedArtifactDownloads:
+    """One download per artifact per verification: the rollback and the
+    retention proof name the same artifact, and both are verified against
+    the same bytes."""
+
+    def __init__(self, fetcher: Any) -> None:
+        self._fetcher = fetcher
+        self._downloads: dict[tuple[str, str], Any] = {}
+
+    def fetch(self, repo: str, artifact_id: str) -> Any:
+        key = (repo, artifact_id)
+        if key not in self._downloads:
+            from . import actions_artifacts
+
+            fetcher = self._fetcher or actions_artifacts.fetch_actions_artifact
+            self._downloads[key] = fetcher(repo=repo, artifact_id=artifact_id)
+        return self._downloads[key]
+
+
 def _verify_retention_or_rollback_ledger(
     root: Path,
     claim: dict[str, Any],
@@ -867,6 +889,7 @@ def _verify_retention_or_rollback_ledger(
     failure_class: str,
     reasons: list[str],
     failures: list[str],
+    downloads: _PublishedArtifactDownloads,
 ) -> None:
     proof = claim.get(proof_name) if isinstance(claim.get(proof_name), dict) else {}
     id_key = "retention_proof_id" if proof_name == "retention_proof" else "rollback_proof_id"
@@ -889,18 +912,36 @@ def _verify_retention_or_rollback_ledger(
         reasons.append(f"{proof_name}_not_ledger_bound")
         failures.append(failure_class)
         return
-    for uri_key, hash_key in (("source_uri", "source_sha256"), ("archive_uri", "archive_sha256")):
-        uri = str(match.get(uri_key) or "")
-        expected = str(match.get(hash_key) or "")
-        try:
-            actual = _sha256_file(_resolve_tools_uri(root, uri))
-        except GovernanceError as exc:
-            reasons.append(f"{proof_name}_{uri_key}_unreadable:{exc}")
-            failures.append(failure_class)
-            continue
-        if actual != expected:
-            reasons.append(f"{proof_name}_{hash_key}_byte_mismatch")
-            failures.append(failure_class)
+    # ARIA-HIGH-218 — verified THROUGH the published reference: the artifact
+    # is downloaded from GitHub and both digests are recomputed from what
+    # came back — the archive over the zip, the source over the bundle
+    # member inside it.
+    reference = _published_rollback_reference(match)
+    if reference is None:
+        reasons.append(f"{proof_name}_uri_not_published")
+        failures.append(failure_class)
+        return
+    repo, artifact_id, member = reference
+    from .actions_artifacts import artifact_member
+
+    try:
+        published = downloads.fetch(repo, artifact_id)
+    except GovernanceError as exc:
+        reasons.append(f"{proof_name}_archive_uri_unreadable:{exc}")
+        failures.append(failure_class)
+        return
+    if published.zip_sha256 != str(match.get("archive_sha256") or ""):
+        reasons.append(f"{proof_name}_archive_sha256_byte_mismatch")
+        failures.append(failure_class)
+    try:
+        member_bytes = artifact_member(published, member)
+    except GovernanceError as exc:
+        reasons.append(f"{proof_name}_source_uri_unreadable:{exc}")
+        failures.append(failure_class)
+        return
+    if _sha256_bytes(member_bytes) != str(match.get("source_sha256") or ""):
+        reasons.append(f"{proof_name}_source_sha256_byte_mismatch")
+        failures.append(failure_class)
 
 
 def _verify_workflow_run_ledger(root: Path, claim: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -1009,7 +1050,6 @@ def _row_common_matches(row: dict[str, Any], claim: dict[str, Any]) -> bool:
 
 def _validate_claim_source_refs(root: Path, claim: dict[str, Any]) -> None:
     proof_names = (
-        "remote_cas_proof",
         "rollback_proof",
         "retention_proof",
         "waiver_ledger",
@@ -1112,23 +1152,10 @@ def _workflow_run_id_valid(value: Any) -> bool:
     )
 
 
-def _resolve_tools_uri(root: Path, uri: str) -> Path:
-    if not uri or Path(uri).is_absolute() or uri.startswith("aria-tools/"):
-        raise GovernanceError("enterprise_proof_uri_must_be_relative_to_tools_root")
-    resolved = (root / uri).resolve()
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError as exc:
-        raise GovernanceError("enterprise_proof_uri_escapes_tools_root") from exc
-    if not resolved.exists() or not resolved.is_file():
-        raise GovernanceError("enterprise_proof_uri_missing")
-    return resolved
-
-
-def _sha256_file(path: Path) -> str:
+def _sha256_bytes(data: bytes) -> str:
     import hashlib
 
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _is_full_sha(value: str) -> bool:

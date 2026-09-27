@@ -32,6 +32,7 @@ from aria_kernel.file_lock import with_exclusive_lock
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.operator_acts import operator_set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests.test_implementation_lifecycle_continuity import (
     drive_plan_to_converged,
@@ -1005,10 +1006,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             },
         )
         bind_tools_root(tools_dir=self.base, workspace_root=workspace, reason="signer handoff fixture")
-        set_profile(
-            profile, operator_approval_ref="test:memory-signer-owner",
-            set_by="operator", scheduler_ceiling=profile, base_dir=self.base,
-        )
+        operator_set_profile(profile, base_dir=self.base, scheduler_ceiling=profile)
         acquired = [] if acquired is None else acquired
         mints_remaining_to_fail = mint_failures
 

@@ -23,13 +23,13 @@ from aria_kernel import (
 )
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
-from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     seed_validation_provenance,
 )
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # The product file the fixture proposal touches. One constant so the seeded
@@ -52,12 +52,7 @@ class AutoPrFoundationTests(unittest.TestCase):
         # including open_pr_for_action, so the test setUp opts into strict
         # via an explicit operator_approval_ref. Strict permits a strict
         # superset of standard's actions, so non-PR test methods stay green.
-        set_profile(
-            "strict",
-            operator_approval_ref="test:plan-020-phase-1.B:autopr-foundation",
-            base_dir=self.tools_dir,
-            set_by="operator",
-        )
+        operator_set_profile("strict", base_dir=self.tools_dir)
 
     def tearDown(self):
         self.tmp.cleanup()

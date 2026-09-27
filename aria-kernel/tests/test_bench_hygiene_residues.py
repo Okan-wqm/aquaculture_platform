@@ -66,13 +66,18 @@ class HandEvidenceRemovalTests(unittest.TestCase):
         self.assertNotIn("validation_run_ref_json", source)
         # and the ledger IS the ref source in the dispatch: the CLI reads
         # refs_for_change (ARIA-HIGH-196), whose one input is the ledger's
-        # own per-change listing.
+        # own per-change listing — narrowed to the committed tip's runs
+        # (ARIA-MEDIUM-231), still read from the ledger and nothing else.
         from aria_kernel import validation_runs_ledger
 
         self.assertIn("refs_for_change(", source)
         self.assertIn(
-            "list_validation_runs_for_change(",
+            "list_validation_runs_at_committed_tip(",
             inspect.getsource(validation_runs_ledger.refs_for_change),
+        )
+        self.assertIn(
+            "list_validation_runs_for_change(",
+            inspect.getsource(validation_runs_ledger.list_validation_runs_at_committed_tip),
         )
 
 

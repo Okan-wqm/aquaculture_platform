@@ -24,8 +24,15 @@ permissions:
   # Reading the completed run, its artifacts, and the PR payload.
   actions: read
 
+# ARIA-HIGH-222 — one claim lane per PR head. A single global group held
+# one running and ONE pending run: a third completion while a claim was
+# running replaced the pending one, and that head's claim was silently never
+# made. Keyed on the head the completed run tested, runs for different heads
+# no longer queue behind each other, and a repeat for the same head waits
+# for the first (which records the claim; the repeat reuses it). A manual
+# dispatch carries no workflow_run and refuses by name in its first step.
 concurrency:
-  group: aria-readiness-claim
+  group: aria-readiness-claim-${{ github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -48,6 +55,15 @@ jobs:
           # aria-auto-cycle.yml carries the full account.
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+
+      # ARIA-HIGH-217 — the pre-merge perimeter is evaluated on the PR head:
+      # a worktree of this checkout, with `main` moved to the implementation
+      # base for the span of the evaluation and restored after it. Git will
+      # not move a branch a worktree stands on, so the checkout lets go of
+      # main (merge_lane_workspace.pr_head_workspace refuses by name
+      # otherwise).
+      - name: Detach the checkout from main
+        run: git checkout --quiet --detach
 
       - name: Persist enterprise workflow preflight
         env:
@@ -91,13 +107,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_CONTEXT: ${{ github.event.workflow_run.id }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # ARIA-HIGH-210 — a claim is bound to a completed aria-merge-authority
+          # run. A manual dispatch carries none, so it fails here by name
+          # instead of skipping green without measuring anything.
+          if [ -z "${RUN_CONTEXT}" ] || [ -z "${RUN_HEAD_SHA}" ]; then
+            echo "::error::readiness_claim_requires_workflow_run: event=${GITHUB_EVENT_NAME} has no completed aria-merge-authority run to claim. To measure branch protection on demand run: aria-kernel readiness probe-branch-protection --repo ${GITHUB_REPOSITORY} --branch main"
+            exit 1
+          fi
           repo="${GITHUB_REPOSITORY}"
           run_id="${RUN_CONTEXT}"
           # workflow_run.pull_requests is empty for fork PRs and sometimes
           # for same-repo pushes; resolve by head SHA as the honest fallback.
-          head_sha="${{ github.event.workflow_run.head_sha }}"
+          head_sha="${RUN_HEAD_SHA}"
           pr_number="$(gh api "repos/${repo}/commits/${head_sha}/pulls" --jq '.[0].number' || true)"
           if [ -z "${pr_number}" ] || [ "${pr_number}" = "null" ]; then
             echo "No pull request for head ${head_sha}; nothing to claim."
@@ -194,6 +218,49 @@ jobs:
               artifacts: [($w + "/artifact.zip")]
             }' > "${WORK_DIR}/surfaces.json"
 
+      # ARIA-HIGH-218 — the rollback bundle is PUBLISHED, not left in the
+      # store: a bundle of the target ref is the repository's whole history,
+      # too large for aria/state, and the merge lane verifies it on another
+      # runner. It is built outside the store, uploaded as an Actions
+      # artifact, downloaded back through the API, and the claim's rollback
+      # and retention proofs name that artifact by id and digest.
+      - name: Build the rollback bundle
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 -m aria_kernel readiness build-rollback-bundle \
+            --target-ref "$(jq -r '.target_ref' "${WORK_DIR}/pr-flat.json")" \
+            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --output-dir "${RUNNER_TEMP}/rollback" > "${WORK_DIR}/rollback-bundle.json"
+
+      - name: Publish the rollback bundle
+        id: rollback_upload
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-rollback-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rollback/*.bundle
+          if-no-files-found: error
+          # DEFAULT_ROLLBACK_RETENTION_DAYS; the claim measures what GitHub
+          # granted and refuses a shorter retention.
+          retention-days: 30
+
+      - name: Download the published rollback bundle
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: aria-kernel
+          ARTIFACT_ID: ${{ steps.rollback_upload.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          python3 -m aria_kernel readiness fetch-artifact \
+            --repo "${GITHUB_REPOSITORY}" \
+            --artifact-id "${ARTIFACT_ID}" \
+            --output-dir "${WORK_DIR}/rollback-artifact" > "${WORK_DIR}/rollback-artifact.json"
+
       - name: Assemble the readiness claim
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -244,7 +311,33 @@ jobs:
             --artifact-file "${WORK_DIR}/artifact.json" \
             --surfaces-file "${WORK_DIR}/surfaces.json" \
             --workspace-root "$GITHUB_WORKSPACE" \
-            --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id}'
+            --rollback-bundle-file "${WORK_DIR}/rollback-bundle.json" \
+            --rollback-artifact-file "${WORK_DIR}/rollback-artifact.json" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id, already_recorded}'
+
+      # ARIA-HIGH-217 — the expert panel is requested here, once CI is green
+      # for the head. The perimeter the request depends on is evaluated on
+      # the PR head (a worktree of this checkout; the head is fetched with
+      # the job token). The merge lane's perimeter only asks whether the
+      # panel agreed. It used to make these requests itself, from a checkout
+      # of main where the perimeter never held, so none was ever made.
+      - name: Request expert review of the implementation
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${HEADER}"
+          python3 -m aria_kernel readiness request-expert-review \
+            --pr "${PR_NUMBER}" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{pr_number, head_sha, requested, reasons}'
 
       # The credential is minted here and consumed by the next step only.
       - name: Mint the aria/state push credential

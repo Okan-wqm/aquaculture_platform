@@ -1862,6 +1862,10 @@ class _PreMergeEvidence:
     repo_identity: str | None = None
     base_sha: str | None = None
     head_sha: str | None = None
+    # ARIA-HIGH-221 — main's tip when the evidence was captured. `base_sha`
+    # is the implementation base (where the head forked from it); main moves
+    # ahead of it while the PR waits for the merge queue.
+    live_base_sha: str | None = None
     snapshot_hash: str | None = None
     scope_observed_at: str | None = None
     scope_ledger_tips: tuple[str, ...] = ()

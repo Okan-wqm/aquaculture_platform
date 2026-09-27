@@ -35,6 +35,7 @@ from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.operator_acts import operator_set_profile
 
 
 # The product file the synthetic proposal touches. One constant so the branch
@@ -78,12 +79,7 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
         # open_pr_for_action enforces runtime profile = 'strict' (Plan
         # 020 §1.B). Test fixture sets the profile to 'strict' via the
         # control-plane API.
-        from aria_kernel.runtime_profile import set_profile
-        set_profile(
-            "strict",
-            operator_approval_ref="test-fixture",
-            base_dir=self.base_dir,
-        )
+        operator_set_profile("strict", base_dir=self.base_dir)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)

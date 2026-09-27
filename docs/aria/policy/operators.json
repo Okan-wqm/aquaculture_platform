@@ -1,0 +1,8 @@
+{
+  "$schema": "aria/operators/v1",
+  "schema_version": 1,
+  "policy_id": "aria-operator-identity",
+  "repository": "Okan-wqm/aquaculture_platform",
+  "operator_logins": ["Okan-wqm"],
+  "approval_max_age_hours": 168
+}

@@ -8,9 +8,13 @@ Closes security-reviewer findings inline as Tier-1/Tier-3 anchors:
 * CRIT-004 — commit signature kernel verification. Preflight asserts
   ``required_signatures.enabled = true`` so every commit landing on
   the branch carries a verifiable signature.
-* HIGH-002 — CI race + branch-up-to-date. Preflight asserts
-  ``required_status_checks.strict = true`` so a head-SHA shift
-  between green check + auto-merge fires a re-check round.
+* HIGH-002 — CI race + branch-up-to-date. ARIA-HIGH-221 (operator
+  decision 2026-09-26): the branch requires a MERGE QUEUE (squash), not
+  ``required_status_checks.strict``. Strict made a PR mergeable only while
+  main had not moved, and updating the branch moves the head every ARIA
+  proof is bound to, so no ARIA PR could merge once main moved. The queue
+  tests the change on top of current main in a merge group and leaves the
+  PR head, and the evidence bound to it, unchanged.
 * MED-016 — autonomous-profile precondition gate. Profile=`autonomous`
   rejected at runtime if ``verify_branch_protection`` returns
   ``valid=False`` OR if ``implementation_safety.IMMUTABLE_PATHS`` is
@@ -112,8 +116,9 @@ class WorkflowPreflightVerdict:
     reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
-# Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required branch-protection
-# rules on the ARIA target branch (main). Adding a 4th rule = ADR +
+# Plan ARIA-V9.0-C + V10.3-B prereq — the required classic
+# branch-protection fields on the ARIA target branch (main), two since
+# ARIA-HIGH-221 (below), plus the merge-queue rule. Adding a field = ADR +
 # arbiter approval + invariant update. The list ordering MUST stay
 # stable (governance rows reference these keys).
 #
@@ -133,11 +138,58 @@ class WorkflowPreflightVerdict:
 # "compatible_without_push_restrictions". restrictions.* fields
 # remain readable + auditable from `gh api .../protection`; they
 # just are not REQUIRED.
+#
+# ARIA-HIGH-221 (operator decision 2026-09-26, plan 037) —
+# `required_status_checks.strict` is no longer one of them: the up-to-date
+# guarantee is the merge queue's (REQUIRED_MERGE_QUEUE_METHOD below),
+# measured from the branch's active rules. Strict is neither required nor
+# refused; the readiness proof records it (`strict_up_to_date_required`).
 REQUIRED_BRANCH_PROTECTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("required_signatures.enabled", "true"),  # CRIT-004 commit signing
-    ("required_status_checks.strict", "true"),  # HIGH-002 up-to-date
     ("enforce_admins.enabled", "true"),  # CRIT-002 admin-bypass
 )
+
+# ARIA-HIGH-221 — main requires a merge queue, and the queue squashes: the
+# change is tested on top of current main (and the PRs queued ahead of it)
+# in a merge group, and lands as one commit, while the PR head every ARIA
+# proof is bound to stays what it was.
+REQUIRED_MERGE_QUEUE_METHOD = "SQUASH"
+
+
+def merge_queue_rule(rules: list[Any]) -> dict[str, Any] | None:
+    """The branch's active ``merge_queue`` rule, from ``rules/branches/<b>``.
+
+    ``None`` when no active ruleset requires a merge queue. The result is
+    the rule's ``parameters`` plus the ``ruleset_id`` that carries it, and
+    ``merge_methods`` lists every queue rule's method: two rulesets that
+    disagree are two queues' worth of configuration, which the policy names.
+    """
+    queues = [
+        rule for rule in rules
+        if isinstance(rule, dict) and rule.get("type") == "merge_queue"
+    ]
+    if not queues:
+        return None
+    first = queues[0]
+    parameters = first.get("parameters")
+    rule = dict(parameters) if isinstance(parameters, dict) else {}
+    rule["ruleset_id"] = first.get("ruleset_id")
+    rule["merge_methods"] = sorted({
+        str((queue.get("parameters") or {}).get("merge_method"))
+        for queue in queues
+        if isinstance(queue.get("parameters"), dict)
+    })
+    return rule
+
+
+def merge_queue_reasons(merge_queue: dict[str, Any] | None) -> tuple[str, ...]:
+    """Why a measured merge-queue rule does not meet the requirement."""
+    if merge_queue is None:
+        return ("merge_queue_required",)
+    methods = merge_queue.get("merge_methods")
+    if methods != [REQUIRED_MERGE_QUEUE_METHOD]:
+        return (f"merge_queue_merge_method={methods!r} expected=[{REQUIRED_MERGE_QUEUE_METHOD!r}]",)
+    return ()
 
 
 # E18 (ORPHAN-672) — minimum free disk for a night to start. 5 GB covers
@@ -308,11 +360,30 @@ def verify_branch_protection(
     repo: str | None = None,
     gh_cli: str = "gh",
 ) -> tuple[bool, tuple[str, ...]]:
-    """(ok, reasons) projection of ``probe_branch_protection`` — see there."""
-    ok, reasons, _payload = probe_branch_protection(
+    """(ok, reasons): ``probe_branch_protection`` plus the merge queue.
+
+    ARIA-HIGH-221 — the classic protection payload carries no merge-queue
+    setting; the queue is a ruleset rule, read through the same rules probe
+    the readiness proof uses (``readiness_proofs._probe_branch_rules``).
+    """
+    ok, reasons, payload = probe_branch_protection(
         branch=branch, repo=repo, gh_cli=gh_cli,
     )
-    return ok, reasons
+    if payload is None:
+        return ok, reasons
+    from .readiness_proofs import _probe_branch_rules
+    from .tool_registry import GovernanceError
+
+    try:
+        _ruleset_ids, _bypass_actors, merge_queue = _probe_branch_rules(
+            repo=repo or "{owner}/{repo}", branch=branch, gh_cli=gh_cli,
+        )
+    except GovernanceError as exc:
+        queue_reasons: tuple[str, ...] = (f"merge_queue_unmeasured: {exc}",)
+    else:
+        queue_reasons = merge_queue_reasons(merge_queue)
+    reasons = (*reasons, *queue_reasons)
+    return (ok and not queue_reasons), reasons
 
 
 def verify_preflight(
@@ -759,6 +830,9 @@ __all__ = (
     "PreflightVerdict",
     "WorkflowPreflightVerdict",
     "REQUIRED_BRANCH_PROTECTION_FIELDS",
+    "REQUIRED_MERGE_QUEUE_METHOD",
+    "merge_queue_reasons",
+    "merge_queue_rule",
     "verify_branch_protection",
     "verify_preflight",
     "verify_workflow_preflight",

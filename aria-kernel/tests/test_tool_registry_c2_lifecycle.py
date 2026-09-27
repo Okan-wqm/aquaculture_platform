@@ -35,6 +35,7 @@ from aria_kernel.tool_registry import (
     update_tool,
 )
 from aria_kernel.tool_registry import _update_tool_internal  # noqa: PLC2701 — test fixture only
+from tests._helpers.operator_acts import github_operator_acts
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -133,12 +134,22 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
 
 
 class UnquarantineToolTests(_LifecycleTestCase):
-    def test_unquarantine_routes_to_calibrate_with_audit_trail(self) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        acts = github_operator_acts()
+        self.github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
+
+    def _quarantined(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
         _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
+
+    def test_unquarantine_routes_to_calibrate_with_audit_trail(self) -> None:
+        self._quarantined()
+        ref = self.github.approve("tool_unquarantine", {"tool": "fake-adapter"})
         result = unquarantine_tool(
             "fake-adapter",
-            operator_approval_ref="ops-2026-05-08-001",
+            operator_approval_ref=ref,
             reason="root cause fixed in fixture update",
             root_cause_note="parser regex was too greedy",
             fixture_update_ref="commit:abc1234",
@@ -147,7 +158,44 @@ class UnquarantineToolTests(_LifecycleTestCase):
         self.assertEqual(result["status"], "CALIBRATE")
         self.assertEqual(result["last_transition"]["from"], "QUARANTINED")
         self.assertEqual(result["last_transition"]["to"], "CALIBRATE")
-        self.assertIn("ops-2026-05-08-001", result["last_transition"]["reason"])
+        self.assertEqual(result["last_transition"]["operator_approval_ref"], ref)
+        self.assertEqual(result["last_transition"]["operator_approval"]["scope"], {"tool": "fake-adapter"})
+
+    def test_unquarantine_refuses_what_is_not_an_operator_github_act(self) -> None:
+        # ARIA-CRITICAL-216 — any non-empty string used to lift a quarantine.
+        self._quarantined()
+        for ref in (
+            "ops-2026-05-08-001",
+            "gov:anything",
+            self.github.approve("tool_unquarantine", {"tool": "other-adapter"}),
+            self.github.comment(
+                "ARIA-APPROVE surface=tool_unquarantine tool=fake-adapter", login="aria-machine",
+            ),
+        ):
+            with self.subTest(ref=ref), self.assertRaisesRegex(GovernanceError, "tool_transition_approval_unrecorded"):
+                unquarantine_tool(
+                    "fake-adapter", operator_approval_ref=ref, reason="r",
+                    root_cause_note="rc", fixture_update_ref="ref", base_dir=self.tools,
+                )
+        self.assertEqual(get_tool("fake-adapter", self.tools)["status"], "QUARANTINED")
+
+    def test_transition_tool_cannot_skip_the_unquarantine_approval(self) -> None:
+        # The gate lives in the state machine, so the audited API is not the
+        # only door that needs to hold it.
+        self._quarantined()
+        with self.assertRaisesRegex(GovernanceError, "tool_unquarantine_requires_operator_approval"):
+            transition_tool(
+                "fake-adapter", "CALIBRATE", reason="direct", root_cause_note="rc",
+                fixture_update_ref="ref", base_dir=self.tools,
+            )
+        for target in ("SHADOW", "SANDBOX", "DRAFT"):
+            with self.subTest(target=target), self.assertRaisesRegex(
+                GovernanceError, "tool_lifecycle_forbidden_quarantine_exit",
+            ):
+                transition_tool("fake-adapter", target, reason="direct", base_dir=self.tools)
+        self.assertEqual(get_tool("fake-adapter", self.tools)["status"], "QUARANTINED")
+        archived = transition_tool("fake-adapter", "ARCHIVED", reason="retire it", base_dir=self.tools)
+        self.assertEqual(archived["status"], "ARCHIVED")
 
     def test_unquarantine_requires_operator_approval_ref(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
@@ -166,7 +214,7 @@ class UnquarantineToolTests(_LifecycleTestCase):
         with self.assertRaises(GovernanceError) as cm:
             unquarantine_tool(
                 "fake-adapter",
-                operator_approval_ref="ops-1",
+                operator_approval_ref=self.github.approve("tool_unquarantine", {"tool": "fake-adapter"}),
                 reason="r", root_cause_note="rc", fixture_update_ref="ref",
                 base_dir=self.tools,
             )

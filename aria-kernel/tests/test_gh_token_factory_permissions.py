@@ -80,7 +80,20 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         self.assertEqual(body["permissions"], {"administration": "read"})
         self.assertNotIn("write", json.dumps(body), "a hosted runner never holds a write scope")
 
+    def test_the_merge_lane_scope_adds_the_reads_its_gates_make(self) -> None:
+        # ARIA-HIGH-208 — the merge lane reads open issues (the watchdog
+        # merge freeze), check runs and commit statuses (the required-checks
+        # gate). A token minted with the delivery scope alone could read
+        # none of them, so every gate that needs them refused as unreadable.
+        self._mint(permissions=tf.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS)
+        self.assertEqual(self.posted[0]["body"]["permissions"], {
+            "pull_requests": "write", "contents": "write", "administration": "read",
+            "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+        })
+
     def test_the_named_sets_are_immutable(self) -> None:
+        with self.assertRaises(TypeError):
+            tf.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS["issues"] = "write"  # type: ignore[index]
         with self.assertRaises(TypeError):
             tf.RUNNER_STATUS_PERMISSIONS["contents"] = "write"  # type: ignore[index]
         with self.assertRaises(TypeError):

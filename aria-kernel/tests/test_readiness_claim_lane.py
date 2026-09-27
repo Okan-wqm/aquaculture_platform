@@ -91,13 +91,81 @@ class MergeRunnerLaneTests(unittest.TestCase):
     def test_the_lane_consumes_a_claim_another_lane_produced(self) -> None:
         # PyYAML reads the bare `on` key as boolean True.
         trigger = self.workflow[True]
-        self.assertEqual(trigger["workflow_run"]["workflows"], ["aria-readiness-claim"])
+        self.assertIn("aria-readiness-claim", trigger["workflow_run"]["workflows"])
+        self.assertEqual(trigger["workflow_run"]["types"], ["completed"])
         self.assertIn("workflow_dispatch", trigger)
 
-    def test_the_host_attests_as_the_merge_lane(self) -> None:
-        probe = self.steps["Probe runner attestation"]
-        self.assertEqual(probe["uses"], "./.github/actions/probe-runner-attestation")
-        self.assertEqual(probe["with"]["lane"], "merge")
+    # ARIA-HIGH-206 — three of the four required checks come from
+    # ci-affected.yml, which routinely finishes AFTER the readiness claim.
+    # A merge attempt that saw them missing was never retried: nothing
+    # re-ran the lane until an unrelated event did.
+    def test_the_lane_reevaluates_when_ci_affected_completes(self) -> None:
+        # Tied to the NAME ci-affected.yml declares, read from that file:
+        # workflow_run matches on `name:`, so a rename there would silently
+        # disconnect this trigger if the literal were copied here.
+        import yaml  # type: ignore[import-untyped]
+
+        ci = yaml.safe_load((_REPO / ".github" / "workflows" / "ci-affected.yml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            sorted(self.workflow[True]["workflow_run"]["workflows"]),
+            sorted(["aria-readiness-claim", ci["name"]]),
+        )
+        condition = " ".join(str(self.job["if"]).split())
+        # Only a green CI run of a pull request is a reason to look again;
+        # a push to main or a merge-group build carries no PR to merge.
+        self.assertIn(f"github.event.workflow_run.name == '{ci['name']}'", condition)
+        self.assertIn("github.event.workflow_run.event == 'pull_request'", condition)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", condition)
+
+    def test_the_lane_reevaluates_hourly(self) -> None:
+        # The backstop for a check that goes green with no workflow_run to
+        # say so (a re-run, an external status): the lane is idempotent —
+        # the merge carries --match-head-commit and needs a readiness claim
+        # for that head — so a periodic re-evaluation is safe.
+        crons = [entry["cron"] for entry in self.workflow[True]["schedule"]]
+        self.assertEqual(len(crons), 1)
+        minute, hour, *rest = crons[0].split()
+        self.assertTrue(minute.isdigit() and 0 <= int(minute) < 60, crons[0])
+        self.assertEqual((hour, rest), ("*", ["*", "*", "*"]), crons[0])
+
+    def test_every_trigger_is_admitted_by_the_job_condition(self) -> None:
+        condition = " ".join(str(self.job["if"]).split())
+        self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+        self.assertIn("github.event_name == 'schedule'", condition)
+        self.assertIn("github.event.workflow_run.name == 'aria-readiness-claim'", condition)
+
+    def test_the_hourly_lane_is_watched_for_freshness(self) -> None:
+        manifest = json.loads(
+            (_REPO / ".github" / "manifests" / "scheduled-workflows.json").read_text(encoding="utf-8")
+        )
+        entry = next(
+            (item for item in manifest["workflows"] if item["workflow"] == "aria-merge-runner.yml"), None,
+        )
+        self.assertIsNotNone(entry)
+        # Hourly cron plus GitHub's measured schedule lateness (up to 75
+        # minutes here, test_cycle_chain_rhythm) must not read as stale.
+        self.assertGreaterEqual(entry["maxAgeHours"], 3)
+
+    def test_the_lane_proves_its_identity_with_the_job_oidc_token(self) -> None:
+        # ARIA-HIGH-220 — without id-token: write the job has no OIDC token,
+        # so no attestation it recorded was ever platform-verified.
+        from aria_kernel.runner_attestation import MERGE_LANE_WORKFLOW_PATH
+
+        self.assertEqual(self.workflow["permissions"].get("id-token"), "write")
+        # The identity the kernel accepts names THIS workflow file.
+        self.assertTrue((_REPO / MERGE_LANE_WORKFLOW_PATH).is_file())
+        self.assertEqual(
+            (_REPO / MERGE_LANE_WORKFLOW_PATH).resolve(),
+            (_REPO / ".github" / "workflows" / "aria-merge-runner.yml").resolve(),
+        )
+
+    def test_no_lane_start_step_attests_for_every_claim(self) -> None:
+        # ARIA-HIGH-220 — the lane-start probe recorded a row per claim
+        # ever made, keyed by (PR, head, claim) alone; any later run could
+        # present it. The merge step attests each candidate, bound to its run.
+        uses = [str(step.get("uses") or "") for step in self.job["steps"]]
+        self.assertNotIn("./.github/actions/probe-runner-attestation", uses)
+        self.assertNotIn("Probe runner attestation", self.steps)
 
     def test_the_merge_uses_the_app_token_never_github_token(self) -> None:
         # A GITHUB_TOKEN merge triggers no push workflow on main, which
@@ -108,6 +176,14 @@ class MergeRunnerLaneTests(unittest.TestCase):
         self.assertNotIn("github.token", step["run"])
         self.assertIn("mint_installation_token", step["run"])
         self.assertIn('GH_TOKEN="$MERGE_TOKEN" python3 -m aria_kernel merge-lane run', step["run"])
+
+    def test_the_merge_token_is_minted_with_the_merge_lane_scope(self) -> None:
+        # ARIA-HIGH-208 — the default mint scope has no checks, statuses or
+        # issues read, which the merge gates need; the lane names the set
+        # the factory defines for it rather than spelling one here.
+        run = self.steps["Run the merge lane"]["run"]
+        self.assertIn("MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS", run)
+        self.assertIn("permissions=MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS", run)
 
 
 
@@ -145,6 +221,29 @@ class ProduceClaimCliTests(unittest.TestCase):
             "logs": [str(Path(self.tmp.name) / "pr-flat.json")],
             "artifacts": [str(Path(self.tmp.name) / "artifact.zip")],
         }), encoding="utf-8")
+        # ARIA-HIGH-218 — the published rollback bundle, as the lane's
+        # `build-rollback-bundle` and `fetch-artifact` steps record it.
+        from aria_kernel.readiness_proofs import fetch_published_artifact
+        from tests._helpers.published_artifacts import PublishedArtifacts
+
+        artifacts = PublishedArtifacts(repo="okan/aqua")
+        artifact_id = artifacts.publish({"rollback-aaaaaaaaaaaa.bundle": b"bundle"})
+        with artifacts.serve():
+            record = fetch_published_artifact(
+                repo="okan/aqua", artifact_id=artifact_id,
+                output_dir=Path(self.tmp.name) / "rollback-artifact",
+            )
+        rollback_artifact = Path(self.tmp.name) / "rollback-artifact.json"
+        rollback_artifact.write_text(json.dumps(record), encoding="utf-8")
+        rollback_bundle = Path(self.tmp.name) / "rollback-bundle.json"
+        rollback_bundle.write_text(json.dumps({
+            "bundle_name": "rollback-aaaaaaaaaaaa.bundle",
+            "bundle_sha256": "sha256:" + "c" * 64,
+        }), encoding="utf-8")
+        self.base_argv += [
+            "--rollback-bundle-file", str(rollback_bundle),
+            "--rollback-artifact-file", str(rollback_artifact),
+        ]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

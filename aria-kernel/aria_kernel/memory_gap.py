@@ -88,11 +88,12 @@ def record_surface_reset(
     surface, the hash of what was archived (a git blob sha or file digest the
     operator computed from the last published tip), the reason, and an
     operator approval that resolves OUTSIDE the caller's own message
-    (``operator_approval`` grammar). Refuses a surface that is not a
+    (``operator_approval.verify_recorded_reference``: the reset is recorded,
+    nothing reads it back as authority — a RECORD surface, ARIA-CRITICAL-216). Refuses a surface that is not a
     write-driving ledger — resetting a passive artifact needs no ceremony,
     and a ceremony that accepts anything proves nothing.
     """
-    from .operator_approval import verify_operator_approval_ref
+    from .operator_approval import verify_recorded_reference
     from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
     try:
@@ -107,7 +108,7 @@ def record_surface_reset(
     if not reason.strip():
         raise GovernanceError("surface_reset_reason_required")
     root = ensure_tools_dir(base_dir)
-    approval = verify_operator_approval_ref(
+    approval = verify_recorded_reference(
         operator_approval_ref, base_dir=root, surface="surface_reset",
     )
     return append_tools_governance(

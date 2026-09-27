@@ -210,13 +210,22 @@ NOT yet seeded.
 
 ## 6. Hard boundaries (non-negotiable)
 
-- **M-6.1** No direct or unreviewed self-merge. Only `merge_pr_if_ready` may
-  execute a runtime merge, and only after an operator has granted the required
-  profile/stage ceiling; L3 still requires the existing two-role human policy
-  approval. ARIA may lower or freeze authority, but may not grant or raise its
-  own merge authority. The end-to-end autonomy closure implementation PRs
-  remain human-approved squash merges under protected `main` and do not count
-  as ARIA autonomous-merge evidence.
+- **M-6.1** No direct self-merge, and no self-merge outside L1. Only
+  `merge_pr_if_ready` may execute a runtime merge, and only through the
+  required squash merge queue. ARIA may merge a change only when every changed
+  path is L1 under its git status (documentation outside the code-owned paths,
+  and new unit-test files; a changed or deleted test is L2), the change's
+  evidence chain is closed at the PR head, and an operator has granted merge
+  authority (a time-limited merge-lane grant, or a profile holding `pr_merge`)
+  with an approval proven by the operator's own GitHub act. An L1 PR is
+  reviewed by ARIA's evidence chain, not by a person, by design. Every other
+  change opens marked `aria:human-merge` and is never a merge-lane candidate;
+  L3 still requires the existing two-role human policy approval. ARIA may
+  lower or freeze authority and revert its own merges, but may not grant or
+  raise its own merge authority. The end-to-end autonomy closure
+  implementation PRs are squash-merged by the operator's coding agent at the
+  operator's instruction once CI is green, and do not count as ARIA
+  autonomous-merge evidence.
 - **M-6.2** Identity is the mTLS cert / managed session ONLY; fabricating
   identity is forbidden.
 - **M-6.3** No secrets in any output channel; PII never unmasked.

@@ -10,6 +10,37 @@ function read(path: string): string {
   return readFileSync(join(REPO_ROOT, path), 'utf8');
 }
 
+interface ValidatorResult {
+  status: number | null;
+  stdout: string;
+}
+
+/** Run the deploy-SSOT validator with `cwd` as the repository root. */
+function runDeploySsotValidator(cwd: string): ValidatorResult {
+  const result = spawnSync('bash', [join(REPO_ROOT, 'scripts/ci/validate-deploy-ssot.sh')], {
+    cwd,
+    encoding: 'utf8',
+  });
+  return { status: result.status, stdout: `${result.stdout}${result.stderr}` };
+}
+
+/**
+ * The validator's verdict on one command line placed in a deploy script.
+ * The fixture tree holds only that script, so the verdict is about the line
+ * and nothing else; the tree is removed before returning.
+ */
+function validatorVerdictFor(line: string): ValidatorResult {
+  const root = mkdtempSync(join(tmpdir(), 'aqua-deploy-ssot-'));
+  try {
+    const scriptDir = join(root, 'scripts', 'deploy');
+    spawnSync('mkdir', ['-p', scriptDir]);
+    writeFileSync(join(scriptDir, 'droplet-capacity.sh'), `#!/usr/bin/env bash\n${line}\n`);
+    return runDeploySsotValidator(root);
+  } finally {
+    removeFixtureTree(root);
+  }
+}
+
 interface CapacityAutoGcScenario {
   initialFreeBytes: string;
   reclaimedPerImageBytes: string;
@@ -257,23 +288,38 @@ describe('deploy SSOT contract', () => {
   });
 
   it('keeps production deploy scripts away from local builds and volume pruning', () => {
-    const script = [
-      read('scripts/deploy/droplet-up.sh'),
-      read('scripts/deploy/droplet-capacity.sh'),
-      read('scripts/deploy-do.sh'),
-    ].join('\n');
+    // scripts/ci/validate-deploy-ssot.sh owns the forbidden-command list and
+    // runs in CI pre-flight. This test proves the list does what it claims
+    // instead of keeping a second copy: two copies drifted once, and the
+    // broader one rejected `docker builder prune` while the other accepted it.
+    expect(runDeploySsotValidator(REPO_ROOT).status).toBe(0);
 
-    // Every local build form is banned: `docker build`, `docker buildx build`
-    // and `docker builder build`. `docker builder prune` builds nothing — it is
-    // the capacity gate reclaiming Docker's build cache (INFRA-HIGH-189) — so
-    // the ban names the build verb instead of matching any word that starts
-    // with "build".
-    expect(script).not.toMatch(/docker\s+(?:buildx\s+|builder\s+)?build\b/);
-    expect(script).not.toMatch(/docker\s+compose\s+build/);
-    expect(script).not.toMatch(/docker-compose\s+build/);
-    expect(script).not.toMatch(/up\s+[^#]*--build/);
-    expect(script).not.toMatch(/docker\s+volume\s+prune/);
-    expect(script).not.toMatch(/docker\s+system\s+prune[^#]*--volumes/);
+    const forbidden = [
+      'docker build -t aqua/app .',
+      'docker buildx build --push .',
+      'docker builder build .',
+      'docker compose build farm-service',
+      'docker-compose build',
+      'docker compose up -d --build',
+      'docker volume prune -f',
+      'docker system prune -af --volumes',
+    ];
+    for (const line of forbidden) {
+      const result = validatorVerdictFor(line);
+      expect({ line, status: result.status }).toEqual({ line, status: 1 });
+      expect(result.stdout).toContain('forbidden deploy command pattern');
+    }
+
+    const allowed = [
+      'docker builder prune --force --all --filter until=24h',
+      'docker image prune -f --filter dangling=true',
+    ];
+    for (const line of allowed) {
+      expect({ line, status: validatorVerdictFor(line).status }).toEqual({
+        line,
+        status: 0,
+      });
+    }
   });
 
   it('builds production backend images from current-source artifacts only', () => {

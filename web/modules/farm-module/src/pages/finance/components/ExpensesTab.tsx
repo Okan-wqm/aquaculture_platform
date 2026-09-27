@@ -7,7 +7,14 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
-import { ConfirmModal, useCanMutate } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  useCanMutate,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -68,163 +75,163 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
     (item) => originFilter === 'ALL' || item.origin === originFilter,
   );
 
+  type ItemRow = (typeof items)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, item) => item.entryDate.slice(0, 10),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, item) => (
+        <>
+          {item.categoryName}
+          {item.kind === 'REVENUE' && (
+            <span className="ml-2 rounded bg-success-100 dark:bg-success-900/40 px-1.5 py-0.5 text-xs text-success-700 dark:text-success-300">
+              revenue
+            </span>
+          )}
+          {item.estimated && (
+            <span className="ml-2 rounded bg-warning-100 dark:bg-warning-900/40 px-1.5 py-0.5 text-xs text-warning-700 dark:text-warning-300">
+              estimate
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, item) => item.description ?? '—',
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (_value, item) => formatMoney(item.amountDecimal, item.currency),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, item) => (
+        <>
+          {item.origin === 'MANUAL' ? (
+            <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-400">
+              manual
+            </span>
+          ) : (
+            <span className="rounded bg-info-100 dark:bg-info-900/40 px-1.5 py-0.5 text-xs text-info-700 dark:text-info-300">
+              auto · {item.sourceDomain}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, item) => (
+        <>
+          {item.editable ? (
+            <span className="space-x-3">
+              {canUpdate && (
+                <Button variant="ghost" onClick={() => setModalState({ open: true, entry: item })}>
+                  Edit
+                </Button>
+              )}
+              {canDelete && (
+                <Button variant="ghost" onClick={() => setPendingDelete(item.id)}>
+                  Delete
+                </Button>
+              )}
+              {!canUpdate && !canDelete && (
+                <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
+              )}
+            </span>
+          ) : (
+            <Link
+              to={sourceEditPath(item)}
+              className="font-medium text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200"
+            >
+              Edit at source →
+            </Link>
+          )}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <label htmlFor="origin-filter" className="text-sm text-gray-600">
+          <label htmlFor="origin-filter" className="text-sm text-gray-600 dark:text-gray-400">
             Show:
           </label>
-          <select
+          <Select
+            options={[
+              { value: 'ALL', label: 'All entries' },
+              { value: 'MANUAL', label: 'Manual entries' },
+              { value: 'DERIVED', label: 'Auto (from records)' },
+            ]}
             id="origin-filter"
             value={originFilter}
             onChange={(e) => {
               setOriginFilter(e.target.value as typeof originFilter);
               setOffset(0);
             }}
-            className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="ALL">All entries</option>
-            <option value="MANUAL">Manual entries</option>
-            <option value="DERIVED">Auto (from records)</option>
-          </select>
+          />
         </div>
         {canCreate && (
-        <button
-          onClick={() => setModalState({ open: true })}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
-        >
-          + Add expense
-        </button>
+          <Button variant="primary" onClick={() => setModalState({ open: true })}>
+            + Add expense
+          </Button>
         )}
       </div>
 
       {ledgerQuery.isLoading && (
-        <div className="py-16 text-center text-gray-500">Loading ledger…</div>
+        <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading ledger…</div>
       )}
       {Boolean(ledgerQuery.error) && (
-        <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-md bg-error-50 dark:bg-error-900/20 p-4 text-sm text-error-700 dark:text-error-300">
           Failed to load the ledger. Manager or admin access is required.
         </div>
       )}
 
       {!ledgerQuery.isLoading && !ledgerQuery.error && (
-        <div className="overflow-hidden rounded-lg bg-white shadow">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {['Date', 'Category', 'Description', 'Amount', 'Source', ''].map((h) => (
-                    <th
-                      key={h}
-                      scope="col"
-                      className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
-                {items.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      No ledger entries in this period
-                    </td>
-                  </tr>
-                )}
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
-                      {item.entryDate.slice(0, 10)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {item.categoryName}
-                      {item.kind === 'REVENUE' && (
-                        <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
-                          revenue
-                        </span>
-                      )}
-                      {item.estimated && (
-                        <span className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs text-yellow-700">
-                          estimate
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-sm text-gray-500">
-                      {item.description ?? '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {formatMoney(item.amountDecimal, item.currency)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm">
-                      {item.origin === 'MANUAL' ? (
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                          manual
-                        </span>
-                      ) : (
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
-                          auto · {item.sourceDomain}
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
-                      {item.editable ? (
-                        <span className="space-x-3">
-                          {canUpdate && (
-                            <button
-                              onClick={() => setModalState({ open: true, entry: item })}
-                              className="font-medium text-blue-600 hover:text-blue-800"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button
-                              onClick={() => setPendingDelete(item.id)}
-                              className="font-medium text-red-600 hover:text-red-800"
-                            >
-                              Delete
-                            </button>
-                          )}
-                          {!canUpdate && !canDelete && (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                        </span>
-                      ) : (
-                        <Link
-                          to={sourceEditPath(item)}
-                          className="font-medium text-blue-600 hover:text-blue-800"
-                        >
-                          Edit at source →
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow">
+          <DataTable<ItemRow>
+            data={items}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No ledger entries in this period"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Pagination */}
-          <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
-            <button
+          <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3">
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
             >
               ← Previous
-            </button>
-            <span className="text-sm text-gray-500">
+            </Button>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               {offset + 1}–{offset + items.length}
             </span>
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setOffset(offset + PAGE_SIZE)}
               disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
             >
               Next →
-            </button>
+            </Button>
           </div>
         </div>
       )}

@@ -47,6 +47,8 @@ import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = process.cwd();
 const MANIFEST = join(REPO_ROOT, 'tools', 'quality', 'format-scope.json');
 const GENERATOR = join(REPO_ROOT, 'tools', 'quality', 'quality.mjs');
+/** Sibling ESM modules quality.mjs imports; the fixture copy needs them beside it. */
+const GENERATOR_MODULES = ['format-merge-base.mjs'];
 
 /** Fields removed because they are derived from `entries` and change on every branch. */
 const BANNED_DERIVED_SCALARS = ['file_count', 'managed_count', 'managed_file_list_sha256'];
@@ -70,6 +72,9 @@ function verifyImmutableEvidenceClassification(): void {
     const generator = join(root, 'tools/quality/quality.mjs');
     mkdirSync(dirname(generator), { recursive: true });
     copyFileSync(GENERATOR, generator);
+    for (const module of GENERATOR_MODULES) {
+      copyFileSync(join(dirname(GENERATOR), module), join(dirname(generator), module));
+    }
     for (const path of paths) {
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), `${path}\n`);

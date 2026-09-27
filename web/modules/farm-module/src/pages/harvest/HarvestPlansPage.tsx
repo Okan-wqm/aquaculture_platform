@@ -14,6 +14,11 @@ import {
   Modal,
   formatCurrency as sharedFormatCurrency,
   DEFAULT_CURRENCY,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Textarea,
 } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
@@ -33,35 +38,37 @@ import {
 } from '../../hooks/useHarvestPlans';
 import { useBatchList } from '../../hooks/useBatches';
 import {
+  AlertTriangle,
+  ArrowRight,
   Calendar,
   Check,
+  CheckCircle,
   ChevronDown,
   ChevronRight,
   Clock,
+  Columns3,
+  DollarSign,
   Edit,
+  FileText,
   Filter,
   Grid,
   List,
   MoreVertical,
+  Package,
   Pause,
   Play,
   Plus,
   RefreshCw,
-  Search,
-  Trash2,
-  AlertTriangle,
-  CheckCircle,
-  FileText,
-  Package,
   Scale,
+  Search,
+  Target,
+  Trash2,
   TrendingUp,
-  DollarSign,
   Truck,
   Users,
-  Target,
-  ArrowRight,
   XCircle,
 } from 'lucide-react';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -491,60 +498,60 @@ const STATUS_CONFIG: Record<
 > = {
   draft: {
     label: 'Draft',
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-100',
+    color: 'text-gray-700 dark:text-gray-300',
+    bgColor: 'bg-gray-100 dark:bg-gray-800',
     icon: <FileText className="w-4 h-4" />,
   },
   planned: {
     label: 'Planned',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-100',
+    color: 'text-info-700 dark:text-info-300',
+    bgColor: 'bg-info-100 dark:bg-info-900/40',
     icon: <Calendar className="w-4 h-4" />,
   },
   approved: {
     label: 'Approved',
-    color: 'text-indigo-700',
-    bgColor: 'bg-indigo-100',
+    color: 'text-primary-700 dark:text-primary-300',
+    bgColor: 'bg-primary-100 dark:bg-primary-900/40',
     icon: <CheckCircle className="w-4 h-4" />,
   },
   scheduled: {
     label: 'Scheduled',
-    color: 'text-purple-700',
-    bgColor: 'bg-purple-100',
+    color: 'text-accent-700 dark:text-accent-300',
+    bgColor: 'bg-accent-100 dark:bg-accent-900/40',
     icon: <Clock className="w-4 h-4" />,
   },
   in_progress: {
     label: 'In Progress',
-    color: 'text-yellow-700',
-    bgColor: 'bg-yellow-100',
+    color: 'text-warning-700 dark:text-warning-300',
+    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
     icon: <Play className="w-4 h-4" />,
   },
   completed: {
     label: 'Completed',
-    color: 'text-green-700',
-    bgColor: 'bg-green-100',
+    color: 'text-success-700 dark:text-success-300',
+    bgColor: 'bg-success-100 dark:bg-success-900/40',
     icon: <Check className="w-4 h-4" />,
   },
   cancelled: {
     label: 'Cancelled',
-    color: 'text-red-700',
-    bgColor: 'bg-red-100',
+    color: 'text-error-700 dark:text-error-300',
+    bgColor: 'bg-error-100 dark:bg-error-900/40',
     icon: <XCircle className="w-4 h-4" />,
   },
   postponed: {
     label: 'Postponed',
-    color: 'text-orange-700',
-    bgColor: 'bg-orange-100',
+    color: 'text-accent-700 dark:text-accent-300',
+    bgColor: 'bg-accent-100 dark:bg-accent-900/40',
     icon: <Pause className="w-4 h-4" />,
   },
 };
 
 const HARVEST_TYPE_CONFIG: Record<HarvestType, { label: string; color: string }> = {
-  full: { label: 'Full Harvest', color: 'text-blue-600' },
-  partial: { label: 'Partial Harvest', color: 'text-purple-600' },
-  selective: { label: 'Selective', color: 'text-indigo-600' },
-  emergency: { label: 'Emergency', color: 'text-red-600' },
-  thinning: { label: 'Thinning', color: 'text-orange-600' },
+  full: { label: 'Full Harvest', color: 'text-info-600 dark:text-info-400' },
+  partial: { label: 'Partial Harvest', color: 'text-accent-600 dark:text-accent-400' },
+  selective: { label: 'Selective', color: 'text-primary-600 dark:text-primary-400' },
+  emergency: { label: 'Emergency', color: 'text-error-600 dark:text-error-400' },
+  thinning: { label: 'Thinning', color: 'text-accent-600 dark:text-accent-400' },
 };
 
 const PRODUCT_FORM_LABELS: Record<ProductForm, string> = {
@@ -624,15 +631,15 @@ const StatsCard: React.FC<{
   onClick?: () => void;
 }> = ({ title, value, subtitle, icon, color, onClick }) => (
   <div
-    className={`bg-white rounded-lg shadow p-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+    className={`bg-white dark:bg-gray-900 rounded-lg shadow p-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
     onClick={onClick}
   >
     <div className="flex items-center">
       <div className={`flex-shrink-0 p-3 rounded-lg ${color}`}>{icon}</div>
       <div className="ml-4">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <p className="text-2xl font-semibold text-gray-900">{value}</p>
-        {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
+        <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500">{subtitle}</p>}
       </div>
     </div>
   </div>
@@ -656,7 +663,7 @@ const PlanCard: React.FC<{
         label: 'Submit for Approval',
         action: 'submit',
         icon: <ArrowRight className="w-4 h-4" />,
-        color: 'text-blue-600',
+        color: 'text-info-600 dark:text-info-400',
       });
     }
     if (plan.canApprove) {
@@ -664,7 +671,7 @@ const PlanCard: React.FC<{
         label: 'Approve',
         action: 'approve',
         icon: <CheckCircle className="w-4 h-4" />,
-        color: 'text-green-600',
+        color: 'text-success-600 dark:text-success-400',
       });
     }
     if (plan.canSchedule) {
@@ -672,7 +679,7 @@ const PlanCard: React.FC<{
         label: 'Schedule',
         action: 'schedule',
         icon: <Calendar className="w-4 h-4" />,
-        color: 'text-purple-600',
+        color: 'text-accent-600 dark:text-accent-400',
       });
     }
     if (plan.canStartHarvest) {
@@ -680,7 +687,7 @@ const PlanCard: React.FC<{
         label: 'Start Harvest',
         action: 'start',
         icon: <Play className="w-4 h-4" />,
-        color: 'text-yellow-600',
+        color: 'text-warning-600 dark:text-warning-400',
       });
     }
     if (plan.canComplete) {
@@ -688,7 +695,7 @@ const PlanCard: React.FC<{
         label: 'Complete Harvest',
         action: 'complete',
         icon: <Check className="w-4 h-4" />,
-        color: 'text-green-600',
+        color: 'text-success-600 dark:text-success-400',
       });
     }
     if (plan.canEdit && plan.status !== 'completed' && plan.status !== 'cancelled') {
@@ -696,13 +703,13 @@ const PlanCard: React.FC<{
         label: 'Postpone',
         action: 'postpone',
         icon: <Pause className="w-4 h-4" />,
-        color: 'text-orange-600',
+        color: 'text-accent-600 dark:text-accent-400',
       });
       actions.push({
         label: 'Cancel',
         action: 'cancel',
         icon: <XCircle className="w-4 h-4" />,
-        color: 'text-red-600',
+        color: 'text-error-600 dark:text-error-400',
       });
     }
 
@@ -713,32 +720,37 @@ const PlanCard: React.FC<{
 
   if (compact) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-md transition-shadow">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <p className="text-sm font-medium text-gray-900 truncate">{plan.planCode}</p>
-            <p className="text-xs text-gray-500 truncate">{plan.name}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {plan.planCode}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{plan.name}</p>
           </div>
           <div className="relative">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="More actions"
               onClick={() => setShowActions(!showActions)}
-              className="p-1 rounded hover:bg-gray-100"
             >
-              <MoreVertical className="w-4 h-4 text-gray-400" />
-            </button>
+              <MoreVertical className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            </Button>
             {showActions && (
-              <div className="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    leftIcon={<Edit className="w-4 h-4 mr-2" />}
                     onClick={() => {
                       onEdit(plan);
                       setShowActions(false);
                     }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
-                    <Edit className="w-4 h-4 mr-2" />
                     Edit
-                  </button>
+                  </Button>
                 )}
                 {workflowActions.map((wa) => (
                   <button
@@ -747,41 +759,41 @@ const PlanCard: React.FC<{
                       onWorkflowAction(plan, wa.action);
                       setShowActions(false);
                     }}
-                    className={`flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50 ${wa.color}`}
+                    className={`flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${wa.color}`}
                   >
                     {wa.icon}
                     <span className="ml-2">{wa.label}</span>
                   </button>
                 ))}
                 {plan.canDelete && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    leftIcon={<Trash2 className="w-4 h-4 mr-2" />}
                     onClick={() => {
                       onDelete(plan);
                       setShowActions(false);
                     }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
                     Delete
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <Calendar className="w-3 h-3" />
           {formatDate(plan.plannedDate)}
           {plan.isOverdue && (
-            <span className="text-red-600 font-medium flex items-center gap-1">
+            <span className="text-error-600 dark:text-error-400 font-medium flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
               Overdue
             </span>
           )}
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-gray-500">{plan.batchNumber}</span>
-          <span className="text-xs font-medium text-gray-700">
+          <span className="text-xs text-gray-500 dark:text-gray-400">{plan.batchNumber}</span>
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
             {formatNumber(plan.estimates.estimatedBiomass)} kg
           </span>
         </div>
@@ -790,42 +802,47 @@ const PlanCard: React.FC<{
   }
 
   return (
-    <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow">
-      <div className="p-4 border-b border-gray-100">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-md transition-shadow">
+      <div className="p-4 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-gray-900">{plan.planCode}</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {plan.planCode}
+              </h3>
               <StatusBadge status={plan.status} />
               {plan.isOverdue && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
                   <AlertTriangle className="w-3 h-3" />
                   Overdue
                 </span>
               )}
             </div>
-            <p className="text-sm text-gray-600 mt-1">{plan.name}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{plan.name}</p>
           </div>
           <div className="relative">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="More actions"
               onClick={() => setShowActions(!showActions)}
-              className="p-1.5 rounded-md hover:bg-gray-100"
             >
-              <MoreVertical className="w-5 h-5 text-gray-400" />
-            </button>
+              <MoreVertical className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+            </Button>
             {showActions && (
-              <div className="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    leftIcon={<Edit className="w-4 h-4 mr-2" />}
                     onClick={() => {
                       onEdit(plan);
                       setShowActions(false);
                     }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
-                    <Edit className="w-4 h-4 mr-2" />
                     Edit
-                  </button>
+                  </Button>
                 )}
                 {workflowActions.map((wa) => (
                   <button
@@ -834,23 +851,23 @@ const PlanCard: React.FC<{
                       onWorkflowAction(plan, wa.action);
                       setShowActions(false);
                     }}
-                    className={`flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50 ${wa.color}`}
+                    className={`flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${wa.color}`}
                   >
                     {wa.icon}
                     <span className="ml-2">{wa.label}</span>
                   </button>
                 ))}
                 {plan.canDelete && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    leftIcon={<Trash2 className="w-4 h-4 mr-2" />}
                     onClick={() => {
                       onDelete(plan);
                       setShowActions(false);
                     }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
                     Delete
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -861,51 +878,57 @@ const PlanCard: React.FC<{
       <div className="p-4 space-y-3">
         {/* Batch Info */}
         <div className="flex items-center gap-2 text-sm">
-          <Package className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-600">Batch:</span>
-          <span className="font-medium text-gray-900">{plan.batchNumber}</span>
+          <Package className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <span className="text-gray-600 dark:text-gray-400">Batch:</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{plan.batchNumber}</span>
         </div>
 
         {/* Dates */}
         <div className="flex items-center gap-2 text-sm">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-600">Planned:</span>
-          <span className="font-medium text-gray-900">{formatDate(plan.plannedDate)}</span>
+          <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <span className="text-gray-600 dark:text-gray-400">Planned:</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {formatDate(plan.plannedDate)}
+          </span>
           {plan.daysUntilHarvest !== undefined && plan.daysUntilHarvest >= 0 && (
-            <span className="text-xs text-gray-500">({plan.daysUntilHarvest} days)</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              ({plan.daysUntilHarvest} days)
+            </span>
           )}
         </div>
 
         {/* Harvest Type & Method */}
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-gray-400" />
+            <Target className="w-4 h-4 text-gray-400 dark:text-gray-500" />
             <span className={HARVEST_TYPE_CONFIG[plan.harvestType].color}>
               {HARVEST_TYPE_CONFIG[plan.harvestType].label}
             </span>
           </div>
           {plan.harvestMethod && (
-            <span className="text-gray-500">{HARVEST_METHOD_LABELS[plan.harvestMethod]}</span>
+            <span className="text-gray-500 dark:text-gray-400">
+              {HARVEST_METHOD_LABELS[plan.harvestMethod]}
+            </span>
           )}
         </div>
 
         {/* Estimates */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
-            <p className="text-xs text-gray-500">Quantity</p>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Quantity</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {formatNumber(plan.estimates.estimatedQuantity)}
             </p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">Biomass</p>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Biomass</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {formatNumber(plan.estimates.estimatedBiomass)} kg
             </p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">Avg Weight</p>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Avg Weight</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {plan.estimates.estimatedAvgWeight}g
             </p>
           </div>
@@ -913,18 +936,18 @@ const PlanCard: React.FC<{
 
         {/* Financial Info */}
         {plan.financialProjection && (
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-2 text-sm">
-              <DollarSign className="w-4 h-4 text-green-500" />
-              <span className="text-gray-600">Est. Revenue:</span>
-              <span className="font-semibold text-green-600">
+              <DollarSign className="w-4 h-4 text-success-500" />
+              <span className="text-gray-600 dark:text-gray-400">Est. Revenue:</span>
+              <span className="font-semibold text-success-600 dark:text-success-400">
                 {formatCurrency(
                   plan.financialProjection.estimatedRevenue,
                   plan.financialProjection.currency,
                 )}
               </span>
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               Margin: {plan.financialProjection.margin.toFixed(1)}%
             </span>
           </div>
@@ -932,33 +955,39 @@ const PlanCard: React.FC<{
 
         {/* Customer Info */}
         {plan.customerOrder?.customerName && (
-          <div className="flex items-center gap-2 text-sm pt-2 border-t border-gray-100">
-            <Users className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-600">Customer:</span>
-            <span className="font-medium text-gray-900">{plan.customerOrder.customerName}</span>
+          <div className="flex items-center gap-2 text-sm pt-2 border-t border-gray-100 dark:border-gray-700">
+            <Users className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <span className="text-gray-600 dark:text-gray-400">Customer:</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">
+              {plan.customerOrder.customerName}
+            </span>
           </div>
         )}
 
         {/* Actual Results for Completed */}
         {plan.status === 'completed' && plan.actualBiomassHarvested && (
-          <div className="bg-green-50 rounded-md p-3 mt-2">
-            <p className="text-xs font-medium text-green-800 mb-2">Actual Results</p>
-            <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-success-50 dark:bg-success-900/20 rounded-md p-3 mt-2">
+            <p className="text-xs font-medium text-success-800 dark:text-success-200 mb-2">
+              Actual Results
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-xs text-green-600">Quantity</p>
-                <p className="text-sm font-semibold text-green-800">
+                <p className="text-xs text-success-600 dark:text-success-400">Quantity</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
                   {formatNumber(plan.actualQuantityHarvested || 0)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-green-600">Biomass</p>
-                <p className="text-sm font-semibold text-green-800">
+                <p className="text-xs text-success-600 dark:text-success-400">Biomass</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
                   {formatNumber(plan.actualBiomassHarvested)} kg
                 </p>
               </div>
               <div>
-                <p className="text-xs text-green-600">Avg Weight</p>
-                <p className="text-sm font-semibold text-green-800">{plan.actualAvgWeight}g</p>
+                <p className="text-xs text-success-600 dark:text-success-400">Avg Weight</p>
+                <p className="text-sm font-semibold text-success-800 dark:text-success-200">
+                  {plan.actualAvgWeight}g
+                </p>
               </div>
             </div>
           </div>
@@ -976,111 +1005,118 @@ const FilterPanel: React.FC<{
   batches: { id: string; batchNumber: string; name: string }[];
 }> = ({ filters, onFilterChange, onReset, batches }) => {
   return (
-    <div className="bg-white rounded-lg shadow p-4 space-y-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <Filter className="w-4 h-4" />
           Filters
         </h3>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={<RefreshCw className="w-3 h-3" />}
           onClick={onReset}
-          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
         >
-          <RefreshCw className="w-3 h-3" />
           Reset
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Search */}
         <div className="lg:col-span-2">
-          <label className="block text-xs font-medium text-gray-700 mb-1">Search</label>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Search
+          </label>
           <div className="relative">
             <input
               type="text"
               value={filters.searchText}
               onChange={(e) => onFilterChange({ ...filters, searchText: e.target.value })}
               placeholder="Search by plan code, name..."
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm pl-9"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm pl-9"
             />
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
         </div>
 
         {/* Status Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-          <select
+          <Select
+            label="Status"
+            size="sm"
             value={filters.status}
             onChange={(e) =>
               onFilterChange({ ...filters, status: e.target.value as HarvestPlanStatus | '' })
             }
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          >
-            <option value="">All Statuses</option>
-            {Object.entries(STATUS_CONFIG).map(([value, config]) => (
-              <option key={value} value={value}>
-                {config.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Statuses' },
+              ...Object.entries(STATUS_CONFIG).map(([value, config]) => ({
+                value,
+                label: config.label,
+              })),
+            ]}
+          />
         </div>
 
         {/* Harvest Type Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Harvest Type</label>
-          <select
+          <Select
+            label="Harvest Type"
+            size="sm"
             value={filters.harvestType}
             onChange={(e) =>
               onFilterChange({ ...filters, harvestType: e.target.value as HarvestType | '' })
             }
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          >
-            <option value="">All Types</option>
-            {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
-              <option key={value} value={value}>
-                {config.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Types' },
+              ...Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => ({
+                value,
+                label: config.label,
+              })),
+            ]}
+          />
         </div>
 
         {/* Batch Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Batch</label>
-          <select
+          <Select
+            label="Batch"
+            size="sm"
             value={filters.batchId}
             onChange={(e) => onFilterChange({ ...filters, batchId: e.target.value })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          >
-            <option value="">All Batches</option>
-            {batches.map((batch) => (
-              <option key={batch.id} value={batch.id}>
-                {batch.batchNumber} - {batch.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Batches' },
+              ...batches.map((batch) => ({
+                value: batch.id,
+                label: `${batch.batchNumber} - ${batch.name}`,
+              })),
+            ]}
+          />
         </div>
 
         {/* Date From */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Planned From</label>
-          <input
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Planned From
+          </label>
+          <Input
+            fullWidth
             type="date"
             value={filters.plannedDateFrom}
             onChange={(e) => onFilterChange({ ...filters, plannedDateFrom: e.target.value })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
         </div>
 
         {/* Date To */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Planned To</label>
-          <input
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Planned To
+          </label>
+          <Input
+            fullWidth
             type="date"
             value={filters.plannedDateTo}
             onChange={(e) => onFilterChange({ ...filters, plannedDateTo: e.target.value })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
         </div>
 
@@ -1091,18 +1127,18 @@ const FilterPanel: React.FC<{
               type="checkbox"
               checked={filters.activeOnly}
               onChange={(e) => onFilterChange({ ...filters, activeOnly: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
-            <span className="ml-2 text-sm text-gray-700">Active Only</span>
+            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Active Only</span>
           </label>
           <label className="inline-flex items-center">
             <input
               type="checkbox"
               checked={filters.overdueOnly}
               onChange={(e) => onFilterChange({ ...filters, overdueOnly: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
-            <span className="ml-2 text-sm text-gray-700">Overdue Only</span>
+            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Overdue Only</span>
           </label>
         </div>
       </div>
@@ -1164,7 +1200,7 @@ const HarvestPlanFormModal: React.FC<{
       <form onSubmit={handleSubmit}>
         <div className="flex">
           {/* Sidebar */}
-          <div className="w-48 border-r border-gray-200 bg-gray-50 p-4">
+          <div className="w-48 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4">
             <nav className="space-y-1">
               {sections.map((section) => (
                 <button
@@ -1173,8 +1209,8 @@ const HarvestPlanFormModal: React.FC<{
                   onClick={() => setActiveSection(section.id)}
                   className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors ${
                     activeSection === section.id
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   {section.icon}
@@ -1189,78 +1225,75 @@ const HarvestPlanFormModal: React.FC<{
             {/* Basic Info Section */}
             {activeSection === 'basic' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">Basic Information</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+                  Basic Information
+                </h3>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Plan Name *
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="text"
                     required
                     value={formData.name || ''}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     placeholder="e.g., Full Harvest - Sea Bass Batch A"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Description
                   </label>
-                  <textarea
+                  <Textarea
+                    fullWidth
                     value={formData.description || ''}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     placeholder="Describe the harvest plan..."
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
-                  <select
+                  <Select
+                    label="Batch"
                     required
+                    size="sm"
                     value={formData.batchId || ''}
                     onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Select a batch</option>
-                    {batches.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.batchNumber} - {batch.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Select a batch' },
+                      ...batches.map((batch) => ({
+                        value: batch.id,
+                        label: `${batch.batchNumber} - ${batch.name}`,
+                      })),
+                    ]}
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Harvest Type *
-                    </label>
-                    <select
+                    <Select
+                      label="Harvest Type"
                       required
+                      size="sm"
                       value={formData.harvestType || 'full'}
                       onChange={(e) =>
                         setFormData({ ...formData, harvestType: e.target.value as HarvestType })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
-                        <option key={value} value={value}>
-                          {config.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => ({
+                        value,
+                        label: config.label,
+                      }))}
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Harvest Method
-                    </label>
-                    <select
+                    <Select
+                      label="Harvest Method"
+                      size="sm"
                       value={formData.harvestMethod || ''}
                       onChange={(e) =>
                         setFormData({
@@ -1268,25 +1301,23 @@ const HarvestPlanFormModal: React.FC<{
                           harvestMethod: (e.target.value as HarvestMethod) || undefined,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select method</option>
-                      {Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: 'Select method' },
+                        ...Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => ({
+                          value,
+                          label,
+                        })),
+                      ]}
+                    />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Product Form *
-                    </label>
-                    <select
+                    <Select
+                      label="Product Form"
                       required
+                      size="sm"
                       value={formData.productForm || 'fresh_whole'}
                       onChange={(e) =>
                         setFormData({
@@ -1294,54 +1325,51 @@ const HarvestPlanFormModal: React.FC<{
                           productForm: e.target.value as ProductForm,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      {Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                      options={Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Planned Date *
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="date"
                       required
                       value={formData.plannedDate || ''}
                       onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Window Start
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="date"
                       value={formData.windowStartDate || ''}
                       onChange={(e) =>
                         setFormData({ ...formData, windowStartDate: e.target.value })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Window End
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="date"
                       value={formData.windowEndDate || ''}
                       onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
                 </div>
@@ -1351,14 +1379,21 @@ const HarvestPlanFormModal: React.FC<{
             {/* Criteria Section */}
             {activeSection === 'criteria' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Criteria</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+                  Harvest Criteria
+                </h3>
 
-                <div className="bg-gray-50 rounded-md p-4">
-                  <h4 className="text-xs font-medium text-gray-700 mb-3">Target Weight (grams)</h4>
-                  <div className="grid grid-cols-3 gap-4">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
+                  <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Target Weight (grams)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Minimum</label>
-                      <input
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Minimum
+                      </label>
+                      <Input
+                        fullWidth
                         type="number"
                         min="0"
                         value={formData.criteria?.targetWeight.min || 0}
@@ -1374,12 +1409,14 @@ const HarvestPlanFormModal: React.FC<{
                             },
                           })
                         }
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Target</label>
-                      <input
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Target
+                      </label>
+                      <Input
+                        fullWidth
                         type="number"
                         min="0"
                         value={formData.criteria?.targetWeight.target || 0}
@@ -1395,12 +1432,14 @@ const HarvestPlanFormModal: React.FC<{
                             },
                           })
                         }
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Maximum</label>
-                      <input
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Maximum
+                      </label>
+                      <Input
+                        fullWidth
                         type="number"
                         min="0"
                         value={formData.criteria?.targetWeight.max || 0}
@@ -1416,17 +1455,23 @@ const HarvestPlanFormModal: React.FC<{
                             },
                           })
                         }
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                       />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Quality Grade
                   </label>
-                  <select
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Not specified' },
+                      { value: 'A', label: 'Grade A' },
+                      { value: 'B', label: 'Grade B' },
+                      { value: 'C', label: 'Grade C' },
+                    ]}
                     value={formData.criteria?.qualityGrade || ''}
                     onChange={(e) =>
                       setFormData({
@@ -1437,13 +1482,7 @@ const HarvestPlanFormModal: React.FC<{
                         },
                       })
                     }
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Not specified</option>
-                    <option value="A">Grade A</option>
-                    <option value="B">Grade B</option>
-                    <option value="C">Grade C</option>
-                  </select>
+                  />
                 </div>
               </div>
             )}
@@ -1451,14 +1490,17 @@ const HarvestPlanFormModal: React.FC<{
             {/* Estimates Section */}
             {activeSection === 'estimates' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Estimates</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+                  Harvest Estimates
+                </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Quantity *
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       required
                       min="0"
@@ -1472,15 +1514,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Biomass (kg) *
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       required
                       min="0"
@@ -1495,15 +1537,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Avg Weight (g) *
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       required
                       min="0"
@@ -1517,15 +1559,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Yield (%)
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       max="100"
@@ -1539,16 +1581,21 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Confidence Level
                   </label>
-                  <select
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: 'low', label: 'Low' },
+                      { value: 'medium', label: 'Medium' },
+                      { value: 'high', label: 'High' },
+                    ]}
                     value={formData.estimates?.confidenceLevel || 'medium'}
                     onChange={(e) =>
                       setFormData({
@@ -1559,12 +1606,7 @@ const HarvestPlanFormModal: React.FC<{
                         },
                       })
                     }
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
+                  />
                 </div>
               </div>
             )}
@@ -1572,14 +1614,17 @@ const HarvestPlanFormModal: React.FC<{
             {/* Financial Section */}
             {activeSection === 'financial' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">Financial Projection</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+                  Financial Projection
+                </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Price
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       step="0.01"
@@ -1599,15 +1644,19 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Price Unit
                     </label>
-                    <select
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'per_kg', label: 'Per Kilogram' },
+                        { value: 'per_piece', label: 'Per Piece' },
+                      ]}
                       value={formData.financialProjection?.priceUnit || 'per_kg'}
                       onChange={(e) =>
                         setFormData({
@@ -1618,18 +1667,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="per_kg">Per Kilogram</option>
-                      <option value="per_piece">Per Piece</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Revenue
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       step="0.01"
@@ -1643,15 +1689,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Cost
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       step="0.01"
@@ -1665,13 +1711,22 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-                    <select
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Currency
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'EUR', label: 'EUR' },
+                        { value: 'USD', label: 'USD' },
+                        { value: 'TRY', label: 'TRY' },
+                        { value: 'GBP', label: 'GBP' },
+                        { value: 'NOK', label: 'NOK' },
+                      ]}
                       value={formData.financialProjection?.currency || 'EUR'}
                       onChange={(e) =>
                         setFormData({
@@ -1682,14 +1737,7 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="EUR">EUR</option>
-                      <option value="USD">USD</option>
-                      <option value="TRY">TRY</option>
-                      <option value="GBP">GBP</option>
-                      <option value="NOK">NOK</option>
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
@@ -1698,14 +1746,17 @@ const HarvestPlanFormModal: React.FC<{
             {/* Logistics Section */}
             {activeSection === 'logistics' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">Logistics Plan</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
+                  Logistics Plan
+                </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Harvest Start Time
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="time"
                       value={formData.logistics?.harvestStartTime || ''}
                       onChange={(e) =>
@@ -1717,15 +1768,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Expected Duration (hours)
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       step="0.5"
@@ -1739,15 +1790,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Required Personnel
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       value={formData.logistics?.requiredPersonnel || ''}
@@ -1760,15 +1811,21 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Transport Type
                     </label>
-                    <select
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: '', label: 'Select type' },
+                        { value: 'truck', label: 'Truck' },
+                        { value: 'boat', label: 'Boat' },
+                        { value: 'container', label: 'Container' },
+                      ]}
                       value={formData.logistics?.transportType || ''}
                       onChange={(e) =>
                         setFormData({
@@ -1780,20 +1837,22 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select type</option>
-                      <option value="truck">Truck</option>
-                      <option value="boat">Boat</option>
-                      <option value="container">Container</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Destination Type
                     </label>
-                    <select
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: '', label: 'Select destination' },
+                        { value: 'processing', label: 'Processing Plant' },
+                        { value: 'market', label: 'Market' },
+                        { value: 'direct_sale', label: 'Direct Sale' },
+                        { value: 'export', label: 'Export' },
+                      ]}
                       value={formData.logistics?.destinationType || ''}
                       onChange={(e) =>
                         setFormData({
@@ -1809,14 +1868,7 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select destination</option>
-                      <option value="processing">Processing Plant</option>
-                      <option value="market">Market</option>
-                      <option value="direct_sale">Direct Sale</option>
-                      <option value="export">Export</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
@@ -1833,18 +1885,21 @@ const HarvestPlanFormModal: React.FC<{
                             },
                           })
                         }
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                       />
-                      <span className="ml-2 text-sm text-gray-700">Cold Chain Required</span>
+                      <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                        Cold Chain Required
+                      </span>
                     </label>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Destination Address
                   </label>
-                  <textarea
+                  <Textarea
+                    fullWidth
                     value={formData.logistics?.destinationAddress || ''}
                     onChange={(e) =>
                       setFormData({
@@ -1856,7 +1911,6 @@ const HarvestPlanFormModal: React.FC<{
                       })
                     }
                     rows={2}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                   />
                 </div>
               </div>
@@ -1865,16 +1919,17 @@ const HarvestPlanFormModal: React.FC<{
             {/* Customer Section */}
             {activeSection === 'customer' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
                   Customer / Order Information
                 </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Customer Name
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.customerOrder?.customerName || ''}
                       onChange={(e) =>
@@ -1886,13 +1941,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Order ID
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.customerOrder?.orderId || ''}
                       onChange={(e) =>
@@ -1904,15 +1961,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Order Quantity
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       value={formData.customerOrder?.orderQuantity || ''}
@@ -1925,15 +1982,21 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Order Unit
                     </label>
-                    <select
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: '', label: 'Select unit' },
+                        { value: 'kg', label: 'Kilograms' },
+                        { value: 'pieces', label: 'Pieces' },
+                        { value: 'tons', label: 'Tons' },
+                      ]}
                       value={formData.customerOrder?.orderUnit || ''}
                       onChange={(e) =>
                         setFormData({
@@ -1944,20 +2007,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select unit</option>
-                      <option value="kg">Kilograms</option>
-                      <option value="pieces">Pieces</option>
-                      <option value="tons">Tons</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Delivery Date
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="date"
                       value={formData.customerOrder?.deliveryDate || ''}
                       onChange={(e) =>
@@ -1969,15 +2027,15 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Contract Price
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       step="0.01"
@@ -1991,7 +2049,6 @@ const HarvestPlanFormModal: React.FC<{
                           },
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     />
                   </div>
                 </div>
@@ -2001,20 +2058,13 @@ const HarvestPlanFormModal: React.FC<{
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
-          >
+          </Button>
+          <Button variant="primary" type="submit">
             {plan ? 'Update Plan' : 'Create Plan'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -2048,79 +2098,72 @@ const CompleteHarvestModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-blue-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-blue-800">
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-info-800 dark:text-info-200">
             Enter the actual harvest results for <strong>{plan.planCode}</strong>
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Quantity Harvested
           </label>
-          <input
+          <Input
+            fullWidth
             type="number"
             required
             min="0"
             value={formData.actualQuantity}
             onChange={(e) => setFormData({ ...formData, actualQuantity: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Biomass (kg)
           </label>
-          <input
+          <Input
+            fullWidth
             type="number"
             required
             min="0"
             step="0.1"
             value={formData.actualBiomass}
             onChange={(e) => setFormData({ ...formData, actualBiomass: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Average Weight (g)
           </label>
-          <input
+          <Input
+            fullWidth
             type="number"
             required
             min="0"
             step="0.1"
             value={formData.actualAvgWeight}
             onChange={(e) => setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {plan.estimates.estimatedAvgWeight}g
           </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
-          >
+          </Button>
+          <Button variant="primary" type="submit">
             Complete Harvest
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -2146,42 +2189,35 @@ const ScheduleModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-purple-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-purple-800">
+        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-accent-800 dark:text-accent-200">
             Set the confirmed harvest date for <strong>{plan.planCode}</strong>
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Confirmed Harvest Date *
           </label>
-          <input
+          <Input
+            fullWidth
             type="date"
             required
             value={confirmedDate}
             onChange={(e) => setConfirmedDate(e.target.value)}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Originally planned: {formatDate(plan.plannedDate)}
           </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
-          >
+          </Button>
+          <Button variant="primary" type="submit">
             Schedule Harvest
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -2207,39 +2243,36 @@ const PostponeModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-orange-50 rounded-md p-3 mb-4">
-          <p className="text-sm text-orange-800">
+        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-accent-800 dark:text-accent-200">
             Postpone <strong>{plan.planCode}</strong> to a new date
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">New Planned Date *</label>
-          <input
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            New Planned Date *
+          </label>
+          <Input
+            fullWidth
             type="date"
             required
             value={newDate}
             onChange={(e) => setNewDate(e.target.value)}
             min={new Date().toISOString().split('T')[0]}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           />
-          <p className="text-xs text-gray-500 mt-1">Current date: {formatDate(plan.plannedDate)}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Current date: {formatDate(plan.plannedDate)}
+          </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
-          >
+          </Button>
+          <Button variant="warning" type="submit">
             Postpone
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -2258,34 +2291,28 @@ const ConfirmDeleteModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="flex items-center gap-4 mb-4">
-        <div className="flex-shrink-0 p-3 bg-red-100 rounded-full">
-          <Trash2 className="w-6 h-6 text-red-600" />
+        <div className="flex-shrink-0 p-3 bg-error-100 dark:bg-error-900/40 rounded-full">
+          <Trash2 className="w-6 h-6 text-error-600 dark:text-error-400" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Delete Harvest Plan</h2>
-          <p className="text-sm text-gray-500">This action cannot be undone.</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Delete Harvest Plan
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">This action cannot be undone.</p>
         </div>
       </div>
 
-      <p className="text-sm text-gray-600 mb-6">
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
         Are you sure you want to delete <strong>{plan.planCode}</strong> - {plan.name}?
       </p>
 
       <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
+        <Button variant="secondary" type="button" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
-        >
+        </Button>
+        <Button variant="danger" type="button" onClick={onConfirm}>
           Delete
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -2562,44 +2589,165 @@ export const HarvestPlansPage: React.FC = () => {
     return grouped;
   }, [filteredPlans]);
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Harvest Plans</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage harvest planning, scheduling, and execution
-              </p>
+  type PlanRow = (typeof filteredPlans)[number];
+  const planRowColumns: DataTableColumn<PlanRow>[] = [
+    {
+      key: 'plan',
+      header: 'Plan',
+      render: (_value, plan) => (
+        <div className="flex items-center">
+          <div>
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {plan.planCode}
             </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                  showFilters
-                    ? 'border-blue-500 text-blue-700 bg-blue-50'
-                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-                }`}
-              >
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-                {showFilters ? (
-                  <ChevronDown className="w-4 h-4 ml-1" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                )}
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Plan
-              </button>
-            </div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">{plan.name}</div>
           </div>
+        </div>
+      ),
+    },
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, plan) => (
+        <span className="text-sm text-gray-900 dark:text-gray-100">{plan.batchNumber}</span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, plan) => (
+        <>
+          <StatusBadge status={plan.status} />
+          {plan.isOverdue && (
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
+              Overdue
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, plan) => (
+        <span className={`text-sm ${HARVEST_TYPE_CONFIG[plan.harvestType].color}`}>
+          {HARVEST_TYPE_CONFIG[plan.harvestType].label}
+        </span>
+      ),
+    },
+    {
+      key: 'plannedDate',
+      header: 'Planned Date',
+      render: (_value, plan) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {formatDate(plan.plannedDate)}
+          </div>
+          {plan.daysUntilHarvest !== undefined && plan.daysUntilHarvest >= 0 && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {plan.daysUntilHarvest} days
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'estBiomass',
+      header: 'Est. Biomass',
+      align: 'right',
+      render: (_value, plan) => (
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {formatNumber(plan.estimates.estimatedBiomass)} kg
+        </span>
+      ),
+    },
+    {
+      key: 'estRevenue',
+      header: 'Est. Revenue',
+      align: 'right',
+      render: (_value, plan) => (
+        <>
+          {plan.financialProjection ? (
+            <span className="text-sm font-medium text-success-600 dark:text-success-400">
+              {formatCurrency(
+                plan.financialProjection.estimatedRevenue,
+                plan.financialProjection.currency,
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'spanClassnameSrOnlyActionsSpan',
+      header: '<span className="sr-only">Actions</span>',
+      render: (_value, plan) => (
+        <div className="flex items-center justify-end gap-2">
+          {plan.canEdit && (
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Edit"
+              onClick={() => setEditingPlan(plan)}
+              title="Edit"
+            >
+              <Edit className="w-4 h-4" />
+            </Button>
+          )}
+          {plan.canDelete && (
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Delete"
+              onClick={() => setDeletingPlan(plan)}
+              title="Delete"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
+      {/* Page Header */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+        <div className="px-4 sm:px-6 py-6">
+          <PageHeader
+            title="Harvest Plans"
+            description="Manage harvest planning, scheduling, and execution"
+            actions={
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
+                    showFilters
+                      ? 'border-info-500 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filters
+                  {showFilters ? (
+                    <ChevronDown className="w-4 h-4 ml-1" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  )}
+                </button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus className="w-4 h-4 mr-2" />}
+                  onClick={() => setShowCreateModal(true)}
+                >
+                  New Plan
+                </Button>
+              </div>
+            }
+          />
         </div>
       </div>
 
@@ -2609,43 +2757,43 @@ export const HarvestPlansPage: React.FC = () => {
           <StatsCard
             title="Draft"
             value={stats.draft}
-            icon={<FileText className="w-5 h-5 text-gray-600" />}
-            color="bg-gray-100"
+            icon={<FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />}
+            color="bg-gray-100 dark:bg-gray-800"
             onClick={() => setFilters({ ...filters, status: 'draft' })}
           />
           <StatsCard
             title="Planned"
             value={stats.planned}
-            icon={<Calendar className="w-5 h-5 text-blue-600" />}
-            color="bg-blue-100"
+            icon={<Calendar className="w-5 h-5 text-info-600 dark:text-info-400" />}
+            color="bg-info-100 dark:bg-info-900/40"
             onClick={() => setFilters({ ...filters, status: 'planned' })}
           />
           <StatsCard
             title="Approved"
             value={stats.approved}
-            icon={<CheckCircle className="w-5 h-5 text-indigo-600" />}
-            color="bg-indigo-100"
+            icon={<CheckCircle className="w-5 h-5 text-primary-600 dark:text-primary-400" />}
+            color="bg-primary-100 dark:bg-primary-900/40"
             onClick={() => setFilters({ ...filters, status: 'approved' })}
           />
           <StatsCard
             title="Scheduled"
             value={stats.scheduled}
-            icon={<Clock className="w-5 h-5 text-purple-600" />}
-            color="bg-purple-100"
+            icon={<Clock className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
+            color="bg-accent-100 dark:bg-accent-900/40"
             onClick={() => setFilters({ ...filters, status: 'scheduled' })}
           />
           <StatsCard
             title="In Progress"
             value={stats.inProgress}
-            icon={<Play className="w-5 h-5 text-yellow-600" />}
-            color="bg-yellow-100"
+            icon={<Play className="w-5 h-5 text-warning-600 dark:text-warning-400" />}
+            color="bg-warning-100 dark:bg-warning-900/40"
             onClick={() => setFilters({ ...filters, status: 'in_progress' })}
           />
           <StatsCard
             title="Completed"
             value={stats.completed}
-            icon={<Check className="w-5 h-5 text-green-600" />}
-            color="bg-green-100"
+            icon={<Check className="w-5 h-5 text-success-600 dark:text-success-400" />}
+            color="bg-success-100 dark:bg-success-900/40"
             onClick={() => setFilters({ ...filters, status: 'completed' })}
           />
         </div>
@@ -2656,29 +2804,29 @@ export const HarvestPlansPage: React.FC = () => {
             title="Est. Biomass"
             value={`${formatNumber(stats.totalEstimatedBiomass)} kg`}
             subtitle="Total planned"
-            icon={<Scale className="w-5 h-5 text-blue-600" />}
-            color="bg-blue-100"
+            icon={<Scale className="w-5 h-5 text-info-600 dark:text-info-400" />}
+            color="bg-info-100 dark:bg-info-900/40"
           />
           <StatsCard
             title="Actual Harvested"
             value={`${formatNumber(stats.totalActualBiomass)} kg`}
             subtitle="Completed harvests"
-            icon={<TrendingUp className="w-5 h-5 text-green-600" />}
-            color="bg-green-100"
+            icon={<TrendingUp className="w-5 h-5 text-success-600 dark:text-success-400" />}
+            color="bg-success-100 dark:bg-success-900/40"
           />
           <StatsCard
             title="Upcoming"
             value={stats.upcomingCount}
             subtitle="Next 30 days"
-            icon={<Calendar className="w-5 h-5 text-purple-600" />}
-            color="bg-purple-100"
+            icon={<Calendar className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
+            color="bg-accent-100 dark:bg-accent-900/40"
           />
           <StatsCard
             title="Overdue"
             value={stats.overdueCount}
             subtitle="Requires attention"
-            icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
-            color="bg-red-100"
+            icon={<AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />}
+            color="bg-error-100 dark:bg-error-900/40"
             onClick={() => setFilters({ ...filters, overdueOnly: true })}
           />
         </div>
@@ -2695,7 +2843,7 @@ export const HarvestPlansPage: React.FC = () => {
 
         {/* View Mode Toggle */}
         <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {plansLoading
               ? 'Loading...'
               : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
@@ -2705,8 +2853,8 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('cards')}
               className={`p-2 rounded-md ${
                 viewMode === 'cards'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Card View"
             >
@@ -2716,8 +2864,8 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('table')}
               className={`p-2 rounded-md ${
                 viewMode === 'table'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Table View"
             >
@@ -2727,19 +2875,12 @@ export const HarvestPlansPage: React.FC = () => {
               onClick={() => setViewMode('kanban')}
               className={`p-2 rounded-md ${
                 viewMode === 'kanban'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
               title="Kanban View"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
-                />
-              </svg>
+              <Columns3 className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -2757,158 +2898,46 @@ export const HarvestPlansPage: React.FC = () => {
               />
             ))}
             {filteredPlans.length === 0 && (
-              <div className="col-span-full text-center py-12 bg-white rounded-lg shadow">
-                <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No harvest plans found</h3>
-                <p className="mt-1 text-sm text-gray-500">
+              <div className="col-span-full text-center py-12 bg-white dark:bg-gray-900 rounded-lg shadow">
+                <FileText className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  No harvest plans found
+                </h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   Get started by creating a new harvest plan.
                 </p>
-                <button
+                <Button
+                  variant="primary"
+                  className="mt-4"
+                  leftIcon={<Plus className="w-4 h-4 mr-2" />}
                   onClick={() => setShowCreateModal(true)}
-                  className="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
                 >
-                  <Plus className="w-4 h-4 mr-2" />
                   New Plan
-                </button>
+                </Button>
               </div>
             )}
           </div>
         )}
 
         {viewMode === 'table' && (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Plan
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Batch
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Status
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Type
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Planned Date
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Est. Biomass
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Est. Revenue
-                  </th>
-                  <th scope="col" className="relative px-6 py-3">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredPlans.map((plan) => (
-                  <tr key={plan.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{plan.planCode}</div>
-                          <div className="text-sm text-gray-500">{plan.name}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">{plan.batchNumber}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={plan.status} />
-                      {plan.isOverdue && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                          Overdue
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`text-sm ${HARVEST_TYPE_CONFIG[plan.harvestType].color}`}>
-                        {HARVEST_TYPE_CONFIG[plan.harvestType].label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{formatDate(plan.plannedDate)}</div>
-                      {plan.daysUntilHarvest !== undefined && plan.daysUntilHarvest >= 0 && (
-                        <div className="text-xs text-gray-500">{plan.daysUntilHarvest} days</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className="text-sm font-medium text-gray-900">
-                        {formatNumber(plan.estimates.estimatedBiomass)} kg
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      {plan.financialProjection ? (
-                        <span className="text-sm font-medium text-green-600">
-                          {formatCurrency(
-                            plan.financialProjection.estimatedRevenue,
-                            plan.financialProjection.currency,
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-2">
-                        {plan.canEdit && (
-                          <button
-                            onClick={() => setEditingPlan(plan)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        )}
-                        {plan.canDelete && (
-                          <button
-                            onClick={() => setDeletingPlan(plan)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+            <DataTable<PlanRow>
+              data={filteredPlans}
+              columns={planRowColumns}
+              keyExtractor={(plan) => plan.id}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {filteredPlans.length === 0 && (
               <div className="text-center py-12">
-                <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No harvest plans found</h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <FileText className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  No harvest plans found
+                </h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   Get started by creating a new harvest plan.
                 </p>
               </div>
@@ -2920,11 +2949,11 @@ export const HarvestPlansPage: React.FC = () => {
           <div className="flex gap-4 overflow-x-auto pb-4">
             {KANBAN_COLUMNS.map((status) => (
               <div key={status} className="flex-shrink-0 w-80">
-                <div className="bg-gray-100 rounded-lg p-3">
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={status} showIcon={true} />
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         ({plansByStatus[status].length})
                       </span>
                     </div>
@@ -2941,7 +2970,9 @@ export const HarvestPlansPage: React.FC = () => {
                       />
                     ))}
                     {plansByStatus[status].length === 0 && (
-                      <div className="text-center py-8 text-sm text-gray-400">No plans</div>
+                      <div className="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
+                        No plans
+                      </div>
                     )}
                   </div>
                 </div>

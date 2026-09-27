@@ -24,6 +24,7 @@ import React, {
 } from 'react';
 import { Play, Pause, Square, Video } from 'lucide-react';
 import type { RuntimeWidgetProps } from '../../../types/scada-runtime.types';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Supported MIME types                                                */
@@ -196,13 +197,12 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
     >
       {/* Video container */}
       <div
-        className="relative flex-1 bg-gray-900 flex items-center justify-center overflow-hidden"
-        style={{ minHeight: 0 }}
+        className="relative flex-1 bg-gray-900 flex items-center justify-center overflow-hidden min-h-0"
       >
         {showPlaceholder ? (
           /* Placeholder: no src or load error */
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-500"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-gray-400"
             aria-label={hasError ? 'Video load error' : 'No video source'}
           >
             {poster ? (
@@ -240,7 +240,7 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
         {/* Loading overlay */}
         {!showPlaceholder && !isLoaded && !hasError && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/60">
-            <div className="w-6 h-6 border-2 border-gray-400 border-t-white rounded-full animate-spin" />
+            <Spinner size="md" color="white" />
           </div>
         )}
       </div>
@@ -252,27 +252,11 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
           role="toolbar"
           aria-label="Video controls"
         >
-          <button
-            type="button"
-            onClick={handlePlayPause}
-            disabled={!isEnabled || !isLoaded}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-          >
-            {isPlaying
+          <Button variant="ghost" size="sm" type="button" onClick={handlePlayPause} disabled={!isEnabled || !isLoaded} aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying
               ? <Pause className="w-4 h-4" aria-hidden="true" />
               : <Play  className="w-4 h-4" aria-hidden="true" />
-            }
-          </button>
-          <button
-            type="button"
-            onClick={handleStop}
-            disabled={!isEnabled || !isLoaded}
-            aria-label="Stop and reset"
-            className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-          >
-            <Square className="w-4 h-4" aria-hidden="true" />
-          </button>
+            }</Button>
+          <Button variant="ghost" size="sm" iconOnly type="button" onClick={handleStop} disabled={!isEnabled || !isLoaded} aria-label="Stop and reset"><Square className="w-4 h-4" aria-hidden="true" /></Button>
         </div>
       )}
     </div>

@@ -14,6 +14,8 @@
  *   100              [1.1]  [1.2]  [1.3]  [1.4]
  */
 import React, { useState, useCallback, useMemo } from 'react';
+import { colors, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { TriangleAlert } from 'lucide-react';
 
 export interface FeedingMatrix2D {
   temperatures: number[];
@@ -80,13 +82,13 @@ const getRateColor = (rate: number): string => {
 
 const getFCRColor = (fcr: number): string => {
   // Map FCR (0.7-1.5) to color - lower is better (green), higher is worse (red)
-  const normalized = Math.min(Math.max((fcr - 0.7), 0), 0.8) / 0.8;
+  const normalized = Math.min(Math.max(fcr - 0.7, 0), 0.8) / 0.8;
   if (normalized < 0.33) {
-    return '#22c55e'; // Green - excellent
+    return colors.success[500]; // Green - excellent
   } else if (normalized < 0.66) {
-    return '#eab308'; // Yellow - good
+    return colors.warning[500]; // Yellow - good
   } else {
-    return '#ef4444'; // Red - needs improvement
+    return colors.error[500]; // Red - needs improvement
   }
 };
 
@@ -103,7 +105,8 @@ const bilinearInterpolate = (
   if (!values || !temperatures.length || !weights.length) return null;
 
   // Find bounding indices
-  let ti = 0, wi = 0;
+  let ti = 0,
+    wi = 0;
   for (let i = 0; i < temperatures.length - 1; i++) {
     if (temp >= temperatures[i]!) ti = i;
   }
@@ -119,21 +122,24 @@ const bilinearInterpolate = (
   const f11 = values[wi]?.[ti] ?? 2.0;
   const f21 = values[wi]?.[Math.min(ti + 1, temperatures.length - 1)] ?? f11;
   const f12 = values[Math.min(wi + 1, weights.length - 1)]?.[ti] ?? f11;
-  const f22 = values[Math.min(wi + 1, weights.length - 1)]?.[Math.min(ti + 1, temperatures.length - 1)] ?? f11;
+  const f22 =
+    values[Math.min(wi + 1, weights.length - 1)]?.[Math.min(ti + 1, temperatures.length - 1)] ??
+    f11;
 
   // Edge cases
   if (t1 === t2 && w1 === w2) return f11;
-  if (t1 === t2) return f11 + (f12 - f11) * (weight - w1) / (w2 - w1);
-  if (w1 === w2) return f11 + (f21 - f11) * (temp - t1) / (t2 - t1);
+  if (t1 === t2) return f11 + ((f12 - f11) * (weight - w1)) / (w2 - w1);
+  if (w1 === w2) return f11 + ((f21 - f11) * (temp - t1)) / (t2 - t1);
 
   // Bilinear interpolation
   const denom = (t2 - t1) * (w2 - w1);
   return (
-    f11 * (t2 - temp) * (w2 - weight) +
-    f21 * (temp - t1) * (w2 - weight) +
-    f12 * (t2 - temp) * (weight - w1) +
-    f22 * (temp - t1) * (weight - w1)
-  ) / denom;
+    (f11 * (t2 - temp) * (w2 - weight) +
+      f21 * (temp - t1) * (w2 - weight) +
+      f12 * (t2 - temp) * (weight - w1) +
+      f22 * (temp - t1) * (weight - w1)) /
+    denom
+  );
 };
 
 export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
@@ -151,22 +157,22 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
   const updateRate = useCallback(
     (weightIdx: number, tempIdx: number, value: number) => {
       const newRates = matrix.rates.map((row, wi) =>
-        row.map((cell, ti) => (wi === weightIdx && ti === tempIdx ? value : cell))
+        row.map((cell, ti) => (wi === weightIdx && ti === tempIdx ? value : cell)),
       );
       onChange({ ...matrix, rates: newRates });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Update FCR value at specific position
   const updateFCR = useCallback(
     (weightIdx: number, tempIdx: number, value: number) => {
-      const newFCR = (matrix.fcrMatrix ?? matrix.rates.map(row => row.map(() => 1.0))).map(
-        (row, wi) => row.map((cell, ti) => (wi === weightIdx && ti === tempIdx ? value : cell))
+      const newFCR = (matrix.fcrMatrix ?? matrix.rates.map((row) => row.map(() => 1.0))).map(
+        (row, wi) => row.map((cell, ti) => (wi === weightIdx && ti === tempIdx ? value : cell)),
       );
       onChange({ ...matrix, fcrMatrix: newFCR });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Add temperature column
@@ -175,8 +181,8 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
     const lastTemp = temps[temps.length - 1] ?? 20;
     const newTemp = lastTemp + 2;
     const newTemps = [...temps, newTemp];
-    const newRates = matrix.rates.map(row => [...row, row[row.length - 1] ?? 2.0]);
-    const newFCR = matrix.fcrMatrix?.map(row => [...row, row[row.length - 1] ?? 1.0]);
+    const newRates = matrix.rates.map((row) => [...row, row[row.length - 1] ?? 2.0]);
+    const newFCR = matrix.fcrMatrix?.map((row) => [...row, row[row.length - 1] ?? 1.0]);
     onChange({ ...matrix, temperatures: newTemps, rates: newRates, fcrMatrix: newFCR });
   }, [matrix, onChange]);
 
@@ -185,11 +191,11 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
     (idx: number) => {
       if (matrix.temperatures.length <= 2) return; // Keep at least 2
       const newTemps = matrix.temperatures.filter((_, i) => i !== idx);
-      const newRates = matrix.rates.map(row => row.filter((_, i) => i !== idx));
-      const newFCR = matrix.fcrMatrix?.map(row => row.filter((_, i) => i !== idx));
+      const newRates = matrix.rates.map((row) => row.filter((_, i) => i !== idx));
+      const newFCR = matrix.fcrMatrix?.map((row) => row.filter((_, i) => i !== idx));
       onChange({ ...matrix, temperatures: newTemps, rates: newRates, fcrMatrix: newFCR });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Add weight row
@@ -199,10 +205,11 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
     const newWeight = lastWeight * 2;
     const newWeights = [...weights, newWeight];
     const lastRow = matrix.rates[matrix.rates.length - 1] ?? matrix.temperatures.map(() => 2.0);
-    const newRates = [...matrix.rates, lastRow.map(v => Math.max(v - 0.2, 0.5))];
-    const lastFCRRow = matrix.fcrMatrix?.[matrix.fcrMatrix.length - 1] ?? matrix.temperatures.map(() => 1.0);
+    const newRates = [...matrix.rates, lastRow.map((v) => Math.max(v - 0.2, 0.5))];
+    const lastFCRRow =
+      matrix.fcrMatrix?.[matrix.fcrMatrix.length - 1] ?? matrix.temperatures.map(() => 1.0);
     const newFCR = matrix.fcrMatrix
-      ? [...matrix.fcrMatrix, lastFCRRow.map(v => Math.min(v + 0.05, 1.5))]
+      ? [...matrix.fcrMatrix, lastFCRRow.map((v) => Math.min(v + 0.05, 1.5))]
       : undefined;
     onChange({ ...matrix, weights: newWeights, rates: newRates, fcrMatrix: newFCR });
   }, [matrix, onChange]);
@@ -216,7 +223,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       const newFCR = matrix.fcrMatrix?.filter((_, i) => i !== idx);
       onChange({ ...matrix, weights: newWeights, rates: newRates, fcrMatrix: newFCR });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Update temperature value
@@ -225,7 +232,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       const newTemps = matrix.temperatures.map((t, i) => (i === idx ? value : t));
       onChange({ ...matrix, temperatures: newTemps });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Update weight value
@@ -234,7 +241,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       const newWeights = matrix.weights.map((w, i) => (i === idx ? value : w));
       onChange({ ...matrix, weights: newWeights });
     },
-    [matrix, onChange]
+    [matrix, onChange],
   );
 
   // Check if a test point is within coverage
@@ -249,7 +256,8 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
     }
     // Check if closer to wi or wi+1
     const wi2 = Math.min(wi + 1, weights.length - 1);
-    const closestWi = (Math.abs(testWeight - weights[wi]!) <= Math.abs(testWeight - weights[wi2]!)) ? wi : wi2;
+    const closestWi =
+      Math.abs(testWeight - weights[wi]!) <= Math.abs(testWeight - weights[wi2]!) ? wi : wi2;
 
     // Find the closest temp index
     let ti = 0;
@@ -257,7 +265,8 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       if (testTemp >= temperatures[i]!) ti = i;
     }
     const ti2 = Math.min(ti + 1, temperatures.length - 1);
-    const closestTi = (Math.abs(testTemp - temperatures[ti]!) <= Math.abs(testTemp - temperatures[ti2]!)) ? ti : ti2;
+    const closestTi =
+      Math.abs(testTemp - temperatures[ti]!) <= Math.abs(testTemp - temperatures[ti2]!) ? ti : ti2;
 
     return coverageMap[closestWi]?.[closestTi] ?? true;
   }, [coverageMap, matrix, testTemp, testWeight]);
@@ -277,15 +286,15 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       {/* Mode Toggle */}
       {showFCR && (
         <div className="flex items-center gap-4 mb-4">
-          <span className="text-sm text-gray-600">Edit:</span>
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+          <span className="text-sm text-gray-600 dark:text-gray-400">Edit:</span>
+          <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             <button
               type="button"
               onClick={() => setEditMode('rates')}
               className={`px-4 py-2 text-sm font-medium ${
                 editMode === 'rates'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
+                  ? 'bg-info-600 text-white'
+                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               Feeding Rate (%)
@@ -295,8 +304,8 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               onClick={() => setEditMode('fcr')}
               className={`px-4 py-2 text-sm font-medium ${
                 editMode === 'fcr'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
+                  ? 'bg-info-600 text-white'
+                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               FCR
@@ -310,60 +319,66 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
         <table className="min-w-full border-collapse">
           <thead>
             <tr>
-              <th className="border border-gray-300 bg-gray-100 px-2 py-2 text-xs font-medium text-gray-600">
-                Weight (g) ↓<br />Temp (°C) →
+              <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+                Weight (g) ↓<br />
+                Temp (°C) →
               </th>
               {matrix.temperatures.map((temp, ti) => (
-                <th key={ti} className="border border-gray-300 bg-gray-100 px-1 py-1 min-w-[70px]">
+                <th
+                  key={ti}
+                  className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1 min-w-[70px]"
+                >
                   <div className="flex flex-col items-center gap-1">
-                    <input
+                    <Input
+                      className="text-center"
                       type="number"
                       value={temp}
-                      onChange={e => updateTemperature(ti, parseFloat(e.target.value) || 0)}
-                      className="w-14 text-center border border-gray-200 rounded px-1 py-0.5 text-sm"
+                      onChange={(e) => updateTemperature(ti, parseFloat(e.target.value) || 0)}
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       type="button"
                       onClick={() => removeTemperature(ti)}
-                      className="text-red-500 hover:text-red-700 text-xs"
                       title="Remove column"
                     >
                       ×
-                    </button>
+                    </Button>
                   </div>
                 </th>
               ))}
-              <th className="border border-gray-300 bg-gray-50 px-2">
-                <button
+              <th className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-2">
+                <Button
+                  variant="ghost"
                   type="button"
                   onClick={addTemperature}
-                  className="text-blue-600 hover:text-blue-800 text-lg font-bold"
                   title="Add temperature column"
                 >
                   +
-                </button>
+                </Button>
               </th>
             </tr>
           </thead>
           <tbody>
             {matrix.weights.map((weight, wi) => (
               <tr key={wi}>
-                <td className="border border-gray-300 bg-gray-100 px-1 py-1">
+                <td className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1">
                   <div className="flex items-center gap-1">
-                    <input
+                    <Input
+                      className="text-center"
                       type="number"
                       value={weight}
-                      onChange={e => updateWeight(wi, parseFloat(e.target.value) || 0)}
-                      className="w-16 text-center border border-gray-200 rounded px-1 py-0.5 text-sm"
+                      onChange={(e) => updateWeight(wi, parseFloat(e.target.value) || 0)}
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       type="button"
                       onClick={() => removeWeight(wi)}
-                      className="text-red-500 hover:text-red-700 text-xs"
                       title="Remove row"
                     >
                       ×
-                    </button>
+                    </Button>
                   </div>
                 </td>
                 {matrix.temperatures.map((_, ti) => {
@@ -374,10 +389,10 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                     return (
                       <td
                         key={ti}
-                        className="border border-gray-300 px-1 py-1 bg-gray-100"
+                        className="border border-gray-300 dark:border-gray-600 px-1 py-1 bg-gray-100 dark:bg-gray-800"
                         title="Bu sicaklik bu yemin kapsami disinda"
                       >
-                        <div className="w-14 text-center text-gray-400 font-medium text-sm py-0.5">
+                        <div className="w-14 text-center text-gray-400 dark:text-gray-500 font-medium text-sm py-0.5">
                           ×
                         </div>
                       </td>
@@ -388,16 +403,17 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                   return (
                     <td
                       key={ti}
-                      className="border border-gray-300 px-1 py-1"
+                      className="border border-gray-300 dark:border-gray-600 px-1 py-1"
                       style={{ backgroundColor: bgColor }}
                     >
-                      <input
+                      <Input
+                        className="text-center"
                         type="number"
                         step={editMode === 'rates' ? '0.1' : '0.01'}
                         min="0"
                         max={editMode === 'rates' ? '10' : '3'}
                         value={value}
-                        onChange={e => {
+                        onChange={(e) => {
                           const newValue = parseFloat(e.target.value) || 0;
                           if (editMode === 'rates') {
                             updateRate(wi, ti, newValue);
@@ -405,33 +421,30 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                             updateFCR(wi, ti, newValue);
                           }
                         }}
-                        className="w-14 text-center bg-white/80 border border-gray-200 rounded px-1 py-0.5 text-sm font-medium"
                       />
                     </td>
                   );
                 })}
-                <td className="border border-gray-300 bg-gray-50" />
+                <td className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800" />
               </tr>
             ))}
             <tr>
-              <td className="border border-gray-300 bg-gray-50 px-2 py-2">
-                <button
-                  type="button"
-                  onClick={addWeight}
-                  className="text-blue-600 hover:text-blue-800 text-lg font-bold"
-                  title="Add weight row"
-                >
+              <td className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-2 py-2">
+                <Button variant="ghost" type="button" onClick={addWeight} title="Add weight row">
                   + Row
-                </button>
+                </Button>
               </td>
-              <td colSpan={matrix.temperatures.length + 1} className="border border-gray-300 bg-gray-50" />
+              <td
+                colSpan={matrix.temperatures.length + 1}
+                className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+              />
             </tr>
           </tbody>
         </table>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-6 text-xs text-gray-600">
+      <div className="flex items-center gap-6 text-xs text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-2">
           <span>Feeding Rate:</span>
           <div className="flex">
@@ -447,9 +460,9 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           <div className="flex items-center gap-2">
             <span>FCR:</span>
             <div className="flex">
-              <div className="w-4 h-4 bg-green-500" title="<0.9" />
-              <div className="w-4 h-4 bg-yellow-500" title="0.9-1.2" />
-              <div className="w-4 h-4 bg-red-500" title=">1.2" />
+              <div className="w-4 h-4 bg-success-500" title="<0.9" />
+              <div className="w-4 h-4 bg-warning-500" title="0.9-1.2" />
+              <div className="w-4 h-4 bg-error-500" title=">1.2" />
             </div>
             <span>Good → Poor</span>
           </div>
@@ -457,38 +470,48 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       </div>
 
       {/* Interpolation Calculator */}
-      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-        <h5 className="text-sm font-medium text-blue-800 mb-3">
+      <div className="mt-4 p-4 bg-info-50 dark:bg-info-900/20 rounded-lg">
+        <h5 className="text-sm font-medium text-info-800 dark:text-info-200 mb-3">
           Interpolation Calculator (Test your matrix)
         </h5>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Temperature (°C)</label>
-            <input
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Temperature (°C)
+            </label>
+            <Input
+              fullWidth
               type="number"
               step="0.1"
               value={testTemp}
-              onChange={e => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
+              onChange={(e) => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
               placeholder="e.g. 13"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Fish Weight (g)</label>
-            <input
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Fish Weight (g)
+            </label>
+            <Input
+              fullWidth
               type="number"
               step="0.1"
               value={testWeight}
-              onChange={e => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
+              onChange={(e) => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
               placeholder="e.g. 7"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">Feeding Rate</label>
-            <div className={`py-2 px-3 border rounded-md text-sm font-medium ${
-              !isTestPointCovered ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-blue-300'
-            }`}>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">
+              Feeding Rate
+            </label>
+            <div
+              className={`py-2 px-3 border rounded-md text-sm font-medium ${
+                !isTestPointCovered
+                  ? 'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
+                  : 'bg-white dark:bg-gray-900 border-info-300'
+              }`}
+            >
               {!isTestPointCovered
                 ? '× Kapsam disi'
                 : testResult?.rate !== null && testResult?.rate !== undefined
@@ -497,10 +520,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-xs text-blue-700 mb-1">FCR</label>
-            <div className={`py-2 px-3 border rounded-md text-sm font-medium ${
-              !isTestPointCovered ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-blue-300'
-            }`}>
+            <label className="block text-xs text-info-700 dark:text-info-300 mb-1">FCR</label>
+            <div
+              className={`py-2 px-3 border rounded-md text-sm font-medium ${
+                !isTestPointCovered
+                  ? 'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
+                  : 'bg-white dark:bg-gray-900 border-info-300'
+              }`}
+            >
               {!isTestPointCovered
                 ? '× Kapsam disi'
                 : testResult?.fcr !== null && testResult?.fcr !== undefined
@@ -510,24 +537,27 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           </div>
         </div>
         {!isTestPointCovered && testTemp !== '' && testWeight !== '' && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-red-700">
-            <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <span>Bu sicaklik/agirlik kombinasyonu hicbir yemin kapsama alaninda degil. Ilgili yemin sicaklik araligini kontrol edin.</span>
+          <div className="mt-2 flex items-center gap-2 text-xs text-error-700 dark:text-error-300">
+            <TriangleAlert className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+            <span>
+              Bu sicaklik/agirlik kombinasyonu hicbir yemin kapsama alaninda degil. Ilgili yemin
+              sicaklik araligini kontrol edin.
+            </span>
           </div>
         )}
       </div>
 
       {/* Notes */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Matrix Notes</label>
-        <textarea
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Matrix Notes
+        </label>
+        <Textarea
+          fullWidth
           rows={2}
           placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
           value={matrix.notes || ''}
-          onChange={e => onChange({ ...matrix, notes: e.target.value })}
-          className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+          onChange={(e) => onChange({ ...matrix, notes: e.target.value })}
         />
       </div>
     </div>

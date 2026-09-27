@@ -21,6 +21,7 @@ import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSensors } from '../../../hooks/useSensors';
 import {
+  FormField,
   Modal,
   DynamicSpecificationForm,
   SpecificationSchema,
@@ -30,9 +31,57 @@ import {
   DeletePreviewData,
   AffectedItemGroup,
   useToast,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  type SelectOption,
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  ArrowDown,
+  ArrowUp,
+  Box,
+  ChevronRight,
+  Filter,
+  Grid2x2,
+  LayoutGrid,
+  type LucideIcon,
+  Menu,
+  Plus,
+  Search as SearchIcon,
+  Settings,
+  Square,
+  TriangleAlert,
+  Wind,
+  Zap,
+} from 'lucide-react';
+
+/** Lifecycle states every piece of equipment can be in. */
+const EQUIPMENT_STATUS_OPTIONS: readonly SelectOption[] = [
+  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'REPAIR', label: 'Repair' },
+  { value: 'STANDBY', label: 'Standby' },
+  { value: 'OUT_OF_SERVICE', label: 'Out of Service' },
+  { value: 'DECOMMISSIONED', label: 'Decommissioned' },
+];
+
+/** The extra states a tank, pond or cage can be in — holding stock, not running. */
+const TANK_STATUS_OPTIONS: readonly SelectOption[] = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'PREPARING', label: 'Preparing' },
+  { value: 'CLEANING', label: 'Cleaning' },
+  { value: 'HARVESTING', label: 'Harvesting' },
+  { value: 'FALLOW', label: 'Fallow' },
+  { value: 'QUARANTINE', label: 'Quarantine' },
+];
+
+/** The same states under a heading, which is what Select renders as an optgroup. */
+const grouped = (options: readonly SelectOption[], group: string): SelectOption[] =>
+  options.map((option) => ({ ...option, group }));
 
 // Equipment categories for two-stage selection.
 // Values match GraphQL enum wire values; normalizeCategory accepts legacy
@@ -55,19 +104,19 @@ const EQUIPMENT_CATEGORIES = [
 
 const statusColors: Record<string, string> = {
   // General equipment statuses
-  OPERATIONAL: 'bg-green-100 text-green-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  REPAIR: 'bg-orange-100 text-orange-800',
-  STANDBY: 'bg-blue-100 text-blue-800',
-  OUT_OF_SERVICE: 'bg-red-100 text-red-800',
-  DECOMMISSIONED: 'bg-gray-100 text-gray-800',
+  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  REPAIR: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  STANDBY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  OUT_OF_SERVICE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  DECOMMISSIONED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   // Tank-specific statuses
-  ACTIVE: 'bg-green-100 text-green-800',
-  PREPARING: 'bg-blue-100 text-blue-800',
-  CLEANING: 'bg-cyan-100 text-cyan-800',
-  HARVESTING: 'bg-purple-100 text-purple-800',
-  FALLOW: 'bg-gray-200 text-gray-700',
-  QUARANTINE: 'bg-red-100 text-red-800',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  FALLOW: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const TANK_CATEGORIES = ['TANK', 'POND', 'CAGE'];
@@ -104,8 +153,12 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
       if (typeof value === 'boolean') {
         return [
           <div key={key} className="flex justify-between text-sm">
-            <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-            <span className={`font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
+            <span className="text-gray-500 dark:text-gray-400 capitalize">
+              {camelCaseToLabel(key)}:
+            </span>
+            <span
+              className={`font-medium ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-400'}`}
+            >
               {value ? 'Yes' : 'No'}
             </span>
           </div>,
@@ -116,7 +169,7 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
         return [
           <div
             key={`${key}-header`}
-            className="text-sm font-semibold text-gray-700 mt-1 capitalize"
+            className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1 capitalize"
           >
             {camelCaseToLabel(key)}
           </div>,
@@ -124,8 +177,10 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
             .filter(([, v]) => v != null)
             .map(([subKey, subValue]) => (
               <div key={`${key}-${subKey}`} className="flex justify-between text-sm pl-2">
-                <span className="text-gray-500 capitalize">{camelCaseToLabel(subKey)}:</span>
-                <span className="text-gray-900 font-medium">
+                <span className="text-gray-500 dark:text-gray-400 capitalize">
+                  {camelCaseToLabel(subKey)}:
+                </span>
+                <span className="text-gray-900 dark:text-gray-100 font-medium">
                   {typeof subValue === 'boolean'
                     ? subValue
                       ? 'Yes'
@@ -140,29 +195,41 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
       }
       return [
         <div key={key} className="flex justify-between text-sm">
-          <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-          <span className="text-gray-900 font-medium">{String(value)}</span>
+          <span className="text-gray-500 dark:text-gray-400 capitalize">
+            {camelCaseToLabel(key)}:
+          </span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium">{String(value)}</span>
         </div>,
       ];
     });
 }
 
-const typeIcons: Record<string, string> = {
-  'fish-tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  tank: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  pond: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  cage: 'M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v8H8V8z',
-  'water-pump': 'M13 10V3L4 14h7v7l9-11h-7z',
-  pump: 'M13 10V3L4 14h7v7l9-11h-7z',
-  'drum-filter':
-    'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
-  filtration:
-    'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
-  blower: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-  aeration: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-  'auto-feeder': 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
-  feeding: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+const typeIcons: Record<string, LucideIcon> = {
+  'fish-tank': Square,
+  tank: Square,
+  pond: Square,
+  cage: Grid2x2,
+  'water-pump': Zap,
+  pump: Zap,
+  'drum-filter': Filter,
+  filtration: Filter,
+  blower: Wind,
+  aeration: Wind,
+  'auto-feeder': Box,
+  feeding: Box,
 };
+
+function EquipmentTypeIcon({
+  type,
+}: {
+  type: { code?: string; category?: string } | undefined;
+}): React.JSX.Element {
+  const TypeIcon =
+    (type?.code !== undefined ? typeIcons[type.code] : undefined) ??
+    (type?.category !== undefined ? typeIcons[type.category] : undefined) ??
+    Square;
+  return <TypeIcon className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />;
+}
 
 interface EquipmentFormData {
   name: string;
@@ -218,6 +285,8 @@ export const EquipmentTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<EquipmentFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<Equipment | null>(null);
 
@@ -411,30 +480,16 @@ export const EquipmentTab: React.FC = () => {
     e.preventDefault();
 
     // Validate required fields
-    if (!formData.siteId) {
-      toast({ title: 'Validation Error', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
-    if (!formData.departmentId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select a department.',
-        variant: 'error',
-      });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    if (!formData.departmentId) errors.departmentId = 'Please select a department.';
+    if (!formData.equipmentTypeId) errors.equipmentTypeId = 'Please select an equipment type.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     if (formData.systemIds.length === 0) {
       toast({
         title: 'Validation Error',
         description: 'Please select at least one system.',
-        variant: 'error',
-      });
-      return;
-    }
-    if (!formData.equipmentTypeId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select an equipment type.',
         variant: 'error',
       });
       return;
@@ -520,6 +575,7 @@ export const EquipmentTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to save equipment:', err);
@@ -612,6 +668,113 @@ export const EquipmentTab: React.FC = () => {
     setEquipmentToDelete(null);
   };
 
+  type EqRow = (typeof filteredEquipment)[number];
+  const eqRowColumns: DataTableColumn<EqRow>[] = [
+    {
+      key: 'equipment',
+      header: 'Equipment',
+      render: (_value, eq) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{eq.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{eq.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, eq) => eq.equipmentType?.name || '-',
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, eq) => eq.department?.name || '-',
+    },
+    {
+      key: 'systems',
+      header: 'Systems',
+      render: (_value, eq) => (
+        <>
+          {(eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0) ? (
+            <span className="text-gray-500 dark:text-gray-400">
+              {eq.systems?.map((s) => s.systemName).join(', ') ||
+                `${eq.systemIds?.length || 0} system(s)`}
+            </span>
+          ) : (
+            <span className="flex items-center text-error-600 dark:text-error-400">
+              <TriangleAlert className="w-4 h-4 mr-1" aria-hidden="true" />
+              Not associated
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'hierarchy',
+      header: 'Hierarchy',
+      render: (_value, eq) => (
+        <>
+          {eq.parentEquipment ? (
+            <span
+              className="flex items-center text-info-600 dark:text-info-400"
+              title={`Parent: ${eq.parentEquipment.name}`}
+            >
+              <ArrowUp className="w-3 h-3 mr-1" aria-hidden="true" />
+              {eq.parentEquipment.code}
+            </span>
+          ) : (eq.subEquipmentCount || 0) > 0 ? (
+            <span
+              className="flex items-center text-success-600 dark:text-success-400"
+              title={`${eq.subEquipmentCount} sub-equipment`}
+            >
+              <ArrowDown className="w-3 h-3 mr-1" aria-hidden="true" />
+              {eq.subEquipmentCount}
+            </span>
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, eq) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {eq.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'model',
+      header: 'Model',
+      render: (_value, eq) => (
+        <>
+          {eq.manufacturer || ''} {eq.model || '-'}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, eq) => (
+        <>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(eq)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(eq)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -623,151 +786,98 @@ export const EquipmentTab: React.FC = () => {
               placeholder="Search equipment..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <SearchIcon
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
-          <select
+          <Select
+            aria-label="Type filter"
+            fullWidth={false}
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Types</option>
-            {types.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Types' },
+              ...types.map((type) => ({ value: type.value, label: type.label })),
+            ]}
+          />
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Status</option>
-            <optgroup label="Equipment">
-              <option value="OPERATIONAL">Operational</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="REPAIR">Repair</option>
-              <option value="STANDBY">Standby</option>
-              <option value="OUT_OF_SERVICE">Out of Service</option>
-              <option value="DECOMMISSIONED">Decommissioned</option>
-            </optgroup>
-            <optgroup label="Tank / Pond / Cage">
-              <option value="ACTIVE">Active</option>
-              <option value="PREPARING">Preparing</option>
-              <option value="CLEANING">Cleaning</option>
-              <option value="HARVESTING">Harvesting</option>
-              <option value="FALLOW">Fallow</option>
-              <option value="QUARANTINE">Quarantine</option>
-            </optgroup>
-          </select>
-          <label className="flex items-center text-sm text-gray-600 ml-2">
+            options={[
+              { value: 'all', label: 'All Status' },
+              ...grouped(EQUIPMENT_STATUS_OPTIONS, 'Equipment'),
+              ...grouped(TANK_STATUS_OPTIONS, 'Tank / Pond / Cage'),
+            ]}
+          />
+          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
             <input
               type="checkbox"
               checked={showOrphanedOnly}
               onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Orphaned only
           </label>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+          <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             <button
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
-                />
-              </svg>
+              <LayoutGrid className="w-5 h-5" aria-hidden="true" />
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
-              </svg>
+              <Menu className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
-          <button
+          <Button
+            variant="primary"
             onClick={() => {
               setEditingId(null);
               setFormData(initialFormData);
+              setFieldErrors({});
               setIsModalOpen(true);
             }}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
           >
-            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-              />
-            </svg>
+            <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
             Add Equipment
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load equipment. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load equipment. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Orphan Warning Notice */}
       {!isLoading && !error && orphanedCount > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <svg
-            className="w-5 h-5 text-red-500 mr-2 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <span className="text-sm text-red-700">
+        <div className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center">
+          <TriangleAlert className="w-5 h-5 text-error-500 mr-2 flex-shrink-0" aria-hidden="true" />
+          <span className="text-sm text-error-700 dark:text-error-300">
             {orphanedCount} equipment item(s) are not associated with any system
           </span>
         </div>
@@ -781,105 +891,67 @@ export const EquipmentTab: React.FC = () => {
               key={eq.id}
               className={`rounded-lg shadow-sm border-2 hover:shadow-md transition-shadow ${
                 (eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0)
-                  ? 'bg-white border-blue-500'
-                  : 'bg-red-50 border-red-500'
+                  ? 'bg-white dark:bg-gray-900 border-info-500'
+                  : 'bg-error-50 dark:bg-error-900/20 border-error-500'
               }`}
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                      <svg
-                        className="w-6 h-6 text-blue-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d={
-                            typeIcons[eq.equipmentType?.code || ''] ||
-                            typeIcons[eq.equipmentType?.category || ''] ||
-                            typeIcons['fish-tank']
-                          }
-                        />
-                      </svg>
+                    <div className="w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center mr-3">
+                      <EquipmentTypeIcon type={eq.equipmentType} />
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{eq.name}</h3>
-                      <p className="text-sm text-gray-500">{eq.code}</p>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        {eq.name}
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{eq.code}</p>
                     </div>
                   </div>
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                   >
                     {eq.status}
                   </span>
                 </div>
 
                 <div className="space-y-2 text-sm mb-4">
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Type:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Type:</span>
                     <span className="font-medium">{eq.equipmentType?.name || '-'}</span>
                   </div>
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Location:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Location:</span>
                     <span>{eq.department?.name || '-'}</span>
                   </div>
                   {/* System Association */}
                   {(eq.systemIds && eq.systemIds.length > 0) ||
                   (eq.systems && eq.systems.length > 0) ? (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Systems:</span>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Systems:</span>
                       <span className="text-sm">
                         {eq.systems?.map((s) => s.systemName).join(', ') ||
                           `${eq.systemIds?.length || 0} system(s)`}
                       </span>
                     </div>
                   ) : (
-                    <div className="flex items-center text-red-600">
-                      <svg
-                        className="w-4 h-4 mr-1 text-red-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                        />
-                      </svg>
+                    <div className="flex items-center text-error-600 dark:text-error-400">
+                      <TriangleAlert className="w-4 h-4 mr-1 text-error-400" aria-hidden="true" />
                       <span className="text-sm font-medium">Not associated with any system</span>
                     </div>
                   )}
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Model:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Model:</span>
                     <span>
                       {eq.manufacturer || ''} {eq.model || '-'}
                     </span>
                   </div>
                   {/* Parent Equipment */}
                   {eq.parentEquipment && (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Parent:</span>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Parent:</span>
                       <span className="flex items-center">
-                        <svg
-                          className="w-3 h-3 mr-1 text-blue-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 10l7-7m0 0l7 7m-7-7v18"
-                          />
-                        </svg>
+                        <ArrowUp className="w-3 h-3 mr-1 text-info-500" aria-hidden="true" />
                         {eq.parentEquipment.name}
                       </span>
                     </div>
@@ -888,29 +960,17 @@ export const EquipmentTab: React.FC = () => {
                   {eq.equipmentType?.code?.startsWith('feeder-') &&
                     !!(eq.specifications as Record<string, unknown>)?.autoFilling && (
                       <div className="flex items-center">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                           Auto Fill
                         </span>
                       </div>
                     )}
                   {/* Sub Equipment Count */}
                   {(eq.subEquipmentCount || 0) > 0 && (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Sub-equip:</span>
-                      <span className="flex items-center text-blue-600">
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                          />
-                        </svg>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Sub-equip:</span>
+                      <span className="flex items-center text-info-600 dark:text-info-400">
+                        <ArrowDown className="w-3 h-3 mr-1" aria-hidden="true" />
                         {eq.subEquipmentCount} item(s)
                       </span>
                     </div>
@@ -919,8 +979,8 @@ export const EquipmentTab: React.FC = () => {
 
                 {/* Specifications */}
                 {eq.specifications && Object.keys(eq.specifications).length > 0 && (
-                  <div className="border-t border-gray-200 pt-4">
-                    <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
                       Specifications
                     </h4>
                     <div className="space-y-1">{renderSpecifications(eq.specifications)}</div>
@@ -928,25 +988,19 @@ export const EquipmentTab: React.FC = () => {
                 )}
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-between items-center">
-                <span className="text-xs text-gray-500">
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg flex justify-between items-center">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {eq.warrantyEndDate
                     ? `Warranty: ${new Date(eq.warrantyEndDate).toLocaleDateString()}`
                     : 'No warranty info'}
                 </span>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEdit(eq)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
+                  <Button variant="ghost" onClick={() => handleEdit(eq)}>
                     Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(eq)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleDelete(eq)}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -956,177 +1010,28 @@ export const EquipmentTab: React.FC = () => {
 
       {/* Equipment Table View */}
       {!isLoading && !error && viewMode === 'table' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Equipment
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Location
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Systems
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hierarchy
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Model
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredEquipment.map((eq) => (
-                <tr
-                  key={eq.id}
-                  className={`${
-                    (eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0)
-                      ? 'hover:bg-blue-50 border-l-4 border-l-blue-500'
-                      : 'bg-red-50 border-l-4 border-l-red-500'
-                  }`}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{eq.name}</div>
-                    <div className="text-sm text-gray-500">{eq.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.equipmentType?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.department?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {(eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0) ? (
-                      <span className="text-gray-500">
-                        {eq.systems?.map((s) => s.systemName).join(', ') ||
-                          `${eq.systemIds?.length || 0} system(s)`}
-                      </span>
-                    ) : (
-                      <span className="flex items-center text-red-600">
-                        <svg
-                          className="w-4 h-4 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
-                        Not associated
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.parentEquipment ? (
-                      <span
-                        className="flex items-center text-blue-600"
-                        title={`Parent: ${eq.parentEquipment.name}`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 10l7-7m0 0l7 7m-7-7v18"
-                          />
-                        </svg>
-                        {eq.parentEquipment.code}
-                      </span>
-                    ) : (eq.subEquipmentCount || 0) > 0 ? (
-                      <span
-                        className="flex items-center text-green-600"
-                        title={`${eq.subEquipmentCount} sub-equipment`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                          />
-                        </svg>
-                        {eq.subEquipmentCount}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {eq.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.manufacturer || ''} {eq.model || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(eq)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(eq)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<EqRow>
+          data={filteredEquipment}
+          columns={eqRowColumns}
+          keyExtractor={(eq) => eq.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Empty State */}
       {!isLoading && !error && filteredEquipment.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No equipment found</h3>
-          <p className="mt-1 text-sm text-gray-500">
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <Settings
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+            aria-hidden="true"
+          />
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No equipment found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Get started by adding equipment to your farm.
           </p>
         </div>
@@ -1144,193 +1049,159 @@ export const EquipmentTab: React.FC = () => {
             <div className="space-y-6">
               {/* General Information Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   General Information
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Name *</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       required
                       value={formData.name}
                       onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Code *</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       required
                       value={formData.code}
                       onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
 
                 {/* Two-stage type selection */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Category *</label>
-                    <select
-                      value={formData.selectedCategory}
-                      onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    >
-                      <option value="">Select Category...</option>
-                      {EQUIPMENT_CATEGORIES.map((cat) => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Type *</label>
-                    <select
-                      value={formData.equipmentTypeId}
-                      onChange={(e) => handleTypeChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      required
-                      disabled={!formData.selectedCategory}
-                    >
-                      <option value="">
-                        {formData.selectedCategory ? 'Select Type...' : 'Select category first...'}
-                      </option>
-                      {filteredTypesByCategory.map((type) => (
-                        <option key={type.id} value={type.id}>
-                          {type.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                  <Select
+                    label="Category"
+                    required
+                    placeholder="Select Category..."
+                    value={formData.selectedCategory}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    options={EQUIPMENT_CATEGORIES.map((cat) => ({
+                      value: cat.value,
+                      label: cat.label,
+                    }))}
+                  />
+                  <Select
+                    label="Type"
+                    required
+                    placeholder={
+                      formData.selectedCategory ? 'Select Type...' : 'Select category first...'
+                    }
+                    value={formData.equipmentTypeId}
+                    onChange={(e) => handleTypeChange(e.target.value)}
+                    disabled={!formData.selectedCategory}
+                    error={formData.equipmentTypeId ? undefined : fieldErrors.equipmentTypeId}
+                    options={filteredTypesByCategory.map((type) => ({
+                      value: type.id,
+                      label: type.name,
+                    }))}
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                  <Select
+                    label="Status"
+                    required
+                    value={formData.status}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                    options={[
+                      ...grouped(EQUIPMENT_STATUS_OPTIONS, 'General'),
+                      ...(TANK_CATEGORIES.includes(formData.selectedCategory)
+                        ? grouped(TANK_STATUS_OPTIONS, 'Tank / Pond / Cage')
+                        : []),
+                    ]}
+                  />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Status *</label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <optgroup label="General">
-                        <option value="OPERATIONAL">Operational</option>
-                        <option value="MAINTENANCE">Maintenance</option>
-                        <option value="REPAIR">Repair</option>
-                        <option value="STANDBY">Standby</option>
-                        <option value="OUT_OF_SERVICE">Out of Service</option>
-                        <option value="DECOMMISSIONED">Decommissioned</option>
-                      </optgroup>
-                      {TANK_CATEGORIES.includes(formData.selectedCategory) && (
-                        <optgroup label="Tank / Pond / Cage">
-                          <option value="ACTIVE">Active</option>
-                          <option value="PREPARING">Preparing</option>
-                          <option value="CLEANING">Cleaning</option>
-                          <option value="HARVESTING">Harvesting</option>
-                          <option value="FALLOW">Fallow</option>
-                          <option value="QUARANTINE">Quarantine</option>
-                        </optgroup>
-                      )}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                    <select
+                    <Select
+                      label="Supplier"
                       value={formData.supplierId}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Supplier...</option>
-                      {suppliers.map((sup) => (
-                        <option key={sup.id} value={sup.id}>
-                          {sup.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: 'Select Supplier...' },
+                        ...suppliers.map((sup) => ({ value: sup.id, label: sup.name })),
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Location Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Location
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Site"
+                    required
+                    placeholder="Select Site..."
+                    value={formData.siteId}
+                    onChange={(e) => handleSiteChange(e.target.value)}
+                    error={formData.siteId ? undefined : fieldErrors.siteId}
+                    options={sites.map((site) => ({ value: site.id, label: site.name }))}
+                  />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Site *</label>
-                    <select
-                      value={formData.siteId}
-                      onChange={(e) => handleSiteChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    <Select
+                      label="Department"
                       required
-                    >
-                      <option value="">Select Site...</option>
-                      {sites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Department *</label>
-                    <select
-                      value={formData.departmentId}
-                      onChange={(e) => handleDepartmentChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      required
-                      disabled={!formData.siteId}
-                    >
-                      <option value="">
-                        {deptError
+                      placeholder={
+                        deptError
                           ? 'Departmanlar yüklenemedi'
                           : !formData.siteId
                             ? 'Önce site seçin...'
                             : departments.length === 0
                               ? 'Bu site için departman bulunamadı'
-                              : 'Departman seçin...'}
-                      </option>
-                      {departments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
+                              : 'Departman seçin...'
+                      }
+                      value={formData.departmentId}
+                      onChange={(e) => handleDepartmentChange(e.target.value)}
+                      disabled={!formData.siteId}
+                      error={formData.departmentId ? undefined : fieldErrors.departmentId}
+                      options={departments.map((dept) => ({ value: dept.id, label: dept.name }))}
+                    />
                     {deptError && (
-                      <p className="text-xs text-red-500 mt-1">
+                      <p className="text-xs text-error-500 mt-1">
                         Departmanlar yüklenirken hata oluştu
                       </p>
                     )}
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Systems *{' '}
-                    <span className="text-gray-400 text-xs font-normal">
+                    <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">
                       (Select all systems this equipment serves)
                     </span>
                   </label>
                   {!formData.siteId ? (
-                    <p className="text-sm text-gray-500 italic">Select a site first...</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      Select a site first...
+                    </p>
                   ) : systems.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
                       No systems available for this site
                     </p>
                   ) : (
-                    <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
+                    <div className="max-h-32 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2 space-y-1">
                       {systems.map((sys) => (
                         <label
                           key={sys.id}
-                          className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 ${
+                          className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                             formData.systemIds.includes(sys.id)
-                              ? 'bg-blue-50 border border-blue-200'
+                              ? 'bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800'
                               : ''
                           }`}
                         >
@@ -1338,16 +1209,20 @@ export const EquipmentTab: React.FC = () => {
                             type="checkbox"
                             checked={formData.systemIds.includes(sys.id)}
                             onChange={() => handleSystemToggle(sys.id)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                           />
-                          <span className="ml-2 text-sm text-gray-700">{sys.name}</span>
-                          <span className="ml-auto text-xs text-gray-400">{sys.code}</span>
+                          <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                            {sys.name}
+                          </span>
+                          <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                            {sys.code}
+                          </span>
                         </label>
                       ))}
                     </div>
                   )}
                   {formData.systemIds.length > 0 && (
-                    <p className="mt-1 text-xs text-blue-600">
+                    <p className="mt-1 text-xs text-info-600 dark:text-info-400">
                       {formData.systemIds.length} system(s) selected
                     </p>
                   )}
@@ -1356,40 +1231,33 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Hierarchy Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Hierarchy
                 </h4>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Parent Equipment
-                  </label>
-                  <select
-                    value={formData.parentEquipmentId}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">None (Root Equipment)</option>
-                    {availableParentEquipment.map((eq) => (
-                      <option key={eq.id} value={eq.id}>
-                        {eq.name} ({eq.code}) - {eq.equipmentType?.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Optional. Select if this equipment is a sub-component of another equipment.
-                  </p>
-                </div>
+                <Select
+                  label="Parent Equipment"
+                  value={formData.parentEquipmentId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
+                  }
+                  helperText="Optional. Select if this equipment is a sub-component of another equipment."
+                  options={[
+                    { value: '', label: 'None (Root Equipment)' },
+                    ...availableParentEquipment.map((eq) => ({
+                      value: eq.id,
+                      label: `${eq.name} (${eq.code}) - ${eq.equipmentType?.name}`,
+                    })),
+                  ]}
+                />
 
                 {/* Show current child equipment when editing */}
                 {editingId &&
                 equipment.find((eq) => eq.id === editingId)?.childEquipment?.length ? (
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Sub-Equipment
                     </label>
-                    <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-800">
                       <div className="space-y-2">
                         {equipment
                           .find((eq) => eq.id === editingId)
@@ -1399,30 +1267,21 @@ export const EquipmentTab: React.FC = () => {
                               className="flex items-center justify-between text-sm"
                             >
                               <span className="flex items-center">
-                                <svg
-                                  className="w-4 h-4 text-gray-400 mr-2"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9 5l7 7-7 7"
-                                  />
-                                </svg>
+                                <ChevronRight
+                                  className="w-4 h-4 text-gray-400 dark:text-gray-500 mr-2"
+                                  aria-hidden="true"
+                                />
                                 {child.name} ({child.code})
                               </span>
                               <span
-                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}
+                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                               >
                                 {child.status}
                               </span>
                             </div>
                           ))}
                       </div>
-                      <p className="mt-2 text-xs text-gray-500">
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                         To add sub-equipment, edit or create equipment and set this equipment as
                         their parent.
                       </p>
@@ -1442,65 +1301,73 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Details Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Details
                 </h4>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Manufacturer
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.manufacturer}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Model</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Model
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.model}
                       onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Serial Number</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Serial Number
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.serialNumber}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Purchase Date
+                    </label>
+                    <Input
+                      fullWidth
                       type="date"
                       value={formData.purchaseDate}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Warranty Expiry
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="date"
                       value={formData.warrantyEndDate}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1509,7 +1376,7 @@ export const EquipmentTab: React.FC = () => {
               {/* Technical Specifications Section */}
               {formData.equipmentTypeId && specificationSchema && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                     Technical Specifications - {selectedEquipmentType?.name}
                   </h4>
                   <DynamicSpecificationForm
@@ -1528,27 +1395,21 @@ export const EquipmentTab: React.FC = () => {
                   tank's feed-rate calculation. */}
               {TANK_CATEGORIES.includes(formData.selectedCategory) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Temperature Sensor
-                  </label>
-                  <select
+                  <Select
+                    label="Temperature Sensor"
                     value={formData.temperatureSensorId}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, temperatureSensorId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">No sensor</option>
-                    {sensors.map((sensor) => (
-                      <option key={sensor.id} value={sensor.id}>
-                        {sensor.name} ({sensor.type})
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Optional. Links a sensor whose live temperature drives this tank&apos;s
-                    feed-rate calculation.
-                  </p>
+                    helperText="Optional. Links a sensor whose live temperature drives this tank's feed-rate calculation."
+                    options={[
+                      { value: '', label: 'No sensor' },
+                      ...sensors.map((sensor) => ({
+                        value: sensor.id,
+                        label: `${sensor.name} (${sensor.type})`,
+                      })),
+                    ]}
+                  />
                 </div>
               )}
 
@@ -1561,28 +1422,35 @@ export const EquipmentTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
                   }
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-info-600 border-gray-300 dark:border-gray-600 rounded focus:ring-info-500"
                 />
-                <label htmlFor="isVisibleInSensor" className="text-sm text-gray-700">
+                <label
+                  htmlFor="isVisibleInSensor"
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                >
                   Show in Sensor Module (Process Editor)
                 </label>
               </div>
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
-            <button
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
               type="submit"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
             >
               {editingId ? 'Update Equipment' : 'Save Equipment'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

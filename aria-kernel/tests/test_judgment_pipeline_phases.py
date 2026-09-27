@@ -175,7 +175,17 @@ class JudgmentPipelinePhaseTest(unittest.TestCase):
             self.assertIsNotNone(weights, "fresh in-memory calibration must yield weights")
             self.assertIn("judge-a", weights)
             self.assertIn("judge-b", weights)
-            self.assertGreater(weights["judge-a"], weights["judge-b"])
+            # ARIA-HIGH-173 — one truth-backed vote does not measure a judge:
+            # both weigh the prior until `calibrated`, and what proves the
+            # calibration is THIS cycle's is the status map the consensus
+            # receives beside the weights (computed here, not read from a
+            # stale ledger tail) and the gate it names.
+            from aria_kernel.calibrated_intelligence import PRIOR_A, PRIOR_B
+            self.assertEqual(weights["judge-a"], PRIOR_A / (PRIOR_A + PRIOR_B))
+            self.assertEqual(weights["judge-b"], PRIOR_A / (PRIOR_A + PRIOR_B))
+            self.assertEqual(calls["consensus_kw"]["judge_calibration"],
+                             {"judge-a": "insufficient_data", "judge-b": "insufficient_data"})
+            self.assertEqual(calls["consensus_kw"]["calibration_gate"], "measure_only")
             # The pipeline computes; only the calibration phase owns the
             # ledger append — no row may appear as a side effect.
             from aria_kernel.judge_calibration import calibration_path
@@ -240,6 +250,53 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
             details = governance.call_args.args[2]
             self.assertEqual(kind, "fixture_refresh_blocked")
             self.assertEqual(details["blocked"][0]["tool_id"], "blocked-adapter")
+
+    def test_the_clock_is_asked_between_suites_not_only_between_phases(self) -> None:
+        # ARIA-HIGH-140 — each suite is minutes of subprocess work (ten
+        # adapters, 3.5 min each under load on 2026-09-15), so a phase-level
+        # deadline check alone let two trial-eleven cycles start a suite
+        # inside the close-out margin and die in it, store unsealed. A suite
+        # that would start past the deadline is recorded as skipped, the
+        # refreshed ones stay counted, and the skip reaches governance.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [
+                {"tool_id": "first", "fixture_set": "tools/x"},
+                {"tool_id": "second", "fixture_set": "tools/y"},
+                {"tool_id": "third", "fixture_set": "tools/z"},
+            ]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch.object(cycle_mod, "_job_deadline_reached", side_effect=[False, True, True]), \
+                 patch("aria_kernel.fixture_runner.refresh_fixture_suite",
+                       return_value={"status": "ok"}) as refresh, \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            refresh.assert_called_once()
+            self.assertEqual(refresh.call_args.args[0], "first")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(len(result["tools"]), 1)
+            self.assertEqual(result["skipped_deadline"], ["second", "third"])
+            governance.assert_called_once()
+            self.assertEqual(governance.call_args.args[1], "fixture_refresh_deadline_skipped")
+            details = governance.call_args.args[2]
+            self.assertEqual(details["skipped"], ["second", "third"])
+            self.assertEqual(details["refreshed"], 1)
+
+    def test_no_deadline_means_no_skip_row(self) -> None:
+        # The governance row exists only when something was skipped: a
+        # night with time to spare must not grow a "deadline" event.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [{"tool_id": "only", "fixture_set": "tools/x"}]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch.object(cycle_mod, "_job_deadline_reached", return_value=False), \
+                 patch("aria_kernel.fixture_runner.refresh_fixture_suite", return_value={"status": "ok"}), \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            self.assertEqual(result["skipped_deadline"], [])
+            governance.assert_not_called()
 
     def test_a_registry_gap_with_no_refreshable_tools_is_also_loud(self) -> None:
         # Tools without fixture_set can never satisfy readiness checks 3-5;

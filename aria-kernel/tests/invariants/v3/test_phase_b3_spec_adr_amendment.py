@@ -17,9 +17,10 @@ Locked invariants (7 cases, I-V3-30..31e):
     boundary under autonomous profile only (CRIT-V3-004 closure)
   * I-V3-31b — ADR-033 present, has Status: Accepted, references
     Plan ARIA-V3 §B2 + §B3 + SPEC §2 L3 + §5.4 + §8.1
-  * I-V3-31c — both kernel workflows (aria-kernel-full.yml +
-    aria-kernel-fast.yml) have docs/aria/** and docs/adr/**
-    negations in paths-ignore (INFRA-HIGH-008 closure)
+  * I-V3-31c — the kernel workflow (aria-kernel.yml, the one lane since
+    aria-kernel-full and aria-kernel-fast were retired) fires on
+    docs/aria/** and docs/adr/** on the PR and unfiltered on the push
+    (INFRA-HIGH-008 closure)
   * I-V3-31d — ADR-033 explicitly documents the rollback path +
     cites operator_approval_ref as the change discipline
     (AUDITTRAIL-HIGH-006 closure)
@@ -43,7 +44,6 @@ _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 _KERNEL_SRC = _KERNEL_ROOT / "aria_kernel"
 _SPEC = _REPO_ROOT / "docs" / "aria" / "SPEC.md"
 _ADR_033 = _REPO_ROOT / "docs" / "adr" / "033-aria-autonomous-profile.md"
-_KERNEL_FAST_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel-fast.yml"
 _KERNEL_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel.yml"
 
 if str(_KERNEL_ROOT) not in sys.path:
@@ -55,7 +55,6 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.spec_text = _SPEC.read_text(encoding="utf-8")
         cls.adr_text = _ADR_033.read_text(encoding="utf-8") if _ADR_033.exists() else ""
-        cls.fast_wf_text = _KERNEL_FAST_WF.read_text(encoding="utf-8")
         cls.kernel_wf_text = _KERNEL_WF.read_text(encoding="utf-8")
 
     # I-V3-30 — Hard Limits L3-snowball clause references B2 + ADR-033.
@@ -160,15 +159,22 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
     # I-V3-31c — SPEC/ADR edits retrigger the kernel suite (ORPHAN-MEDIUM-769
     # topology: aria-kernel.yml owns the push lane UNFILTERED, which
     # satisfies this concern strictly more strongly than the old negation
-    # patterns in fast/full ever did; fast is PR-only now).
+    # patterns in fast/full ever did; ARIA-MEDIUM-135 retired the fast lane
+    # and moved its docs/adr/** PR path here, so the amendment fires on the
+    # PR too).
     def test_i_v3_31c_workflow_paths_ignore_retriggers_on_spec_edit(self) -> None:
         kernel_on = yaml.safe_load(self.kernel_wf_text)["on"] if "on" in yaml.safe_load(self.kernel_wf_text) else yaml.safe_load(self.kernel_wf_text)[True]
         push = kernel_on.get("push")
         self.assertIsInstance(push, dict, "aria-kernel.yml must carry a push trigger")
         self.assertNotIn("paths", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths filter is the only way to lose that")
         self.assertNotIn("paths-ignore", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths-ignore filter is the only way to lose that")
-        fast_on = yaml.safe_load(self.fast_wf_text)["on"] if "on" in yaml.safe_load(self.fast_wf_text) else yaml.safe_load(self.fast_wf_text)[True]
-        self.assertNotIn("push", fast_on, "aria-kernel-fast.yml is PR-only (ORPHAN-MEDIUM-769)")
+        pr_paths = (kernel_on.get("pull_request") or {}).get("paths") or []
+        for required in ("docs/aria/**", "docs/adr/**"):
+            self.assertIn(required, pr_paths, f"aria-kernel.yml pull_request.paths lacks {required}")
+        self.assertFalse(
+            (_REPO_ROOT / ".github" / "workflows" / "aria-kernel-fast.yml").exists(),
+            "aria-kernel-fast.yml was retired (ARIA-MEDIUM-135)",
+        )
 
     # I-V3-31d — ADR-033 documents rollback path + change discipline.
     def test_i_v3_31d_adr_documents_rollback_and_approval_ref(self) -> None:

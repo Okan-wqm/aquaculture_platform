@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { X509Certificate } from 'node:crypto';
 
 /**
  * Canonical NATS server URL default — the SINGLE source for the localhost
@@ -145,6 +146,41 @@ interface NatsTlsOptions {
  */
 export type NatsAuthMode = 'mtls-cert' | 'token' | 'user-pass' | 'none';
 
+/**
+ * `_INBOX<IDENTITY>` — the reply-inbox root services.yaml grants to a NATS user
+ * as `_INBOX<IDENTITY>.>`. No trailing dot: nats-core's createInbox() joins
+ * prefix and nuid with its own `.`, so a dotted prefix yields
+ * `_INBOX<IDENTITY>..<nuid>` — an empty token the broker rejects.
+ */
+export function scopedInboxPrefix(identity: string): string {
+  return `_INBOX${identity.toUpperCase().replace(/-/g, '_')}`;
+}
+
+/**
+ * The CN of a PEM client certificate — the NATS user the server maps the
+ * connection to under verify_and_map (ADR-015).
+ */
+export function certificateCommonName(certPem: string, certPath: string): string {
+  let subject: string;
+  try {
+    subject = new X509Certificate(certPem).subject;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" could not be parsed: ${msg}.`,
+    );
+  }
+  const cn = /(?:^|\n)CN=([^\n]+)/.exec(subject)?.[1]?.trim();
+  if (!cn) {
+    throw new Error(
+      `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" carries no CN — the ` +
+        'NATS identity is the certificate CN (ADR-015); regenerate via ' +
+        'infrastructure/docker/scripts/generate-internal-certs.sh.',
+    );
+  }
+  return cn;
+}
+
 export function buildNatsConnectionOptions(serviceName?: string): {
   servers: string[];
   user?: string;
@@ -232,9 +268,10 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     // SEC-HIGH-098 (№43): replies return on this service's scoped inbox.
     // nats-core appends a per-connection unique suffix after the prefix,
     // so replicas of the same service do NOT cross-talk.
-    ...(serviceName
-      ? { inboxPrefix: `_INBOX${serviceName.toUpperCase().replace(/-/g, '_')}.` }
-      : {}),
+    // Non-mTLS modes (dev, CI) scope by the caller's name; under mTLS the
+    // certificate CN replaces it below, because the CN is the identity the
+    // broker grants inboxes to.
+    ...(serviceName ? { inboxPrefix: scopedInboxPrefix(serviceName) } : {}),
   };
 
   // ── Inject auth fields based on chosen mode ───────────────────────────
@@ -360,6 +397,13 @@ export function buildNatsConnectionOptions(serviceName?: string): {
         }
         options.tls.cert = certPem;
         options.tls.key = keyPem;
+        // ADR-015: the server maps this connection to the user named by the
+        // cert CN (verify_and_map), and services.yaml scopes that user's reply
+        // inbox as `_INBOX<CN uppercased>.>`. The inbox prefix therefore comes
+        // from the certificate too — a caller-supplied name (a bridge label, a
+        // client id with a product prefix) cannot pick an inbox the broker
+        // never granted to the identity actually on the wire.
+        options.inboxPrefix = scopedInboxPrefix(certificateCommonName(certPem, certPath));
       }
     } else if (!insecureAllow) {
       // No CA and no explicit opt-in to insecure mode — refuse to

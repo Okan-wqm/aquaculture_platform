@@ -135,10 +135,509 @@ class StoreChecks(unittest.TestCase):
         )
         self.assertEqual(doctor._check_plan_ledger(self.tools).status, "ok")
 
+    def _seed_live_requests(self, tools: Path) -> None:
+        append_declared_jsonl(
+            tools / "agent-invocations" / "requests.jsonl",
+            {"request_id": "AIR-1", "role": "challenger_plan"},
+            expected_surface="agent_invocation_requests",
+        )
+
+    def _seed_minted_plan(self, tools: Path, *, cycle_id: str = "cycle-1", funnel_recorded: bool = True) -> None:
+        """The orchestrator's own evidence of a minted plan: its state row,
+        stamped FUNNEL_RECORDED_DETAIL the way the orchestrator stamps it
+        after writing the effectiveness ledger; ``funnel_recorded=False`` is
+        the shape of a row written before the ledger existed."""
+        from aria_kernel.autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
+
+        details = {FUNNEL_RECORDED_DETAIL: True} if funnel_recorded else {"plan_id": "plan-legacy"}
+        AutonomyStateReducer.transition(tools, cycle_id=cycle_id, phase=PLAN_MINTED_PHASE, details=details)
+
+    def test_a_minted_row_from_before_the_ledger_existed_is_not_a_fault(self) -> None:
+        """The live store (origin/aria/state, 2026-08 → 09-04) holds twenty
+        cycle_runner_synthesized_plan rows written when the effectiveness
+        writer sat on the converged path, and no effectiveness ledger. Those
+        rows never claimed a ledger row; counting them would make the first
+        doctor run after deploy report data loss for a ledger that never
+        existed and open a doctor_fail mission nothing could clear. Only a
+        row that carries the orchestrator's stamp counts."""
+        self._seed_minted_plan(self.tools, cycle_id="cycle-legacy", funnel_recorded=False)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+        self._seed_minted_plan(self.tools, cycle_id="cycle-new")
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        self.assertEqual(check.detail["plans_minted"], 1)
+
+    def test_minted_plans_without_a_funnel_ledger_is_a_named_fault(self) -> None:
+        """B4 (2026-09-12) — on the live store the orchestrator had minted a
+        plan every night, knowledge-graph/pressure-source-effectiveness.jsonl
+        did not exist, and the funnel organ reported ok with sources=0.
+        Blind. The orchestrator records every mint in that ledger BEFORE it
+        emits the PLAN_MINTED_PHASE row, so a state ledger that says "minted"
+        beside no effectiveness ledger is a fault with a name, and the first
+        recorded mint clears it."""
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        self._seed_minted_plan(self.tools)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 1))
+        self.assertFalse(check.detail["effectiveness_ledger_present"])
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason, check.detail["sources"]), ("ok", "", 1))
+        self.assertTrue(check.detail["effectiveness_ledger_present"])
+        self.assertEqual(
+            check.detail["counters"],
+            {"finding": {"cycles_minted": 1, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 0}},
+        )
+
+    def test_live_requests_alone_are_not_a_funnel_fault(self) -> None:
+        """Requests are minted by a dozen producers that run with no plan in
+        the funnel (judge fan-out, expert review, cross-review). A store that
+        holds only those has never minted a plan, so its absent effectiveness
+        ledger is bootstrap — the organ judges against the orchestrator's own
+        PLAN_MINTED_PHASE row, not against the requests ledger."""
+        self._seed_live_requests(self.tools)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+
+    def test_a_store_without_minted_plans_has_no_funnel_fault(self) -> None:
+        """No plan has been minted yet: bootstrap, not a fault."""
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+
+    def test_blocked_only_cycles_are_counted_and_then_a_stall_not_a_fault(self) -> None:
+        """The live store's shape after the writer moved to the funnel's
+        entry: every cycle minted a plan and none converged. Each such cycle
+        leaves minted=1 and rejected=1 for its source. Below the stall
+        threshold the organ is ok with the counters in its detail; at the
+        threshold it is a WARN naming the convergence stage — the stall the
+        store exhibited and nothing could count. Never a data-loss reason."""
+        from aria_kernel.funnel_health import MIN_UPSTREAM_FOR_STALL
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        for cycle in range(MIN_UPSTREAM_FOR_STALL - 1):
+            self._seed_minted_plan(self.tools, cycle_id=f"cycle-{cycle}")
+            record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+            record_pressure_source_outcome(base_dir=self.tools, source_type="finding", rejected=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual(check.detail["plans_minted"], MIN_UPSTREAM_FOR_STALL - 1)
+        self.assertEqual(check.detail["counters"]["finding"], {
+            "cycles_minted": MIN_UPSTREAM_FOR_STALL - 1, "cycles_converged": 0,
+            "cycles_merged": 0, "cycles_rejected": MIN_UPSTREAM_FOR_STALL - 1,
+        })
+        self._seed_minted_plan(self.tools, cycle_id="cycle-last")
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", rejected=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "funnel_stalled:1"))
+        self.assertEqual(
+            [(stall["stage"], stall["upstream"], stall["downstream"]) for stall in check.detail["stalls"]],
+            [("convergence", MIN_UPSTREAM_FOR_STALL, 0)],
+        )
+
+    def test_the_funnel_organ_reads_the_bound_tools_root_not_the_workspace(self) -> None:
+        """The live lane's shape: ARIA_TOOLS_DIR=<store>/tools while
+        --workspace-root is the checkout. The organ used to resolve
+        <workspace>/aria-tools/knowledge-graph/... and the state ledger it
+        is judged against lives under the tools root, so on the lane it
+        could never see either. The manifest declares the effectiveness
+        ledger a tools-root surface; the organ reads it where the store
+        keeps it."""
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        store_tools = self.root / "store" / "tools"
+        ensure_tools_dir(store_tools)
+        checkout = self.root / "checkout"
+        checkout.mkdir()
+        self._seed_minted_plan(store_tools)
+        report = run_doctor(base_dir=store_tools, workspace_root=checkout)
+        funnel = next(check for check in report.checks if check.name == "funnel")
+        self.assertEqual((funnel.status, funnel.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        record_pressure_source_outcome(base_dir=store_tools, source_type="finding", minted=1, converged=1)
+        self.assertFalse((checkout / "aria-tools").exists())
+        report = run_doctor(base_dir=store_tools, workspace_root=checkout)
+        funnel = next(check for check in report.checks if check.name == "funnel")
+        self.assertEqual((funnel.status, funnel.detail["sources"]), ("ok", 1))
+
     def test_a_tripped_breaker_is_a_fail(self) -> None:
         with mock.patch("aria_kernel.cost_budget.current_state", return_value="tripped"):
             check = doctor._check_breakers(self.tools)
         self.assertEqual((check.status, check.reason), ("fail", "breaker_tripped:cost_breaker"))
+
+
+class GatewayHeartbeatFresh(unittest.TestCase):
+    """B6 — a dead gateway daemon must FAIL the doctor, not warn it.
+
+    CONFIRMED LIVE 2026-09-12: `aria-gateway.service` on the runner host
+    last beat on 2026-09-08 and is disabled/dead; the `gateway` organ read
+    the four-day-old heartbeat as `warn`, the doctor stayed `healthy`, and
+    `self_improvement.scan_signals` lifts only `fail` organs — so nothing
+    noticed. Freshness is judged in missed BEATS (the heartbeat declares its
+    own cadence), and an absent heartbeat is a fail exactly when a schedule
+    table exists to expect one.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _beat(self, *, age_seconds: float, poll_interval_seconds: float | None = None) -> None:
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from aria_kernel.gateway.server import HEARTBEAT_RELPATH
+
+        stamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).isoformat()
+        beat = {"schema_version": 1, "recorded_at": stamp, "tick_at": stamp, "routed": 0, "ran": []}
+        if poll_interval_seconds is not None:
+            beat["poll_interval_seconds"] = poll_interval_seconds
+        path = self.tools.joinpath(*HEARTBEAT_RELPATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(beat), encoding="utf-8")
+
+    def test_the_live_shape_a_four_day_old_heartbeat_is_a_fail(self) -> None:
+        # The live beat (2026-09-08) predates the cadence field; the daemon
+        # default applies and four days is thousands of missed beats.
+        self._beat(age_seconds=4 * 24 * 3600)
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual(check.status, "fail")
+        self.assertTrue(check.reason.startswith("gateway_heartbeat_stale:"), check.reason)
+        self.assertGreater(check.detail["missed_beats"], doctor.HEARTBEAT_STALE_AFTER_BEATS)
+
+    def test_staleness_is_measured_in_beats_of_the_declared_cadence(self) -> None:
+        from aria_kernel.gateway.daemon import DEFAULT_POLL_INTERVAL_SECONDS
+
+        # Twenty minutes is stale at the 60 s default but two beats at a
+        # declared 600 s cadence: the beat's own promise decides.
+        self._beat(age_seconds=20 * 60, poll_interval_seconds=600.0)
+        self.assertEqual(doctor._check_gateway_heartbeat_fresh(self.tools).status, "ok")
+        self._beat(age_seconds=20 * 60)
+        stale = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual(stale.status, "fail")
+        self.assertEqual(stale.detail["poll_interval_seconds"], DEFAULT_POLL_INTERVAL_SECONDS)
+
+    def test_an_absent_heartbeat_with_a_schedule_table_is_a_fail(self) -> None:
+        from aria_kernel.gateway.scheduler import add_schedule
+
+        add_schedule(name="doctor", action="doctor", cron="*/30 * * * *", base_dir=self.tools)
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "gateway_heartbeat_absent_with_schedules"))
+        self.assertEqual(check.detail["schedules"], ["doctor"])
+
+    def test_an_absent_heartbeat_without_schedules_is_not_deployed_here(self) -> None:
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", "gateway_not_deployed_here"))
+
+    def test_an_unreadable_heartbeat_is_a_fail_when_schedules_exist(self) -> None:
+        from aria_kernel.gateway.scheduler import add_schedule
+        from aria_kernel.gateway.server import HEARTBEAT_RELPATH
+
+        add_schedule(name="doctor", action="doctor", cron="*/30 * * * *", base_dir=self.tools)
+        path = self.tools.joinpath(*HEARTBEAT_RELPATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "gateway_heartbeat_unreadable"))
+
+    def test_the_organ_is_registered_and_owns_freshness(self) -> None:
+        self._beat(age_seconds=4 * 24 * 3600)
+        report = run_doctor(base_dir=self.tools, workspace_root=self.root)
+        organs = {check.name: check for check in report.checks}
+        self.assertEqual(organs["gateway_heartbeat_fresh"].status, "fail")
+        self.assertEqual(report.exit_code, DOCTOR_EXIT_UNHEALTHY)
+        # One fact, one owner: the `gateway` organ keeps inbox/backlog and no
+        # longer issues a second, weaker verdict on the same heartbeat.
+        self.assertNotEqual(organs["gateway"].reason, "gateway_heartbeat_stale")
+
+    def test_a_dead_daemon_becomes_a_self_improvement_signal(self) -> None:
+        from aria_kernel.self_improvement import scan_signals
+
+        self._beat(age_seconds=4 * 24 * 3600)
+        signals = scan_signals(base_dir=self.tools, workspace_root=self.root)
+        self.assertIn(("doctor_fail", "gateway_heartbeat_fresh"), {(s.kind, s.key) for s in signals})
+
+
+class OrchestratorOrgan(unittest.TestCase):
+    """The doctor reads the orchestrator's exit streak (2026-09-12 finding).
+
+    The fixture replays the live store's shape in miniature — the rows below
+    are trimmed copies of `origin/aria/state` `tools/governance.jsonl` and
+    `tools/autonomy_state.jsonl` for the last three runs (2026-08-22,
+    2026-09-04 x2): every run exited ``cycle_failed``, each cycle's
+    ``cycle_completed`` row recorded a DIFFERENT cause (a failed
+    ``product_fitness`` phase; ``integrity_failed`` from 158 stranded
+    artifact-index rows; the same plus a ``budget_exceeded`` tool). Before
+    this organ the doctor read that store as healthy.
+
+    The refusal rows are written here directly, one per cycle in the v2
+    shape (owner named), to exercise the histogram reader; the adopter
+    itself now discloses a refusal once per claim, so a live v2 ledger shows
+    a standing block on the night it first appeared, not on every night.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _exit(self, reason: str, cycles_completed: int) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools, "autonomy_orchestrator_exit", {
+            "auto_merges_completed": 0, "cycles_completed": cycles_completed,
+            "daemon_id": "autonomy", "exit_reason": reason,
+            "planner_claims_dispatched": 0, "worker_assignments_dispatched": 0,
+        })
+
+    def _refused(self, cycle_id: str, source_id: str) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools, "mission_candidate_refused", {
+            "schema_version": 2, "cycle_id": cycle_id, "reason": "candidate_blocked",
+            "source": "capability_gap", "source_id": source_id,
+            "blocked_by": ["genesis_adjudication_required"], "owner": "agent_panel",
+            "operator_action": "genesis_adjudication_required: none: the genesis panel adjudicates this gap",
+            "unregistered_block_tokens": [],
+        })
+
+    def _cycle_completed(self, cycle_id: str, status: str, summary: dict) -> None:
+        from aria_kernel.autonomy_state import AutonomyStateReducer
+
+        AutonomyStateReducer.transition(
+            self.tools, cycle_id=cycle_id, phase="cycle_started", status="ok", profile="standard",
+        )
+        AutonomyStateReducer.transition(
+            self.tools, cycle_id=cycle_id, phase="cycle_completed", status=status,
+            profile="standard", details={"summary": {"schema_version": 2, "cycle_id": cycle_id, **summary}},
+        )
+
+    def _live_streak(self) -> None:
+        self._cycle_completed("cyc-20260822T153253Z-auto", "failed", {
+            "status": "failed", "runtime_status": "failed",
+            "failed_phases": [{"phase": "product_fitness", "status": "failed",
+                               "error": "raw_jsonl_declared_surface_rejected: surface='product_fitness'"}],
+            "non_ok_tools": [], "artifact_integrity": {"status": "ok", "valid": True, "issues": []},
+        })
+        self._refused("cyc-20260822T153253Z-auto", "shadow_run:doc-staleness-adapter")
+        self._exit("cycle_failed", 0)
+        self._cycle_completed("cyc-20260904T093220Z-auto", "failed", {
+            "status": "failed", "runtime_status": "integrity_failed", "failed_phases": [],
+            "non_ok_tools": [{"tool_id": "test-gap-adapter", "status": "budget_exceeded", "artifact_status": "present"}],
+            "artifact_integrity": {"status": "drift", "valid": False, "issues": [
+                {"code": "run_artifact_missing", "artifact_id": f"cyc-20260810T063724Z-auto.{n}.tool_run"}
+                for n in range(158)
+            ]},
+        })
+        self._refused("cyc-20260904T093220Z-auto", "shadow_run:doc-staleness-adapter")
+        self._refused("cyc-20260904T093220Z-auto", "shadow_run:test-gap-adapter")
+        self._exit("cycle_failed", 0)
+        self._cycle_completed("cyc-20260904T194353Z-auto", "failed", {
+            "status": "failed", "runtime_status": "integrity_failed", "failed_phases": [],
+            "non_ok_tools": [],
+            "artifact_integrity": {"status": "drift", "valid": False, "issues": [
+                {"code": "run_artifact_missing", "artifact_id": f"cyc-20260810T063724Z-auto.{n}.tool_run"}
+                for n in range(158)
+            ]},
+        })
+        self._refused("cyc-20260904T194353Z-auto", "shadow_run:doc-staleness-adapter")
+        self._exit("cycle_failed", 0)
+
+    def test_the_live_streak_is_a_fail_that_names_each_cause_and_the_refusals(self) -> None:
+        self._live_streak()
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("fail", "orchestrator_exits_all_cycle_failed:3"))
+        self.assertEqual([e["exit_reason"] for e in check.detail["exits"]], ["cycle_failed"] * 3)
+        causes = {c["cycle_id"]: c for c in check.detail["failed_cycles"]}
+        self.assertEqual(
+            [c["cycle_id"] for c in check.detail["failed_cycles"]],
+            ["cyc-20260904T194353Z-auto", "cyc-20260904T093220Z-auto", "cyc-20260822T153253Z-auto"],
+        )
+        self.assertEqual(causes["cyc-20260822T153253Z-auto"]["failed_phases"][0]["phase"], "product_fitness")
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["runtime_status"], "integrity_failed")
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["artifact_integrity"], {"status": "drift", "issue_count": 158})
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["non_ok_tools"], [{"tool_id": "test-gap-adapter", "status": "budget_exceeded"}])
+        self.assertEqual(check.detail["refusals_by_reason"], {"candidate_blocked": 4})
+        self.assertEqual(check.detail["refusals_by_owner"], {"agent_panel": 4})
+
+    def test_the_streak_reaches_the_report_and_its_exit_code(self) -> None:
+        self._live_streak()
+
+        report = run_doctor(base_dir=self.tools, workspace_root=self.root)
+
+        by_name = {check.name: check for check in report.checks}
+        self.assertEqual(by_name["orchestrator"].status, "fail")
+        self.assertEqual(report.exit_code, DOCTOR_EXIT_UNHEALTHY)
+        self.assertIn("[FAIL] orchestrator — orchestrator_exits_all_cycle_failed:3", render_doctor_text(report))
+
+    def test_one_bad_night_after_good_ones_is_a_warn(self) -> None:
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-bad", "failed", {"status": "failed", "runtime_status": "failed", "failed_phases": [], "non_ok_tools": []})
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+        self.assertEqual(check.detail["failed_cycles"][0]["cycle_id"], "cyc-bad")
+
+    def test_a_degraded_night_is_not_a_cause_of_a_failed_exit(self) -> None:
+        # ARIA-HIGH-098 — a degraded cycle completed and never produced a
+        # cycle_failed exit; the tool it names belongs to the tools organ.
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-degraded", "degraded", {
+            "status": "completed", "runtime_status": "degraded", "failed_phases": [],
+            "non_ok_tools": [{"tool_id": "agent-harness-security-adapter", "status": "evidence_error"}],
+        })
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-bad", "failed", {"status": "failed", "runtime_status": "failed", "failed_phases": [], "non_ok_tools": []})
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual(check.status, "warn")
+        self.assertEqual([cause["cycle_id"] for cause in check.detail["failed_cycles"]], ["cyc-bad"])
+
+    def test_a_single_failed_exit_is_a_warn_not_a_streak(self) -> None:
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+
+    def test_a_single_clean_exit_is_ok_with_insufficient_history(self) -> None:
+        self._exit("max_cycles", 1)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("ok", "insufficient_history"))
+
+    def test_clean_exits_are_ok_and_an_empty_store_is_ok(self) -> None:
+        self.assertEqual(doctor._check_orchestrator(self.tools).status, "ok")
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual(check.detail["failed_cycles"], [])
+
+
+
+class ToolsOrgan(unittest.TestCase):
+    """ARIA-HIGH-098 — the adapters that are not answering, by name and class."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+        (self.root / "src").mkdir()
+        (self.root / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _tool(self, tool_id: str, *, exit_code: int = 0) -> None:
+        from aria_kernel import register_tool
+        from tests.test_enterprise_cycle import fake_tool_argv, shadow_tool, tool_output
+
+        tool = shadow_tool()
+        tool["tool_id"] = tool_id
+        tool["runner"] = {**tool["runner"], "argv": [*fake_tool_argv(tool_output()), "--exit-code", str(exit_code)]}
+        register_tool(tool, base_dir=self.tools)
+
+    def _run(self, tool_id: str, cycle_id: str) -> str:
+        from aria_kernel import run_tool
+
+        return run_tool(tool_id, {}, cycle_id, workspace_root=self.root, base_dir=self.tools)["envelope"]["status"]
+
+    def test_an_empty_roster_and_an_answering_tool_are_ok(self) -> None:
+        self.assertEqual(doctor._check_tools(self.tools).status, "ok")
+        self._tool("fine-tool")
+        self.assertEqual(self._run("fine-tool", "cyc-1"), "ok")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.detail["degraded"], check.detail["quarantined"]), ("ok", [], []))
+
+    def test_a_degraded_tool_is_a_warn_naming_the_class_and_the_streak(self) -> None:
+        self._tool("dark-tool", exit_code=2)
+        self._run("dark-tool", "cyc-1")
+        self._run("dark-tool", "cyc-2")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "tools_degraded:dark-tool=crashx2"))
+        self.assertEqual(check.detail["degraded"][0]["latest_cycle_id"], "cyc-2")
+        self.assertFalse(check.detail["degraded"][0]["human_required"])
+        self.assertIn("[WARN] tools — tools_degraded:dark-tool=crashx2", render_doctor_text(run_doctor(base_dir=self.tools, workspace_root=self.root)))
+
+    def test_a_streak_at_the_human_required_line_is_a_fail(self) -> None:
+        from aria_kernel.tool_degradation import TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK
+
+        self._tool("dark-tool", exit_code=2)
+        for n in range(TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK):
+            self._run("dark-tool", f"cyc-{n}")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "tools_degraded_human_required:dark-tool"))
+
+    def test_a_recovered_tool_clears_the_streak(self) -> None:
+        self._tool("flaky-tool", exit_code=2)
+        self._run("flaky-tool", "cyc-1")
+        self.assertEqual(doctor._check_tools(self.tools).status, "warn")
+        # The operator ships the fix: the manifest re-registers with a runner
+        # that answers, and the next night's run is ok.
+        self._tool("flaky-tool")
+        self.assertEqual(self._run("flaky-tool", "cyc-2"), "ok")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.detail["degraded"]), ("ok", []))
+
+    def test_a_quarantined_tool_is_named_even_when_nothing_is_degraded(self) -> None:
+        from aria_kernel.quarantine import quarantine_tool
+
+        self._tool("benched-tool")
+        quarantine_tool("benched-tool", "test: quarantined by hand", base_dir=self.tools)
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "tools_quarantined:benched-tool"))
+
+    def test_the_cycles_a_quarantined_tool_sits_out_are_its_streak(self) -> None:
+        # Verifier defect 2: a quarantined tool is never dispatched again, so
+        # a streak read off its runs alone froze where the quarantine left
+        # it and the organ could never reach FAIL for the trial-eleven class.
+        from aria_kernel.ledger import append_declared_jsonl
+        from aria_kernel.quarantine import quarantine_tool
+        from aria_kernel.tool_degradation import TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK
+        from aria_kernel.tool_registry import utc_now
+
+        self._tool("benched-tool")
+        quarantine_tool("benched-tool", "test: quarantined by hand", base_dir=self.tools)
+        for n in range(1, TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK + 1):
+            append_declared_jsonl(
+                self.tools / "cycles.jsonl",
+                {"schema_version": 3, "at": utc_now(), "cycle_id": f"cyc-{n}", "event": "started", "status": "started"},
+                expected_surface="cycles",
+            )
+            check = doctor._check_tools(self.tools)
+            if n < TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK:
+                self.assertEqual((check.status, check.reason), ("warn", f"tools_degraded:benched-tool=quarantinedx{n}"))
+            else:
+                self.assertEqual((check.status, check.reason), ("fail", "tools_degraded_human_required:benched-tool"))
+        self.assertEqual(check.detail["quarantined"], ["benched-tool"])
+        self.assertEqual(check.detail["degraded"][0]["latest_cycle_id"], f"cyc-{TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK}")
 
 
 class CliSurface(unittest.TestCase):

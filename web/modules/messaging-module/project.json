@@ -33,6 +33,9 @@
         "command": "npm run lint",
         "cwd": "web/modules/messaging-module"
       }
+    },
+    "test": {
+      "dependsOn": ["shared-ui:build"]
     }
   }
 }

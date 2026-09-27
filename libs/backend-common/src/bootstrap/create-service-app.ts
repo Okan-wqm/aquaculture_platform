@@ -59,6 +59,7 @@ import { NatsV3Server } from '../nats/nats-v3-server.strategy';
 import { ErrorCaptureInterceptor, type ErrorCapturePublisher } from '../observability';
 
 import { mountEdgeHardening, resolveTrustProxy, type ServiceVisibility } from './edge-hardening';
+import { resolveOptionalProvider } from './optional-provider';
 import { logBootstrapError } from './safe-error-logger';
 
 // ---------------------------------------------------------------------------
@@ -611,21 +612,20 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
 /**
  * The event bus, if this service registered one.
  *
- * `app.get` throws for an unregistered token rather than returning undefined,
- * and `gateway-api` deliberately has no `EventBusModule`. Capture must degrade
- * to a no-op there instead of failing the boot of a service whose only defect
- * is not publishing events.
+ * `gateway-api` deliberately has no `EventBusModule`; capture degrades to a
+ * no-op there instead of failing the boot of a service whose only defect is
+ * not publishing events. Resolved through {@link resolveOptionalProvider} —
+ * `app.get` inside a try/catch is not a fallback (see there).
  */
-function resolveErrorCapturePublisher(
+export function resolveErrorCapturePublisher(
   app: INestApplication,
-  logger: Logger,
+  logger: Pick<Logger, 'log'>,
 ): ErrorCapturePublisher | undefined {
-  try {
-    return app.get<ErrorCapturePublisher>('EVENT_BUS', { strict: false });
-  } catch {
+  const publisher = resolveOptionalProvider<ErrorCapturePublisher>(app, 'EVENT_BUS');
+  if (publisher === undefined) {
     logger.log('No EVENT_BUS registered; error capture is inert for this service');
-    return undefined;
   }
+  return publisher;
 }
 
 export async function createServiceApp(

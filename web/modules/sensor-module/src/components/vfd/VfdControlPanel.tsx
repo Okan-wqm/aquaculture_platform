@@ -23,11 +23,12 @@
  * operator needs before touching a motor is how old the last one is.
  */
 import React from 'react';
-import { Zap, Play, Square, AlertOctagon, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
+import { Zap, Play, Square, AlertOctagon, RefreshCw, AlertCircle } from 'lucide-react';
 
 import { useVfdRealtimeReadings, getVfdStatus } from '../../hooks/useVfdReadings';
 import { useVfdCommands } from '../../hooks/useVfdCommands';
 import { VfdDeviceStatus } from '../../types/vfd.types';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 /** Beyond this the reading is old enough that acting on it is a decision, not a reflex. */
 const STALE_AFTER_MS = 30_000;
@@ -70,18 +71,23 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
   const readingIsStale = readingAgeMs === undefined || readingAgeMs > STALE_AFTER_MS;
 
   const STATUS_COLORS = {
-    running: 'bg-green-100 text-green-800 border-green-200',
-    ready: 'bg-blue-100 text-blue-800 border-blue-200',
-    fault: 'bg-red-100 text-red-800 border-red-200',
-    warning: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    stopped: 'bg-gray-100 text-gray-700 border-gray-200',
+    running:
+      'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+    ready:
+      'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
+    fault:
+      'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+    warning:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800',
+    stopped:
+      'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Zap className="w-5 h-5 text-indigo-500" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <Zap className="w-5 h-5 text-primary-500" />
           VFD Durumu
         </h3>
         <div className="flex items-center gap-2">
@@ -92,7 +98,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           </span>
           {/* The age of the DATA, not of the browser's poll loop. */}
           <span
-            className={`text-xs ${readingIsStale ? 'text-amber-600' : 'text-gray-500'}`}
+            className={`text-xs ${readingIsStale ? 'text-warning-600 dark:text-warning-400' : 'text-gray-500 dark:text-gray-400'}`}
             data-testid="vfd-reading-age"
           >
             {readingAgeMs === undefined ? 'Okuma yok' : `Okuma: ${formatAge(readingAgeMs)}`}
@@ -101,7 +107,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
       </div>
 
       {readingError && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 flex items-center gap-2">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg px-3 py-2 text-sm text-error-700 dark:text-error-300 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {readingError.message}
         </div>
@@ -111,65 +117,81 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
       {params && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {params.outputFrequency != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Frekans</p>
-              <p className="font-semibold text-gray-900">{params.outputFrequency.toFixed(1)} Hz</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Frekans</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {params.outputFrequency.toFixed(1)} Hz
+              </p>
             </div>
           )}
           {params.motorSpeed != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Motor Hızı</p>
-              <p className="font-semibold text-gray-900">{Math.round(params.motorSpeed)} RPM</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Motor Hızı</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {Math.round(params.motorSpeed)} RPM
+              </p>
             </div>
           )}
           {params.motorCurrent != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Akim</p>
-              <p className="font-semibold text-gray-900">{params.motorCurrent.toFixed(2)} A</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Akim</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {params.motorCurrent.toFixed(2)} A
+              </p>
             </div>
           )}
           {params.outputPower != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Güç</p>
-              <p className="font-semibold text-gray-900">{params.outputPower.toFixed(2)} kW</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Güç</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {params.outputPower.toFixed(2)} kW
+              </p>
             </div>
           )}
           {params.driveTemperature != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Sürücü Sıcaklığı</p>
-              <p className="font-semibold text-gray-900">{params.driveTemperature.toFixed(1)} °C</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Sürücü Sıcaklığı</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {params.driveTemperature.toFixed(1)} °C
+              </p>
             </div>
           )}
           {params.motorVoltage != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Gerilim</p>
-              <p className="font-semibold text-gray-900">{params.motorVoltage.toFixed(1)} V</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Gerilim</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {params.motorVoltage.toFixed(1)} V
+              </p>
             </div>
           )}
           {params.energyConsumption != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Enerji</p>
-              <p className="font-semibold text-gray-900">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Enerji</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
                 {params.energyConsumption.toFixed(2)} kWh
               </p>
             </div>
           )}
           {params.runningHours != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Çalışma Saati</p>
-              <p className="font-semibold text-gray-900">{Math.round(params.runningHours)} h</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Çalışma Saati</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {Math.round(params.runningHours)} h
+              </p>
             </div>
           )}
         </div>
       )}
 
       {!reading && !readingError && (
-        <p className="text-sm text-gray-400 mb-4">VFD okuma verisi bekleniyor...</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
+          VFD okuma verisi bekleniyor...
+        </p>
       )}
 
       {!commandsEnabled && (
         <div
-          className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800"
+          className="mb-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg px-3 py-2 text-sm text-warning-800 dark:text-warning-200"
           data-testid="vfd-commands-disabled-notice"
         >
           Sürücü etkin değil ({deviceStatus}). Komut göndermek için sürücüyü etkinleştirin.
@@ -177,67 +199,62 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
       )}
 
       {/* Command Buttons */}
-      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100">
-        <button
+      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+        <Button
+          variant="primary"
+          size="sm"
           onClick={start}
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'running'}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
         >
-          {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Play className="w-3.5 h-3.5" />
-          )}
+          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Play className="w-3.5 h-3.5" />}
           Başlat
-        </button>
+        </Button>
         <button
           onClick={stop}
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'stopped'}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
-          {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Square className="w-3.5 h-3.5" />
-          )}
+          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Square className="w-3.5 h-3.5" />}
           Durdur
         </button>
         {vfdStatus.status === 'fault' && (
-          <button
+          <Button
+            variant="warning"
+            size="sm"
             onClick={resetFault}
             disabled={!commandsEnabled || cmdLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
           >
             {cmdLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
             Arızayı Sıfırla
-          </button>
+          </Button>
         )}
-        <button
+        <Button
+          variant="danger"
+          size="sm"
           onClick={emergencyStop}
           disabled={!commandsEnabled || cmdLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 ml-auto"
         >
           {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <AlertOctagon className="w-3.5 h-3.5" />
           )}
           Acil Dur
-        </button>
+        </Button>
       </div>
 
       {/* Last Command Result */}
       {lastResult && !lastResult.success && (
-        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+        <div className="mt-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg px-3 py-2 text-sm text-error-700 dark:text-error-300">
           Komut hatasi: {lastResult.error}
         </div>
       )}
       {lastResult?.success && (
-        <div className="mt-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-700">
+        <div className="mt-3 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg px-3 py-2 text-sm text-success-700 dark:text-success-300">
           Komut başarıyla gönderildi
         </div>
       )}

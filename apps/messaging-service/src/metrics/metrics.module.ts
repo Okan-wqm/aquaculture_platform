@@ -11,16 +11,26 @@
  * bespoke MetricsController, so the platform HTTP + Node-runtime metrics were
  * absent from the scrape. It now mirrors farm-service (OBS-HIGH-001): import
  * ServiceMetricsModule and plug the domain registry into it in onModuleInit.
+ *
+ * MSGFIX-FAZ0 (2026-09-16): two collectors were added that WRITE gauges the
+ * domain registry already owns — OutboxPendingCollectorService (periodic
+ * count of pending messaging.messaging_outbox rows → messaging_outbox_pending)
+ * and NatsConnectionMetricsService (event-bus lifecycle snapshots →
+ * messaging_nats_connection_status / messaging_nats_reconnects_total). Both
+ * feed MessagingMetricsService; no new endpoint, the single @Public /metrics
+ * scrape picks them up through the existing 'messaging-domain' contributor.
  * @see ADR-012 section 10 (Observability)
  */
 import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { ServiceMetricsModule, ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { MessagingMetricsService } from './messaging-metrics.service';
+import { OutboxPendingCollectorService } from './outbox-pending-collector.service';
+import { NatsConnectionMetricsService } from './nats-connection-metrics.service';
 
 @Global()
 @Module({
   imports: [ServiceMetricsModule],
-  providers: [MessagingMetricsService],
+  providers: [MessagingMetricsService, OutboxPendingCollectorService, NatsConnectionMetricsService],
   exports: [MessagingMetricsService],
 })
 export class MetricsModule implements OnModuleInit {

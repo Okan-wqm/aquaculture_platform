@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 
 /**
  * WebSocket tenant guard primitives (SEC-MEDIUM-073 / SEC-MEDIUM-082 —
@@ -28,8 +28,16 @@ export interface TenantConnectionLimiterOptions {
   maxPerTenant?: number;
 }
 
-/** Per-tenant socket-count ceiling with O(1) register/release. */
-@Injectable()
+/**
+ * Per-tenant socket-count ceiling with O(1) register/release.
+ *
+ * Not a Nest provider: the constructor takes a plain options object, so the
+ * class is built by a `useFactory` at each registration site. The
+ * `@Injectable()` it carried let a `useClass` registration compile while the
+ * container had no token for the options parameter (gateway-api could not
+ * boot, 2026-09-20 outage); tests/invariants/nest-injected-type-only-import
+ * .spec.ts now bans a Nest instantiation decorator on such a constructor.
+ */
 export class TenantConnectionLimiter {
   private readonly tenantSockets = new Map<string, Set<string>>();
 
@@ -101,7 +109,7 @@ export interface WsTokenRevalidatorOptions {
  * unresolvable sockets are disconnected through the gateway's own handle —
  * logout/suspension now bounds live socket lifetime to one interval.
  */
-@Injectable()
+// Built by a `useFactory` at each registration site, like TenantConnectionLimiter.
 export class WsTokenRevalidator implements OnModuleDestroy {
   private readonly logger = new Logger(WsTokenRevalidator.name);
   private readonly targets = new Map<string, RevalidationTarget>();

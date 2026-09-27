@@ -18,6 +18,7 @@ import {
 } from '@nestjs/websockets';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
+import { isAiPersonaId } from '@aquaculture/shared-contracts';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */
@@ -43,7 +44,8 @@ interface AiClient {
 interface AiChatMessagePayload {
   message: string;
   conversationId?: string;
-  persona?: string;
+  /** A catalogue persona id, or omitted/null for the tenant default. */
+  persona?: string | null;
 }
 
 /** Mirror of ai-service AiChatNatsResponse (loose NATS contract). */
@@ -57,7 +59,6 @@ interface AiChatNatsResponse {
 
 const NATS_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_MESSAGE_LEN = 10_000;
-const PERSONA_RE = /^(operator|manager|expert|supervisor)-v\d+$/;
 
 /**
  * AI assistant real-time gateway. The panel/mobile assistant opens a socket.io
@@ -179,7 +180,11 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('ai:error', { code: 'BAD_REQUEST', message: 'Message too long' });
       return;
     }
-    if (body.persona && !PERSONA_RE.test(body.persona)) {
+    // Persona ids follow the shared grammar `<tier>[-<specialty>]-v<N>`
+    // (AISAFETY-MEDIUM-024). Grammar only at this boundary — whether the id is
+    // a PUBLISHED persona, and whether this caller may drive it, is decided by
+    // ai-service against the catalogue and the caller's capabilities.
+    if (body.persona !== undefined && body.persona !== null && !isAiPersonaId(body.persona)) {
       client.emit('ai:error', { code: 'BAD_REQUEST', message: 'Invalid persona' });
       return;
     }
@@ -212,7 +217,11 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             userId: identity.userId,
             message,
             conversationId: body.conversationId,
-            persona: body.persona ?? 'operator-v1',
+            // null → the tenant's default persona, resolved by ai-service.
+            persona: body.persona ?? null,
+            // FARM-AI Sprint 1.2: calling-service identity for the
+            // server-side service→persona grant map in ai-service.
+            serviceId: 'gateway_api',
             userRoles: identity.roles,
             resourcePermissions: identity.resourcePermissions,
           })

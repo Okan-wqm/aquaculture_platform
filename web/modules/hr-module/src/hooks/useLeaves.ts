@@ -3,8 +3,8 @@
  * TanStack Query hooks for leave operations
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_LEAVE_TYPES,
@@ -290,7 +290,8 @@ export function useCalculateLeaveDays(
 export function useCreateLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request created' },
     mutationFn: (input: CreateLeaveRequestInput) =>
       graphqlRequest<{ createLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -312,7 +313,8 @@ export function useUpdateLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request updated' },
     mutationFn: (input: UpdateLeaveRequestInput) =>
       graphqlRequest<{ updateLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -332,7 +334,8 @@ export function useUpdateLeaveRequest() {
 export function useSubmitLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request submitted' },
     mutationFn: (id: string) =>
       graphqlRequest<{ submitLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -355,7 +358,8 @@ export function useApproveLeaveRequest() {
   const queryClient = useQueryClient();
   const { tenantId } = useAuth();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request approved' },
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
       graphqlRequest<{ approveLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -385,7 +389,8 @@ export function useRejectLeaveRequest() {
   const queryClient = useQueryClient();
 
   const { tenantId } = useAuth();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request rejected' },
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       graphqlRequest<{ rejectLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -413,7 +418,8 @@ export function useRejectLeaveRequest() {
 export function useCancelLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request cancelled' },
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       graphqlRequest<{ cancelLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -437,7 +443,8 @@ export function useCancelLeaveRequest() {
 export function useWithdrawLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave request withdrawn' },
     mutationFn: (id: string) =>
       graphqlRequest<{ withdrawLeaveRequest: LeaveRequest }, unknown>(
         client,
@@ -462,7 +469,8 @@ export function useWithdrawLeaveRequest() {
 export function useAdjustLeaveBalance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Leave balance adjusted' },
     mutationFn: ({
       employeeId,
       leaveTypeId,

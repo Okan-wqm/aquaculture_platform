@@ -30,11 +30,12 @@ import {
   type StrokeLineCap,
   type StrokeLineJoin,
 } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 const SvgEllipseRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const fillOpacity = (config.fillOpacity ?? 1) as number;
   const strokeOpacity = (config.strokeOpacity ?? 1) as number;
@@ -51,7 +52,7 @@ const SvgEllipseRenderer: React.FC<WidgetRendererProps> = ({
   // Recursive color CSS variable consumption
   const cssVarFill = animationState?.cssVariables?.['--scada-fill'];
   const cssVarStroke = animationState?.cssVariables?.['--scada-stroke'];
-  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? colors.info[500]) as string;
   const effectiveStroke = cssVarStroke ?? stroke;
 
   // Color-alternating blink state

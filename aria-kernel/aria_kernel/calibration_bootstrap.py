@@ -172,6 +172,7 @@ def finalize_corpus(
     and appends each label as a corpus fixture to the SSoT corpus
     ``aria-tools/operator-feedback.jsonl``. Returns a summary dict.
     """
+    from .operator_feedback_signature import append_signed_operator_feedback_row
     from .strict_jsonl_reader import read_strict_jsonl
     labels_path = seeding_path(base_dir, tool_id).with_name("labels.jsonl")
     if not labels_path.exists():
@@ -212,7 +213,9 @@ def finalize_corpus(
             "legacy_label": label_value,
             "labeled_at": label_row.get("labeled_at"),
         }
-        append_declared_jsonl(corpus, fixture, expected_surface="operator_feedback")
+        # V9.5 check 12 — every kernel-written row of the corpus ledger is
+        # signed; the signer is the only append path for this surface.
+        append_signed_operator_feedback_row(fixture, base_dir=corpus.parent)
         migrated += 1
     return {
         "tool_id": tool_id,

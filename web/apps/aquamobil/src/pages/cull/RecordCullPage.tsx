@@ -28,7 +28,7 @@ const CULL_REASONS: ReadonlyArray<{ value: CullReason; label: string; emoji: str
 ];
 
 const CULL_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-orange-600 to-cull',
+  headerTone: 'orange',
   accentText: 'text-cull',
   summaryHeaderBg: 'bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-800/50',
   summaryHeaderText: 'text-orange-700 dark:text-orange-300',

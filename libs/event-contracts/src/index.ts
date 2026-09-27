@@ -92,6 +92,7 @@ export * from './upcasters';
 export * from './auth-user-queries';
 export * from './auth-credential-queries';
 export * from './farm-site-access-queries';
+export * from './farm-ai-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

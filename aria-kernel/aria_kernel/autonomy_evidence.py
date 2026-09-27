@@ -28,6 +28,7 @@ from .state_snapshot import (
     SNAPSHOT_MAX_SURFACE_BLOB_BYTES,
 )
 from .state_manifest import normalize_surface_relative_path
+from .state_tree_contract import STATE_BOOTSTRAP_EMPTY_MARKERS
 
 
 EvidenceState = Literal[
@@ -599,11 +600,10 @@ _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
 _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY = 128
 _MAX_DISTINCT_PROOF_TARGETS_GLOBAL = 256
 _GIT_STREAM_TIMEOUT_SECONDS = 30
-_STATE_BOOTSTRAP_EMPTY_MARKERS = frozenset({
-    "findings/.gitkeep",
-    "tools/.gitkeep",
-    "workspace/.gitkeep",
-})
+# Declared once in state_tree_contract: the publish-time healer judges a
+# parent tree by the same marker set this verifier admits, so the two can
+# never disagree about what an empty bootstrap tree may carry.
+_STATE_BOOTSTRAP_EMPTY_MARKERS = STATE_BOOTSTRAP_EMPTY_MARKERS
 
 
 def _proof_cardinality_key(
@@ -924,6 +924,9 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}state_manifest.py",
+            # Native runtime attempts: the reservation that binds a managed
+            # attempt to a claim lives in budget.py (2026-09-11 integration).
+            f"{_KERNEL}budget.py",
             "tools/aria-poc/dispatch_failure.py",
             "tools/aria-poc/claude_runtime.py",
             "tools/aria-poc/ci_executor.py",
@@ -950,6 +953,13 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",
+            # Native runtime attempts (2026-09-11 Codex integration): the
+            # attempt reservation reads results to validate the claim's
+            # dispatch authority before a managed attempt is bound, and the
+            # executor reads the accepted result to reconcile the attempt it
+            # ran — both decide, neither merely observes.
+            f"{_KERNEL}budget.py",
+            "tools/aria-poc/ci_executor.py",
         ),
         contracts=(EvidenceContract(
             surface="agent_invocation_results",
@@ -1014,8 +1024,11 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: bool(row.get("finding_id")),
         ),),
+        # ARIA-HIGH-190: raw_findings is NOT a count surface. It is the
+        # adapters' unbounded pre-dedup stream (57.5 MB live); counting it only
+        # fed a display metric, yet it pushed the counted-surface budget over
+        # _MAX_EVIDENCE_INPUT_BYTES and failed every cycle publish.
         count_surfaces=(
-            "raw_findings",
             "operator_feedback",
             "findings",
             "promotions",
@@ -1086,6 +1099,13 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
+            f"{_KERNEL}turn_budget.py",
+            # The implementer turn cap the seventh predicate compares evidence
+            # against is resolved here (the policy block's ceiling, its
+            # validation and the store-bound read); a change to it changes
+            # what the perimeter admits, exactly as cost_budget.py does for
+            # the dollar caps it resolves from the same policy.
+            f"{_KERNEL}turn_budget_policy.py",
             f"{_KERNEL}state_manifest.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
@@ -1100,6 +1120,8 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
+            f"{_KERNEL}turn_budget.py",
+            f"{_KERNEL}turn_budget_policy.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
         authorizing_consumer_paths=(
@@ -1128,6 +1150,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             ".github/workflows/aria-agent-executor.yml",
             ".github/workflows/aria-agent-eval.yml",
             ".github/workflows/aria-readiness-claim.yml",
+            ".github/workflows/aria-merge-runner.yml",
         ),
         producer_paths=(
             f"{_KERNEL}gh_token_factory.py",
@@ -1141,6 +1164,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             ".github/workflows/aria-agent-executor.yml",
             ".github/workflows/aria-agent-eval.yml",
             ".github/workflows/aria-readiness-claim.yml",
+            ".github/workflows/aria-merge-runner.yml",
         ),
         authorizing_consumer_paths=(
             f"{_KERNEL}auto_merge_runners.py",
@@ -2898,7 +2922,6 @@ class _StreamingEvidenceAccumulator:
 
         self.surface_counts: Counter[str] = Counter()
         self.metrics: Counter[str] = Counter()
-        self.raw_fingerprints: set[str] = set()
         self.promoted_fingerprints: set[str] = set()
         self.autonomy_state = AutonomyStateAccumulator()
         self.acceptance_event_counts: Counter[str] = Counter()
@@ -3015,8 +3038,6 @@ class _StreamingEvidenceAccumulator:
                         if isinstance(details, dict)
                         else 0
                     )
-            elif surface == "raw_findings" and row.get("finding_fingerprint"):
-                self.raw_fingerprints.add(str(row["finding_fingerprint"]))
             elif surface == "operator_feedback" and (
                 row.get("source_type") == "ai_consensus"
                 and row.get("verdict") == "true_positive"
@@ -3131,7 +3152,6 @@ class _StreamingEvidenceAccumulator:
                         f"executor_drain_{name}"
                     ]
             elif capability == "finding_funnel":
-                counts["raw_unique_fingerprints"] = len(self.raw_fingerprints)
                 counts["ai_consensus_true_positive"] = self.metrics[
                     "ai_consensus_true_positive"
                 ]
@@ -3290,12 +3310,6 @@ def _capability_safe_counts(
                 for row in drains
             )
     elif capability == "finding_funnel":
-        raw = rows_by_surface.get("raw_findings", ())
-        counts["raw_unique_fingerprints"] = len({
-            str(row.get("finding_fingerprint"))
-            for row in raw
-            if row.get("finding_fingerprint")
-        })
         counts["ai_consensus_true_positive"] = sum(
             row.get("source_type") == "ai_consensus"
             and row.get("verdict") == "true_positive"

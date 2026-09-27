@@ -39,14 +39,14 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             round_number=1,
             base_dir=self.tools_dir,
         )
-        self.req_c = create_agent_invocation_request(
-            target_agent="aria-implementer",
-            role="implementation",
-            suggested_prompt="C",
-            legacy_strict_fields_optional=True,
-            convergence_id="C-1",
-            round_number=2,
-            base_dir=self.tools_dir,
+        # ARIA-HIGH-104 — an implementation row is never a legacy row: the
+        # request contract refuses one that names no plan revision, so the
+        # third row is minted the way production mints it, on plan "C-1".
+        from tests._helpers.production_shaped import production_implementation_request
+
+        self.req_c = production_implementation_request(
+            tools_dir=self.tools_dir, workspace_root=Path(self.tmp.name) / "workspace",
+            plan_id="C-1", allowed_path="apps/farm-service/src/interval.ts",
         )
 
     def tearDown(self):

@@ -68,16 +68,33 @@ class FaultOwnedCountingTest(unittest.TestCase):
         )
 
     def test_every_executor_release_reason_is_classified(self) -> None:
-        # The executor's release sites are the source of these strings. A new
+        # The executor's RELEASE SITES are the source of these strings. A new
         # reason added there without a classification here is exactly how the
-        # list would go stale, so it is a test failure instead.
-        import re
-        from pathlib import Path
+        # list would go stale, so it is a test failure instead. The reading is
+        # the one shared with the v12 release-site invariant
+        # (`tests/_helpers/release_sites`): `_release_claim(..., reason=...)`
+        # calls — a literal, each branch of a conditional, an f-string prefix,
+        # a pinned name, or a refusal record's `release_reason` whose literal
+        # lives in the module-level `ADMISSION_REFUSALS` / `TASK_BINDING_REFUSAL`
+        # / `IMPLEMENTATION_IDENTITY_REFUSAL` tables (ARIA-HIGH-107, -115) —
+        # never every `reason="..."` in the file: the native fleet's status
+        # observations are admissions, not releases.
+        from tests._helpers.release_sites import REFUSAL_TABLE_NAMES, scan_executor_release_sites
 
-        executor = (
-            Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
-        ).read_text(encoding="utf-8")
-        reasons = set(re.findall(r'reason="([a-z_]+)"', executor))
+        scan = scan_executor_release_sites()
+        reasons = set(scan.literal)
+        self.assertEqual(scan.refusal_tables_seen, set(REFUSAL_TABLE_NAMES),
+                         "the executor's refusal release tables must stay module-level literals this scan can read")
+        self.assertIn("native_runtime_provider_undecided", reasons)
+        self.assertIn("native_runtime_control_unavailable", reasons)
+        # ARIA-HIGH-115 round 2: the identity refusal's literal reached the
+        # claims ledger through a kernel exception's property, which this
+        # scan never read — a wholly unclassified executor release reason
+        # failed no static pin. The site now reads the executor's own table.
+        self.assertIn("implementation_signing_unavailable", reasons)
+        self.assertIn("IMPLEMENTATION_IDENTITY_REFUSAL", scan.attribute_site_names)
+        self.assertGreater(scan.release_sites, 0, "the executor must still release through _release_claim")
+        self.assertGreater(len(reasons), 0, "release sites must carry literal reasons this scan can see")
         classified = HARNESS_FAULT_RELEASE_REASONS | REQUEST_FAULT_RELEASE_REASONS
 
         unclassified = sorted(reasons - classified)
@@ -86,6 +103,36 @@ class FaultOwnedCountingTest(unittest.TestCase):
             [],
             f"release reasons with no fault-ownership classification: {unclassified}",
         )
+
+
+class TheReadingRefusesAnUnrosteredRecordSiteTest(unittest.TestCase):
+    def test_a_release_reason_read_off_an_unrostered_name_is_unreadable(self) -> None:
+        # The round-1 shape of ARIA-HIGH-115: `reason=exc.release_reason`, a
+        # kernel exception's property. Its literal is in no table the scan
+        # reads, so the scan must refuse the site rather than count it.
+        from tests._helpers.release_sites import UnreadableReleaseSite, scan_executor_release_sites
+
+        # Every rostered table must be a module-level literal the reading
+        # sees; the fixture declares each (ARIA-HIGH-124 added the two
+        # delivery refusals to the roster, its round 2 the invalid-request
+        # refusal, its round 3 the delivery's window admission).
+        source = (
+            "ADMISSION_REFUSALS = {'k': _AdmissionRefusalKind(release_reason='a_reason')}\n"
+            "TASK_BINDING_REFUSAL = _AdmissionRefusalKind(release_reason='b_reason')\n"
+            "IMPLEMENTATION_IDENTITY_REFUSAL = _AdmissionRefusalKind(release_reason='c_reason')\n"
+            "DELIVERY_CREDENTIAL_REFUSAL = _AdmissionRefusalKind(release_reason='d_reason')\n"
+            "IMPLEMENTATION_BRANCH_COLLISION_REFUSAL = _AdmissionRefusalKind(release_reason='e_reason')\n"
+            "IMPLEMENTATION_REQUEST_INVALID_REFUSAL = _AdmissionRefusalKind(release_reason='f_reason')\n"
+            "DELIVERY_WINDOW_REFUSAL = _AdmissionRefusalKind(release_reason='g_reason')\n"
+            "def main(exc):\n"
+            "    _release_claim(reason=exc.release_reason)\n"
+        )
+        with self.assertRaisesRegex(UnreadableReleaseSite, "'exc'.*classified by nothing"):
+            scan_executor_release_sites(source)
+        rostered = source.replace("exc.release_reason", "IMPLEMENTATION_IDENTITY_REFUSAL.release_reason")
+        scan = scan_executor_release_sites(rostered)
+        self.assertEqual(scan.literal, {"a_reason", "b_reason", "c_reason", "d_reason", "e_reason", "f_reason", "g_reason"})
+        self.assertEqual(scan.attribute_site_names, {"IMPLEMENTATION_IDENTITY_REFUSAL"})
 
 
 class DerivationHealsRetroactivelyTest(unittest.TestCase):

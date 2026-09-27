@@ -12,7 +12,7 @@
  * button hands the same data to the pure HTML builder and a hidden-iframe
  * print (batchTraceabilityReportExport.ts).
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import React, { useMemo } from 'react';
 
 import type { Batch } from '../../../hooks/useBatches';
@@ -45,17 +45,17 @@ interface BatchTraceabilityTabProps {
 
 /** Chip colours per GraphQL enum KEY of BatchHistoryEventType. */
 const EVENT_CHIP_COLOURS: Record<string, string> = {
-  CREATED: 'bg-blue-100 text-blue-800',
-  STATUS_CHANGED: 'bg-indigo-100 text-indigo-800',
-  ALLOCATED: 'bg-cyan-100 text-cyan-800',
-  TRANSFERRED: 'bg-purple-100 text-purple-800',
-  MORTALITY: 'bg-red-100 text-red-800',
-  CULL: 'bg-orange-100 text-orange-800',
-  FEEDING: 'bg-amber-100 text-amber-800',
-  GROWTH_SAMPLE: 'bg-teal-100 text-teal-800',
-  HARVEST: 'bg-green-100 text-green-800',
-  CLOSED: 'bg-gray-200 text-gray-700',
-  UPDATED: 'bg-gray-100 text-gray-700',
+  CREATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  STATUS_CHANGED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ALLOCATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  TRANSFERRED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  MORTALITY: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  CULL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  FEEDING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  GROWTH_SAMPLE: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  HARVEST: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CLOSED: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+  UPDATED: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
 };
 
 const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) => {
@@ -72,25 +72,27 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
   if (isLoading) {
     return (
-      <div className="animate-pulse text-gray-500">Loading traceability report…</div>
+      <div className="animate-pulse text-gray-500 dark:text-gray-400">
+        Loading traceability report…
+      </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <h2 className="text-lg font-semibold text-red-800">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <h2 className="text-lg font-semibold text-error-800 dark:text-error-200">
           Traceability report could not be loaded
         </h2>
-        <p className="mt-1 text-sm text-red-700">{error.message}</p>
+        <p className="mt-1 text-sm text-error-700 dark:text-error-300">{error.message}</p>
       </div>
     );
   }
 
   if (!traceability) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
-        <p className="text-sm text-gray-500">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           No traceability data is available for this batch.
         </p>
       </div>
@@ -98,6 +100,84 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
   }
 
   const { summary, residencies, feedTotals } = traceability;
+
+  type FeedRow = (typeof feedTotals)[number];
+  const feedRowColumns: DataTableColumn<FeedRow>[] = [
+    {
+      key: 'feed',
+      header: 'Feed',
+      render: (_value, feed) => feed.feedName ?? '—',
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, feed) => feed.feedCode ?? '—',
+    },
+    {
+      key: 'totalKg',
+      header: 'Total (kg)',
+      render: (_value, feed) => formatDecimal(feed.totalKg),
+    },
+    {
+      key: 'totalCost',
+      header: 'Total Cost',
+      render: (_value, feed) =>
+        formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2),
+    },
+  ];
+
+  type ResidencyRow = (typeof residencies)[number];
+  const residencyRowColumns: DataTableColumn<ResidencyRow>[] = [
+    {
+      key: 'tank',
+      header: 'Tank',
+      render: (_value, residency) => (
+        <>
+          <div className="font-medium text-gray-900 dark:text-gray-100">
+            {residency.tankName ?? '—'}
+            {residency.isCurrent && (
+              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+                current
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {residency.tankCode ?? '—'}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'period',
+      header: 'Period',
+      render: (_value, residency) => formatResidencyPeriod(residency),
+    },
+    {
+      key: 'days',
+      header: 'Days',
+      render: (_value, residency) => formatDecimal(residency.durationDays, 0),
+    },
+    {
+      key: 'qtyAtEntry',
+      header: 'Qty at Entry',
+      render: (_value, residency) => formatQuantity(residency.quantityAtEntry),
+    },
+    {
+      key: 'avgWeightAtEntryG',
+      header: 'Avg Weight at Entry (g)',
+      render: (_value, residency) => formatDecimal(residency.avgWeightAtEntryG),
+    },
+    {
+      key: 'waterTempCMinAvgMax',
+      header: 'Water Temp °C (min / avg / max)',
+      render: (_value, residency) => formatWaterTemperature(residency.water),
+    },
+    {
+      key: 'feedKg',
+      header: 'Feed (kg)',
+      render: (_value, residency) => formatDecimal(residency.feedTotalKg),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -117,15 +197,17 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
         <KpiCard
           label="Current Count / Avg Weight"
           value={`${formatQuantity(summary.currentQuantity)} / ${
-            summary.currentAvgWeightG !== null
-              ? `${summary.currentAvgWeightG.toFixed(1)} g`
-              : '—'
+            summary.currentAvgWeightG !== null ? `${summary.currentAvgWeightG.toFixed(1)} g` : '—'
           }`}
         />
         <KpiCard label="Total Feed" value={`${summary.totalFeedKg.toFixed(1)} kg`} />
         <KpiCard
           label="Total Feed Cost"
-          value={summary.totalFeedCostDecimal !== null ? parseMoney(summary.totalFeedCostDecimal).toFixed(2) : '—'}
+          value={
+            summary.totalFeedCostDecimal !== null
+              ? parseMoney(summary.totalFeedCostDecimal).toFixed(2)
+              : '—'
+          }
         />
         <KpiCard
           label="FCR (actual)"
@@ -135,141 +217,76 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
       {/* Residency table — where the fish lived */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Where the fish lived</h3>
-        <p className="text-sm text-gray-500">
-          Every tank this batch stayed in, with water temperature and feed
-          consumption aggregated per stay.
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Where the fish lived
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Every tank this batch stayed in, with water temperature and feed consumption aggregated
+          per stay.
         </p>
-        <div className="mt-3 bg-white border border-gray-200 rounded-lg overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <HeaderCell>Tank</HeaderCell>
-                <HeaderCell>Period</HeaderCell>
-                <HeaderCell>Days</HeaderCell>
-                <HeaderCell>Qty at Entry</HeaderCell>
-                <HeaderCell>Avg Weight at Entry (g)</HeaderCell>
-                <HeaderCell>Water Temp °C (min / avg / max)</HeaderCell>
-                <HeaderCell>Feed (kg)</HeaderCell>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {residencies.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
-                    No tank residencies recorded.
-                  </td>
-                </tr>
-              ) : (
-                residencies.map((residency) => (
-                  <tr key={`${residency.tankId}-${residency.movedAt}`}>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-gray-900">
-                        {residency.tankName ?? '—'}
-                        {residency.isCurrent && (
-                          <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                            current
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500">{residency.tankCode ?? '—'}</div>
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatResidencyPeriod(residency)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.durationDays, 0)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatQuantity(residency.quantityAtEntry)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.avgWeightAtEntryG)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatWaterTemperature(residency.water)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.feedTotalKg)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ResidencyRow>
+          data={residencies}
+          columns={residencyRowColumns}
+          keyExtractor={(residency) => `${residency.tankId}-${residency.movedAt}`}
+          emptyMessage="No tank residencies recorded."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       </section>
 
       {/* Feed totals */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Feed totals</h3>
-        <div className="mt-3 bg-white border border-gray-200 rounded-lg overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <HeaderCell>Feed</HeaderCell>
-                <HeaderCell>Code</HeaderCell>
-                <HeaderCell>Total (kg)</HeaderCell>
-                <HeaderCell>Total Cost</HeaderCell>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {feedTotals.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
-                    No feed consumption recorded.
-                  </td>
-                </tr>
-              ) : (
-                feedTotals.map((feed) => (
-                  <tr key={feed.feedId}>
-                    <td className="px-3 py-2 font-medium text-gray-900">
-                      {feed.feedName ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">{feed.feedCode ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700">{formatDecimal(feed.totalKg)}</td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Feed totals</h3>
+        <DataTable<FeedRow>
+          data={feedTotals}
+          columns={feedRowColumns}
+          keyExtractor={(feed) => feed.feedId}
+          emptyMessage="No feed consumption recorded."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       </section>
 
       {/* Events timeline */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Events timeline</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Events timeline</h3>
         {sortedEvents.length === 0 ? (
-          <div className="mt-3 bg-white border border-gray-200 rounded-lg p-6 text-center">
-            <p className="text-sm text-gray-500">No events recorded for this batch.</p>
+          <div className="mt-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No events recorded for this batch.
+            </p>
           </div>
         ) : (
           <ol className="mt-3 space-y-2">
             {sortedEvents.map((event) => (
               <li
                 key={event.id}
-                className="bg-white border border-gray-200 rounded-lg p-3"
+                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${
-                      EVENT_CHIP_COLOURS[event.eventType] ?? 'bg-gray-100 text-gray-700'
+                      EVENT_CHIP_COLOURS[event.eventType] ??
+                      'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
                     {formatEventTypeLabel(event.eventType)}
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {formatTraceabilityDateTime(event.timestamp)}
                   </span>
                   {event.tankCode && (
-                    <span className="text-xs text-gray-500">· {event.tankCode}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      · {event.tankCode}
+                    </span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-gray-700">{event.description}</p>
-                <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500">
+                <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{event.description}</p>
+                <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
                   {event.quantityChange !== null && (
                     <span>Qty change: {formatSignedNumber(event.quantityChange)}</span>
                   )}
@@ -293,43 +310,43 @@ const SummaryHeader: React.FC<{ traceability: BatchTraceability }> = ({ traceabi
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           Traceability — {summary.batchNumber}
         </h2>
-        <p className="text-sm text-gray-500">
-          Status: <span className="font-medium text-gray-700">{summary.status}</span>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Status:{' '}
+          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.status}</span>
           {' · '}Species:{' '}
-          <span className="font-medium text-gray-700">{summary.speciesName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            {summary.speciesName ?? '—'}
+          </span>
           {' · '}Protocol:{' '}
-          <span className="font-medium text-gray-700">{summary.protocolName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            {summary.protocolName ?? '—'}
+          </span>
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Stocked {formatTraceabilityDate(summary.stockedAt)}
           {summary.harvestedAt && ` · Harvested ${formatTraceabilityDate(summary.harvestedAt)}`}
         </p>
       </div>
-      <button
+      <Button
+        variant="primary"
+        size="sm"
         type="button"
         onClick={() => printBatchTraceabilityReport(traceability)}
-        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
       >
         Print report
-      </button>
+      </Button>
     </div>
   );
 };
 
 const KpiCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="bg-white border border-gray-200 rounded-lg p-3">
-    <div className="text-xs font-semibold text-gray-500 uppercase">{label}</div>
-    <div className="mt-1 text-base font-medium text-gray-900">{value}</div>
+  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">{label}</div>
+    <div className="mt-1 text-base font-medium text-gray-900 dark:text-gray-100">{value}</div>
   </div>
-);
-
-const HeaderCell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">
-    {children}
-  </th>
 );
 
 export default BatchTraceabilityTab;

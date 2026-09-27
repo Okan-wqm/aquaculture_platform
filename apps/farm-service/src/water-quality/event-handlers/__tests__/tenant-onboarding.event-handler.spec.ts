@@ -11,6 +11,7 @@
  *   - getEventType returns 'TenantOnboardingRequested'
  */
 import { getRequestContext } from '@aquaculture/backend-common/logging';
+import { collaborator } from '@platform/testing';
 
 import { TenantOnboardingEventHandler } from '../tenant-onboarding.event-handler';
 import { WaterQualityParameterConfigSeederService } from '../../services/water-quality-parameter-config-seeder.service';
@@ -19,6 +20,7 @@ import { FeedingProtocolSeederService } from '../../../feed/services/feeding-pro
 import { RegulatorySettingsSeederService } from '../../../regulatory/services/regulatory-settings-seeder.service';
 import { EquipmentTypeCatalogCheckerService } from '../../../equipment/services/equipment-type-catalog-checker.service';
 import { FinanceCategorySeedService } from '../../../finance/services/finance-category-seed.service';
+import { FeedingReadinessCheckerService } from '../../../feeding-protocol/services/feeding-readiness-checker.service';
 import type {
   TenantOnboardingAckEvent,
   TenantOnboardingFailedEvent,
@@ -139,8 +141,13 @@ function makeHandler(opts: {
     species as unknown as SpeciesSeederService,
     protocol as unknown as FeedingProtocolSeederService,
     // W8/FARM-MEDIUM-284 — v2 hazırlık kontrolü (satır yazmaz, ölçer).
-    // Handler'ın tipi `Pick<…,'check'>` olduğu için double CAST'SIZ oturur.
-    feedingReadiness,
+    // Handler'ın parametresi artık sınıfın kendisi (Nest'in çözebileceği tek
+    // tip; `Pick<…>` metadata'da `Object` bırakıyordu — 2026-09-20 kesintisi);
+    // double, tipli collaborator ile CAST'SIZ oturur.
+    collaborator<FeedingReadinessCheckerService>(
+      feedingReadiness,
+      'FeedingReadinessCheckerService',
+    ),
     regulatory as unknown as RegulatorySettingsSeederService,
     equipment as unknown as EquipmentTypeCatalogCheckerService,
     financeSeederDouble(finance),

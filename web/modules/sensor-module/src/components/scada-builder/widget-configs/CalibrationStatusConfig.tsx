@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
@@ -27,10 +28,8 @@ export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, o
     <div className="space-y-3">
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">Sensors</label>
-          <button onClick={addSensor} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Add Sensor
-          </button>
+          <label className="text-xs text-gray-500 dark:text-gray-400">Sensors</label>
+          <Button variant="ghost" size="xs" onClick={addSensor}>+ Add Sensor</Button>
         </div>
         <div className="space-y-1">
           {sensors.map((sensor, i) => (
@@ -41,16 +40,11 @@ export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, o
                 onChange={(val) => updateSensor(i, val)}
                 placeholder="Select tag..."
               />
-              <button
-                onClick={() => removeSensor(i)}
-                className="text-red-400 hover:text-red-600 text-xs px-1"
-              >
-                X
-              </button>
+              <Button variant="ghost" size="xs" onClick={() => removeSensor(i)}>X</Button>
             </div>
           ))}
           {sensors.length === 0 && (
-            <p className="text-xs text-gray-500">No sensors added yet</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">No sensors added yet</p>
           )}
         </div>
       </div>

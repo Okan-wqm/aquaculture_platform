@@ -13,7 +13,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   AllocationType,
@@ -54,8 +54,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
   const [tankId, setTankId] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(0);
   const [avgWeightG, setAvgWeightG] = useState<number>(0);
-  const [allocationType, setAllocationType] =
-    useState<AllocationType>('INITIAL_STOCKING');
+  const [allocationType, setAllocationType] = useState<AllocationType>('INITIAL_STOCKING');
   const [notes, setNotes] = useState<string>('');
 
   const availableTanks = useAvailableTanks({
@@ -71,10 +70,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
     [availableTanks.data, tankId],
   );
 
-  const projectedBiomassKg = useMemo(
-    () => (quantity * avgWeightG) / 1000,
-    [quantity, avgWeightG],
-  );
+  const projectedBiomassKg = useMemo(() => (quantity * avgWeightG) / 1000, [quantity, avgWeightG]);
 
   const errors = useMemo(() => {
     const errs: string[] = [];
@@ -92,14 +88,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
       );
     }
     return errs;
-  }, [
-    tankId,
-    quantity,
-    availableBatchQuantity,
-    avgWeightG,
-    selectedTank,
-    projectedBiomassKg,
-  ]);
+  }, [tankId, quantity, availableBatchQuantity, avgWeightG, selectedTank, projectedBiomassKg]);
 
   const isValid = errors.length === 0;
 
@@ -131,8 +120,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
       onSuccess?.();
       onClose();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to allocate batch to tank.';
+      const message = error instanceof Error ? error.message : 'Failed to allocate batch to tank.';
       toast({ title: 'Error', description: message, variant: 'error' });
     }
   };
@@ -145,13 +133,13 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Allocate Batch to Tank" size="md">
       <div className="space-y-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-500">Batch</p>
-          <p className="font-medium text-gray-900">{batchNumber}</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
           {availableBatchQuantity > 0 && (
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
               Unassigned stock:{' '}
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {availableBatchQuantity.toLocaleString()}
               </span>
             </p>
@@ -159,101 +147,94 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label htmlFor="target-tank" className="block text-sm font-medium text-gray-700">
-              Destination tank <span className="text-orange-500">*</span>
-            </label>
-            <select
-              id="target-tank"
-              value={tankId}
-              onChange={(e) => setTankId(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            >
-              <option value="">— Choose a tank —</option>
-              {availableTanks.data?.map((tank) => (
-                <option key={tank.id} value={tank.id}>
-                  {tank.name} ({tank.code}) — {tank.availableCapacity.toFixed(0)} kg free
-                </option>
-              ))}
-            </select>
-            {availableTanks.isLoading && (
-              <p className="mt-1 text-xs text-gray-500">Loading tanks…</p>
-            )}
-          </div>
+          <Select
+            id="target-tank"
+            label="Destination tank"
+            required
+            placeholder="— Choose a tank —"
+            value={tankId}
+            onChange={(e) => setTankId(e.target.value)}
+            helperText={availableTanks.isLoading ? 'Loading tanks…' : undefined}
+            options={(availableTanks.data ?? []).map((tank) => ({
+              value: tank.id,
+              label: `${tank.name} (${tank.code}) — ${tank.availableCapacity.toFixed(0)} kg free`,
+            }))}
+          />
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="alloc-quantity" className="block text-sm font-medium text-gray-700">
-                Quantity <span className="text-orange-500">*</span>
+              <label
+                htmlFor="alloc-quantity"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Quantity <span className="text-accent-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 type="number"
                 id="alloc-quantity"
                 min={1}
                 value={quantity || ''}
                 onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               />
             </div>
             <div>
-              <label htmlFor="alloc-weight" className="block text-sm font-medium text-gray-700">
-                Avg weight (g) <span className="text-orange-500">*</span>
+              <label
+                htmlFor="alloc-weight"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Avg weight (g) <span className="text-accent-500">*</span>
               </label>
-              <input
+              <Input
+                fullWidth
                 type="number"
                 id="alloc-weight"
                 min={0}
                 step="0.1"
                 value={avgWeightG || ''}
                 onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               />
             </div>
           </div>
 
-          <div>
-            <label htmlFor="alloc-type" className="block text-sm font-medium text-gray-700">
-              Allocation type
-            </label>
-            <select
-              id="alloc-type"
-              value={allocationType}
-              onChange={(e) => setAllocationType(e.target.value as AllocationType)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            >
-              {ALLOCATION_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="alloc-type"
+            label="Allocation type"
+            value={allocationType}
+            onChange={(e) => setAllocationType(e.target.value as AllocationType)}
+            options={ALLOCATION_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
 
           <div>
-            <label htmlFor="alloc-notes" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="alloc-notes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Notes (optional)
             </label>
-            <textarea
+            <Textarea
+              fullWidth
               id="alloc-notes"
               rows={2}
               maxLength={500}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>
 
         {projectedBiomassKg > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-blue-900">Projected biomass</span>
-              <span className="text-lg font-bold text-blue-700">
+              <span className="text-sm font-medium text-info-900 dark:text-info-100">
+                Projected biomass
+              </span>
+              <span className="text-lg font-bold text-info-700 dark:text-info-300">
                 {projectedBiomassKg.toFixed(2)} kg
               </span>
             </div>
             {selectedTank && (
-              <p className="mt-1 text-xs text-blue-700">
+              <p className="mt-1 text-xs text-info-700 dark:text-info-300">
                 Tank capacity remaining after allocation:{' '}
                 {(selectedTank.availableCapacity - projectedBiomassKg).toFixed(1)} kg
               </p>
@@ -262,8 +243,8 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
         )}
 
         {errors.length > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -279,7 +260,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || allocate.isPending}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {allocate.isPending ? 'Allocating…' : 'Allocate to tank'}
           </Button>

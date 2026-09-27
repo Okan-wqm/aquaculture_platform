@@ -6,16 +6,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card } from '@aquaculture/shared-ui';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { Card, chartChrome, colors, Button, ChartTooltipContent } from '@aquaculture/shared-ui';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { TrendUpIcon } from '../components/icons';
 import { useHarvestStatistics } from '../hooks/useDashboardData';
@@ -28,16 +20,22 @@ export interface ProductionChartProps {
 
 // Month labels (Turkish abbreviations)
 const MONTH_LABELS = [
-  '', 'Oca', 'Sub', 'Mar', 'Nis', 'May', 'Haz',
-  'Tem', 'Agu', 'Eyl', 'Eki', 'Kas', 'Ara',
+  '',
+  'Oca',
+  'Sub',
+  'Mar',
+  'Nis',
+  'May',
+  'Haz',
+  'Tem',
+  'Agu',
+  'Eyl',
+  'Eki',
+  'Kas',
+  'Ara',
 ];
 
 // PERF-M1: tooltip style hoisted to module scope
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
-  borderRadius: '8px',
-};
 
 export const ProductionChart: React.FC<ProductionChartProps> = ({
   farmId,
@@ -69,9 +67,9 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-4" />
-          <div className="h-32 bg-gray-200 rounded" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4" />
+          <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
       </Card>
     );
@@ -81,16 +79,18 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
   if (harvestQuery.isError) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-500">
-          <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-red-400" />
-          <p className="text-sm font-medium text-red-500">Uretim verileri yuklenemedi</p>
-          <button
+        <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+          <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-error-400" />
+          <p className="text-sm font-medium text-error-500">Uretim verileri yuklenemedi</p>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="mt-2"
             type="button"
             onClick={() => harvestQuery.refetch()}
-            className="text-xs text-primary-600 font-medium hover:underline mt-2"
           >
             Tekrar Dene
-          </button>
+          </Button>
         </div>
       </Card>
     );
@@ -100,7 +100,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
   if (chartData.length === 0) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <TrendUpIcon className="w-8 h-8 mx-auto mb-2" />
           <p className="text-sm font-medium">Uretim Grafigi</p>
           {farmId && <p className="text-xs mt-1">Ciftlik: {farmId.slice(0, 8)}</p>}
@@ -115,28 +115,23 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
     <Card className={`p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Uretim Grafigi</h3>
-          <p className="text-2xl font-bold text-gray-900">{totalTons} Ton</p>
-          <p className="text-xs text-gray-500">{totalHarvests} hasat</p>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Uretim Grafigi</h3>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalTons} Ton</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{totalHarvests} hasat</p>
         </div>
-        <TrendUpIcon className="w-6 h-6 text-primary-600" />
+        <TrendUpIcon className="w-6 h-6 text-primary-600 dark:text-primary-400" />
       </div>
 
       <ResponsiveContainer width="100%" height={120}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-          <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="#6b7280" />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} vertical={false} />
+          <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke={chartChrome.axis} />
           <YAxis hide />
           <Tooltip
-            contentStyle={tooltipStyle}
+            content={<ChartTooltipContent />}
             formatter={(value: number) => [`${value} Ton`, 'Uretim']}
           />
-          <Bar
-            dataKey="uretim"
-            fill="#0073e6"
-            radius={[2, 2, 0, 0]}
-            maxBarSize={24}
-          />
+          <Bar dataKey="uretim" fill={colors.primary[500]} radius={[2, 2, 0, 0]} maxBarSize={24} />
         </BarChart>
       </ResponsiveContainer>
     </Card>

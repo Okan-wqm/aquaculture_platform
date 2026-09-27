@@ -42,6 +42,20 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 HUMAN_REQUIRED_RECORD_WAIT_SECONDS: float = STATE_LOCK_LIVENESS_SECONDS + NOTIFY_WORST_CASE_SECONDS
 
 
+# ARIA-HIGH-124 (round 3) — the context kind of every escalation the
+# EXECUTOR records for a request it holds (`tools/aria-poc/ci_executor.py`
+# `_record_human_required`): a branch collision, an invalid request row, a
+# delivery refusal, the agent's own refusal envelope, a model refusal. The
+# machine ids (`branch`, `base_sha`, `claim_id`, the refusal's detail) ride
+# the record's `context` under this kind, never the reason's prose — the
+# operator CLI's free-text `--reason` validator refused ids carrying ten
+# consecutive digits as phone numbers, and the executor no longer goes
+# through it. Deliberately NOT in
+# `human_required_adjudication.ADJUDICABLE_CONTEXT_KINDS`: an unadmitted
+# kind is irreducible by construction, and each of these is a person's
+# decision (deliver or delete a branch, re-stage a plan, read a refusal).
+EXECUTOR_ESCALATION_KIND: str = "executor_escalation"
+
 # Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
 # MEDIUM gets 7 days; everything else falls back to 14 days.
 SLA_WINDOWS = {
@@ -60,6 +74,25 @@ def _human_required_dir(tools_root: Path) -> Path:
 
 def _human_required_path(tools_root: Path, request_id: str) -> Path:
     return _human_required_dir(tools_root) / f"{request_id}.json"
+
+
+def open_human_required_record(request_id: str, *, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """The request's HUMAN_REQUIRED record while it is OPEN (no
+    ``resolved_at``), else None. ARIA-HIGH-124 (round 2) — the claim
+    release reads it: a request an executor escalated (the record is
+    written before the release) derives HUMAN_REQUIRED from that release,
+    not after two more wasted claims. A resolved record is a closed
+    episode and binds nothing."""
+    path = _human_required_path(ensure_tools_dir(base_dir), request_id)
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(record, dict) or record.get("resolved_at"):
+        return None
+    return record
 
 
 def _resolve_severity(severity: str | None) -> str:
@@ -580,7 +613,19 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Z2c — a passing consensus below the calibrated conformal floor is a
     # statistically-guaranteed "too uncertain to auto-accept" signal.
     "conformal_abstain": "HIGH",
+    # ARIA-MEDIUM-164 — an anchor-grade group whose observer has no model
+    # identity: the anchor's distinct-model guarantee cannot be checked.
+    # Emitted since Plan 024 and dropped as benign until it was named here.
+    "observer_identity_missing": "HIGH",
+    # Typed-judgment plan Phase 6 — the agreeing judges did not include two
+    # calibrated judges of distinct models. Labelling work, not adjudication:
+    # the label queue reads it first; the sweep records at most
+    # `max_uncalibrated_escalations_per_cycle` of them per sweep so the day
+    # `enforce` switches on cannot flood the escalation ledger.
+    "confidence_uncalibrated": "LOW",
 }
+CAPPED_UNCERTAINTY_REASONS: tuple[str, ...] = ("confidence_uncalibrated",)
+DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP: int = 5
 
 
 def _consensus_uncertainties_path(tools_root: Path) -> Path:
@@ -591,6 +636,7 @@ def sweep_consensus_uncertainties_for_human_required(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    max_uncalibrated_escalations: int = DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP,
 ) -> dict[str, list[dict[str, Any]]]:
     """Drain ``feedback-consensus-uncertainties.jsonl`` into HUMAN_REQUIRED.
 
@@ -607,6 +653,7 @@ def sweep_consensus_uncertainties_for_human_required(
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen_escalations: set[str] = set()
+    capped_created: dict[str, int] = {}
     # E14 — arbitration first, the operator as the fallback. A split verdict
     # now mints a `consensus_arbitration` envelope (judge_fanout), and that
     # arbiter is one of the three agents this escalation's adjudication panel
@@ -648,6 +695,11 @@ def sweep_consensus_uncertainties_for_human_required(
             if _human_required_path(root, escalation_id).exists():
                 skipped.append({"request_id": escalation_id, "reason": "already_recorded"})
                 continue
+            if reason in CAPPED_UNCERTAINTY_REASONS and capped_created.get(reason, 0) >= max_uncalibrated_escalations:
+                skipped.append({"request_id": escalation_id, "reason": reason, "kind": "sweep_cap_reached"})
+                continue
+            if reason in CAPPED_UNCERTAINTY_REASONS:
+                capped_created[reason] = capped_created.get(reason, 0) + 1
             record = record_human_required(
                 request_id=escalation_id,
                 severity=severity,

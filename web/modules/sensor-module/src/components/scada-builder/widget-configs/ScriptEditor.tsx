@@ -14,12 +14,13 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
+import { Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Trash2, Play, ChevronDown, ChevronRight, Power, BookOpen } from 'lucide-react';
 import type { ScadaScript } from '../../../engine/events/types';
 
 /** Shared input class to match existing panel styling. */
 const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 interface ScriptEditorProps {
   script: ScadaScript;
@@ -115,41 +116,43 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     <div className="space-y-2" data-testid="script-editor">
       {/* Header: name + enabled toggle + delete */}
       <div className="flex items-center gap-2">
-        <input
+        <Input
           type="text"
           value={script.name}
           onChange={(e) => onChange({ name: e.target.value })}
           placeholder="Script name"
-          className="flex-1 px-2 py-1.5 text-xs font-medium border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           data-testid="script-name-input"
         />
         <button
           onClick={() => onChange({ enabled: !script.enabled })}
           className={`p-1.5 rounded-lg border transition-colors ${
             script.enabled
-              ? 'bg-green-50 border-green-300 text-green-600'
-              : 'bg-gray-50 border-gray-300 text-gray-400'
+              ? 'bg-success-50 dark:bg-success-900/20 border-success-300 dark:border-success-700 text-success-600 dark:text-success-400'
+              : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500'
           }`}
           title={script.enabled ? 'Disable script' : 'Enable script'}
           data-testid="script-enabled-toggle"
         >
           <Power className="w-3.5 h-3.5" />
         </button>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
+          iconOnly
+          aria-label="Delete script"
           onClick={onDelete}
-          className="p-1.5 text-red-400 hover:text-red-600 rounded-lg border border-gray-200 hover:border-red-200 transition-colors"
           title="Delete script"
           data-testid="script-delete-btn"
         >
           <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
 
       {/* Code editor with line number gutter */}
-      <div className="relative flex border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-cyan-500 focus-within:border-cyan-500">
+      <div className="relative flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-info-500 focus-within:border-info-500">
         {/* Line number gutter -- read-only, styled to match textarea lines */}
         <div
-          className="flex-shrink-0 bg-gray-100 text-gray-400 text-right select-none px-2 py-2 text-xs leading-[1.375rem] font-mono border-r border-gray-300"
+          className="flex-shrink-0 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 text-right select-none px-2 py-2 text-xs leading-[1.375rem] font-mono border-r border-gray-300 dark:border-gray-600"
           aria-hidden="true"
           data-testid="line-numbers"
         >
@@ -157,16 +160,15 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
             <div key={i}>{i + 1}</div>
           ))}
         </div>
-        <textarea
+        <Textarea
+          className="font-mono resize-y"
           ref={textareaRef}
           value={script.code}
           onChange={(e) => onChange({ code: e.target.value })}
           onKeyDown={handleKeyDown}
           rows={12}
           spellCheck={false}
-          className="flex-1 px-3 py-2 text-xs font-mono leading-[1.375rem] resize-y border-none focus:outline-hidden focus:ring-0"
           placeholder="// Write your script here..."
-          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
           data-testid="script-code-textarea"
         />
       </div>
@@ -175,7 +177,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       <div className="flex items-center justify-between">
         <button
           onClick={handleTestClick}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg hover:bg-info-100 dark:hover:bg-info-900/50 transition-colors"
           data-testid="script-test-btn"
         >
           <Play className="w-3 h-3" />
@@ -184,38 +186,37 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
         {lastRunStatus && (
           <span
             className={`text-[10px] font-mono ${
-              lastRunStatus.success ? 'text-green-600' : 'text-red-600'
+              lastRunStatus.success
+                ? 'text-success-600 dark:text-success-400'
+                : 'text-error-600 dark:text-error-400'
             }`}
             data-testid="script-run-status"
           >
-            {lastRunStatus.success ? 'OK' : 'ERR'}: {lastRunStatus.message} ({lastRunStatus.durationMs}ms)
+            {lastRunStatus.success ? 'OK' : 'ERR'}: {lastRunStatus.message} (
+            {lastRunStatus.durationMs}ms)
           </span>
         )}
       </div>
 
       {/* Collapsible API reference */}
-      <div className="pt-1 border-t border-gray-200">
-        <button
+      <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
+        <Button
+          variant="ghost"
           onClick={() => setShowApiRef(!showApiRef)}
-          className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
           data-testid="api-ref-toggle"
         >
-          {showApiRef ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
+          {showApiRef ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <BookOpen className="w-3 h-3" />
           Sandbox API Reference
-        </button>
+        </Button>
         {showApiRef && (
           <div className="mt-1 space-y-0.5" data-testid="api-ref-panel">
             {API_REFERENCE.map((item) => (
               <div key={item.fn} className="flex items-baseline gap-2 text-[10px]">
-                <code className="text-cyan-700 font-mono whitespace-nowrap bg-cyan-50 px-1 rounded">
+                <code className="text-info-700 dark:text-info-300 font-mono whitespace-nowrap bg-info-50 dark:bg-info-900/20 px-1 rounded">
                   {item.fn}
                 </code>
-                <span className="text-gray-500">{item.desc}</span>
+                <span className="text-gray-500 dark:text-gray-400">{item.desc}</span>
               </div>
             ))}
           </div>

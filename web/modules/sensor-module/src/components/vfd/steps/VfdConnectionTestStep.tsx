@@ -7,6 +7,8 @@ import {
   VFD_PROTOCOL_NAMES,
   VFD_PARAMETER_UNITS,
 } from '../../../types/vfd.types';
+import { Spinner } from '@aquaculture/shared-ui';
+import { CircleCheck, CircleX, RefreshCw, Zap } from 'lucide-react';
 
 interface VfdConnectionTestStepProps {
   protocol: VfdProtocol;
@@ -28,19 +30,23 @@ export function VfdConnectionTestStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Bağlantı Testi</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+          Bağlantı Testi
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           VFD cihazınızla bağlantıyı test edin. Başarılı bir test, cihazın doğru yapılandırıldığını
           doğrular.
         </p>
       </div>
 
       {/* Configuration Summary */}
-      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <h4 className="text-sm font-medium text-gray-700 mb-3">Yapılandırma Özeti</h4>
+      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Yapılandırma Özeti
+        </h4>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
           <div>
-            <span className="text-gray-500">Protokol:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Protokol:</span>{' '}
             <span className="font-medium">{VFD_PROTOCOL_NAMES[protocol]}</span>
           </div>
           {renderConfigSummary(protocol, config)}
@@ -56,66 +62,30 @@ export function VfdConnectionTestStep({
             isTestingConnection
               ? 'bg-gray-400 cursor-not-allowed'
               : testResult?.success
-              ? 'bg-green-600 hover:bg-green-700'
-              : testResult?.success === false
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-blue-600 hover:bg-blue-700'
+                ? 'bg-success-600 hover:bg-success-700'
+                : testResult?.success === false
+                  ? 'bg-error-600 hover:bg-error-700'
+                  : 'bg-info-600 hover:bg-info-700'
           }`}
         >
           {isTestingConnection ? (
             <span className="flex items-center">
-              <svg
-                className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
+              <Spinner size="md" color="white" className="-ml-1 mr-3" />
               Bağlantı Test Ediliyor...
             </span>
           ) : testResult?.success ? (
             <span className="flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
               Tekrar Test Et
             </span>
           ) : testResult?.success === false ? (
             <span className="flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <RefreshCw className="w-5 h-5 mr-2" aria-hidden="true" />
               Tekrar Dene
             </span>
           ) : (
             <span className="flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <Zap className="w-5 h-5 mr-2" aria-hidden="true" />
               Bağlantıyı Test Et
             </span>
           )}
@@ -127,26 +97,25 @@ export function VfdConnectionTestStep({
         <div
           className={`p-6 rounded-lg border ${
             testResult.success
-              ? 'bg-green-50 border-green-200'
-              : 'bg-red-50 border-red-200'
+              ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+              : 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
           }`}
         >
           {testResult.success ? (
             <div className="space-y-4">
               {/* Success Header */}
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
-                  <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                <div className="w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mr-4">
+                  <CircleCheck
+                    className="w-6 h-6 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <h4 className="text-lg font-semibold text-green-800">Bağlantı Başarılı!</h4>
-                  <p className="text-sm text-green-600">
+                  <h4 className="text-lg font-semibold text-success-800 dark:text-success-200">
+                    Bağlantı Başarılı!
+                  </h4>
+                  <p className="text-sm text-success-600 dark:text-success-400">
                     VFD cihazı ile iletişim kuruldu.
                     {testResult.latencyMs && ` Gecikme: ${testResult.latencyMs}ms`}
                   </p>
@@ -155,24 +124,26 @@ export function VfdConnectionTestStep({
 
               {/* Device Info */}
               {testResult.deviceInfo && (
-                <div className="bg-white rounded-lg p-4 border border-green-200">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Cihaz Bilgileri</h5>
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Cihaz Bilgileri
+                  </h5>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                     {testResult.deviceInfo.manufacturer && (
                       <div>
-                        <span className="text-gray-500">Üretici:</span>{' '}
+                        <span className="text-gray-500 dark:text-gray-400">Üretici:</span>{' '}
                         <span className="font-medium">{testResult.deviceInfo.manufacturer}</span>
                       </div>
                     )}
                     {testResult.deviceInfo.model && (
                       <div>
-                        <span className="text-gray-500">Model:</span>{' '}
+                        <span className="text-gray-500 dark:text-gray-400">Model:</span>{' '}
                         <span className="font-medium">{testResult.deviceInfo.model}</span>
                       </div>
                     )}
                     {testResult.firmwareVersion && (
                       <div>
-                        <span className="text-gray-500">Firmware:</span>{' '}
+                        <span className="text-gray-500 dark:text-gray-400">Firmware:</span>{' '}
                         <span className="font-medium">{testResult.firmwareVersion}</span>
                       </div>
                     )}
@@ -182,8 +153,10 @@ export function VfdConnectionTestStep({
 
               {/* Sample Data */}
               {testResult.sampleData && Object.keys(testResult.sampleData).length > 0 && (
-                <div className="bg-white rounded-lg p-4 border border-green-200">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Anlık Parametreler</h5>
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Anlık Parametreler
+                  </h5>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {Object.entries(testResult.sampleData).map(([key, value]) => (
                       <ParameterCard
@@ -199,8 +172,10 @@ export function VfdConnectionTestStep({
 
               {/* Status Bits */}
               {testResult.statusBits && Object.keys(testResult.statusBits).length > 0 && (
-                <div className="bg-white rounded-lg p-4 border border-green-200">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Durum Bilgileri</h5>
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Durum Bilgileri
+                  </h5>
                   <div className="flex flex-wrap gap-2">
                     {Object.entries(testResult.statusBits).map(([key, value]) => (
                       <StatusBit key={key} name={key} active={value as boolean} />
@@ -211,24 +186,28 @@ export function VfdConnectionTestStep({
 
               {/* Diagnostics */}
               {testResult.diagnostics && (
-                <div className="bg-white rounded-lg p-4 border border-green-200">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">İletişim İstatistikleri</h5>
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-success-200">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    İletişim İstatistikleri
+                  </h5>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div>
-                      <span className="text-gray-500">Gönderilen:</span>{' '}
+                      <span className="text-gray-500 dark:text-gray-400">Gönderilen:</span>{' '}
                       <span className="font-medium">{testResult.diagnostics.packetsSent}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Alınan:</span>{' '}
+                      <span className="text-gray-500 dark:text-gray-400">Alınan:</span>{' '}
                       <span className="font-medium">{testResult.diagnostics.packetsReceived}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Ort. Gecikme:</span>{' '}
+                      <span className="text-gray-500 dark:text-gray-400">Ort. Gecikme:</span>{' '}
                       <span className="font-medium">{testResult.diagnostics.averageLatency}ms</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Hatalar:</span>{' '}
-                      <span className={`font-medium ${testResult.diagnostics.communicationErrors > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      <span className="text-gray-500 dark:text-gray-400">Hatalar:</span>{' '}
+                      <span
+                        className={`font-medium ${testResult.diagnostics.communicationErrors > 0 ? 'text-error-600 dark:text-error-400' : 'text-success-600 dark:text-success-400'}`}
+                      >
                         {testResult.diagnostics.communicationErrors}
                       </span>
                     </div>
@@ -240,18 +219,17 @@ export function VfdConnectionTestStep({
             <div className="space-y-4">
               {/* Error Header */}
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
-                  <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                <div className="w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mr-4">
+                  <CircleX
+                    className="w-6 h-6 text-error-600 dark:text-error-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <h4 className="text-lg font-semibold text-red-800">Bağlantı Başarısız</h4>
-                  <p className="text-sm text-red-600">
+                  <h4 className="text-lg font-semibold text-error-800 dark:text-error-200">
+                    Bağlantı Başarısız
+                  </h4>
+                  <p className="text-sm text-error-600 dark:text-error-400">
                     {testResult.error || 'VFD cihazı ile bağlantı kurulamadı.'}
                   </p>
                 </div>
@@ -259,40 +237,48 @@ export function VfdConnectionTestStep({
 
               {/* Error Code */}
               {testResult.errorCode && (
-                <div className="bg-white rounded-lg p-4 border border-red-200">
+                <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-error-200">
                   <p className="text-sm">
-                    <span className="text-gray-500">Hata Kodu:</span>{' '}
-                    <span className="font-mono font-medium text-red-600">{testResult.errorCode}</span>
+                    <span className="text-gray-500 dark:text-gray-400">Hata Kodu:</span>{' '}
+                    <span className="font-mono font-medium text-error-600 dark:text-error-400">
+                      {testResult.errorCode}
+                    </span>
                   </p>
                 </div>
               )}
 
               {/* Troubleshooting Tips */}
-              <div className="bg-white rounded-lg p-4 border border-red-200">
-                <h5 className="text-sm font-medium text-gray-700 mb-2">Kontrol Edilecekler:</h5>
-                <ul className="space-y-1 text-sm text-gray-600">
+              <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-error-200">
+                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Kontrol Edilecekler:
+                </h5>
+                <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                   <li className="flex items-center">
-                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
+                    <CircleCheck
+                      className="w-4 h-4 mr-2 text-gray-500 dark:text-gray-400"
+                      aria-hidden="true"
+                    />
                     Kablo bağlantılarını kontrol edin
                   </li>
                   <li className="flex items-center">
-                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
+                    <CircleCheck
+                      className="w-4 h-4 mr-2 text-gray-500 dark:text-gray-400"
+                      aria-hidden="true"
+                    />
                     VFD cihazının iletişim ayarlarını doğrulayın
                   </li>
                   <li className="flex items-center">
-                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
+                    <CircleCheck
+                      className="w-4 h-4 mr-2 text-gray-500 dark:text-gray-400"
+                      aria-hidden="true"
+                    />
                     Slave ID / Unit ID değerini kontrol edin
                   </li>
                   <li className="flex items-center">
-                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
+                    <CircleCheck
+                      className="w-4 h-4 mr-2 text-gray-500 dark:text-gray-400"
+                      aria-hidden="true"
+                    />
                     Baud rate ve parity ayarlarını eşleştirin
                   </li>
                 </ul>
@@ -304,8 +290,11 @@ export function VfdConnectionTestStep({
 
       {/* Skip Info */}
       {!testResult && (
-        <div className="text-center text-sm text-gray-500">
-          <p>Bağlantı testini atlayabilirsiniz, ancak cihazın doğru çalıştığını doğrulamak için test yapmanızı öneririz.</p>
+        <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+          <p>
+            Bağlantı testini atlayabilirsiniz, ancak cihazın doğru çalıştığını doğrulamak için test
+            yapmanızı öneririz.
+          </p>
         </div>
       )}
     </div>
@@ -326,11 +315,15 @@ function ParameterCard({ name, value, unit }: { name: string; value: number; uni
   };
 
   return (
-    <div className="bg-gray-50 rounded-lg p-3 text-center">
-      <div className="text-xs text-gray-500 mb-1">{displayNames[name] || name}</div>
-      <div className="text-lg font-semibold text-gray-900">
+    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
+      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+        {displayNames[name] || name}
+      </div>
+      <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
         {value?.toFixed(1) || '-'}
-        {unit && <span className="text-sm font-normal text-gray-500 ml-1">{unit}</span>}
+        {unit && (
+          <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">{unit}</span>
+        )}
       </div>
     </div>
   );
@@ -354,11 +347,11 @@ function StatusBit({ name, active }: { name: string; active: boolean }) {
       className={`px-2 py-1 text-xs rounded-full ${
         active
           ? name === 'fault'
-            ? 'bg-red-100 text-red-700'
+            ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
             : name === 'warning'
-            ? 'bg-yellow-100 text-yellow-700'
-            : 'bg-green-100 text-green-700'
-          : 'bg-gray-100 text-gray-500'
+              ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+              : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
       }`}
     >
       {displayNames[name] || name}: {active ? 'Evet' : 'Hayır'}
@@ -376,25 +369,25 @@ function renderConfigSummary(protocol: VfdProtocol, config: VfdProtocolConfigura
       if (rtuConfig.serialPort) {
         items.push(
           <div key="port">
-            <span className="text-gray-500">Port:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Port:</span>{' '}
             <span className="font-medium">{rtuConfig.serialPort}</span>
-          </div>
+          </div>,
         );
       }
       if (rtuConfig.slaveId) {
         items.push(
           <div key="slaveId">
-            <span className="text-gray-500">Slave ID:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Slave ID:</span>{' '}
             <span className="font-medium">{rtuConfig.slaveId}</span>
-          </div>
+          </div>,
         );
       }
       if (rtuConfig.baudRate) {
         items.push(
           <div key="baudRate">
-            <span className="text-gray-500">Baud Rate:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Baud Rate:</span>{' '}
             <span className="font-medium">{rtuConfig.baudRate}</span>
-          </div>
+          </div>,
         );
       }
       break;
@@ -404,25 +397,25 @@ function renderConfigSummary(protocol: VfdProtocol, config: VfdProtocolConfigura
       if (tcpConfig.host) {
         items.push(
           <div key="host">
-            <span className="text-gray-500">IP:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">IP:</span>{' '}
             <span className="font-medium">{tcpConfig.host}</span>
-          </div>
+          </div>,
         );
       }
       if (tcpConfig.port) {
         items.push(
           <div key="port">
-            <span className="text-gray-500">Port:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Port:</span>{' '}
             <span className="font-medium">{tcpConfig.port}</span>
-          </div>
+          </div>,
         );
       }
       if (tcpConfig.unitId) {
         items.push(
           <div key="unitId">
-            <span className="text-gray-500">Unit ID:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Unit ID:</span>{' '}
             <span className="font-medium">{tcpConfig.unitId}</span>
-          </div>
+          </div>,
         );
       }
       break;
@@ -433,9 +426,9 @@ function renderConfigSummary(protocol: VfdProtocol, config: VfdProtocolConfigura
       firstThreeKeys.forEach((key) => {
         items.push(
           <div key={key}>
-            <span className="text-gray-500">{key}:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">{key}:</span>{' '}
             <span className="font-medium">{String(genericConfig[key])}</span>
-          </div>
+          </div>,
         );
       });
     }

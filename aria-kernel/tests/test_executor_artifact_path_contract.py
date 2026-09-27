@@ -25,13 +25,9 @@ EXECUTOR = REPO_ROOT / "tools/aria-poc/ci_executor.py"
 
 
 def _load_publisher():
-    import importlib.util
+    from tests._helpers.executor_module import load_ci_executor
 
-    spec = importlib.util.spec_from_file_location("ci_executor_under_test", EXECUTOR)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module._publish_artifact_paths
+    return load_ci_executor()._publish_artifact_paths
 
 
 class ExecutorArtifactPathContractTest(unittest.TestCase):

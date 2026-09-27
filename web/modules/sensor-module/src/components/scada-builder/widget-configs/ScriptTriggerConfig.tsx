@@ -12,15 +12,20 @@
  */
 
 import React, { useState } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import type { ScriptTrigger, ScadaScript } from '../../../engine/events/types';
 import { TagBrowser } from '../TagBrowser';
 
 const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 /** Trigger type options with human-readable labels for the dropdown. */
 const TRIGGER_OPTIONS: Array<{ value: ScriptTrigger; label: string; description: string }> = [
-  { value: 'event', label: 'Widget Event', description: 'Triggered by widget events via runScript action' },
+  {
+    value: 'event',
+    label: 'Widget Event',
+    description: 'Triggered by widget events via runScript action',
+  },
   { value: 'tagChange', label: 'Tag Change', description: 'Fires when a tag value changes' },
   { value: 'interval', label: 'Interval', description: 'Repeats at a fixed time interval' },
   { value: 'load', label: 'On Load', description: 'Runs once when the view loads' },
@@ -65,15 +70,14 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
     onChange({ triggerInterval: Math.max(1000, msValue) });
   };
 
-  const displayInterval = intervalUnit === 's'
-    ? Math.round((triggerInterval ?? 5000) / 1000)
-    : (triggerInterval ?? 5000);
+  const displayInterval =
+    intervalUnit === 's' ? Math.round((triggerInterval ?? 5000) / 1000) : (triggerInterval ?? 5000);
 
   return (
     <div className="space-y-2" data-testid="script-trigger-config">
       {/* Trigger type dropdown */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Trigger</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Trigger</label>
         <select
           value={trigger}
           onChange={(e) => handleTriggerChange(e.target.value as ScriptTrigger)}
@@ -89,14 +93,17 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
       </div>
 
       {/* Description hint for the selected trigger */}
-      <p className="text-[10px] text-gray-400 italic" data-testid="trigger-description">
+      <p
+        className="text-[10px] text-gray-400 dark:text-gray-500 italic"
+        data-testid="trigger-description"
+      >
         {TRIGGER_OPTIONS.find((o) => o.value === trigger)?.description}
       </p>
 
       {/* tagChange: show TagBrowser for selecting trigger tag */}
       {trigger === 'tagChange' && (
         <div data-testid="trigger-tag-config">
-          <label className="block text-xs text-gray-500 mb-1">Trigger Tag</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Trigger Tag</label>
           <TagBrowser
             deviceId={deviceId ?? null}
             value={triggerTag ?? ''}
@@ -109,24 +116,23 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
       {/* interval: show interval input with ms/s unit toggle */}
       {trigger === 'interval' && (
         <div data-testid="trigger-interval-config">
-          <label className="block text-xs text-gray-500 mb-1">Interval</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Interval</label>
           <div className="flex items-center gap-1">
-            <input
+            <Input
               type="number"
               value={displayInterval}
               onChange={(e) => handleIntervalChange(Number(e.target.value))}
               min={intervalUnit === 's' ? 1 : 1000}
               step={intervalUnit === 's' ? 1 : 100}
-              className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               data-testid="trigger-interval-input"
             />
-            <div className="flex border border-gray-300 rounded-lg overflow-hidden">
+            <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
               <button
                 onClick={() => setIntervalUnit('ms')}
                 className={`px-2 py-1.5 text-[10px] font-medium transition-colors ${
                   intervalUnit === 'ms'
-                    ? 'bg-cyan-50 text-cyan-700'
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
                 data-testid="interval-unit-ms"
               >
@@ -134,10 +140,10 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
               </button>
               <button
                 onClick={() => setIntervalUnit('s')}
-                className={`px-2 py-1.5 text-[10px] font-medium transition-colors border-l border-gray-300 ${
+                className={`px-2 py-1.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-gray-600 ${
                   intervalUnit === 's'
-                    ? 'bg-cyan-50 text-cyan-700'
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
                 data-testid="interval-unit-s"
               >
@@ -146,7 +152,7 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
             </div>
           </div>
           {(triggerInterval ?? 5000) < 1000 && (
-            <p className="text-[10px] text-amber-600 mt-0.5">
+            <p className="text-[10px] text-warning-600 dark:text-warning-400 mt-0.5">
               Minimum interval is 1000ms to prevent excessive execution.
             </p>
           )}

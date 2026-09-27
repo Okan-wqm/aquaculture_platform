@@ -1,5 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Select, NumberInput } from '@aquaculture/shared-ui';
+import {
+  Select,
+  NumberInput,
+  DataTable,
+  type DataTableColumn,
+  Button,
+} from '@aquaculture/shared-ui';
 import { Modal } from '@aquaculture/shared-ui';
 // PERF-HYD-002: Consume the shared profiles context rather than instantiating a
 // separate useNutrientProfiles() hook, which would create a duplicate localStorage
@@ -12,6 +18,7 @@ import {
   STAGE_OPTIONS,
   SEASON_OPTIONS,
 } from '../../types/solution.types';
+import { Plus } from 'lucide-react';
 
 // BUG-HYD-018: Derive the stage filter options from the union of all SPECIES_STAGES
 // values rather than the legacy STAGE_OPTIONS (which includes 'fruiting3' that appears
@@ -38,8 +45,8 @@ const EMPTY_PROFILE: Omit<NutrientProfile, 'id'> = {
   ph: 5.5,
   kRatio: 0.44,
   caRatio: 0.36,
-  mgRatio: 0.20,
-  nkRatio: 1.30,
+  mgRatio: 0.2,
+  nkRatio: 1.3,
   nh4Ratio: 0.04,
   p: 1.25,
   cl: 0.5,
@@ -103,26 +110,69 @@ const NutrientProfileManager: React.FC = () => {
   const getLabel = (options: { value: string | number; label: string }[], value: string) =>
     options.find((o) => String(o.value) === value)?.label ?? value;
 
+  type PRow = (typeof filteredProfiles)[number];
+  const pRowColumns: DataTableColumn<PRow>[] = [
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, p) => getLabel(SPECIES_OPTIONS, p.species),
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      render: (_value, p) => getLabel(STAGE_OPTIONS, p.cultivationStage),
+    },
+    {
+      key: 'season',
+      header: 'Season',
+      render: (_value, p) => getLabel(SEASON_OPTIONS, p.season),
+    },
+    {
+      key: 'ec',
+      header: 'EC',
+      render: (_value, p) => p.ec,
+    },
+    {
+      key: 'ph',
+      header: 'pH',
+      render: (_value, p) => p.ph,
+    },
+    {
+      key: 'kRatio',
+      header: 'K Ratio',
+      render: (_value, p) => p.kRatio,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, p) => (
+        <>
+          <Button variant="ghost" size="xs" className="mr-3" onClick={() => openEdit(p)}>
+            Edit
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => deleteProfile(p.id)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {/* Actions */}
       <div className="flex items-center gap-3 flex-wrap">
-        <button
-          onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+        <Button variant="primary" onClick={openAdd}>
+          <Plus className="w-4 h-4" aria-hidden="true" />
           Add Profile
-        </button>
-        <button
-          onClick={() => void importDefaults()}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-        >
+        </Button>
+        <Button variant="secondary" onClick={() => void importDefaults()}>
           Import Default Data
-        </button>
-        <span className="text-xs text-gray-500">{profiles.length} profile(s) total</span>
+        </Button>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {profiles.length} profile(s) total
+        </span>
       </div>
 
       {/* Filters */}
@@ -150,56 +200,18 @@ const NutrientProfileManager: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                <th className="px-4 py-2">Species</th>
-                <th className="px-4 py-2">Stage</th>
-                <th className="px-4 py-2">Season</th>
-                <th className="px-4 py-2">EC</th>
-                <th className="px-4 py-2">pH</th>
-                <th className="px-4 py-2">K Ratio</th>
-                <th className="px-4 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProfiles.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
-                    No profiles found. Click "Add Profile" or "Import Default Data" to get started.
-                  </td>
-                </tr>
-              ) : (
-                filteredProfiles.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                    <td className="px-4 py-2 font-medium text-gray-700">{getLabel(SPECIES_OPTIONS, p.species)}</td>
-                    <td className="px-4 py-2 text-gray-600">{getLabel(STAGE_OPTIONS, p.cultivationStage)}</td>
-                    <td className="px-4 py-2 text-gray-600">{getLabel(SEASON_OPTIONS, p.season)}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.ec}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.ph}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.kRatio}</td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteProfile(p.id)}
-                        className="text-red-600 hover:text-red-800 text-xs font-medium"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <DataTable<PRow>
+          data={filteredProfiles}
+          columns={pRowColumns}
+          keyExtractor={(p) => p.id}
+          emptyMessage={
+            'No profiles found. Click "Add Profile" or "Import Default Data" to get started.'
+          }
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* Add/Edit Modal */}
@@ -217,7 +229,7 @@ const NutrientProfileManager: React.FC = () => {
       >
         <div className="space-y-4 p-4">
           {/* Identity */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Select
               label="Species"
               options={SPECIES_OPTIONS}
@@ -239,61 +251,171 @@ const NutrientProfileManager: React.FC = () => {
           </div>
 
           {/* Main Parameters */}
-          <div className="border-t border-gray-200 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">Main Parameters</h4>
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Main Parameters
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumberInput label="EC (mS/cm)" value={form.ec} onChange={(e) => updateForm('ec', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="pH" value={form.ph} onChange={(e) => updateForm('ph', parseFloat(e.target.value) || 0)} step={0.1} min={0} max={14} />
-              <NumberInput label="K Ratio" value={form.kRatio} onChange={(e) => updateForm('kRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="Ca Ratio" value={form.caRatio} onChange={(e) => updateForm('caRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="Mg Ratio" value={form.mgRatio} onChange={(e) => updateForm('mgRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="N/K Ratio" value={form.nkRatio} onChange={(e) => updateForm('nkRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="NH4 Ratio" value={form.nh4Ratio} onChange={(e) => updateForm('nh4Ratio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
+              <NumberInput
+                label="EC (mS/cm)"
+                value={form.ec}
+                onChange={(e) => updateForm('ec', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="pH"
+                value={form.ph}
+                onChange={(e) => updateForm('ph', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+                max={14}
+              />
+              <NumberInput
+                label="K Ratio"
+                value={form.kRatio}
+                onChange={(e) => updateForm('kRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="Ca Ratio"
+                value={form.caRatio}
+                onChange={(e) => updateForm('caRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="Mg Ratio"
+                value={form.mgRatio}
+                onChange={(e) => updateForm('mgRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="N/K Ratio"
+                value={form.nkRatio}
+                onChange={(e) => updateForm('nkRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="NH4 Ratio"
+                value={form.nh4Ratio}
+                onChange={(e) => updateForm('nh4Ratio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
             </div>
           </div>
 
           {/* Macro / Other */}
-          <div className="border-t border-gray-200 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">Macro (mmol/L)</h4>
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Macro (mmol/L)
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumberInput label="P" value={form.p} onChange={(e) => updateForm('p', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Cl" value={form.cl} onChange={(e) => updateForm('cl', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Si" value={form.si} onChange={(e) => updateForm('si', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Min SO4" value={form.minSO4} onChange={(e) => updateForm('minSO4', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
+              <NumberInput
+                label="P"
+                value={form.p}
+                onChange={(e) => updateForm('p', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Cl"
+                value={form.cl}
+                onChange={(e) => updateForm('cl', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Si"
+                value={form.si}
+                onChange={(e) => updateForm('si', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Min SO4"
+                value={form.minSO4}
+                onChange={(e) => updateForm('minSO4', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
             </div>
           </div>
 
           {/* Micro */}
-          <div className="border-t border-gray-200 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">Micro (umol/L)</h4>
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Micro (umol/L)
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <NumberInput label="Fe" value={form.fe} onChange={(e) => updateForm('fe', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Mn" value={form.mn} onChange={(e) => updateForm('mn', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Zn" value={form.zn} onChange={(e) => updateForm('zn', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Cu" value={form.cu} onChange={(e) => updateForm('cu', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="B" value={form.b} onChange={(e) => updateForm('b', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Mo" value={form.mo} onChange={(e) => updateForm('mo', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
+              <NumberInput
+                label="Fe"
+                value={form.fe}
+                onChange={(e) => updateForm('fe', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Mn"
+                value={form.mn}
+                onChange={(e) => updateForm('mn', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Zn"
+                value={form.zn}
+                onChange={(e) => updateForm('zn', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Cu"
+                value={form.cu}
+                onChange={(e) => updateForm('cu', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="B"
+                value={form.b}
+                onChange={(e) => updateForm('b', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Mo"
+                value={form.mo}
+                onChange={(e) => updateForm('mo', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
             </div>
           </div>
 
           {/* Save / Cancel */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-            <button
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button
+              variant="secondary"
               onClick={() => {
                 setIsModalOpen(false);
                 setEditingId(null);
                 setForm({ ...EMPTY_PROFILE });
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-            >
+            </Button>
+            <Button variant="primary" onClick={handleSave}>
               {editingId ? 'Update Profile' : 'Create Profile'}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

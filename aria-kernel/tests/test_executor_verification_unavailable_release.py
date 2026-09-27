@@ -47,6 +47,8 @@ from aria_kernel.agent_invocations import (  # noqa: E402
 )
 from aria_kernel.evidence_validator import EVIDENCE_VERIFICATION_UNAVAILABLE_CODES  # noqa: E402
 from aria_kernel.release_reason import RELEASE_REASON_CODES, parse_release_reason  # noqa: E402
+from aria_kernel.agent_invocations import derive_request_state, release_claim  # noqa: E402
+from aria_kernel.ledger import load_declared_jsonl  # noqa: E402
 
 # The submit fixture (a seeded repo, a strict request, a good envelope) and
 # the live-path executor fixture (a claim envelope, a mock CLI, the subprocess
@@ -125,11 +127,46 @@ class TheKernelCarriesTheCodes(unittest.TestCase):
             set(result["rejection_codes"]), {"agent_evidence_verification_unavailable"},
         )
         self.assertTrue(set(result["rejection_codes"]) <= EVIDENCE_VERIFICATION_UNAVAILABLE_CODES)
-        # The persisted row carries the same twin list; a resumed operation
-        # answers from it.
+        # A verdict nobody reached is not a verdict: no result row is
+        # appended, the claim stays live, and the executor's harness-class
+        # release can put the request back (a rejected RESULT row would have
+        # made the claim terminal and the release refuse with `result already
+        # terminal`, ARIA-HIGH-078 — the request dying for the host's load).
+        self.assertTrue(result["undecided"])
+        self.assertIsNone(result["row"])
+        self.assertEqual(self._result_rows(claim["claim_id"]), [])
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.e2e.tools), "CLAIMED",
+        )
+        released = release_claim(
+            claim_id=claim["claim_id"], agent_id="judge-worker-001", lease_token=claim["lease_token"],
+            reason="evidence_verification_unavailable", base_dir=self.e2e.tools,
+        )
+        self.assertEqual(released["event"], "released", released)
+        # Back in the queue under a harness-class reason: requeued, and the
+        # request-fault requeue budget untouched.
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.e2e.tools), "REQUEUED",
+        )
+        governance = load_declared_jsonl(self.e2e.tools / "governance.jsonl", expected_surface="tools_governance")
+        undecided_rows = [row for row in governance if row["kind"] == "agent_result_verification_undecided"]
+        self.assertEqual(len(undecided_rows), 1)
+        self.assertEqual(undecided_rows[0]["details"]["rejection_codes"], result["rejection_codes"])
+
+    def test_a_decided_rejection_still_appends_its_terminal_row(self) -> None:
+        # The other branch of the same seam: a probe that RAN and disagreed is
+        # the work's fault, the row is appended and the claim is terminal.
+        request, claim = self._claim(nonce="-decided-row")
+        (self.repo / "src.txt").write_text("alpha\nCHANGED\ngamma\n", encoding="utf-8")
+        result = self._submit(request, claim)
+        self.assertEqual(result["status"], "rejected")
+        self.assertNotIn("undecided", result)
         self.assertEqual(result["row"]["rejection_codes"], result["rejection_codes"])
         rows = self._result_rows(claim["claim_id"])
         self.assertEqual(rows[-1]["rejection_codes"], result["rejection_codes"])
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.e2e.tools), "REJECTED",
+        )
 
     def test_a_probe_that_ran_and_disagreed_carries_the_agent_fault_code(self) -> None:
         request, claim = self._claim(nonce="-disagrees")

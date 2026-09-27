@@ -1,0 +1,11 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "cycle_id": "fixture-harness-security-baseline"
+  },
+  "expected": {
+    "status": "ok",
+    "max_findings": 200
+  }
+}

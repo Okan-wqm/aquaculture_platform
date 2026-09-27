@@ -277,6 +277,34 @@ describe('affected CI range resolver', () => {
     }
   });
 
+  it('resolves a merge group from the queue base SHA exactly as a pull request', () => {
+    // A merge-queue group is the pull request's changes on top of the
+    // queue's base; without this the queue's checks had no range to run.
+    const repo = fixtureRepository();
+    try {
+      const baseSha = commit(repo, 'base.txt', 'base\n', 'base');
+      const headSha = commit(repo, 'head.txt', 'head\n', 'head');
+
+      expect(
+        resolveRange(repo, [
+          '--event-name',
+          'merge_group',
+          '--head-sha',
+          headSha,
+          '--pr-base-sha',
+          baseSha,
+        ]),
+      ).toEqual({
+        baseSha,
+        headSha,
+        fullValidation: false,
+        reason: 'merge-group-base',
+      });
+    } finally {
+      removeFixtureTree(repo);
+    }
+  });
+
   it('uses the last successful development deployment as the main push baseline', () => {
     const repo = fixtureRepository();
     try {
@@ -1234,7 +1262,13 @@ describe('affected development workflow contract', () => {
     };
 
     expect(affected).toContain('scripts/ci/resolve-affected-range.ts');
-    expect(affected).toContain('--pr-base-sha "${{ github.event.pull_request.base.sha }}"');
+    // The base is the pull request's, or the merge queue group's (merge-queue
+    // readiness): the same immutable range shape, one resolver.
+    expect(affected).toContain(
+      '--pr-base-sha "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"',
+    );
+    expect(affected).toContain('merge_group:');
+    expect(affected).toContain("github.event_name == 'merge_group'");
     expect(affected).toContain('--head-sha "${{ github.sha }}"');
     expect(affected).toContain('--development-ref deployed/development');
     expect(affected).toContain(

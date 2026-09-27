@@ -17,15 +17,8 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import {
-  Database,
-  Plus,
-  Trash2,
-  Upload,
-  ToggleLeft,
-  ToggleRight,
-  Search,
-} from 'lucide-react';
+import { Button, Input } from '@aquaculture/shared-ui';
+import { Database, Plus, Trash2, Upload, ToggleLeft, ToggleRight, Search } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,9 +119,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
   // Update a single tag's configuration field
   const handleUpdate = useCallback(
     (tagName: string, updates: Partial<DaqTagConfig>) => {
-      onConfigsChange(
-        configs.map((c) => (c.tagName === tagName ? { ...c, ...updates } : c)),
-      );
+      onConfigsChange(configs.map((c) => (c.tagName === tagName ? { ...c, ...updates } : c)));
     },
     [configs, onConfigsChange],
   );
@@ -137,9 +128,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
   const handleBulkToggle = useCallback(
     (enabled: boolean) => {
       const visibleTags = new Set(filtered.map((c) => c.tagName));
-      onConfigsChange(
-        configs.map((c) => (visibleTags.has(c.tagName) ? { ...c, enabled } : c)),
-      );
+      onConfigsChange(configs.map((c) => (visibleTags.has(c.tagName) ? { ...c, enabled } : c)));
     },
     [configs, filtered, onConfigsChange],
   );
@@ -193,43 +182,48 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Database className="w-4 h-4 text-cyan-600" />
-          <h4 className="text-sm font-medium text-gray-700">DAQ Configuration</h4>
-          <span className="text-[11px] text-gray-400">
+          <Database className="w-4 h-4 text-info-600 dark:text-info-400" />
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            DAQ Configuration
+          </h4>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
             ({enabledCount}/{filtered.length} enabled)
           </span>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Import from CSV"
           onClick={handleCsvImport}
-          className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
           title="Import from CSV"
         >
           <Upload className="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
 
       {/* Search + bulk actions */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+          <Input
+            fullWidth
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tags..."
-            className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
           />
         </div>
         <button
           onClick={() => handleBulkToggle(true)}
-          className="px-2 py-1.5 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100"
+          className="px-2 py-1.5 text-[10px] font-medium text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded hover:bg-success-100 dark:hover:bg-success-900/50"
           title="Enable all visible"
         >
           All On
         </button>
         <button
           onClick={() => handleBulkToggle(false)}
-          className="px-2 py-1.5 text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100"
+          className="px-2 py-1.5 text-[10px] font-medium text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           title="Disable all visible"
         >
           All Off
@@ -245,7 +239,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               setNewTagName(e.target.value);
               if (e.target.value) handleAddTag(e.target.value);
             }}
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
+            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-info-500"
           >
             <option value="">Add tag...</option>
             {unconfiguredTags.map((tag) => (
@@ -255,7 +249,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
             ))}
           </select>
         ) : (
-          <input
+          <Input
             type="text"
             value={newTagName}
             onChange={(e) => setNewTagName(e.target.value)}
@@ -263,21 +257,23 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               if (e.key === 'Enter') handleAddTag(newTagName);
             }}
             placeholder="Tag name"
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
           />
         )}
-        <button
+        <Button
+          variant="primary"
+          size="sm"
+          iconOnly
+          aria-label="Add"
           onClick={() => handleAddTag(newTagName)}
           disabled={!newTagName.trim()}
-          className="p-1.5 rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-200 disabled:text-gray-400"
         >
           <Plus className="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
 
       {/* Tag table */}
       {filtered.length === 0 ? (
-        <div className="text-center py-6 text-xs text-gray-400">
+        <div className="text-center py-6 text-xs text-gray-400 dark:text-gray-500">
           {configs.length === 0
             ? 'No DAQ tags configured. Add tags above.'
             : 'No tags match the search filter.'}
@@ -288,7 +284,9 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
             <div
               key={config.tagName}
               className={`border rounded-lg p-2.5 space-y-2 transition-colors ${
-                config.enabled ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-60'
+                config.enabled
+                  ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+                  : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-60'
               }`}
               data-testid={`daq-tag-${config.tagName}`}
             >
@@ -297,7 +295,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleUpdate(config.tagName, { enabled: !config.enabled })}
-                    className={config.enabled ? 'text-green-500' : 'text-gray-300'}
+                    className={config.enabled ? 'text-success-500' : 'text-gray-300'}
                     title={config.enabled ? 'Disable logging' : 'Enable logging'}
                   >
                     {config.enabled ? (
@@ -306,30 +304,35 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                       <ToggleLeft className="w-5 h-5" />
                     )}
                   </button>
-                  <span className="text-xs font-mono font-medium text-gray-800 truncate max-w-[150px]">
+                  <span className="text-xs font-mono font-medium text-gray-800 dark:text-gray-200 truncate max-w-[150px]">
                     {config.tagName}
                   </span>
                 </div>
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Remove"
                   onClick={() => handleRemoveTag(config.tagName)}
-                  className="p-1 rounded hover:bg-red-100 text-red-400"
                   title="Remove"
                 >
                   <Trash2 className="w-3 h-3" />
-                </button>
+                </Button>
               </div>
 
               {/* Settings row */}
               {config.enabled && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Interval</label>
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                      Interval
+                    </label>
                     <select
                       value={config.interval}
                       onChange={(e) =>
                         handleUpdate(config.tagName, { interval: e.target.value as DaqInterval })
                       }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
+                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
                       data-testid={`daq-interval-${config.tagName}`}
                     >
                       {INTERVAL_OPTIONS.map((opt) => (
@@ -340,8 +343,11 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Deadband</label>
-                    <input
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                      Deadband
+                    </label>
+                    <Input
+                      fullWidth
                       type="number"
                       value={config.deadband}
                       onChange={(e) =>
@@ -349,17 +355,18 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                       }
                       min={0}
                       step={0.1}
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Retention</label>
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                      Retention
+                    </label>
                     <select
                       value={config.retention}
                       onChange={(e) =>
                         handleUpdate(config.tagName, { retention: e.target.value as DaqRetention })
                       }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
+                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
                     >
                       {RETENTION_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>

@@ -3,7 +3,8 @@
  * TanStack Query hooks for attendance operations
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_SHIFTS,
@@ -199,7 +200,8 @@ export function useClockIn() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Clocked in' },
     mutationFn: (input: ClockInInput) =>
       graphqlRequest<{ clockIn: AttendanceRecord }, unknown>(
         client,
@@ -218,7 +220,8 @@ export function useClockOut() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Clocked out' },
     mutationFn: (input: ClockOutInput) =>
       graphqlRequest<{ clockOut: AttendanceRecord }, unknown>(
         client,
@@ -245,7 +248,8 @@ export function useCreateManualAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Attendance recorded' },
     mutationFn: (input: {
       employeeId: string;
       date: string;
@@ -275,7 +279,8 @@ export function useApproveAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Attendance approved' },
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
       graphqlRequest<{ approveAttendance: AttendanceRecord }, unknown>(
         client,
@@ -296,7 +301,8 @@ export function useCreateShift() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Shift created' },
     mutationFn: (input: CreateShiftInput) =>
       graphqlRequest<{ createShift: Shift }, unknown>(
         client,
@@ -313,7 +319,8 @@ export function useUpdateShift() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Shift updated' },
     mutationFn: (input: { id: string } & Partial<CreateShiftInput>) =>
       graphqlRequest<{ updateShift: Shift }, unknown>(
         client,

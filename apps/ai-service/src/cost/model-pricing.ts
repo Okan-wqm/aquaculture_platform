@@ -88,6 +88,13 @@ export const MODEL_PRICING_CATALOG: ReadonlyArray<{
   // OpenAI — BYOK provider (FAZ1-BYOK); rates are catalog data finance updates
   { prefix: 'gpt-4o-mini', pricing: openAiTier(0.15, 0.6) },
   { prefix: 'gpt-4o', pricing: openAiTier(2.5, 10) },
+  // Z.ai (GLM) — BYOK provider (FAZ1-BYOK / FARM-AI). glm-5.3 is the packaged
+  // default (ZAI_DEFAULT_MODEL). Rates mirror the default Sonnet-tier
+  // attribution the fallback was already applying — listed explicitly so
+  // every GLM turn prices deterministically and the missing-model warning
+  // stops firing; finance updates when Z.ai publishes list rates.
+  { prefix: 'glm-5.3', pricing: openAiTier(3, 15) },
+  { prefix: 'glm-4.6', pricing: openAiTier(1, 5) },
 ];
 
 /**

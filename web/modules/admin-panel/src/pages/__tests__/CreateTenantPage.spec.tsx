@@ -393,7 +393,7 @@ describe('CreateTenantPage', () => {
 });
 
 /**
- * ADMIN-HIGH-135 — the catalogue's silent double fallback.
+ * ADMIN-HIGH-159 — the catalogue's silent double fallback.
  *
  * The module catalogue used to load in a `useEffect` that, on failure, wrote
  * `console.warn` and fetched `modulesApi.list()` instead — a module list

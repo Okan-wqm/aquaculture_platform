@@ -20,7 +20,8 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS =
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
 export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
   const url = (config.url ?? '') as string;
@@ -42,22 +43,22 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
     <div className="space-y-3">
       {/* URL */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">URL (https only)</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          URL (https only)
+        </label>
         <input
           type="text"
           value={url}
           onChange={(e) => onChange({ url: e.target.value })}
           placeholder="https://example.com/dashboard"
-          className={`${INPUT_CLS} ${urlError ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''}`}
+          className={`${INPUT_CLS} ${urlError ? 'border-error-400 focus:ring-error-400 focus:border-error-400' : ''}`}
         />
-        {urlError && (
-          <p className="text-xs text-red-500 mt-1">{urlError}</p>
-        )}
+        {urlError && <p className="text-xs text-error-500 mt-1">{urlError}</p>}
       </div>
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={label}
@@ -68,58 +69,66 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
       </div>
 
       {/* Sandbox Permissions */}
-      <div className="pt-2 border-t border-gray-100">
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Sandbox Permissions</label>
-        <p className="text-[10px] text-gray-400 mb-2">
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
+          Sandbox Permissions
+        </label>
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
           The iframe is sandboxed by default. Enable permissions only when needed.
         </p>
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
               checked={allowScripts}
               onChange={(e) => onChange({ allowScripts: e.target.checked })}
-              className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Allow Scripts
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
               checked={allowForms}
               onChange={(e) => onChange({ allowForms: e.target.checked })}
-              className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Allow Forms
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
               checked={allowPopups}
               onChange={(e) => onChange({ allowPopups: e.target.checked })}
-              className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Allow Popups
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
               checked={allowSameOrigin}
               onChange={(e) => onChange({ allowSameOrigin: e.target.checked })}
-              className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Allow Same Origin
-            <span className="text-[10px] text-amber-600">(security risk)</span>
+            <span className="text-[10px] text-warning-600 dark:text-warning-400">
+              (security risk)
+            </span>
           </label>
         </div>
       </div>
 
       {/* Visual styling */}
-      <div className="pt-2 border-t border-gray-100">
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Appearance</label>
-        <div className="grid grid-cols-2 gap-2">
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">
+          Appearance
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Border Radius</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Border Radius
+            </label>
             <input
               type="number"
               min={0}
@@ -131,12 +140,12 @@ export const IFrameConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) 
           </div>
         </div>
         <div className="mt-2">
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
               type="checkbox"
               checked={showBorder}
               onChange={(e) => onChange({ showBorder: e.target.checked })}
-              className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+              className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
             />
             Show Border
           </label>

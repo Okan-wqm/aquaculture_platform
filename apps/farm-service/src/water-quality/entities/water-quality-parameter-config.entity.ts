@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-contracts';
 /**
  * WaterQualityParameterConfig Entity - Dynamic Water Quality Parameter Configuration
  *
@@ -194,7 +195,7 @@ export class WaterQualityParameterConfig {
   // -------------------------------------------------------------------------
 
   @Field({ description: 'Chart line/bar color (hex)' })
-  @Column({ type: 'varchar', length: 9, default: '#3b82f6' })
+  @Column({ type: 'varchar', length: 9, default: colors.info[500] })
   chartColor!: string;
 
   @Field({ nullable: true, description: 'Icon identifier' })

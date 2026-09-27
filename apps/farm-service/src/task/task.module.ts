@@ -50,6 +50,7 @@ import { ListAutoRulesHandler } from './handlers/list-auto-rules.handler';
 import { GetAutoRuleHandler } from './handlers/get-auto-rule.handler';
 import { ListRecurringTemplatesHandler } from './handlers/list-recurring-templates.handler';
 import { GetRecurringTemplateHandler } from './handlers/get-recurring-template.handler';
+import { TaskAiQueryResponder } from './responders/task-ai-query.responder';
 
 const QueryHandlers = [
   GetTaskHandler,
@@ -69,7 +70,7 @@ const QueryHandlers = [
     // (FARM-HIGH-057) is part of this module's schema metadata.
     TypeOrmModule.forFeature([Task, RecurringTemplate, AutoRule, FarmMobileCommandReceipt]),
   ],
-  controllers: [CreateTaskResponder],
+  controllers: [TaskAiQueryResponder, CreateTaskResponder],
   providers: [
     // Services
     TaskService,

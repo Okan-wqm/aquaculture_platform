@@ -46,6 +46,8 @@ import {
   Modal,
   formatErrorForToast,
   useToast,
+  Input,
+  Textarea,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -81,9 +83,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setMeterReadingRaw(
-        schedule.currentMeterReading != null
-          ? String(schedule.currentMeterReading)
-          : '',
+        schedule.currentMeterReading != null ? String(schedule.currentMeterReading) : '',
       );
       setNotes('');
     }
@@ -101,9 +101,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
     const errs: string[] = [];
 
     if (schedule.status !== 'ACTIVE') {
-      errs.push(
-        `Sadece aktif planlar tamamlanabilir; bu plan "${schedule.status}" durumunda.`,
-      );
+      errs.push(`Sadece aktif planlar tamamlanabilir; bu plan "${schedule.status}" durumunda.`);
     }
 
     if (isMeterBased) {
@@ -163,50 +161,38 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
   const checklistItems = schedule.checklistTemplate?.items ?? [];
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Bakım Kapanışı"
-      size="md"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title="Bakım Kapanışı" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Plan</p>
-          <p className="font-medium text-gray-900">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Plan</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">
             {schedule.scheduleCode} — {schedule.name}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Şu ana kadar {schedule.executionCount} kez tamamlandı
             {schedule.lastExecutedDate && (
-              <>
-                {' '}
-                · son: {new Date(schedule.lastExecutedDate).toLocaleDateString('tr-TR')}
-              </>
+              <> · son: {new Date(schedule.lastExecutedDate).toLocaleDateString('tr-TR')}</>
             )}
           </p>
         </div>
 
         {checklistItems.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-gray-700">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Kontrol Listesi (referans)
             </p>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Bu liste planın şablonudur — bu kapanış işlemi tek başına
-              kontrol durumlarını kaydetmez. Detaylı tik takibi için iş
-              emri akışını kullanın.
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              Bu liste planın şablonudur — bu kapanış işlemi tek başına kontrol durumlarını
+              kaydetmez. Detaylı tik takibi için iş emri akışını kullanın.
             </p>
             <ul className="mt-2 space-y-1 text-sm">
               {checklistItems.map((item, idx) => (
-                <li
-                  key={idx}
-                  className="flex items-start gap-2 text-gray-700"
-                >
-                  <span className="mt-0.5 inline-block h-4 w-4 rounded border border-gray-300 bg-white" />
+                <li key={idx} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
+                  <span className="mt-0.5 inline-block h-4 w-4 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900" />
                   <span>
                     {item.description}
                     {item.isRequired && (
-                      <span className="ml-1 text-xs text-red-600">
+                      <span className="ml-1 text-xs text-error-600 dark:text-error-400">
                         (zorunlu)
                       </span>
                     )}
@@ -221,23 +207,22 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
           <div>
             <label
               htmlFor="complete-maint-meter"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Sayaç Okuması{' '}
-              <span className="text-red-600">*</span>
+              Sayaç Okuması <span className="text-error-600 dark:text-error-400">*</span>
             </label>
-            <input
+            <Input
+              fullWidth
               id="complete-maint-meter"
               type="number"
               step="0.01"
               min={lastMeter ?? 0}
               value={meterReadingRaw}
               onChange={(e) => setMeterReadingRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               required
             />
             {lastMeter != null && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Son bakım okuması: {lastMeter}
               </p>
             )}
@@ -247,26 +232,26 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
         <div>
           <label
             htmlFor="complete-maint-notes"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             Notlar
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="complete-maint-notes"
             rows={4}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {notes.length} / {NOTES_MAX}
           </p>
         </div>
 
         {errors.length > 0 && (
-          <ul className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800 space-y-1">
+          <ul className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md p-3 text-sm text-error-800 dark:text-error-200 space-y-1">
             {errors.map((msg, idx) => (
               <li key={idx}>• {msg}</li>
             ))}
@@ -274,12 +259,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
             İptal
           </Button>
           <Button

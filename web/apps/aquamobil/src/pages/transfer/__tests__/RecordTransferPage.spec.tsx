@@ -17,7 +17,6 @@
  */
 
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import type { ReactNode, ChangeEvent } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { RecordTransferPage } from '../RecordTransferPage';
@@ -125,53 +124,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
   ),
 }));
 
-// konsta/react uses useRef internally which trips on the dual-React copy.
-// Stub the components the page uses so tests run against plain DOM nodes.
-vi.mock('konsta/react', () => ({
-  List: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  BlockTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-  ListInput: ({
-    type,
-    value,
-    onChange,
-    onInput,
-    children,
-    placeholder,
-  }: {
-    type?: string;
-    value?: string;
-    onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
-    onInput?: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-    children?: ReactNode;
-    placeholder?: string;
-  }) => {
-    if (type === 'select') {
-      return (
-        <select value={value} onChange={onChange}>
-          {children}
-        </select>
-      );
-    }
-    if (type === 'textarea') {
-      return <textarea value={value} onChange={onInput} placeholder={placeholder} />;
-    }
-    return (
-      <input type={type || 'text'} value={value ?? ''} onChange={onInput} placeholder={placeholder} />
-    );
-  },
-}));
-
-// lucide-react icons use forwardRef; stub each one the page transitively needs.
-vi.mock('lucide-react', () => {
-  const Stub = (): ReactNode => <svg data-testid="icon" />;
-  return {
-    ArrowLeft: Stub,
-    ArrowLeftRight: Stub,
-    AlertCircle: Stub,
-    ChevronRight: Stub,
-  };
-});
-
 // Fully stub react-router-dom — importActual pulls real react-router which
 // attempts useRef() against the local (null) React instance (dual-React quirk).
 vi.mock('react-router-dom', () => ({
@@ -253,8 +205,8 @@ async function submitTransfer(opts?: { avgWeightOverride?: string }): Promise<Re
   return payload;
 }
 
-// Each case drives the form through two render-heavy steps (entry -> confirm)
-// under the konsta/dual-React quirk, awaiting several effect-settling flushes
+// Each case drives the form through two render-heavy steps (entry -> confirm),
+// awaiting several effect-settling flushes
 // (notably the avgWeightG prefill effect). Under CI load that exceeds vitest's
 // default 5s per-test ceiling, so raise the timeout suite-wide. This is a test
 // harness concession to render latency, not a slow code path in the page.

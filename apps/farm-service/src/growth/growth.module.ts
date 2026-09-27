@@ -45,10 +45,13 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
 // Stateless band/oran/FCR SSoT çözücüsü — getTargetFCR v2 zinciri (P-14).
 // Doğrudan provider: FeedingProtocolModule import'u modül döngüsü yaratırdı
 // (BatchModule/HarvestModule emsali).
-import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
+import { GrowthAiQueryResponder } from './responders/growth-ai-query.responder';
 
 @Module({
   imports: [
+    // Band/oran çözümü çekirdek modülün TEK örneğinden (yaprak; döngü yok).
+    FeedingProtocolCoreModule,
     TypeOrmModule.forFeature([
       GrowthMeasurement,
       Batch,
@@ -61,16 +64,14 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
     ]),
     BackdatePolicyModule,
   ],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [GrowthAiQueryResponder],
   providers: [
     FCRCalculationService,
-    ProtocolRateService,
     ...GrowthCommandHandlers,
     ...GrowthQueryHandlers,
     ...GrowthResolvers,
   ],
-  exports: [
-    TypeOrmModule,
-    FCRCalculationService,
-  ],
+  exports: [TypeOrmModule, FCRCalculationService],
 })
 export class GrowthModule {}

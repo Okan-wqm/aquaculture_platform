@@ -162,6 +162,29 @@ is for; the same class of wait in the sibling `submit-before-release`
 fixture uses it too. Not a hermeticity defect — the branch's own suite
 run measured it, so it is closed here rather than carried.
 
+## ARIA-MEDIUM-066 — closed: the validation child's environment is built
+
+Implemented in an isolated worktree by a parallel agent and reviewed here.
+`validation._run_one` spawned every allowlisted command with the whole
+runner environment plus the one `PYTHONPATH=` override the recipe grammar
+admits; inside a cycle that environment carries the durable store's
+bindings (`ARIA_TOOLS_DIR`, `ARIA_WORKSPACE_BASE`, `ARIA_REPO_STATE_ROOT`),
+the job deadline, hook variables and credentials. The new
+`validation_env.build_validation_env(base, declared=…)` mirrors
+`agent_env.build_agent_env`: a closed baseline (process plumbing, locale,
+TLS/proxy, the real HOME the toolchains cache under, XDG, CI colour
+switches, the hermetic git redirects), the toolchains' configuration
+namespaces (`PYTHON*`, `NODE_*`, `NX_*`, `CARGO_*`, `RUST*`) minus every
+secret-shaped member, and exactly the variables the command itself
+declared. No `ARIA_*` name is ever inherited. The decision is recorded by
+name on the validation run's ledger row (`spawn_environment`, schema 1),
+the way an agent's env report is. Pre-fix proof: the child's presence map
+on the untouched kernel showed every store binding present. On the
+candidate: validation-env, validation-ledger, unified-surface,
+self-improvement invariant, roster/lock invariants, suite hermeticity and
+deadline-scope suites — 97 OK. `docs/aria/CONTRACTS.md`'s validation-runs
+section still has to describe the `spawn_environment` column.
+
 ## ARIA-HIGH-109 — liveness guards used as performance budgets across the lock, probes and executor
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-20

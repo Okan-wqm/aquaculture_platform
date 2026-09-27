@@ -44,6 +44,10 @@ DEFAULT_RETENTION_DAYS = 7
 DEFAULT_MAX_FILE_MB = 10
 # One checkpoint per turn: a second request inside this window is folded.
 MIN_INTERVAL_SECONDS = 20
+# ARIA-HIGH-145 — the one journal family whose rows name files the agent
+# CHANGED (`hooks.sanitize_journal_entry`); `file_read` rows name what it
+# looked at, which a rollback must leave exactly where it found it.
+JOURNAL_WRITE_FAMILY = "file_write"
 
 
 @dataclass(frozen=True)
@@ -192,6 +196,25 @@ def take_checkpoint(
     return Checkpoint(request_id, seq, commit, tree, reason, str(row["recorded_at"]), len(files), ref)
 
 
+def latest_checkpoint_holds(*, workspace_root: str | Path, request_id: str, path: str | Path,
+                            base_dir: str | Path | None = None) -> bool:
+    """Whether the request's latest checkpoint holds ``path`` (ARIA-HIGH-145:
+    the pre-write hook asks before folding a write into the previous
+    checkpoint's interval). False when there is no checkpoint yet or the
+    path lies outside the workspace."""
+    workspace = Path(workspace_root).resolve()
+    checkpoints = list_checkpoints(request_id, base_dir=base_dir)
+    if not checkpoints:
+        return False
+    try:
+        rel = Path(path).resolve().relative_to(workspace).as_posix()
+    except ValueError:
+        return False
+    store = checkpoint_store(workspace)
+    held = _git(store, workspace, ["ls-tree", "-r", "--name-only", checkpoints[-1].tree], check=False).splitlines()
+    return rel in held
+
+
 def diff_checkpoint(*, workspace_root: str | Path, request_id: str, seq: int, base_dir: str | Path | None = None) -> str:
     """`git diff` between the checkpoint tree and the live workspace (names + status)."""
     workspace = Path(workspace_root).resolve()
@@ -224,9 +247,17 @@ def restore_checkpoint(
     """Put files back as they were at the checkpoint.
 
     ``preserve_hand_edits`` restricts the restore to files the work journal
-    attributes to the agent for this request (plus ``files`` when given);
-    ``False`` restores every file the checkpoint holds. Files the checkpoint
-    did not hold but the journal created are removed.
+    attributes to the agent's WRITES for this request (plus ``files`` when
+    given); ``False`` restores every file the checkpoint holds. A file the
+    checkpoint did not hold but a journaled write created is removed.
+
+    ARIA-HIGH-145 — the journal records reads too (``command_family``
+    ``file_read``), and this restore used to treat every ``files_touched``
+    as an edit: an untracked file the agent merely READ, absent from the
+    checkpoint by definition, was unlinked by the rollback. On trial eleven
+    the implementer read the store's plan ledger through the workspace it
+    lay in, timed out, and the rollback deleted the ledger. Only
+    ``file_write`` rows name what the agent changed.
     """
     workspace = Path(workspace_root).resolve()
     target = _find(request_id, seq, base_dir)
@@ -239,6 +270,8 @@ def restore_checkpoint(
 
         touched: list[str] = []
         for row in journal_rows_for(request_id, base_dir=base_dir):
+            if row.get("command_family") != JOURNAL_WRITE_FAMILY:
+                continue
             for path in row.get("files_touched") or []:
                 try:
                     touched.append(Path(path).resolve().relative_to(workspace).as_posix())

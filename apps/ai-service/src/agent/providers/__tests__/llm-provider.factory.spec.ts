@@ -3,18 +3,22 @@ import { AnthropicProvider } from '../anthropic.provider';
 import { LlmProviderFactory } from '../llm-provider.factory';
 import type { LlmProviderId } from '../llm-provider.interface';
 import { OpenAiProvider } from '../openai.provider';
+import { ZaiProvider } from '../zai.provider';
 
 describe('LlmProviderFactory', () => {
   const anthropic = { id: 'anthropic' } as AnthropicProvider;
   const openai = { id: 'openai' } as OpenAiProvider;
-  const factory = new LlmProviderFactory(anthropic, openai);
+  const zai = { id: 'zai' } as ZaiProvider;
+  const factory = new LlmProviderFactory(anthropic, openai, zai);
 
-  it('resolves both wired providers by their id', () => {
+  it('resolves every wired provider by its id', () => {
     expect(factory.get('anthropic')).toBe(anthropic);
     expect(factory.get('openai')).toBe(openai);
+    expect(factory.get('zai')).toBe(zai);
     expect(factory.supports('anthropic')).toBe(true);
     expect(factory.supports('openai')).toBe(true);
-    expect(factory.availableProviders()).toEqual(['anthropic', 'openai']);
+    expect(factory.supports('zai')).toBe(true);
+    expect(factory.availableProviders()).toEqual(['anthropic', 'openai', 'zai']);
   });
 
   it('fails fast for an unknown provider rather than defaulting to another', () => {

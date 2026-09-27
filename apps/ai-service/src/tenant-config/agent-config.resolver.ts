@@ -57,6 +57,9 @@ export class AiSettings {
   openaiKeyHint!: string | null;
 
   @Field(() => String, { nullable: true })
+  zaiKeyHint!: string | null;
+
+  @Field(() => String, { nullable: true })
   chatModel!: string | null;
 
   @Field(() => Int)
@@ -72,7 +75,7 @@ export class AiSettings {
 @InputType()
 export class UpdateAiSettingsInput {
   @IsOptional()
-  @IsIn(['anthropic', 'openai'])
+  @IsIn(['anthropic', 'openai', 'zai'])
   @Field(() => String, { nullable: true })
   provider?: LlmProviderId;
 
@@ -87,6 +90,12 @@ export class UpdateAiSettingsInput {
   @MaxLength(200)
   @Field(() => String, { nullable: true })
   openaiApiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  @Field(() => String, { nullable: true })
+  zaiApiKey?: string;
 
   @IsOptional()
   @IsString()
@@ -175,6 +184,9 @@ export class AgentConfigResolver {
     if (input.openaiApiKey !== undefined) {
       updates.openaiApiKey = await this.resolveKeyUpdate('openai', input.openaiApiKey);
     }
+    if (input.zaiApiKey !== undefined) {
+      updates.zaiApiKey = await this.resolveKeyUpdate('zai', input.zaiApiKey);
+    }
 
     await this.agentConfig.upsertConfig(tenantId, updates);
     this.logger.log(`AI settings updated for tenant ${tenantId}`);
@@ -191,6 +203,7 @@ export class AgentConfigResolver {
       enablementReason: enablement.reason,
       anthropicKeyHint: this.hint(config.anthropicApiKey),
       openaiKeyHint: this.hint(config.openaiApiKey),
+      zaiKeyHint: this.hint(config.zaiApiKey),
       chatModel: config.chatModel ?? null,
       monthlyTokenBudget: config.monthlyTokenBudget,
       hourlyRequestLimit: config.hourlyRequestLimit,

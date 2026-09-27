@@ -41,6 +41,8 @@ import ci_executor  # noqa: E402
 
 _HEALTHY_ENV = {
     "RUNNER_NAME": "probe-test-runner",
+    # ARIA-HIGH-198: identity is measured from the platform's own report.
+    "RUNNER_ENVIRONMENT": "github-hosted",
     "CLAUDE_CODE_OAUTH_TOKEN": "token-present",
     # ARIA-AUDIT-016: identity claims require the Actions OIDC channel as
     # platform evidence; tests simulate the runner-side token channel.
@@ -59,9 +61,6 @@ def _probe(tools: Path, **overrides):
         "repo": "okan/aqua",
         "target_ref": "main",
         "head_ref": "feat/x",
-        "runner_group": "aria-approved",
-        "ephemeral_runner": True,
-        "approved_runner_group": True,
         "base_dir": tools,
     }
     kwargs.update(overrides)
@@ -157,11 +156,7 @@ class AttestationProducerTest(unittest.TestCase):
                     },
                     expected_surface="enterprise_readiness_claims",
                 )
-            with patch.dict(os.environ, {
-                **_HEALTHY_ENV,
-                "ARIA_RUNNER_EPHEMERAL": "true",
-                "ARIA_RUNNER_GROUP_APPROVED": "true",
-            }, clear=False), \
+            with patch.dict(os.environ, _HEALTHY_ENV, clear=False), \
                  patch("aria_kernel.implementation_safety.sandbox_backend",
                        return_value="bwrap"):
                 result = probe_runner_attestations_for_claims(
@@ -171,6 +166,68 @@ class AttestationProducerTest(unittest.TestCase):
         self.assertEqual(result["claims_seen"], 2)
         self.assertEqual(len(result["attested"]), 2)
         self.assertEqual(result["refused"], [])
+
+
+class MeasuredRunnerIdentityTest(unittest.TestCase):
+    """ARIA-HIGH-198 — the runner's identity is measured, and the merge lane
+    attests what it is: a GitHub-hosted host that runs no model."""
+
+    def _probe_in(self, env: dict, **overrides):
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                return _probe(tools, **overrides)
+
+    def test_a_self_hosted_runner_is_never_attested_ephemeral(self) -> None:
+        env = {**_HEALTHY_ENV, "RUNNER_ENVIRONMENT": "self-hosted"}
+        with self.assertRaises(GovernanceError) as caught:
+            self._probe_in(env, lane="merge")
+        self.assertIn("ephemeral_runner_required", str(caught.exception))
+
+    def test_the_merge_lane_on_a_github_hosted_runner_attests_without_model_or_sandbox(self) -> None:
+        from aria_kernel.runner_attestation import verify_runner_attestation
+
+        env = {key: value for key, value in _HEALTHY_ENV.items() if key != "CLAUDE_CODE_OAUTH_TOKEN"}
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("aria_kernel.implementation_safety.sandbox_backend", return_value=None):
+                os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                row = _probe(tools, lane="merge")
+            verdict = verify_runner_attestation(
+                pr_number=77, head_sha="a" * 40, readiness_claim_id="rc-77", base_dir=tools,
+            )
+        self.assertEqual(row["runner_group"], "github-hosted")
+        self.assertIs(row["ephemeral_runner"], True)
+        self.assertEqual(row["claude_auth"], "not_required")
+        self.assertEqual(row["probe"]["measured_fields"], ["runner_group", "ephemeral_runner", "approved_runner_group"])
+        self.assertTrue(verdict["valid"])
+
+    def test_not_required_auth_outside_the_merge_lane_is_refused(self) -> None:
+        from aria_kernel.runner_attestation import record_runner_attestation
+
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with self.assertRaises(GovernanceError) as caught:
+                record_runner_attestation({
+                    "repo": "okan/aqua", "pr_number": 1, "target_ref": "main", "head_ref": "x",
+                    "head_sha": "b" * 40, "readiness_claim_id": "rc-1", "runner_id": "r",
+                    "runner_group": "github-hosted", "ephemeral_runner": True,
+                    "approved_runner_group": True, "platform_verified": True,
+                    "api_key_auth": False, "claude_auth": "not_required",
+                    "attestation_lane": "agent",
+                }, base_dir=tools)
+        self.assertIn("merge_lane_only", str(caught.exception))
+
+    def test_an_unknown_lane_is_refused(self) -> None:
+        with self.assertRaises(GovernanceError):
+            self._probe_in(_HEALTHY_ENV, lane="deploy")
 
 
 def _checkout_with_one_commit(workspace: Path) -> None:
@@ -198,6 +255,8 @@ class PreClaimGateTest(unittest.TestCase):
             patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False),
             patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}),
             patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"),
+            # ARIA-HIGH-143 — the egress boundary answers too.
+            patch.object(ci_executor, "_egress_boundary_probe", return_value=None),
         )
 
     def test_broken_auth_is_named_and_the_request_is_never_claimed(self) -> None:
@@ -225,6 +284,23 @@ class PreClaimGateTest(unittest.TestCase):
         self.assertEqual(kind, "sandbox_unavailable")
         self.assertEqual(gov.call_args.args[1], "sandbox_unavailable")
 
+    def test_a_missing_egress_boundary_is_named_before_any_claim(self) -> None:
+        # ARIA-HIGH-143 — the spawn shares the host's network; without the
+        # allowlist proxy a prompt-injected agent has all of it. The gate
+        # names the gap the probe found and the request stays PENDING.
+        with TemporaryDirectory() as tmp:
+            with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                 patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}), \
+                 patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"), \
+                 patch.object(ci_executor, "_egress_boundary_probe",
+                              return_value="HTTPS_PROXY is unset; the spawn would have the host's whole network"), \
+                 patch.object(ci_executor, "_append_tools_governance") as gov:
+                kind = self._gate(Path(tmp))
+
+        self.assertEqual(kind, "egress_boundary_unavailable")
+        self.assertEqual(gov.call_args.args[1], "egress_boundary_unavailable")
+        self.assertIn("HTTPS_PROXY is unset", gov.call_args.args[2]["detail"])
+
     def test_a_healthy_host_passes(self) -> None:
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -233,13 +309,45 @@ class PreClaimGateTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(workspace)
             try:
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox:
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress:
                     kind = self._gate(workspace)
             finally:
                 os.chdir(cwd)
 
         self.assertIsNone(kind)
+
+    def test_a_per_request_worktree_resolves_the_checkouts_node_modules(self) -> None:
+        # B8 — the drain child runs in `<checkout>/aria-worktrees/req-x`, which
+        # has no node_modules of its own; Node walks up to the checkout's, and
+        # so must the gate (a cwd-only check refused every worktree child as
+        # env_deps_missing).
+        with TemporaryDirectory() as tmp:
+            checkout = Path(tmp)
+            (checkout / "node_modules").mkdir()
+            worktree = checkout / "aria-worktrees" / "req-AIR-1"
+            worktree.mkdir(parents=True)
+            # The gate also asks git for HEAD in the child's cwd (ARIA-HIGH-109):
+            # the per-request worktree is a real checkout, so it is one here.
+            subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+            subprocess.run(["git", "-C", str(worktree), "-c", "user.name=t", "-c", "user.email=t@x.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "seed"], check=True)
+            cwd = os.getcwd()
+            os.chdir(worktree)
+            try:
+                with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                     patch.object(ci_executor, "preflight_claude_auth",
+                                  return_value={"status": "ok"}), \
+                     patch.object(ci_executor, "_sandbox_backend",
+                                  return_value="bwrap"), \
+                     patch.object(ci_executor, "_egress_boundary_probe", return_value=None):
+                    kind = self._gate(checkout)
+            finally:
+                os.chdir(cwd)
+            self.assertIsNone(kind)
+            self.assertTrue(ci_executor._node_modules_resolvable_from(worktree))
+        with TemporaryDirectory() as bare:
+            self.assertFalse(ci_executor._node_modules_resolvable_from(Path(bare) / "nested" / "deeper"))
 
     def test_a_workspace_whose_git_cannot_answer_is_never_claimed(self) -> None:
         # The kernel verifies every evidence ref with git probes in this
@@ -253,8 +361,8 @@ class PreClaimGateTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(workspace)
             try:
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox, \
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress, \
                      patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(workspace.parent)}), \
                      patch.object(ci_executor, "_append_tools_governance") as gov:
                     kind = self._gate(workspace)
@@ -279,8 +387,8 @@ class PreClaimGateTest(unittest.TestCase):
                 stalled = GitProbeSession(
                     attempt_timeout_seconds=0.0, attempts=2, backoff_seconds=(0.0,),
                 )
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox, \
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress, \
                      patch.object(ci_executor, "_GitProbeSession", return_value=stalled), \
                      patch.object(ci_executor, "_append_tools_governance") as gov:
                     kind = self._gate(workspace)
@@ -312,14 +420,20 @@ class PreClaimGateTest(unittest.TestCase):
     def test_the_gate_runs_before_the_claim_in_main(self) -> None:
         # Position pin: the whole defect was ordering (claim first, discover
         # the broken host after). The gate must precede the kernel claim call
-        # in the self-claim branch of main().
+        # in the self-claim branch of the entry body — `_main`; `main` is the
+        # three-line ExitStack wrapper around it, and pinning the wrapper's
+        # source (as this test did) raised ValueError instead of gating.
         import inspect
 
-        source = inspect.getsource(ci_executor.main)
+        source = inspect.getsource(ci_executor._main)
         gate_at = source.index("_pre_claim_environment_gate")
-        claim_at = source.index('"agent", "claim"')
+        # Typed-judgment plan Phase 4a — the kernel claim argv lives in
+        # `_claim_request_via_cli`; `_main` calls it by name, after the gate.
+        claim_at = source.index("_claim_request_via_cli(")
 
         self.assertLess(gate_at, claim_at)
+        helper = inspect.getsource(ci_executor._claim_request_via_cli)
+        self.assertIn('"agent", "claim"', helper)
 
 
 class PreflightStandardSubsetTest(unittest.TestCase):
@@ -428,3 +542,32 @@ class AnchorBlockedReasonTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MergeRunVerbTest(unittest.TestCase):
+    """ARIA-HIGH-198 — `aria-kernel merge-lane run --pr N` runs the SAME runner and
+    authority the cycle uses, for exactly that PR, on the invoking host."""
+
+    def test_the_verb_enumerates_only_the_named_pr(self) -> None:
+        from aria_kernel import cli
+
+        seen: dict = {}
+
+        class _Runner:
+            def __call__(self, *, base_dir, workspace_root):
+                seen["prs"] = seen["enumerator"](object())
+                return {"status": "ok", "merges_completed": 0}
+
+        def fake_select(*, profile, adapter_factory, pr_enumerator, readiness_claim_resolver):
+            seen["profile"] = profile
+            seen["enumerator"] = pr_enumerator
+            return _Runner()
+
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            with patch("aria_kernel.auto_merge_runners.select_auto_merge_runner", side_effect=fake_select), \
+                 patch("aria_kernel.github_adapters.select_github_adapter", return_value=object()):
+                rc = cli.main(["--tools-dir", str(tools), "merge-lane", "run", "--pr", "1672"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["prs"], [1672])

@@ -25,7 +25,7 @@ import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import { ForwardMessageCommand } from './forward-message.command';
-import { Message } from '../entities/message.entity';
+import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 
@@ -101,13 +101,17 @@ export class ForwardMessageHandler
 
         // 3a. Create forwarded message
         // SECURITY: tenantId MUST be set for RLS and event routing.
+        // MSGFIX-FAZ2 (V1 MAJOR-1): the copy is ALWAYS TEXT. Copying the source
+        // contentType verbatim let a user forward an AI/SYSTEM message and then
+        // EDIT it into arbitrary content under their own senderId — recreating
+        // the SYSTEM-spoof the send-side guard (send-message.handler) closed.
         const message = manager.create(Message, {
           id: messageId,
           tenantId,
           channelId: targetChannelId,
           senderId: userId,
           content: sourceMessage.content,
-          contentType: sourceMessage.contentType,
+          contentType: MessageContentType.TEXT,
           parentId: null,
           forwardedFrom: sourceMessageId,
           idempotencyKey: uuidv4(), // Unique key for the forwarded copy

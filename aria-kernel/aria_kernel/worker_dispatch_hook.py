@@ -18,6 +18,15 @@ discipline, and submit-side validation are tested ONCE.
 Decision branching (status enum):
 * ``no_pending`` — no pending/prepared assignment.
 * ``claim_failed`` — claim_assignment raised GovernanceError.
+* ``provider_cooldown`` — the assignment's provider is under an active
+  quota cooldown (operator decision 2026-09-12; ``aria_kernel.
+  provider_cooldown``). Pre-claim: the assignment is skipped by name
+  WITHOUT a claim or a spawn. Post-executor: the child cooled the
+  provider under this claim (its ``except ClaudeCreditExhausted`` arm),
+  so the claim is released under ``provider_quota_unavailable:
+  <provider>`` rather than as a generic executor failure. The daemon
+  backs off on this status (sleeps the poll interval) while the cooldown
+  stands.
 * ``executor_failed`` — worker_executor.py exited non-zero.
 * ``verified_pending_merge`` — verify passed but no PR exists yet
   (assignment_id → PR bridge missing in pr-lifecycle.jsonl).
@@ -31,8 +40,9 @@ Decision branching (status enum):
 
 Lease-token redaction discipline: lease token transit ONLY via
 ARIA_LEASE_TOKEN env var; argv carries only public identifiers
-(assignment_id + target_agent); stderr redacted at the hook
-boundary as defense-in-depth on top of worker_executor's own
+(assignment_id + target_agent + ``--claim-id``, the claim the child
+runs under and keys its provider-cooldown row on); stderr redacted at
+the hook boundary as defense-in-depth on top of worker_executor's own
 redaction.
 """
 from __future__ import annotations
@@ -58,6 +68,7 @@ LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
 STATUSES: frozenset[str] = frozenset({
     "no_pending",
     "claim_failed",
+    "provider_cooldown",
     "executor_failed",
     "verified_pending_merge",
     "merged",
@@ -82,6 +93,25 @@ def _default_worker_executor_path(base_dir: Path) -> Path:
     return base_dir.parent / "tools" / "aria-poc" / "worker_executor.py"
 
 
+def _cooldown_summary(cooldown: dict[str, Any]) -> dict[str, Any]:
+    """The cooldown facts a hook result and its governance rows carry.
+
+    Keys are prefixed so they cannot collide with the row's own
+    ``claim_id`` / ``assignment_id`` — the cooldown's ids name the run
+    that EXHAUSTED the provider, which on the pre-claim path is a
+    different run (often the planner lane's) from the assignment being
+    skipped.
+    """
+    return {
+        "provider": cooldown["provider"],
+        "cooldown_model": cooldown["model"],
+        "cooldown_until": cooldown["until"],
+        "cooldown_recorded_at": cooldown["recorded_at"],
+        "cooldown_request_id": cooldown["request_id"],
+        "cooldown_claim_id": cooldown["claim_id"],
+    }
+
+
 def dispatch_one_pending_worker_assignment(
     *,
     base_dir: str | Path,
@@ -96,8 +126,11 @@ def dispatch_one_pending_worker_assignment(
 
     See module docstring for the status enum + decision branching.
     Does NOT raise on operational failures (claim rejections,
-    subprocess non-zero exit, verification failure); only programmer
-    errors raise.
+    subprocess non-zero exit, verification failure). Programmer errors
+    raise, and so does a malformed ``provider_quota_cooldown`` ledger
+    row — a named ``GovernanceError`` from ``active_provider_cooldowns``
+    (Step 2b): an integrity refusal that must stop the daemon rather
+    than re-admit an exhausted provider or spin on the same row.
 
     ``github_adapter`` is the auto_merge.GitHubAdapter Protocol
     instance. Plan ARIA-V3 §A2 GAP-3 closure makes this REQUIRED
@@ -112,6 +145,9 @@ def dispatch_one_pending_worker_assignment(
     triage tiers OR when ``pr_for_assignment`` returns None — that
     branch is governance discipline, not adapter absence.
     """
+    from .agent_runtime_profile import read_agent_runtime_profile
+    from .model_fleet import dispatching_provider_for_model
+    from .provider_cooldown import active_provider_cooldowns, provider_cooldown_for_claim
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -184,6 +220,45 @@ def dispatch_one_pending_worker_assignment(
             "merge_result": None,
         }
 
+    # Step 2b — pre-claim provider cooldown gate (operator decision
+    # 2026-09-12). The worker is a write-scope profile: only the managed
+    # Claude route can run it, so while its provider is under an active
+    # quota cooldown there is nothing to claim FOR — a claim would spawn
+    # the same exhausted provider again and hand the assignment back a
+    # lease later. Skip by name, no claim, no lease; the daemon backs off
+    # on this status. The provider is the one the assignment's target
+    # agent dispatches through (frontmatter model → fleet row), read from
+    # the same SSoTs the child will resolve. A malformed cooldown row is a
+    # ledger-integrity refusal from `active_provider_cooldowns` and
+    # propagates by name: an unreadable cooldown must stop the daemon, not
+    # re-admit an exhausted provider or spin on the same row.
+    if worker_executor_path is None:
+        worker_executor_path = _default_worker_executor_path(root)
+    repo_root = worker_executor_path.resolve().parents[2]
+    profile = read_agent_runtime_profile(assignment_target, repo_root=repo_root)
+    provider = dispatching_provider_for_model(profile.model)
+    cooldown = active_provider_cooldowns(root).get(provider)
+    if cooldown is not None:
+        cooldown_summary = _cooldown_summary(cooldown)
+        append_tools_governance(
+            root, "worker_dispatch_provider_cooldown",
+            {
+                "assignment_id": assignment_id, "claim_id": None,
+                "target_agent": assignment_target, "model": profile.model,
+                "stage": "pre_claim", **cooldown_summary,
+            },
+        )
+        return {
+            "status": "provider_cooldown",
+            "assignment_id": assignment_id, "claim_id": None,
+            "exit_code": None, "decision": None,
+            "governance_event_count": 1,
+            "stderr_redacted": "",
+            "retry_count": retry_count,
+            "merge_result": None,
+            "provider_cooldown": cooldown_summary,
+        }
+
     # Step 3 — claim under the exclusive lock.
     governance_count = 0
     try:
@@ -212,13 +287,12 @@ def dispatch_one_pending_worker_assignment(
     lease_token: str = claim["lease_token"]
 
     # Step 4 — invoke worker_executor.py as a subprocess. Lease token
-    # via env, public identifiers via argv.
-    if worker_executor_path is None:
-        worker_executor_path = _default_worker_executor_path(root)
-    repo_root = worker_executor_path.resolve().parents[2]
+    # via env, public identifiers via argv (the claim id included: the
+    # child keys its provider-cooldown row on it, and that row is how this
+    # hook tells a quota exhaustion apart from a crash below).
     argv: list[str] = [
         "python3", str(worker_executor_path),
-        assignment_id, assignment_target,
+        assignment_id, assignment_target, "--claim-id", claim_id,
     ]
     env: dict[str, str] = {
         **os.environ,
@@ -252,7 +326,68 @@ def dispatch_one_pending_worker_assignment(
         }
     stderr_redacted = _redact_lease_in_message(stderr_text, lease_token)
 
+    def _release(reason: str, *, stage: str) -> int:
+        """Release the claim back to ``pending``; return the rows written.
+
+        Plan 025 §E reviewer MEDIUM-001 — one audit shape for every
+        release site: a release failure is never swallowed, operators
+        reading governance.jsonl see the precise failure mode (claim
+        still terminal-marked under a stale token vs. claim_id missing
+        vs. already-released) and the stage it happened at.
+        """
+        try:
+            release_claim_assignment(
+                claim_id=claim_id, lease_token=lease_token,
+                reason=reason, base_dir=root,
+            )
+            return 2  # released + state_changed
+        except GovernanceError as exc:
+            append_tools_governance(
+                root, "worker_dispatch_release_claim_failed",
+                {
+                    "assignment_id": assignment_id,
+                    "claim_id": claim_id,
+                    "stage": stage,
+                    "error": str(exc),
+                },
+            )
+            return 1
+
     if exit_code != 0:
+        cooldown = provider_cooldown_for_claim(root, claim_id=claim_id)
+        if cooldown is not None:
+            # The child cooled the provider under THIS claim (worker_executor's
+            # `except ClaudeCreditExhausted` arm): a quota exhaustion, not a
+            # crash. Released under the reason that names the provider — the
+            # same word the planner lane uses — so a billing event never
+            # reads as an executor failure in the ledger, and reported as
+            # `provider_cooldown` so the daemon backs off at once instead of
+            # discovering the cooldown at its next claim attempt.
+            cooldown_summary = _cooldown_summary(cooldown)
+            append_tools_governance(
+                root, "worker_dispatch_provider_cooldown",
+                {
+                    "assignment_id": assignment_id, "claim_id": claim_id,
+                    "target_agent": assignment_target, "model": profile.model,
+                    "stage": "executor", "exit_code": exit_code,
+                    **cooldown_summary,
+                },
+            )
+            governance_count += 1
+            governance_count += _release(
+                f"provider_quota_unavailable:{cooldown['provider']}",
+                stage="provider_cooldown",
+            )
+            return {
+                "status": "provider_cooldown",
+                "assignment_id": assignment_id, "claim_id": claim_id,
+                "exit_code": exit_code, "decision": None,
+                "governance_event_count": governance_count,
+                "stderr_redacted": stderr_redacted,
+                "retry_count": retry_count,
+                "merge_result": None,
+                "provider_cooldown": cooldown_summary,
+            }
         append_tools_governance(
             root, "worker_dispatch_executor_exit_nonzero",
             {
@@ -263,30 +398,7 @@ def dispatch_one_pending_worker_assignment(
         governance_count += 1
         # Release the claim so the next tick can re-attempt under
         # the same retry budget.
-        try:
-            release_claim_assignment(
-                claim_id=claim_id, lease_token=lease_token,
-                reason="worker_executor_failed", base_dir=root,
-            )
-            governance_count += 2
-        except GovernanceError as exc:
-            # Plan 025 §E reviewer MEDIUM-001 — symmetric audit-trail
-            # parity with the verification-failed branch below. A
-            # release failure on the executor-failed path was previously
-            # swallowed silently; operators reading governance.jsonl
-            # now see the precise failure mode (claim still terminal-
-            # marked under a stale token vs. claim_id missing vs.
-            # already-released).
-            append_tools_governance(
-                root, "worker_dispatch_release_claim_failed",
-                {
-                    "assignment_id": assignment_id,
-                    "claim_id": claim_id,
-                    "stage": "executor_failed",
-                    "error": str(exc),
-                },
-            )
-            governance_count += 1
+        governance_count += _release("worker_executor_failed", stage="executor_failed")
         return {
             "status": "executor_failed",
             "assignment_id": assignment_id, "claim_id": claim_id,
@@ -414,22 +526,9 @@ def dispatch_one_pending_worker_assignment(
 
     # Failed but retry budget remains — release the claim so the
     # next daemon tick re-claims the assignment.
-    try:
-        release_claim_assignment(
-            claim_id=claim_id, lease_token=lease_token,
-            reason="verification_failed_retry_scheduled",
-            base_dir=root,
-        )
-        governance_count += 2  # released + state_changed
-    except GovernanceError as exc:
-        append_tools_governance(
-            root, "worker_dispatch_release_claim_failed",
-            {
-                "assignment_id": assignment_id, "claim_id": claim_id,
-                "error": str(exc),
-            },
-        )
-        governance_count += 1
+    governance_count += _release(
+        "verification_failed_retry_scheduled", stage="verification_failed",
+    )
     append_tools_governance(
         root, "worker_dispatch_retry_scheduled",
         {

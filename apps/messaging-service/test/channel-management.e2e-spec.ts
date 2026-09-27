@@ -341,7 +341,11 @@ describe('Channel Management (E2E)', () => {
 
   describe('AI Channel', () => {
     it('should create an AI channel with a persona', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
+      // `expert-v1` requires `ai_personas:expert` (persona catalogue SSoT);
+      // the resolver enforces it server-side.
+      const res = await gqlRequest(httpServer, TENANT_A, USER_A1, ['MODULE_USER'], [
+        'ai_personas:expert',
+      ])
         .query(`
           mutation CreateChannel($input: CreateChannelInput!) {
             createChannel(input: $input) {

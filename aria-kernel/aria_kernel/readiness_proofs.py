@@ -289,11 +289,29 @@ def _measured_protection_fields(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(checks_block, dict)
         else []
     )
+    # ARIA-HIGH-201 — the review block's own fields, measured. "A block
+    # exists" could not show that an unreviewed L1 merge is permitted (the
+    # approving-review count) nor that owned paths still need their owner
+    # (code-owner review): the L1 lane is CODEOWNERS-free by construction
+    # (ARIA-HIGH-187), and that is what makes zero approvals safe for it.
+    reviews_block = payload.get("required_pull_request_reviews")
+    approving_count = (
+        reviews_block.get("required_approving_review_count")
+        if isinstance(reviews_block, dict) else None
+    )
     return {
         "required_checks": contexts,
         "exact_required_checks": contexts,
         "signed_commits_required": enabled("required_signatures"),
-        "reviews_required": isinstance(payload.get("required_pull_request_reviews"), dict),
+        "reviews_required": isinstance(reviews_block, dict),
+        "required_approving_review_count": (
+            approving_count
+            if isinstance(approving_count, int) and not isinstance(approving_count, bool)
+            else None
+        ),
+        "code_owner_reviews_required": (
+            isinstance(reviews_block, dict) and reviews_block.get("require_code_owner_reviews") is True
+        ),
         "conversation_resolution_required": enabled("required_conversation_resolution"),
         "force_push_disabled": not enabled("allow_force_pushes"),
         "delete_branch_disabled": not enabled("allow_deletions"),

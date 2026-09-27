@@ -40,32 +40,38 @@ describe('Messaging Core (E2E)', () => {
 
     // Create test channels
     const channelRes = await gqlRequest(httpServer, TENANT_A, USER_A1, ['TENANT_ADMIN'])
-      .query(`
+      .query(
+        `
         mutation CreateChannel($input: CreateChannelInput!) {
           createChannel(input: $input) { id }
         }
-      `, {
-        input: {
-          type: 'GROUP',
-          name: 'Mesaj Test Kanalı',
-          memberIds: [USER_A1, USER_A2, ADMIN_A],
+      `,
+        {
+          input: {
+            type: 'GROUP',
+            name: 'Mesaj Test Kanalı',
+            memberIds: [USER_A1, USER_A2, ADMIN_A],
+          },
         },
-      })
+      )
       .expect(200);
     channelId = channelRes.body.data.createChannel.id;
 
     const targetRes = await gqlRequest(httpServer, TENANT_A, USER_A1, ['TENANT_ADMIN'])
-      .query(`
+      .query(
+        `
         mutation CreateChannel($input: CreateChannelInput!) {
           createChannel(input: $input) { id }
         }
-      `, {
-        input: {
-          type: 'GROUP',
-          name: 'Forward Hedef',
-          memberIds: [USER_A1, USER_A2],
+      `,
+        {
+          input: {
+            type: 'GROUP',
+            name: 'Forward Hedef',
+            memberIds: [USER_A1, USER_A2],
+          },
         },
-      })
+      )
       .expect(200);
     forwardTargetChannelId = targetRes.body.data.createChannel.id;
   });
@@ -85,20 +91,23 @@ describe('Messaging Core (E2E)', () => {
 
     it('should send a text message', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) {
               id channelId senderId content contentType createdAt
             }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Havuz 3 oksijen seviyesi düşük',
-            contentType: 'TEXT',
-            idempotencyKey: idemKey,
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Havuz 3 oksijen seviyesi düşük',
+              contentType: 'TEXT',
+              idempotencyKey: idemKey,
+            },
           },
-        })
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -114,18 +123,21 @@ describe('Messaging Core (E2E)', () => {
 
     it('should return same message for duplicate idempotencyKey', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Bu tekrar gönderildi',
-            contentType: 'TEXT',
-            idempotencyKey: idemKey,
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Bu tekrar gönderildi',
+              contentType: 'TEXT',
+              idempotencyKey: idemKey,
+            },
           },
-        })
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -137,21 +149,26 @@ describe('Messaging Core (E2E)', () => {
       // exercises the ledger's entire reason to exist — evict the cache
       // key and prove the ON CONFLICT claim + partition-pruned lookup
       // return the ORIGINAL message against a real Postgres.
-      await redis.del(`msg:${TENANT_A}:idem:${idemKey}`);
+      // MSGFIX-FAZ1: the idempotency cache key is scoped
+      // (tenant, sender, channel, key) — mirror the handler's format here.
+      await redis.del(`msg:${TENANT_A}:${USER_A1}:${channelId}:${idemKey}`);
 
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Redis silindikten sonra tekrar',
-            contentType: 'TEXT',
-            idempotencyKey: idemKey,
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Redis silindikten sonra tekrar',
+              contentType: 'TEXT',
+              idempotencyKey: idemKey,
+            },
           },
-        })
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -172,16 +189,19 @@ describe('Messaging Core (E2E)', () => {
 
     it('should edit own message', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation EditMessage($id: ID!, $input: EditMessageInput!) {
             editMessage(id: $id, input: $input) {
               id content editedAt
             }
           }
-        `, {
-          id: messageId,
-          input: { content: 'Düzenlendi: Oksijen seviyesi kritik' },
-        })
+        `,
+          {
+            id: messageId,
+            input: { content: 'Düzenlendi: Oksijen seviyesi kritik' },
+          },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -189,16 +209,19 @@ describe('Messaging Core (E2E)', () => {
       expect(res.body.data.editMessage.editedAt).not.toBeNull();
     });
 
-    it('should reject editing another user\'s message', async () => {
+    it("should reject editing another user's message", async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A2)
-        .query(`
+        .query(
+          `
           mutation EditMessage($id: ID!, $input: EditMessageInput!) {
             editMessage(id: $id, input: $input) { id }
           }
-        `, {
-          id: messageId,
-          input: { content: 'Başkasının mesajı' },
-        })
+        `,
+          {
+            id: messageId,
+            input: { content: 'Başkasının mesajı' },
+          },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
@@ -208,28 +231,34 @@ describe('Messaging Core (E2E)', () => {
     it('should delete own message (soft-delete)', async () => {
       // Send a message to delete
       const sendRes = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Silinecek mesaj',
-            contentType: 'TEXT',
-            idempotencyKey: nextIdempotencyKey(),
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Silinecek mesaj',
+              contentType: 'TEXT',
+              idempotencyKey: nextIdempotencyKey(),
+            },
           },
-        })
+        )
         .expect(200);
 
       const deleteId = sendRes.body.data.sendMessage.id;
 
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation DeleteMessage($id: ID!) {
             deleteMessage(id: $id)
           }
-        `, { id: deleteId })
+        `,
+          { id: deleteId },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -239,29 +268,35 @@ describe('Messaging Core (E2E)', () => {
     it('should allow channel owner to delete any message', async () => {
       // USER_A2 sends a message
       const sendRes = await gqlRequest(httpServer, TENANT_A, USER_A2)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Admin silecek',
-            contentType: 'TEXT',
-            idempotencyKey: nextIdempotencyKey(),
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Admin silecek',
+              contentType: 'TEXT',
+              idempotencyKey: nextIdempotencyKey(),
+            },
           },
-        })
+        )
         .expect(200);
 
       const msgId = sendRes.body.data.sendMessage.id;
 
       // USER_A1 created the channel and is the channel OWNER.
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1, ['TENANT_ADMIN'])
-        .query(`
+        .query(
+          `
           mutation DeleteMessage($id: ID!) {
             deleteMessage(id: $id)
           }
-        `, { id: msgId })
+        `,
+          { id: msgId },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -271,29 +306,35 @@ describe('Messaging Core (E2E)', () => {
     it('should reject non-owner non-admin delete', async () => {
       // USER_A1 sends
       const sendRes = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Bu mesajı USER_A2 silemez',
-            contentType: 'TEXT',
-            idempotencyKey: nextIdempotencyKey(),
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Bu mesajı USER_A2 silemez',
+              contentType: 'TEXT',
+              idempotencyKey: nextIdempotencyKey(),
+            },
           },
-        })
+        )
         .expect(200);
 
       const msgId = sendRes.body.data.sendMessage.id;
 
       // USER_A2 (MEMBER role) tries to delete
       const res = await gqlRequest(httpServer, TENANT_A, USER_A2)
-        .query(`
+        .query(
+          `
           mutation DeleteMessage($id: ID!) {
             deleteMessage(id: $id)
           }
-        `, { id: msgId })
+        `,
+          { id: msgId },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
@@ -302,19 +343,22 @@ describe('Messaging Core (E2E)', () => {
 
     it('should send a reply (threading via parentId)', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A2)
-        .query(`
+        .query(
+          `
           mutation SendMessage($input: SendMessageInput!) {
             sendMessage(input: $input) { id parentId }
           }
-        `, {
-          input: {
-            channelId,
-            content: 'Bu bir yanıttır',
-            contentType: 'TEXT',
-            parentId: messageId,
-            idempotencyKey: nextIdempotencyKey(),
+        `,
+          {
+            input: {
+              channelId,
+              content: 'Bu bir yanıttır',
+              contentType: 'TEXT',
+              parentId: messageId,
+              idempotencyKey: nextIdempotencyKey(),
+            },
           },
-        })
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -329,25 +373,29 @@ describe('Messaging Core (E2E)', () => {
       // Seed 8 messages for pagination tests
       for (let i = 0; i < 8; i++) {
         await gqlRequest(httpServer, TENANT_A, USER_A1)
-          .query(`
+          .query(
+            `
             mutation SendMessage($input: SendMessageInput!) {
               sendMessage(input: $input) { id }
             }
-          `, {
-            input: {
-              channelId,
-              content: `Pagination mesajı ${i + 1}`,
-              contentType: 'TEXT',
-              idempotencyKey: nextIdempotencyKey(),
+          `,
+            {
+              input: {
+                channelId,
+                content: `Pagination mesajı ${i + 1}`,
+                contentType: 'TEXT',
+                idempotencyKey: nextIdempotencyKey(),
+              },
             },
-          })
+          )
           .expect(200);
       }
     });
 
     it('should return first page with cursor', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           query Messages($channelId: ID!, $filter: MessageFilterInput) {
             messages(channelId: $channelId, filter: $filter) {
               items { id content }
@@ -355,7 +403,9 @@ describe('Messaging Core (E2E)', () => {
               cursor
             }
           }
-        `, { channelId, filter: { limit: 5 } })
+        `,
+          { channelId, filter: { limit: 5 } },
+        )
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
@@ -368,7 +418,8 @@ describe('Messaging Core (E2E)', () => {
     it('should paginate to next page using cursor', async () => {
       // Get first page
       const firstRes = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           query Messages($channelId: ID!, $filter: MessageFilterInput) {
             messages(channelId: $channelId, filter: $filter) {
               items { id }
@@ -376,7 +427,9 @@ describe('Messaging Core (E2E)', () => {
               cursor
             }
           }
-        `, { channelId, filter: { limit: 5 } })
+        `,
+          { channelId, filter: { limit: 5 } },
+        )
         .expect(200);
 
       const cursor = firstRes.body.data.messages.cursor;
@@ -384,14 +437,17 @@ describe('Messaging Core (E2E)', () => {
 
       // Get second page
       const secondRes = await gqlRequest(httpServer, TENANT_A, USER_A1)
-        .query(`
+        .query(
+          `
           query Messages($channelId: ID!, $filter: MessageFilterInput) {
             messages(channelId: $channelId, filter: $filter) {
               items { id }
               hasMore
             }
           }
-        `, { channelId, filter: { limit: 5, cursor } })
+        `,
+          { channelId, filter: { limit: 5, cursor } },
+        )
         .expect(200);
 
       expect(secondRes.body.errors).toBeUndefined();
@@ -402,5 +458,4 @@ describe('Messaging Core (E2E)', () => {
       expect(overlap).toHaveLength(0);
     });
   });
-
 });

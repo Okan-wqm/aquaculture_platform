@@ -26,6 +26,15 @@ export class AnthropicProvider implements LlmProvider {
   private readonly logger = new Logger(AnthropicProvider.name);
   private readonly clients = new Map<string, Anthropic>();
 
+  /**
+   * SDK client factory — the one place transport settings live (the same
+   * seam OpenAiProvider exposes, so both providers are probed the same way).
+   * FARM-AI-0.1: 30s / 1 retry (see openai.provider.ts rationale).
+   */
+  protected newClient(apiKey: string): Anthropic {
+    return new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
+  }
+
   private clientFor(apiKey: string): Anthropic {
     const cacheKey = createHash('sha256').update(apiKey).digest('hex');
     const cached = this.clients.get(cacheKey);
@@ -44,15 +53,12 @@ export class AnthropicProvider implements LlmProvider {
       }
     }
 
-    const client = new Anthropic({ apiKey });
+    const client = this.newClient(apiKey);
     this.clients.set(cacheKey, client);
     return client;
   }
 
-  async chat(
-    params: LlmChatParams,
-    credential: LlmCredential,
-  ): Promise<LlmChatResult> {
+  async chat(params: LlmChatParams, credential: LlmCredential): Promise<LlmChatResult> {
     const client = this.clientFor(credential.apiKey);
 
     let response: Anthropic.Message;
@@ -72,7 +78,10 @@ export class AnthropicProvider implements LlmProvider {
         })),
       });
     } catch (err) {
-      if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+      if (
+        err instanceof Anthropic.AuthenticationError ||
+        err instanceof Anthropic.PermissionDeniedError
+      ) {
         // Do NOT log the key or the SDK message verbatim (may echo request
         // detail) — a stable opaque signal is enough for the caller to map to
         // the invalid-key contract.
@@ -150,9 +159,7 @@ export class AnthropicProvider implements LlmProvider {
     }
   }
 
-  private toAnthropicContent(
-    blocks: LlmContentBlock[],
-  ): Anthropic.MessageParam['content'] {
+  private toAnthropicContent(blocks: LlmContentBlock[]): Anthropic.MessageParam['content'] {
     return blocks.map((block) => {
       switch (block.type) {
         case 'text':

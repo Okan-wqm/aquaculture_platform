@@ -6,14 +6,13 @@
  */
 
 import React, { useState } from 'react';
+import { AlertCircle, RefreshCw, CheckCircle, Settings } from 'lucide-react';
 import {
-  AlertCircle,
-  RefreshCw,
-  CheckCircle,
-  Settings,
-  Loader2,
-} from 'lucide-react';
-import { useIndustryTemplates, useApplyTemplate, IndustryTemplate } from '../../hooks/useIndustryTemplates';
+  useIndustryTemplates,
+  useApplyTemplate,
+  IndustryTemplate,
+} from '../../hooks/useIndustryTemplates';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface IndustryTemplateSelectorProps {
   onTemplateApplied?: () => void;
@@ -24,12 +23,12 @@ interface IndustryTemplateSelectorProps {
 // ============================================================================
 
 const SkeletonCard: React.FC = () => (
-  <div className="p-5 bg-white rounded-xl border border-gray-200 animate-pulse">
-    <div className="w-12 h-12 bg-gray-200 rounded-lg mb-4" />
-    <div className="h-5 bg-gray-200 rounded w-3/4 mb-2" />
-    <div className="h-4 bg-gray-100 rounded w-full mb-1" />
-    <div className="h-4 bg-gray-100 rounded w-2/3 mb-4" />
-    <div className="h-6 bg-gray-100 rounded-full w-20" />
+  <div className="p-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 animate-pulse">
+    <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-lg mb-4" />
+    <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+    <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-full mb-1" />
+    <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-2/3 mb-4" />
+    <div className="h-6 bg-gray-100 dark:bg-gray-800 rounded-full w-20" />
   </div>
 );
 
@@ -47,36 +46,36 @@ const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSel
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
       isSelected
-        ? 'border-cyan-500 ring-1 ring-cyan-500 shadow-md'
-        : 'border-gray-200 hover:border-gray-300'
+        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
+        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
     }`}
   >
     {/* Selection indicator */}
     {isSelected && (
       <div className="absolute top-3 right-3">
-        <CheckCircle className="w-5 h-5 text-cyan-600" />
+        <CheckCircle className="w-5 h-5 text-info-600 dark:text-info-400" />
       </div>
     )}
 
     {/* Icon */}
-    <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-cyan-50 text-2xl mb-4">
+    <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-info-50 dark:bg-info-900/20 text-2xl mb-4">
       {template.icon || '📦'}
     </div>
 
     {/* Name */}
-    <h3 className="text-base font-semibold text-gray-900 mb-1">
+    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
       {template.displayName}
     </h3>
 
     {/* Description */}
-    <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-2">
       {template.description}
     </p>
 
     {/* Sensor type count badge */}
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
       {template.sensorTypes.length} sensor tipi
     </span>
   </button>
@@ -95,31 +94,31 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
       isSelected
-        ? 'border-cyan-500 ring-1 ring-cyan-500 shadow-md'
-        : 'border-gray-300 hover:border-gray-400'
+        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
+        : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
     }`}
   >
     {isSelected && (
       <div className="absolute top-3 right-3">
-        <CheckCircle className="w-5 h-5 text-cyan-600" />
+        <CheckCircle className="w-5 h-5 text-info-600 dark:text-info-400" />
       </div>
     )}
 
-    <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 mb-4">
-      <Settings className="w-6 h-6 text-gray-500" />
+    <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 mb-4">
+      <Settings className="w-6 h-6 text-gray-500 dark:text-gray-400" />
     </div>
 
-    <h3 className="text-base font-semibold text-gray-900 mb-1">
+    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
       Manuel Yapilandirma
     </h3>
 
-    <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-2">
       Sektorden bagimsiz olarak sensorlerinizi manuel olarak yapilandirin.
     </p>
 
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
       Ozel kurulum
     </span>
   </button>
@@ -129,7 +128,9 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
 // Industry Template Selector
 // ============================================================================
 
-const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onTemplateApplied }) => {
+const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({
+  onTemplateApplied,
+}) => {
   const { templates, loading, error, refetch } = useIndustryTemplates();
   const { apply, loading: applying } = useApplyTemplate();
 
@@ -155,18 +156,14 @@ const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onT
   if (error && !loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
-        <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+        <AlertCircle className="w-12 h-12 text-error-400 mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
           Sablonlar yuklenemedi
         </h3>
-        <p className="text-sm text-gray-500 mb-6">{error.message}</p>
-        <button
-          onClick={refetch}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{error.message}</p>
+        <Button variant="primary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={refetch}>
           Tekrar Dene
-        </button>
+        </Button>
       </div>
     );
   }
@@ -211,11 +208,11 @@ const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onT
           disabled={!selectedKey || applying}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-colors ${
             selectedKey && !applying
-              ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              ? 'bg-info-600 text-white hover:bg-info-700'
+              : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
           }`}
         >
-          {applying && <Loader2 className="w-4 h-4 animate-spin" />}
+          {applying && <Spinner size="sm" color="inherit" />}
           {selectedKey === '__custom__' ? 'Atla ve Devam Et' : 'Sablonu Uygula'}
         </button>
       </div>

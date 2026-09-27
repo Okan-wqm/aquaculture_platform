@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import { Modal, useClickOutside, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -24,7 +25,6 @@ import {
   ZoomOut,
   Maximize2,
   Trash2,
-  Loader2,
   ChevronDown,
   ChevronUp,
   Monitor,
@@ -38,7 +38,6 @@ import {
   Paperclip,
   Play,
   Square,
-  X,
 } from 'lucide-react';
 
 import type { Edge } from '@xyflow/react';
@@ -105,41 +104,43 @@ const LiveTagsPanel: React.FC = () => {
   );
 
   const IO_TYPE_COLOR: Record<string, string> = {
-    AI: 'bg-blue-100 text-blue-700',
-    AO: 'bg-orange-100 text-orange-700',
-    DI: 'bg-green-100 text-green-700',
-    DO: 'bg-red-100 text-red-700',
-    CALC: 'bg-purple-100 text-purple-700',
+    AI: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    AO: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+    DI: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+    DO: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+    CALC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   };
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Live Tags</h3>
-        <input
+      <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Live Tags</h3>
+        <Input
+          fullWidth
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Tag ara..."
-          className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
         />
       </div>
 
       {loading && (
         <div className="flex items-center justify-center p-4">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+          <Spinner size="md" />
         </div>
       )}
 
       {error && (
-        <div className="p-3 text-xs text-red-600 bg-red-50 border-b border-red-100">
+        <div className="p-3 text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-b border-error-100 dark:border-error-800">
           <span className="block mb-1">{error}</span>
-          <button onClick={refetch} className="text-red-700 underline">Tekrar Dene</button>
+          <Button variant="ghost" onClick={refetch}>
+            Tekrar Dene
+          </Button>
         </div>
       )}
 
       {!loading && !error && tags.length === 0 && (
-        <div className="p-3 text-xs text-gray-400 text-center">
+        <div className="p-3 text-xs text-gray-400 dark:text-gray-500 text-center">
           {search ? 'Eslesen tag bulunamadi' : 'Tag bulunamadi'}
         </div>
       )}
@@ -148,19 +149,25 @@ const LiveTagsPanel: React.FC = () => {
         {tags.map((tag) => (
           <div
             key={tag.id}
-            className="px-3 py-2 border-b border-gray-100 hover:bg-gray-50 cursor-default"
+            className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-default"
           >
             <div className="flex items-center justify-between gap-1 mb-0.5">
-              <span className="text-xs font-medium text-gray-900 truncate flex-1">{tag.displayName || tag.localName}</span>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate flex-1">
+                {tag.displayName || tag.localName}
+              </span>
               {tag.ioType && (
-                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${IO_TYPE_COLOR[tag.ioType] || 'bg-gray-100 text-gray-600'}`}>
+                <span
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${IO_TYPE_COLOR[tag.ioType] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+                >
                   {tag.ioType}
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-gray-400 font-mono truncate">{tag.fqn}</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate">
+              {tag.fqn}
+            </p>
             {tag.engUnit && (
-              <p className="text-[10px] text-gray-500">{tag.engUnit}</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">{tag.engUnit}</p>
             )}
           </div>
         ))}
@@ -173,11 +180,7 @@ const LiveTagsPanel: React.FC = () => {
 // Unified Editor Page
 // ============================================================================
 
-import {
-  CANVAS_SOURCE,
-  HOST_SOURCE,
-  PROCESS_EDITOR_CANVAS_URL,
-} from '../../canvas-contract';
+import { CANVAS_SOURCE, HOST_SOURCE, PROCESS_EDITOR_CANVAS_URL } from '../../canvas-contract';
 const UnifiedEditorPage: React.FC = () => {
   // The route is `unified-editor/:processId` (Module.tsx) — the param name
   // here MUST match it. Reading a wrong key silently yields undefined and the
@@ -208,18 +211,26 @@ const UnifiedEditorPage: React.FC = () => {
   // Refs for stable access inside message handler (avoids stale closure)
   const canvasNodesRef = useRef(canvasNodes);
   const canvasEdgesRef = useRef(canvasEdges);
-  useEffect(() => { canvasNodesRef.current = canvasNodes; }, [canvasNodes]);
-  useEffect(() => { canvasEdgesRef.current = canvasEdges; }, [canvasEdges]);
+  useEffect(() => {
+    canvasNodesRef.current = canvasNodes;
+  }, [canvasNodes]);
+  useEffect(() => {
+    canvasEdgesRef.current = canvasEdges;
+  }, [canvasEdges]);
   // Ready-state ref for the load effect (WF-004): keeping isCanvasReady OUT
   // of that effect's deps is the point — with it, the effect re-ran when the
   // handshake landed and re-hydrated the store mid-session. The 'ready'
   // replay in the message handler covers the ready-after-load ordering.
   const isCanvasReadyRef = useRef(isCanvasReady);
-  useEffect(() => { isCanvasReadyRef.current = isCanvasReady; }, [isCanvasReady]);
+  useEffect(() => {
+    isCanvasReadyRef.current = isCanvasReady;
+  }, [isCanvasReady]);
   // Mode ref for the message handler: the iframe stays mounted (hidden) across
   // modes, so a stray canvas message outside P&ID must not dirty the process.
   const modeRef = useRef(mode);
-  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   // Device selector — the deploy target lives in the scada store so it
   // serializes to meta.edgeDeviceId and rehydrates on load (a local useState
@@ -250,6 +261,10 @@ const UnifiedEditorPage: React.FC = () => {
 
   // Deploy dropdown + canonical deploy dialog target (6b)
   const [showDeployMenu, setShowDeployMenu] = useState(false);
+  const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const deployMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(deviceDropdownRef, () => setShowDeviceDropdown(false), showDeviceDropdown);
+  useClickOutside(deployMenuRef, () => setShowDeployMenu(false), showDeployMenu);
   const [deployTarget, setDeployTarget] = useState<'process' | 'scada' | null>(null);
   // Automation-program deploy modal (6c parity with ProcessEditorPage)
   const [isAutomationDeployOpen, setIsAutomationDeployOpen] = useState(false);
@@ -503,7 +518,15 @@ const UnifiedEditorPage: React.FC = () => {
     setScadaPackageId(pkg.id);
     scadaSetPackageId(pkg.id);
     scadaLoadFromJSON(pkg.packageData);
-  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaDirty, scadaSetPackageId, scadaLoadFromJSON]);
+  }, [
+    linkedPackages,
+    scadaPackageId,
+    hasRealProcessId,
+    id,
+    scadaDirty,
+    scadaSetPackageId,
+    scadaLoadFromJSON,
+  ]);
 
   // Sync editor mode to iframe canvas — when mode changes, send setEditorMode
   useEffect(() => {
@@ -521,13 +544,10 @@ const UnifiedEditorPage: React.FC = () => {
   }, [mode, simulationMode, setSimulationMode]);
 
   // Equipment drag
-  const handleEquipmentDragStart = useCallback(
-    (event: React.DragEvent, template: NodeTemplate) => {
-      event.dataTransfer.setData('application/equipment', JSON.stringify(template));
-      event.dataTransfer.effectAllowed = 'move';
-    },
-    [],
-  );
+  const handleEquipmentDragStart = useCallback((event: React.DragEvent, template: NodeTemplate) => {
+    event.dataTransfer.setData('application/equipment', JSON.stringify(template));
+    event.dataTransfer.effectAllowed = 'move';
+  }, []);
 
   // HMI widget drops are handled natively by the real <ScreenCanvas> (6b);
   // the legacy iframe-overlay drop path has been removed.
@@ -558,24 +578,28 @@ const UnifiedEditorPage: React.FC = () => {
       // getState timeout we FAIL the save rather than persisting the possibly
       // stale ref mirror — a non-responding canvas masked as a successful save
       // would silently ship an out-of-date P&ID (SENSOR-HIGH-034).
-      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve, reject) => {
-        const controller = new AbortController();
-        const handler = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-          const { type, data, source } = event.data || {};
-          if (source === CANVAS_SOURCE && type === 'state') {
+      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>(
+        (resolve, reject) => {
+          const controller = new AbortController();
+          const handler = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin) return;
+            const { type, data, source } = event.data || {};
+            if (source === CANVAS_SOURCE && type === 'state') {
+              controller.abort();
+              resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
+            }
+          };
+          window.addEventListener('message', handler, { signal: controller.signal });
+          sendToCanvas('getState');
+          const timeoutId = setTimeout(() => {
             controller.abort();
-            resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
-          }
-        };
-        window.addEventListener('message', handler, { signal: controller.signal });
-        sendToCanvas('getState');
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-          reject(new Error('Canvas yanıt vermedi — kaydetme iptal edildi, lütfen tekrar deneyin'));
-        }, 3000);
-        controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
-      });
+            reject(
+              new Error('Canvas yanıt vermedi — kaydetme iptal edildi, lütfen tekrar deneyin'),
+            );
+          }, 3000);
+          controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
+        },
+      );
 
       // Create-vs-update is driven ONLY by the persisted identity. The route
       // param `id` is NOT included: window.history.replaceState below rewrites
@@ -684,14 +708,14 @@ const UnifiedEditorPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-white border-b border-gray-200 shadow-sm">
+      <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         {/* Left Section */}
         <div className="flex items-center gap-3">
           <Link
             to="/sensor/processes"
-            className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 text-sm"
+            className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 text-sm"
           >
             <ArrowLeft className="w-4 h-4" />
             Back
@@ -699,16 +723,15 @@ const UnifiedEditorPage: React.FC = () => {
 
           <div className="h-5 w-px bg-gray-300" />
 
-          <input
+          <Input
             type="text"
             value={processName}
             onChange={(e) => setProcessName(e.target.value)}
             placeholder="Project Name"
-            className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-48"
           />
 
           {(isDirty || scadaDirty) && (
-            <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
+            <span className="text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 px-2 py-0.5 rounded">
               Unsaved
             </span>
           )}
@@ -720,58 +743,66 @@ const UnifiedEditorPage: React.FC = () => {
 
           {/* Device Selector */}
           <div className="h-5 w-px bg-gray-300" />
-          <div className="relative">
+          <div className="relative" ref={deviceDropdownRef}>
             <button
               onClick={() => setShowDeviceDropdown(!showDeviceDropdown)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-700 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              <Monitor className="w-3.5 h-3.5 text-gray-500" />
+              <Monitor className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
               {selectedDevice ? (
                 <span className="flex items-center gap-1">
                   <span className="truncate max-w-[100px]">{selectedDevice.deviceName}</span>
                   {selectedDevice.isOnline ? (
-                    <Wifi className="w-3 h-3 text-green-500" />
+                    <Wifi className="w-3 h-3 text-success-500" />
                   ) : (
-                    <WifiOff className="w-3 h-3 text-gray-500" />
+                    <WifiOff className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                   )}
                 </span>
               ) : (
-                <span className="text-gray-500">Device</span>
+                <span className="text-gray-500 dark:text-gray-400">Device</span>
               )}
-              <ChevronDown className="w-3 h-3 text-gray-500" />
+              <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
             </button>
 
             {showDeviceDropdown && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowDeviceDropdown(false)} />
-                <div className="absolute left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1 max-h-60 overflow-y-auto">
+              <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-60 overflow-y-auto">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setTargetDeviceId(null);
+                    setShowDeviceDropdown(false);
+                  }}
+                >
+                  No device
+                </Button>
+                {devices.map((device) => (
                   <button
-                    onClick={() => { setTargetDeviceId(null); setShowDeviceDropdown(false); }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                    key={device.id}
+                    onClick={() => {
+                      setTargetDeviceId(device.id);
+                      setShowDeviceDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between ${
+                      targetDeviceId === device.id
+                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
                   >
-                    No device
-                  </button>
-                  {devices.map((device) => (
-                    <button
-                      key={device.id}
-                      onClick={() => { setTargetDeviceId(device.id); setShowDeviceDropdown(false); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                        targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
-                      }`}
-                    >
-                      <span className="truncate">{device.deviceName}</span>
-                      <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <span className="text-xs text-gray-500">{device.deviceCode}</span>
-                        {device.isOnline ? (
-                          <span className="w-2 h-2 rounded-full bg-green-500" />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-gray-300" />
-                        )}
+                    <span className="truncate">{device.deviceName}</span>
+                    <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {device.deviceCode}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </>
+                      {device.isOnline ? (
+                        <span className="w-2 h-2 rounded-full bg-success-500" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-gray-300" />
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -784,60 +815,117 @@ const UnifiedEditorPage: React.FC = () => {
                 onClick={() => setSimulationMode(!simulationMode)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                   simulationMode
-                    ? 'text-white bg-red-500 hover:bg-red-600'
-                    : 'text-white bg-green-600 hover:bg-green-700'
+                    ? 'text-white bg-error-500 hover:bg-error-600'
+                    : 'text-white bg-success-600 hover:bg-success-700'
                 }`}
-                title={simulationMode ? 'Stop simulation' : 'Run the process in simulation (no device deploy)'}
+                title={
+                  simulationMode
+                    ? 'Stop simulation'
+                    : 'Run the process in simulation (no device deploy)'
+                }
               >
-                {simulationMode ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {simulationMode ? (
+                  <Square className="w-3.5 h-3.5" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
                 {simulationMode ? 'Stop' : 'Run'}
               </button>
               <div className="h-5 w-px bg-gray-300 mx-1" />
             </>
           )}
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Undo"
             onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))}
-            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Undo"
-            disabled={mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
+            disabled={
+              mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable
+            }
           >
             <Undo className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Redo"
             onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))}
-            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Redo"
-            disabled={mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
+            disabled={
+              mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable
+            }
           >
             <Redo className="w-4 h-4" />
-          </button>
+          </Button>
           <div className="h-5 w-px bg-gray-300 mx-1" />
-          <button onClick={handleZoomOut} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" title="Zoom Out" disabled={!isCanvasReady}>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Zoom Out"
+            onClick={handleZoomOut}
+            title="Zoom Out"
+            disabled={!isCanvasReady}
+          >
             <ZoomOut className="w-4 h-4" />
-          </button>
-          <button onClick={handleZoomIn} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" title="Zoom In" disabled={!isCanvasReady}>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Zoom In"
+            onClick={handleZoomIn}
+            title="Zoom In"
+            disabled={!isCanvasReady}
+          >
             <ZoomIn className="w-4 h-4" />
-          </button>
-          <button onClick={handleFitView} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" title="Fit View" disabled={!isCanvasReady}>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Fit View"
+            onClick={handleFitView}
+            title="Fit View"
+            disabled={!isCanvasReady}
+          >
             <Maximize2 className="w-4 h-4" />
-          </button>
+          </Button>
           {selectedNodeId && isCanvasEditable && (
             <>
               <div className="h-5 w-px bg-gray-300 mx-1" />
-              <button onClick={handleDeleteNode} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg" title="Delete Selected">
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Delete Selected"
+                onClick={handleDeleteNode}
+                title="Delete Selected"
+              >
                 <Trash2 className="w-4 h-4" />
-              </button>
+              </Button>
             </>
           )}
 
           {/* Panel toggles */}
           <div className="h-5 w-px bg-gray-300 mx-1" />
-          <button onClick={toggleLeftPanel} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg" title="Toggle Left Panel">
-            {leftPanelVisible ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-          </button>
-          <button onClick={toggleRightPanel} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg" title="Toggle Right Panel">
-            {rightPanelVisible ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-          </button>
+          <Button variant="ghost" size="sm" onClick={toggleLeftPanel} title="Toggle Left Panel">
+            {leftPanelVisible ? (
+              <PanelLeftClose className="w-4 h-4" />
+            ) : (
+              <PanelLeftOpen className="w-4 h-4" />
+            )}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={toggleRightPanel} title="Toggle Right Panel">
+            {rightPanelVisible ? (
+              <PanelRightClose className="w-4 h-4" />
+            ) : (
+              <PanelRightOpen className="w-4 h-4" />
+            )}
+          </Button>
         </div>
 
         {/* Right Section */}
@@ -845,45 +933,55 @@ const UnifiedEditorPage: React.FC = () => {
           {saveError && (
             <span
               role="alert"
-              className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded max-w-[220px] truncate"
+              className="text-xs text-error-700 dark:text-error-300 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 px-2 py-0.5 rounded max-w-[220px] truncate"
               title={saveError}
             >
               {saveError}
             </span>
           )}
           {/* Deploy dropdown */}
-          <div className="relative">
-            <button
+          <div className="relative" ref={deployMenuRef}>
+            <Button
+              variant="primary"
+              size="xs"
+              rightIcon={<ChevronDown className="w-3 h-3" />}
               onClick={() => setShowDeployMenu(!showDeployMenu)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
             >
               Deploy
-              <ChevronDown className="w-3 h-3" />
-            </button>
+            </Button>
             {showDeployMenu && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowDeployMenu(false)} />
-                <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}
-                  >
-                    Proses (P&amp;ID) → Edge
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}
-                  >
-                    SCADA Paketi → Edge
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}
-                  >
-                    Otomasyon Programı → Edge
-                  </button>
-                </div>
-              </>
+              <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowDeployMenu(false);
+                    setDeployTarget('process');
+                  }}
+                >
+                  Proses (P&amp;ID) → Edge
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowDeployMenu(false);
+                    setDeployTarget('scada');
+                  }}
+                >
+                  SCADA Paketi → Edge
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowDeployMenu(false);
+                    setIsAutomationDeployOpen(true);
+                  }}
+                >
+                  Otomasyon Programı → Edge
+                </Button>
+              </div>
             )}
           </div>
 
@@ -892,11 +990,11 @@ const UnifiedEditorPage: React.FC = () => {
             disabled={isSaving || !(isDirty || scadaDirty) || !isCanvasReady}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs text-white rounded-lg transition-colors ${
               isSaving || !(isDirty || scadaDirty) || !isCanvasReady
-                ? 'bg-cyan-400 cursor-not-allowed'
-                : 'bg-cyan-600 hover:bg-cyan-700'
+                ? 'bg-info-400 cursor-not-allowed'
+                : 'bg-info-600 hover:bg-info-700'
             }`}
           >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isSaving ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
             {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
@@ -907,32 +1005,35 @@ const UnifiedEditorPage: React.FC = () => {
         {/* Left Panel. HMI mounts the full builder left panel (palette + FUXA
             browser + scene tree + layers + search) which owns its own width +
             border; other modes share the fixed 256px wrapper. */}
-        {leftPanelVisible && (
-          mode === 'hmi' ? (
+        {leftPanelVisible &&
+          (mode === 'hmi' ? (
             <UnifiedLeftPanel />
           ) : (
-            <div className="w-64 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-              {mode === 'pid' && (
-                <EquipmentPanel onDragStart={handleEquipmentDragStart} />
-              )}
+            <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+              {mode === 'pid' && <EquipmentPanel onDragStart={handleEquipmentDragStart} />}
               {mode === 'plc' && (
                 <div className="p-4">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">PLC Blocks</h3>
-                  <p className="text-xs text-gray-500">Function blocks - coming soon</p>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    PLC Blocks
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Function blocks - coming soon
+                  </p>
                 </div>
               )}
-              {mode === 'runtime' && (
-                <LiveTagsPanel />
-              )}
+              {mode === 'runtime' && <LiveTagsPanel />}
               {mode === 'debug' && (
                 <div className="p-4">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Debug</h3>
-                  <p className="text-xs text-gray-500">Watch variables - coming soon</p>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    Debug
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Watch variables - coming soon
+                  </p>
                 </div>
               )}
             </div>
-          )
-        )}
+          ))}
 
         {/* Center - Canvas + Bottom Panel */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -943,12 +1044,12 @@ const UnifiedEditorPage: React.FC = () => {
               the real <ScreenCanvas> on the canonical Layer-B data plane. The
               iframe stays mounted but hidden in HMI so its P&ID state survives
               mode switches; HMI widget drops are handled natively by ScreenCanvas. */}
-          <div className="flex-1 bg-gray-50 relative">
+          <div className="flex-1 bg-gray-50 dark:bg-gray-800 relative">
             {!isCanvasReady && mode !== 'hmi' && mode !== 'runtime' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
                 <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
-                  <p className="text-gray-600 text-sm">Loading Canvas...</p>
+                  <Spinner size="lg" />
+                  <p className="text-gray-600 dark:text-gray-400 text-sm">Loading Canvas...</p>
                 </div>
               </div>
             )}
@@ -987,20 +1088,25 @@ const UnifiedEditorPage: React.FC = () => {
 
           {/* Bottom Panel — generic output. The ST editor is a POPUP in PLC
               mode (see the overlay below), not a bottom dock. */}
-          {(
+          {
             <>
               {isBottomPanelOpen && (
-                <div className="h-48 border-t border-gray-200 bg-white flex flex-col">
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-200">
-                    <span className="text-xs font-medium text-gray-600">
+                <div className="h-48 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
                       {mode === 'debug' ? 'Console' : 'Output'}
                     </span>
-                    <button onClick={toggleBottomPanel} className="p-0.5 text-gray-500 hover:text-gray-600">
+                    <Button
+                      variant="ghost"
+                      iconOnly
+                      aria-label="Expand"
+                      onClick={toggleBottomPanel}
+                    >
                       <ChevronDown className="w-4 h-4" />
-                    </button>
+                    </Button>
                   </div>
                   <div className="flex-1 p-3 overflow-auto">
-                    <p className="text-xs text-gray-500 font-mono">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
                       Output will appear here...
                     </p>
                   </div>
@@ -1009,41 +1115,41 @@ const UnifiedEditorPage: React.FC = () => {
               {!isBottomPanelOpen && (
                 <button
                   onClick={toggleBottomPanel}
-                  className="flex items-center justify-center gap-1 px-2 py-0.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-500 hover:bg-gray-100"
+                  className="flex items-center justify-center gap-1 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   <ChevronUp className="w-3 h-3" />
                   Output
                 </button>
               )}
             </>
-          )}
+          }
         </div>
 
         {/* Right Panel — P&ID adds a Properties/Equipment toggle (6c parity with
             ProcessEditorPage); other modes show the mode-aware properties panel. */}
         {rightPanelVisible && (
-          <div className="w-72 flex flex-col border-l border-gray-200 bg-white overflow-hidden">
+          <div className="w-72 flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
             {mode === 'pid' ? (
               <>
-                <div className="flex border-b border-gray-200">
+                <div className="flex border-b border-gray-200 dark:border-gray-700">
                   <button
                     onClick={() => setRightPanelMode('properties')}
                     className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                       rightPanelMode === 'properties'
-                        ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     <Settings className="w-4 h-4" />
                     Properties
-                    {selectedNodeId && <span className="w-2 h-2 rounded-full bg-cyan-500" />}
+                    {selectedNodeId && <span className="w-2 h-2 rounded-full bg-info-500" />}
                   </button>
                   <button
                     onClick={() => setRightPanelMode('attachments')}
                     className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                       rightPanelMode === 'attachments'
-                        ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        ? 'text-info-600 dark:text-info-400 border-b-2 border-info-600 bg-info-50 dark:bg-info-900/20'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     <Paperclip className="w-4 h-4" />
@@ -1059,7 +1165,11 @@ const UnifiedEditorPage: React.FC = () => {
                 </div>
               </>
             ) : mode === 'hmi' ? (
-              simulationMode ? <SimulationSidebar /> : <HmiPropertiesPanel />
+              simulationMode ? (
+                <SimulationSidebar />
+              ) : (
+                <HmiPropertiesPanel />
+              )
             ) : (
               <UnifiedPropertiesPanel />
             )}
@@ -1068,13 +1178,13 @@ const UnifiedEditorPage: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+      <div className="px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-4">
-          <span className="font-medium text-cyan-700">{MODE_LABELS[mode]}</span>
+          <span className="font-medium text-info-700 dark:text-info-300">{MODE_LABELS[mode]}</span>
           <span>{canvasNodes.length} nodes</span>
           <span>{canvasEdges.length} connections</span>
           {!isCanvasEditable && (
-            <span className="text-yellow-600">Read-only</span>
+            <span className="text-warning-600 dark:text-warning-400">Read-only</span>
           )}
           {selectedDevice && (
             <span className="flex items-center gap-1">
@@ -1086,12 +1196,12 @@ const UnifiedEditorPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {isCanvasReady ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="w-2 h-2 rounded-full bg-success-500" />
               <span>Ready</span>
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-warning-500 animate-pulse" />
               <span>Initializing...</span>
             </>
           )}
@@ -1102,24 +1212,19 @@ const UnifiedEditorPage: React.FC = () => {
           instead of docking to the page bottom. Closing it returns to the
           previous editor mode (programs persist server-side, nothing is
           lost on close). */}
-      {mode === 'plc' && (
-        <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4 sm:p-8">
-          <div className="w-full max-w-6xl h-[85vh] bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-              <span className="text-sm font-medium text-gray-200">ST Program Editörü (PLC)</span>
-              <button
-                onClick={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
-                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
-                title="Kapat"
-                aria-label="ST editörünü kapat"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
-          </div>
-        </div>
-      )}
+      <Modal
+        isOpen={mode === 'plc'}
+        onClose={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
+        theme="dark"
+        size="2xl"
+        title="ST Program Editörü (PLC)"
+        closeLabel="ST editörünü kapat"
+        closeOnOverlayClick={false}
+        className="h-[85vh] flex flex-col overflow-hidden"
+        bodyClassName="flex-1 min-h-0 flex flex-col"
+      >
+        <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
+      </Modal>
 
       {/* Deploy dialogs (6b) — the unified editor owns BOTH artifacts, so one
           canonical DeployToEdgeDialog is bound per artifact, each with its own
@@ -1174,7 +1279,10 @@ const UnifiedEditorPage: React.FC = () => {
             }
             const result = await deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
             if (result.success) {
-              return { success: true, message: result.message ?? 'Bundle staged — cihaz onayı bekleniyor.' };
+              return {
+                success: true,
+                message: result.message ?? 'Bundle staged — cihaz onayı bekleniyor.',
+              };
             }
             // Compose an honest failure: name the failing leg(s).
             const failedPrograms = result.automationResults
@@ -1186,7 +1294,9 @@ const UnifiedEditorPage: React.FC = () => {
                 : [];
             return {
               success: false,
-              message: [result.message, ...scadaMsg, ...failedPrograms].filter(Boolean).join(' | ') || 'Bundle deploy başarısız.',
+              message:
+                [result.message, ...scadaMsg, ...failedPrograms].filter(Boolean).join(' | ') ||
+                'Bundle deploy başarısız.',
             };
           }}
         />

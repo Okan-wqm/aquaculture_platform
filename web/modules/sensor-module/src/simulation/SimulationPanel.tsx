@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Download,
 } from 'lucide-react';
+import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import { useSimulation } from './useSimulation';
 import type { SimValue } from './st-interpreter';
 import type { SimulationState } from './useSimulation';
@@ -57,9 +58,9 @@ const VAR_SECTIONS: VarSection[] = [
 const STATUS_CONFIG: Record<SimulationState, { color: string; label: string }> = {
   idle: { color: 'bg-gray-400', label: 'Boşta' },
   ready: { color: 'bg-gray-400', label: 'Hazır' },
-  running: { color: 'bg-green-500', label: 'Çalışıyor' },
-  paused: { color: 'bg-yellow-500', label: 'Duraklatıldı' },
-  error: { color: 'bg-red-500', label: 'Hata' },
+  running: { color: 'bg-success-500', label: 'Çalışıyor' },
+  paused: { color: 'bg-warning-500', label: 'Duraklatıldı' },
+  error: { color: 'bg-error-500', label: 'Hata' },
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -94,7 +95,9 @@ const StatusIndicator: React.FC<{ state: SimulationState }> = ({ state }) => {
   const { color, label } = STATUS_CONFIG[state];
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-500">
-      <span className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`} />
+      <span
+        className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`}
+      />
       {label}
     </span>
   );
@@ -118,9 +121,9 @@ const BoolToggle: React.FC<{
       className={
         'w-8 h-4 rounded-full transition-colors ' +
         'bg-gray-300 dark:bg-gray-600 ' +
-        'peer-checked:bg-indigo-600 dark:peer-checked:bg-indigo-500 ' +
+        'peer-checked:bg-primary-600 dark:peer-checked:bg-primary-500 ' +
         'peer-disabled:opacity-50 peer-disabled:cursor-not-allowed ' +
-        'after:content-[\'\'] after:absolute after:top-0.5 after:left-[2px] ' +
+        "after:content-[''] after:absolute after:top-0.5 after:left-[2px] " +
         'after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all ' +
         'peer-checked:after:translate-x-full'
       }
@@ -133,120 +136,86 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
   <span className="inline-flex items-center gap-1.5">
     <span
       className={`w-2.5 h-2.5 rounded-full ${
-        value ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
+        value ? 'bg-success-500' : 'bg-gray-400 dark:bg-gray-600'
       }`}
     />
-    <span className={`font-mono text-xs ${value ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-500'}`}>
+    <span
+      className={`font-mono text-xs ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-500'}`}
+    >
       {value ? 'TRUE' : 'FALSE'}
     </span>
   </span>
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// Variable row with change-highlight support
+// Cell renderers — the value column is a control for inputs, a display otherwise
 // ────────────────────────────────────────────────────────────────────────────
 
-const VariableInputRow: React.FC<{
+const INPUT_CLASS =
+  'px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500';
+
+const VariableControl: React.FC<{
   variable: VariableInfo;
   onSetInput: (name: string, value: SimValue) => void;
-  highlighted: boolean;
-}> = ({ variable, onSetInput, highlighted }) => {
+}> = ({ variable, onSetInput }) => {
   const { name, dataType, value } = variable;
 
-  const renderControl = () => {
-    if (isBoolType(dataType)) {
-      return (
-        <BoolToggle
-          checked={!!value}
-          onChange={(v) => onSetInput(name, v)}
-        />
-      );
-    }
+  if (isBoolType(dataType)) {
+    return <BoolToggle checked={!!value} onChange={(v) => onSetInput(name, v)} />;
+  }
 
-    if (isIntType(dataType)) {
-      return (
-        <input
-          type="number"
-          step={1}
-          value={typeof value === 'number' ? value : 0}
-          onChange={(e) => onSetInput(name, parseInt(e.target.value, 10) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isIntType(dataType)) {
+    return (
+      <input
+        type="number"
+        step={1}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(e) => onSetInput(name, parseInt(e.target.value, 10) || 0)}
+        className={`w-24 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    if (isRealType(dataType)) {
-      return (
-        <input
-          type="number"
-          step={0.1}
-          value={typeof value === 'number' ? value : 0}
-          onChange={(e) => onSetInput(name, parseFloat(e.target.value) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isRealType(dataType)) {
+    return (
+      <input
+        type="number"
+        step={0.1}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(e) => onSetInput(name, parseFloat(e.target.value) || 0)}
+        className={`w-24 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    if (isStringType(dataType)) {
-      return (
-        <input
-          type="text"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onSetInput(name, e.target.value)}
-          className="w-32 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isStringType(dataType)) {
+    return (
+      <input
+        type="text"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(e) => onSetInput(name, e.target.value)}
+        className={`w-32 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    // Fallback: read-only display
-    return <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>;
-  };
-
+  // Fallback: read-only display
   return (
-    <tr
-      className={`transition-colors duration-500 ${
-        highlighted
-          ? 'bg-yellow-50 dark:bg-yellow-900/20'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-      }`}
-    >
-      <td className="px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-gray-200">{name}</td>
-      <td className="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-500">{dataType}</td>
-      <td className="px-3 py-1.5">{renderControl()}</td>
-    </tr>
+    <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>
   );
 };
 
-const VariableOutputRow: React.FC<{
-  variable: VariableInfo;
-  highlighted: boolean;
-}> = ({ variable, highlighted }) => {
-  const { name, dataType, value } = variable;
+const VariableValue: React.FC<{ variable: VariableInfo }> = ({ variable }) => {
+  const { dataType, value } = variable;
 
-  const renderValue = () => {
-    if (isBoolType(dataType)) {
-      return <BoolDisplay value={!!value} />;
-    }
-
-    return (
-      <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
-        {typeof value === 'number' ? value.toFixed(isRealType(dataType) ? 3 : 0) : String(value)}
-      </span>
-    );
-  };
+  if (isBoolType(dataType)) {
+    return <BoolDisplay value={!!value} />;
+  }
 
   return (
-    <tr
-      className={`transition-colors duration-500 ${
-        highlighted
-          ? 'bg-yellow-50 dark:bg-yellow-900/20'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-      }`}
-    >
-      <td className="px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-gray-200">{name}</td>
-      <td className="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-500">{dataType}</td>
-      <td className="px-3 py-1.5">{renderValue()}</td>
-    </tr>
+    <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
+      {typeof value === 'number' ? value.toFixed(isRealType(dataType) ? 3 : 0) : String(value)}
+    </span>
   );
 };
 
@@ -263,6 +232,40 @@ const VariableSection: React.FC<{
 }> = ({ section, variables, isInput, onSetInput, changedVars }) => {
   const [expanded, setExpanded] = useState(true);
 
+  const columns = useMemo<DataTableColumn<VariableInfo>[]>(
+    () => [
+      {
+        key: 'name',
+        header: 'Değişken',
+        width: '33%',
+        render: (_value, variable) => (
+          <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
+            {variable.name}
+          </span>
+        ),
+      },
+      {
+        key: 'dataType',
+        header: 'Tip',
+        width: '4rem',
+        render: (_value, variable) => (
+          <span className="text-xs text-gray-500 dark:text-gray-500">{variable.dataType}</span>
+        ),
+      },
+      {
+        key: 'value',
+        header: 'Değer',
+        render: (_value, variable) =>
+          isInput ? (
+            <VariableControl variable={variable} onSetInput={onSetInput} />
+          ) : (
+            <VariableValue variable={variable} />
+          ),
+      },
+    ],
+    [isInput, onSetInput],
+  );
+
   if (variables.length === 0) return null;
 
   return (
@@ -273,9 +276,9 @@ const VariableSection: React.FC<{
         className="w-full flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         )}
         <span className="text-xs font-semibold text-gray-700 dark:text-gray-500">
           {section.label}
@@ -287,39 +290,23 @@ const VariableSection: React.FC<{
 
       {/* Variable table */}
       {expanded && (
-        <table className="w-full">
-          <thead>
-            <tr className="border-t border-gray-200 dark:border-gray-700">
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-1/3">
-                Değişken
-              </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-16">
-                Tip
-              </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500">
-                Değer
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {variables.map((v) =>
-              isInput ? (
-                <VariableInputRow
-                  key={v.name}
-                  variable={v}
-                  onSetInput={onSetInput}
-                  highlighted={changedVars.has(v.name)}
-                />
-              ) : (
-                <VariableOutputRow
-                  key={v.name}
-                  variable={v}
-                  highlighted={changedVars.has(v.name)}
-                />
-              ),
-            )}
-          </tbody>
-        </table>
+        <DataTable<VariableInfo>
+          data={variables}
+          columns={columns}
+          keyExtractor={(variable) => variable.name}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          flush
+          rowClassName={(variable) =>
+            `transition-colors duration-500 ${
+              changedVars.has(variable.name)
+                ? 'bg-warning-50 dark:bg-warning-900/20'
+                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+            }`
+          }
+        />
       )}
     </div>
   );
@@ -346,7 +333,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
   } = useSimulation();
 
   // ── Debounced auto-load on code change ──────────────────────────────────
-  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!code || code.trim().length === 0) return;
@@ -424,38 +411,41 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Load button (shown when idle/error) */}
           {(state === 'idle' || state === 'error') && (
-            <button
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<Download className="w-3.5 h-3.5" />}
               onClick={handleLoadClick}
               disabled={!code || code.trim().length === 0}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Kodu yükle ve hazırla"
             >
-              <Download className="w-3.5 h-3.5" />
               Yükle
-            </button>
+            </Button>
           )}
 
           {/* Start */}
-          <button
+          <Button
+            variant="primary"
+            size="xs"
+            leftIcon={<Play className="w-3.5 h-3.5" />}
             onClick={handleStart}
             disabled={!canStart}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Sürekli çalıştır"
           >
-            <Play className="w-3.5 h-3.5" />
             Başlat
-          </button>
+          </Button>
 
           {/* Pause */}
-          <button
+          <Button
+            variant="warning"
+            size="xs"
+            leftIcon={<Pause className="w-3.5 h-3.5" />}
             onClick={pause}
             disabled={!canPause}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Duraklat"
           >
-            <Pause className="w-3.5 h-3.5" />
             Duraklat
-          </button>
+          </Button>
 
           {/* Stop / Reset */}
           <button
@@ -469,15 +459,16 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           </button>
 
           {/* Single cycle step */}
-          <button
+          <Button
+            variant="primary"
+            size="xs"
+            leftIcon={<SkipForward className="w-3.5 h-3.5" />}
             onClick={runOneCycle}
             disabled={!canStep}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Tek cycle çalıştır"
           >
-            <SkipForward className="w-3.5 h-3.5" />
             1 Cycle
-          </button>
+          </Button>
         </div>
 
         {/* Row 2: Cycle count, scan interval, status */}
@@ -496,7 +487,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
             <select
               value={scanCycleMs}
               onChange={(e) => setScanCycleMs(Number(e.target.value))}
-              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
             >
               {SCAN_CYCLE_OPTIONS.map((ms) => (
                 <option key={ms} value={ms}>
@@ -513,9 +504,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
 
       {/* ── Error banner ─────────────────────────────────────────────────── */}
       {state === 'error' && error && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 flex-shrink-0">
-          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-red-700 dark:text-red-300 break-words min-w-0">
+        <div className="flex items-start gap-2 px-3 py-2 bg-error-50 dark:bg-error-900/30 border-b border-error-200 dark:border-error-800 flex-shrink-0">
+          <AlertCircle className="w-4 h-4 text-error-500 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-error-700 dark:text-error-300 break-words min-w-0">
             <span className="font-semibold">Hata:</span> {error}
           </div>
         </div>
@@ -527,9 +518,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           <div className="text-center text-sm text-gray-500 dark:text-gray-600">
             <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>ST kodunu yükleyin ve simülasyonu başlatın</p>
-            <p className="text-xs mt-1">
-              Kod değiştiğinde otomatik olarak yüklenir
-            </p>
+            <p className="text-xs mt-1">Kod değiştiğinde otomatik olarak yüklenir</p>
           </div>
         </div>
       )}
@@ -566,11 +555,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
       {state === 'error' && (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center text-sm text-gray-500 dark:text-gray-600">
-            <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-400 opacity-50" />
+            <AlertCircle className="w-8 h-8 mx-auto mb-2 text-error-400 opacity-50" />
             <p>Simülasyon yüklenemedi</p>
-            <p className="text-xs mt-1">
-              Yukarıdaki hatayı düzeltip tekrar yükleyin
-            </p>
+            <p className="text-xs mt-1">Yukarıdaki hatayı düzeltip tekrar yükleyin</p>
           </div>
         </div>
       )}

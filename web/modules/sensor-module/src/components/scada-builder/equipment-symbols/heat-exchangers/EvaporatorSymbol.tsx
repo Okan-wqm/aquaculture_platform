@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -41,7 +42,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
         <path
           d="M 35 30 S 30 42 35 54 S 40 66 35 78 S 30 90 35 95"
           fill="none"
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           opacity={isRunning ? 0.8 : 0.4}
           strokeLinecap="round"
@@ -49,7 +50,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
         <path
           d="M 50 30 S 45 42 50 54 S 55 66 50 78 S 45 90 50 95"
           fill="none"
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           opacity={isRunning ? 0.8 : 0.4}
           strokeLinecap="round"
@@ -57,7 +58,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
         <path
           d="M 65 30 S 60 42 65 54 S 70 66 65 78 S 60 90 65 95"
           fill="none"
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           opacity={isRunning ? 0.8 : 0.4}
           strokeLinecap="round"
@@ -65,7 +66,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Heat glow indicators on coils (running) */}
         {isRunning && (
-          <g stroke="#f97316" strokeWidth={0.8} fill="none" opacity={0.4}>
+          <g stroke={themeColors.accent[600]} strokeWidth={0.8} fill="none" opacity={0.4}>
             <path d="M 32 40 Q 29 42 32 44" />
             <path d="M 47 55 Q 44 57 47 59" />
             <path d="M 62 70 Q 59 72 62 74" />
@@ -77,7 +78,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Vapor bubbles at top (visible only when running) */}
         {isRunning && (
-          <g fill="#93c5fd" opacity={0.6}>
+          <g fill={themeColors.primary[200]} opacity={0.6}>
             <circle cx={38} cy={26} r={3} />
             <circle cx={48} cy={23} r={2.5} />
             <circle cx={57} cy={27} r={2} />
@@ -87,7 +88,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Vapor rising lines (running) */}
         {isRunning && (
-          <g stroke="#93c5fd" strokeWidth={1} fill="none" opacity={0.5}>
+          <g stroke={themeColors.primary[200]} strokeWidth={1} fill="none" opacity={0.5}>
             <path d="M 40 28 Q 38 24 40 20" />
             <path d="M 50 25 Q 48 21 50 17" />
             <path d="M 62 26 Q 60 22 62 18" />
@@ -116,14 +117,14 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
               width={57}
               height={34}
               rx={3}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.25}
             />
             {/* Liquid surface wave */}
             <path
               d="M 22 65 Q 35 62 50 65 Q 65 68 78 65"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.6}
             />
@@ -140,7 +141,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="47,114 50,108 53,114" fill="#3b82f6" opacity={0.8} />
+          <polygon points="47,114 50,108 53,114" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — vapor-out (top) */}
@@ -153,7 +154,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="47,8 50,2 53,8" fill="#93c5fd" opacity={0.8} />
+          <polygon points="47,8 50,2 53,8" fill={themeColors.primary[200]} opacity={0.8} />
         )}
 
         {/* Nozzle — heat-in (left) */}
@@ -166,7 +167,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="10,47 16,50 10,53" fill="#ef4444" opacity={0.8} />
+          <polygon points="10,47 16,50 10,53" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — heat-out (right) */}
@@ -179,7 +180,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="88,67 94,70 88,73" fill="#f97316" opacity={0.8} />
+          <polygon points="88,67 94,70 88,73" fill={themeColors.accent[600]} opacity={0.8} />
         )}
 
         {/* P&ID label — EV */}
@@ -202,7 +203,7 @@ const EvaporatorSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

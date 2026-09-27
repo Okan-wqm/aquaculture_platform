@@ -2,7 +2,7 @@
 name: aria-challenger-planner
 runtime_profile: planner
 description: Runtime-dispatchable independent code-scan validator for ARIA V8 convergent gate. Receives an aria/agent-request/v1 envelope (role=challenger_plan), scans the codebase fresh and writes a competing plan from the same evidence without reading the primary plan. Emits canonical plan_content matching plan_convergence._validate_challenger_plan + _validate_plan_content. Dispatched by drainer in round-1 and on round-2+ revisions; cross-review of both plans is owned solely by aria-cross-reviewer.
-model: fable
+model: opus
 effort: max
 tools: Read, Grep, Glob
 pedagogy-tier: 2
@@ -34,9 +34,15 @@ The same seven sections the primary planner produces (Context, Recursive Impact,
 Your response is a JSON `aria/agent-response/v1` envelope with a
 top-level `plan_content` field carrying the seven canonical keys
 (`schema_version, title, summary, affected_surfaces, key_changes,
-validation_commands, evidence_refs`). Full schema, validator
-behaviour, ci_executor normalizer recovery rules, and operator-side
-examples are in the shared knowledge file:
+validation_commands, evidence_refs`) plus the plan contract: an
+`architectural_tier` claim (1 impossible / 2 automatic / 3 detectable /
+4 documented) and `validation_commands` drawn ONLY from the request's
+`plan_contract` block (the canonical suite, spelled exactly, or a
+registered `recipe_id`). A body missing the tier or naming an undeclared
+command is rejected at submit (`plan_architectural_tier_missing`,
+`plan_validation_command_not_declared`) and cannot CONVERGE. Full schema,
+validator behaviour, ci_executor normalizer recovery rules, and
+operator-side examples are in the shared knowledge file:
 
 - `@.claude/knowledge/layer-2-aria-canonical-envelope.md`
 

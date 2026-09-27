@@ -71,6 +71,48 @@ class StateManifestTransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "state_surface_pattern_invalid"):
             state_manifest.validate_state_surface_patterns((invalid,))
 
+    def test_state_group_lock_shape_is_one_declaration_and_round_trips(self) -> None:
+        """`locks/state-groups/<group>.lock` is declared once, derived from
+        file_lock's side-car naming, and decodes back to exactly the declared
+        group. The transaction's lock order (`ledger._state_group_lock_path`)
+        is that declaration applied to a surface's base dir — the literal it
+        used to spell is gone, and `test_next_cycle_queue` still pins the
+        on-disk path, so the shape did not move."""
+        from pathlib import PurePosixPath
+
+        from aria_kernel.file_lock import lock_sidecar_path, lock_sidecar_target
+
+        groups = sorted({surface.lock_group for surface in state_manifest.iter_surfaces()})
+        self.assertIn("runtime", groups)
+        for group in groups:
+            key = state_manifest.state_group_lock_relative_path(group)
+            self.assertIsInstance(key, PurePosixPath)
+            self.assertEqual(key.parent, state_manifest.STATE_GROUP_LOCK_DIR)
+            self.assertEqual(lock_sidecar_target(key), state_manifest.STATE_GROUP_LOCK_DIR / group)
+            self.assertEqual(state_manifest.state_group_lock_group(key), group)
+            self.assertEqual(state_manifest.state_group_lock_group(key.as_posix()), group)
+            # The side-car file_lock leaves beside the key is not the key;
+            # it decodes to the key, which decodes to the group.
+            on_disk = lock_sidecar_path(key)
+            self.assertIsNone(state_manifest.state_group_lock_group(on_disk))
+            self.assertEqual(state_manifest.state_group_lock_group(lock_sidecar_target(on_disk)), group)
+        for stray in (
+            "locks/state-groups/not-a-group.lock",
+            "locks/state-groups/runtime",
+            "locks/runtime.lock",
+            "state-groups/runtime.lock",
+            "locks/state-groups/nested/runtime.lock",
+        ):
+            self.assertIsNone(state_manifest.state_group_lock_group(stray), stray)
+
+        with tempfile.TemporaryDirectory() as td:
+            base = ensure_tools_dir(td)
+            surface = surface_by_name("tools_governance")
+            self.assertEqual(
+                ledger_module._state_group_lock_path(base / surface.path_pattern),
+                base / state_manifest.state_group_lock_relative_path(surface.lock_group),
+            )
+
     def test_manifest_resolves_ack_and_queue_paths(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aria-state-manifest-") as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")

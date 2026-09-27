@@ -4,6 +4,27 @@
  */
 import React, { useMemo } from 'react';
 import type { AvailableTank, InitialLocationInput } from '../../../hooks/useBatches';
+import { Spinner, Button, Input, Select, type SelectOption } from '@aquaculture/shared-ui';
+import { CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react';
+
+/** `{code} - {name} ({capacity} kg available)` — one option per tank, one shape. */
+const tankOption = (tank: AvailableTank): SelectOption => ({
+  value: tank.id,
+  label: `${tank.code} - ${tank.name} (${tank.availableCapacity.toFixed(1)} kg available)`,
+});
+
+/**
+ * Options for one allocation row: the tanks still free, plus the row's own current
+ * tank when another row has since claimed it — without that entry the select would
+ * render a value it has no option for and appear empty.
+ */
+const rowTankOptions = (
+  selectedTank: AvailableTank | undefined,
+  availableForRow: AvailableTank[],
+): SelectOption[] =>
+  selectedTank && !availableForRow.some((t) => t.id === selectedTank.id)
+    ? [tankOption(selectedTank), ...availableForRow.map(tankOption)]
+    : availableForRow.map(tankOption);
 
 interface TankAllocation {
   id: string;
@@ -43,10 +64,8 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
   // Get tanks that are not already selected
   const getAvailableTanksForRow = (currentTankId?: string) => {
-    const selectedTankIds = allocations
-      .map(a => a.tankId)
-      .filter(id => id !== currentTankId);
-    return availableTanks.filter(t => !selectedTankIds.includes(t.id));
+    const selectedTankIds = allocations.map((a) => a.tankId).filter((id) => id !== currentTankId);
+    return availableTanks.filter((t) => !selectedTankIds.includes(t.id));
   };
 
   const handleAddAllocation = () => {
@@ -63,16 +82,18 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
   };
 
   const handleRemoveAllocation = (id: string) => {
-    onAllocationsChange(allocations.filter(a => a.id !== id));
+    onAllocationsChange(allocations.filter((a) => a.id !== id));
   };
 
-  const handleAllocationChange = (id: string, field: keyof TankAllocation, value: string | number) => {
+  const handleAllocationChange = (
+    id: string,
+    field: keyof TankAllocation,
+    value: string | number,
+  ) => {
     onAllocationsChange(
-      allocations.map(a =>
-        a.id === id
-          ? { ...a, [field]: field === 'quantity' ? Number(value) || 0 : value }
-          : a
-      )
+      allocations.map((a) =>
+        a.id === id ? { ...a, [field]: field === 'quantity' ? Number(value) || 0 : value } : a,
+      ),
     );
   };
 
@@ -83,8 +104,11 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
   };
 
   // Check if tank has enough capacity
-  const checkTankCapacity = (tankId: string, quantity: number): { hasCapacity: boolean; message?: string } => {
-    const tank = availableTanks.find(t => t.id === tankId);
+  const checkTankCapacity = (
+    tankId: string,
+    quantity: number,
+  ): { hasCapacity: boolean; message?: string } => {
+    const tank = availableTanks.find((t) => t.id === tankId);
     if (!tank) return { hasCapacity: true };
 
     const biomassToAdd = calculateBiomass(quantity);
@@ -100,45 +124,54 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">
-          Tank Allocations <span className="text-red-500">*</span>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Tank Allocations <span className="text-error-500">*</span>
         </h4>
         <div className="text-sm">
-          <span className={remainingQuantity === 0 ? 'text-green-600' : isOverAllocated ? 'text-red-600' : 'text-amber-600'}>
+          <span
+            className={
+              remainingQuantity === 0
+                ? 'text-success-600 dark:text-success-400'
+                : isOverAllocated
+                  ? 'text-error-600 dark:text-error-400'
+                  : 'text-warning-600 dark:text-warning-400'
+            }
+          >
             {allocatedQuantity.toLocaleString()}
           </span>
-          <span className="text-gray-500"> / {totalQuantity.toLocaleString()} allocated</span>
+          <span className="text-gray-500 dark:text-gray-400">
+            {' '}
+            / {totalQuantity.toLocaleString()} allocated
+          </span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="relative">
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full transition-all ${
               isOverAllocated
-                ? 'bg-red-500'
+                ? 'bg-error-500'
                 : isFullyAllocated
-                ? 'bg-green-500'
-                : 'bg-amber-500'
+                  ? 'bg-success-500'
+                  : 'bg-warning-500'
             }`}
             style={{ width: `${Math.min(allocationPercentage, 100)}%` }}
           />
         </div>
         {!isFullyAllocated && !isOverAllocated && remainingQuantity > 0 && (
-          <p className="text-xs text-amber-600 mt-1">
+          <p className="text-xs text-warning-600 dark:text-warning-400 mt-1">
             {remainingQuantity.toLocaleString()} remaining to allocate
           </p>
         )}
         {isOverAllocated && (
-          <p className="text-xs text-red-600 mt-1">
+          <p className="text-xs text-error-600 dark:text-error-400 mt-1">
             Over-allocated by {Math.abs(remainingQuantity).toLocaleString()} units
           </p>
         )}
         {isFullyAllocated && (
-          <p className="text-xs text-green-600 mt-1">
-            All units allocated
-          </p>
+          <p className="text-xs text-success-600 dark:text-success-400 mt-1">All units allocated</p>
         )}
       </div>
 
@@ -147,7 +180,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
         <div className="space-y-3">
           {allocations.map((allocation) => {
             const availableForRow = getAvailableTanksForRow(allocation.tankId);
-            const selectedTank = availableTanks.find(t => t.id === allocation.tankId);
+            const selectedTank = availableTanks.find((t) => t.id === allocation.tankId);
             const capacityCheck = allocation.tankId
               ? checkTankCapacity(allocation.tankId, allocation.quantity)
               : { hasCapacity: true };
@@ -155,57 +188,47 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
             return (
               <div
                 key={allocation.id}
-                className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-3"
+                className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-3"
               >
                 <div className="grid grid-cols-12 gap-3">
                   {/* Tank Selection */}
                   <div className="col-span-5">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Tank <span className="text-red-500">*</span>
-                    </label>
-                    <select
+                    <Select
+                      label="Tank"
+                      required
+                      size="sm"
+                      placeholder="Select a tank..."
                       value={allocation.tankId}
-                      onChange={(e) => handleAllocationChange(allocation.id, 'tankId', e.target.value)}
-                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        !allocation.tankId ? 'border-amber-300' : 'border-gray-300'
-                      }`}
+                      onChange={(e) =>
+                        handleAllocationChange(allocation.id, 'tankId', e.target.value)
+                      }
                       disabled={isLoadingTanks}
-                    >
-                      <option value="">Select a tank...</option>
-                      {/* Show currently selected tank */}
-                      {selectedTank && !availableForRow.find(t => t.id === selectedTank.id) && (
-                        <option key={selectedTank.id} value={selectedTank.id}>
-                          {selectedTank.code} - {selectedTank.name} ({selectedTank.availableCapacity.toFixed(1)} kg available)
-                        </option>
-                      )}
-                      {availableForRow.map((tank) => (
-                        <option key={tank.id} value={tank.id}>
-                          {tank.code} - {tank.name} ({tank.availableCapacity.toFixed(1)} kg available)
-                        </option>
-                      ))}
-                    </select>
+                      options={rowTankOptions(selectedTank, availableForRow)}
+                    />
                   </div>
 
                   {/* Quantity */}
                   <div className="col-span-3">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Quantity <span className="text-red-500">*</span>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quantity <span className="text-error-500">*</span>
                     </label>
                     <input
                       type="number"
                       min="1"
                       value={allocation.quantity || ''}
-                      onChange={(e) => handleAllocationChange(allocation.id, 'quantity', e.target.value)}
-                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        !capacityCheck.hasCapacity ? 'border-amber-400' : 'border-gray-300'
+                      onChange={(e) =>
+                        handleAllocationChange(allocation.id, 'quantity', e.target.value)
+                      }
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
+                        !capacityCheck.hasCapacity
+                          ? 'border-warning-400'
+                          : 'border-gray-300 dark:border-gray-600'
                       }`}
                       placeholder="0"
                     />
                     {!capacityCheck.hasCapacity && (
-                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                        </svg>
+                      <p className="text-xs text-warning-600 dark:text-warning-400 mt-1 flex items-center gap-1">
+                        <TriangleAlert className="w-3 h-3" aria-hidden="true" />
                         {capacityCheck.message} (Warning - will still be added)
                       </p>
                     )}
@@ -213,43 +236,41 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
                   {/* Biomass (calculated) */}
                   <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Biomass (kg)
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="text"
                       readOnly
                       value={calculateBiomass(allocation.quantity).toFixed(2)}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
                     />
                   </div>
 
                   {/* Remove Button */}
                   <div className="col-span-2 flex items-end justify-end">
-                    <button
+                    <Button
+                      variant="ghost"
                       type="button"
                       onClick={() => handleRemoveAllocation(allocation.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 transition-colors"
                       title="Remove allocation"
                     >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                      </svg>
-                    </button>
+                      <Trash2 className="w-5 h-5" aria-hidden="true" />
+                    </Button>
                   </div>
                 </div>
 
                 {/* Tank Info */}
                 {selectedTank && (
-                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <span>
                       Department: {selectedTank.departmentName}
                       {selectedTank.siteName && ` | Site: ${selectedTank.siteName}`}
                     </span>
                     <span>
-                      Current: {selectedTank.currentBiomass.toFixed(1)} kg |
-                      Max: {selectedTank.maxBiomass.toFixed(1)} kg |
-                      Density: {selectedTank.currentDensity.toFixed(2)} kg/m³
+                      Current: {selectedTank.currentBiomass.toFixed(1)} kg | Max:{' '}
+                      {selectedTank.maxBiomass.toFixed(1)} kg | Density:{' '}
+                      {selectedTank.currentDensity.toFixed(2)} kg/m³
                     </span>
                   </div>
                 )}
@@ -261,51 +282,38 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
       {/* Add Allocation Button */}
       {availableTanks.length > allocations.length && (
-        <button
-          type="button"
-          onClick={handleAddAllocation}
-          className="w-full py-2 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
-        >
+        <Button variant="secondary" type="button" onClick={handleAddAllocation}>
           <span className="flex items-center justify-center">
-            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
-            </svg>
+            <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
             Add Tank Allocation
           </span>
-        </button>
+        </Button>
       )}
 
       {/* No Tanks Available Message */}
       {isLoadingTanks ? (
-        <div className="text-center py-4 text-gray-500">
-          <svg className="animate-spin h-6 w-6 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
+        <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+          <Spinner size="md" color="inherit" block className="mb-2" />
           Loading available tanks...
         </div>
       ) : tanksError ? (
-        <div className="text-center py-4 text-red-600 bg-red-50 rounded-lg">
-          <svg className="w-8 h-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
+        <div className="text-center py-4 text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 rounded-lg">
+          <CircleAlert className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
           <p className="font-medium">Failed to load tanks</p>
-          <p className="text-sm text-red-500 mt-1">
+          <p className="text-sm text-error-500 mt-1">
             {tanksError instanceof Error ? tanksError.message : 'An unexpected error occurred'}
           </p>
         </div>
       ) : availableTanks.length === 0 ? (
-        <div className="text-center py-4 text-amber-600 bg-amber-50 rounded-lg">
-          <svg className="w-8 h-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-          </svg>
+        <div className="text-center py-4 text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 rounded-lg">
+          <TriangleAlert className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
           No tanks available. Please create tanks in Equipment setup first.
         </div>
       ) : null}
 
       {/* Validation Messages */}
       {allocations.length === 0 && totalQuantity > 0 && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-warning-600 dark:text-warning-400">
           Please add at least one tank allocation to distribute the batch quantity.
         </p>
       )}
@@ -318,7 +326,7 @@ export default TankAllocationSection;
 // Helper to convert TankAllocation to InitialLocationInput for API
 export function toLocationInput(
   allocation: { tankId: string; quantity: number; allocationDate?: string },
-  biomassKg: number
+  biomassKg: number,
 ): InitialLocationInput {
   return {
     locationType: 'tank',

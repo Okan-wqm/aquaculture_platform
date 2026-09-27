@@ -232,6 +232,13 @@ def judge_weights_from_calibration(
         judge_id = str(judge.get("judge_id") or "")
         if not judge_id:
             continue
+        # ARIA-HIGH-173 — a judge whose confidence is not `calibrated` weighs
+        # the prior: its vote detects dissent and never tips a split. A row
+        # from before the status existed (schema 1) keeps its posterior.
+        status = judge.get("calibration_status")
+        if status is not None and status != "calibrated":
+            weights[judge_id] = prior_a / (prior_a + prior_b)
+            continue
         post = beta_posterior(
             int(judge.get("true_positive") or 0),
             int(judge.get("false_positive") or 0),

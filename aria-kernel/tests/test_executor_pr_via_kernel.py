@@ -1,42 +1,33 @@
-"""Wave 0 §0.7 — executor-lane PR opening goes through the kernel CLI.
+"""Wave 0 §0.7 → ARIA-HIGH-124 — no PR is opened from inside the agent's sandbox, by any path.
 
-The real PRs in the executor lane were opened by the agent subprocess
-running raw ``gh pr create`` (an ALLOWED_BASH_COMMANDS row), which
-bypassed pr_manager entirely: GATE_PRE_PR_OPEN, the failure-breaker
-producer, and the change-id anchor all sat on a path no production PR
-travelled. These tests pin the cutover mechanics:
+The real PRs in the executor lane were once opened by the agent subprocess
+running raw ``gh pr create`` (an ALLOWED_BASH_COMMANDS row) — bypassing
+pr_manager entirely: GATE_PRE_PR_OPEN, the failure-breaker producer and the
+change-id anchor sat on a path no production PR travelled. Wave 0 §0.7 cut
+that over to the kernel CLI (``python3 -m aria_kernel pr create``) run by
+the agent, behind a lane flag. ARIA-HIGH-124 found that path never worked
+either: the kernel CLI run inside the sandbox reads a phantom store (the
+durable store is not mounted there, ARIA-HIGH-123) and resolves the kernel
+package from the agent's own cwd. Kernel authority is now the EXECUTOR's,
+exercised after the spawn (``implementation_delivery``), and these tests pin
+the policy half of that:
 
-  1. the kernel CLI row admits exactly `python3 -m aria_kernel pr create`
-     — not the rest of the kernel CLI (operator surface, not implementer
-     surface);
-  2. with ARIA_EXECUTOR_PR_VIA_KERNEL=1 (the executor lane's setting)
-     raw ``gh pr create`` is an allowlist MISS — the kernel path is the
-     only reachable one;
-  3. without the flag the legacy row still matches — the staged
-     transition the program plan tracks (flag + legacy row are deleted
-     together after one green scheduled run);
-  4. ``gh pr merge`` stays denied in BOTH states — the cutover must not
-     loosen the merge-authority boundary.
-
-ORPHAN-CRITICAL-727 adds the other half of the same cutover. `pr create`
-refuses an action that is not ``ready_for_pr`` with a ``validation_gate_ref``,
-and the only producer of both is the apply gate — which had no command
-surface at all. The implementer was told to open a PR it had no reachable way
-to earn, with ids nobody minted. So this file also pins:
-
-  5. ``python3 -m aria_kernel apply gate`` is admitted, and the rest of the
-     ``apply`` group is not (``scan-diff`` is operator surface);
-  6. the implementation envelope carries {proposal_id, change_id, branch} as
-     structured fields, and refuses to mint without them.
+  1. raw ``gh pr create`` is an allowlist MISS with no flag to open it
+     (the transition row and ``ARIA_EXECUTOR_PR_VIA_KERNEL`` are gone);
+  2. ``python3 -m aria_kernel pr create`` and ``apply gate`` — and every
+     other kernel CLI command — are refused BY NAME (``kernel_authority``),
+     as is every ``git push``;
+  3. ``gh pr merge`` stays denied — the merge-authority boundary is untouched;
+  4. the implementation envelope carries {proposal_id, change_id, branch,
+     base_sha} as structured fields, refuses to mint without them, and its
+     prompt tells the agent to run NONE of the executor's commands.
 """
 
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
 from aria_kernel.runtime_profile import set_profile
@@ -47,8 +38,6 @@ from aria_kernel.implementation_safety import (
     ALLOWED_BASH_COMMANDS,
     BashAllowlistMiss,
     BashDenylistHit,
-    LEGACY_GH_PR_CREATE_PATTERN,
-    executor_pr_via_kernel,
     verify_bash_command_allowed,
 )
 
@@ -66,80 +55,72 @@ LEGACY_GH_PR_CREATE = [
 ]
 
 
-class ExecutorPrViaKernelTests(unittest.TestCase):
-    def test_the_legacy_row_left_the_allowlist(self) -> None:
-        """The transition pattern must not ALSO live in the closed set.
+class NoPrOpensFromInsideTheSandboxTests(unittest.TestCase):
+    def test_raw_gh_pr_create_is_an_allowlist_miss_with_no_flag_to_open_it(self) -> None:
+        import os
 
-        If it did, the flag would gate a copy while the original kept
-        matching — the cutover would be a no-op that reads as done.
-        """
         joined = " ".join(LEGACY_GH_PR_CREATE)
         for pattern in ALLOWED_BASH_COMMANDS:
-            self.assertIsNone(
-                pattern.match(joined),
-                f"ALLOWED_BASH_COMMANDS still admits raw gh pr create via "
-                f"{pattern.pattern!r}",
-            )
-        self.assertIsNotNone(LEGACY_GH_PR_CREATE_PATTERN.match(joined))
-
-    def test_kernel_pr_create_is_allowed_in_both_states(self) -> None:
+            self.assertIsNone(pattern.match(joined), f"ALLOWED_BASH_COMMANDS admits raw gh pr create via {pattern.pattern!r}")
         for flag in ({}, {"ARIA_EXECUTOR_PR_VIA_KERNEL": "1"}):
             with self.subTest(env=flag):
-                with mock.patch.dict("os.environ", flag, clear=False):
-                    verify_bash_command_allowed(KERNEL_PR_CREATE)
+                from unittest import mock
 
-    def test_only_the_pr_create_subcommand_is_admitted(self) -> None:
+                with mock.patch.dict("os.environ", flag, clear=False):
+                    os.environ.pop("ARIA_EXECUTOR_PR_VIA_KERNEL", None) if not flag else None
+                    with self.assertRaises(BashAllowlistMiss):
+                        verify_bash_command_allowed(LEGACY_GH_PR_CREATE)
+        from aria_kernel import implementation_safety
+
+        self.assertFalse(hasattr(implementation_safety, "LEGACY_GH_PR_CREATE_PATTERN"))
+        self.assertFalse(hasattr(implementation_safety, "executor_pr_via_kernel"))
+
+    def test_the_kernel_cli_is_refused_by_name_inside(self) -> None:
+        """ARIA-HIGH-124 — `pr create`, `apply gate` and the rest of the kernel
+        CLI are the executor's; inside the sandbox each is a DENY that names
+        the rule, so the agent (and the decision ledger) read WHY."""
         for argv in (
+            KERNEL_PR_CREATE, KERNEL_APPLY_GATE,
             ["python3", "-m", "aria_kernel", "autonomy", "run"],
             ["python3", "-m", "aria_kernel", "integrity", "verify"],
+            ["python3", "-m", "aria_kernel", "apply", "scan-diff", "--diff-file", "/etc/shadow"],
             ["python3", "-m", "aria_kernel"],
+            ["/usr/bin/python3.12", "-m", "aria_kernel", "mcp", "serve"],
+            ["python", "-m", "aria_kernel", "pr", "create"],
         ):
             with self.subTest(argv=argv):
-                with self.assertRaises(BashAllowlistMiss):
+                with self.assertRaises(BashDenylistHit) as ctx:
                     verify_bash_command_allowed(argv)
+                self.assertIn("kernel_authority:kernel_cli", str(ctx.exception))
 
-    def test_flag_on_refuses_raw_gh_pr_create(self) -> None:
-        with mock.patch.dict("os.environ", {"ARIA_EXECUTOR_PR_VIA_KERNEL": "1"}, clear=False):
-            self.assertTrue(executor_pr_via_kernel())
-            with self.assertRaises(BashAllowlistMiss):
-                verify_bash_command_allowed(LEGACY_GH_PR_CREATE)
+    def test_every_push_is_refused_by_name_inside(self) -> None:
+        """ARIA-HIGH-124 — the executor pushes the published branch after the
+        run with a credential the sandbox never holds; a push from inside has
+        neither a reader for the token nor a place in the contract."""
+        for argv in (
+            ["git", "push", "origin", "aria-impl-0123abcd"],
+            ["git", "push", "-u", "origin", "aria-impl-0123abcd"],
+            ["git", "push"],
+            ["git", "push", "origin", "main"],
+        ):
+            with self.subTest(argv=argv):
+                with self.assertRaises(BashDenylistHit) as ctx:
+                    verify_bash_command_allowed(argv)
+                self.assertIn("kernel_authority:git_push_any", str(ctx.exception))
+        # A force-push still journals under its own hazard family.
+        with self.assertRaises(BashDenylistHit) as ctx:
+            verify_bash_command_allowed(["git", "push", "origin", "aria-impl-0123abcd", "-f"])
+        self.assertIn("git_push_force", str(ctx.exception))
 
-    def test_flag_off_keeps_the_transition_path_open(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=False):
-            os.environ.pop("ARIA_EXECUTOR_PR_VIA_KERNEL", None)
-            self.assertFalse(executor_pr_via_kernel())
-            verify_bash_command_allowed(LEGACY_GH_PR_CREATE)
+    def test_the_agents_own_git_stays_allowed(self) -> None:
+        for argv in (["git", "status"], ["git", "add", "apps/x.ts"], ["git", "commit", "-m", "x"],
+                     ["git", "diff", "--staged"], ["git", "rev-parse", "HEAD"], ["python3", "-m", "unittest", "tests.test_x"]):
+            with self.subTest(argv=argv):
+                verify_bash_command_allowed(argv)
 
-    def test_gh_pr_merge_stays_denied_in_both_states(self) -> None:
-        for flag in ({}, {"ARIA_EXECUTOR_PR_VIA_KERNEL": "1"}):
-            with self.subTest(env=flag):
-                with mock.patch.dict("os.environ", flag, clear=False):
-                    with self.assertRaises(BashDenylistHit):
-                        verify_bash_command_allowed(["gh", "pr", "merge", "42"])
-
-
-class ExecutorApplyGateSurfaceTests(unittest.TestCase):
-    """ORPHAN-CRITICAL-727 — the gate is reachable, and only the gate."""
-
-    def test_apply_gate_is_allowed_in_both_states(self) -> None:
-        for flag in ({}, {"ARIA_EXECUTOR_PR_VIA_KERNEL": "1"}):
-            with self.subTest(env=flag):
-                with mock.patch.dict("os.environ", flag, clear=False):
-                    verify_bash_command_allowed(KERNEL_APPLY_GATE)
-
-    def test_the_rest_of_the_apply_group_stays_operator_surface(self) -> None:
-        """`apply scan-diff` reads an arbitrary file path off the argv.
-
-        The implementer's admitted commands are the two that MOVE its own
-        change forward; a diff-scanning utility is a thing an operator runs,
-        and widening the row to `apply` would have admitted every subcommand
-        the group ever grows.
-        """
-        with self.assertRaises(BashAllowlistMiss):
-            verify_bash_command_allowed(
-                ["python3", "-m", "aria_kernel", "apply", "scan-diff",
-                 "--diff-file", "/etc/shadow"],
-            )
+    def test_gh_pr_merge_stays_denied(self) -> None:
+        with self.assertRaises(BashDenylistHit):
+            verify_bash_command_allowed(["gh", "pr", "merge", "42"])
 
 
 class ImplementationEnvelopeIdsTests(unittest.TestCase):
@@ -191,6 +172,7 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
             "branch": "aria-impl-0123456789abcdef",
             "base_sha": "0" * 40,
             "base_dir": self.tools,
+            "cycle_id": "cycle-727",
         }
         kwargs.update(overrides)
         return issue_implementation_envelope(**kwargs)
@@ -215,11 +197,16 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
         # distrust.
         self.assertIn("<implementation_ids>", prompt)
         self.assertIn("proposal-727", prompt.split("<untrusted_converged_plan")[0])
-        self.assertIn("python3 -m aria_kernel apply gate", prompt)
-        self.assertIn("python3 -m aria_kernel pr create", prompt)
-        # The branch instruction names the staged base, not origin/main.
-        self.assertIn("git switch -c <branch> <base_sha>", prompt)
-        self.assertNotIn("git switch -c <branch> origin/", prompt)
+        # ARIA-HIGH-124 — the prompt's STEPS tell the agent to run none of
+        # the executor's commands: no switch (the kernel stood it on the
+        # branch), no push, no gate, no PR opener; the one place those
+        # spellings appear is the sentence that says they are refused.
+        steps = prompt.split("</implementation_ids>", 1)[1].split("`git push`, `python3", 1)[0]
+        for forbidden in ("aria_kernel apply gate", "aria_kernel pr create", "git switch", "git push", "gh pr create"):
+            self.assertNotIn(forbidden, steps, forbidden)
+        self.assertIn("are refused\ninside your sandbox by name", prompt)
+        self.assertIn("already standing on <branch> at <base_sha>", prompt)
+        self.assertIn("the executor then runs the apply", prompt)
 
     def test_envelope_derives_scope_and_obligations_from_the_plan(self) -> None:
         """The two arguments that had no producer are now derived.
@@ -283,15 +270,14 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
         )
 
     def test_prompt_no_longer_tells_the_agent_to_run_raw_gh(self) -> None:
-        """The prompt used to say "Open PR via gh pr create --base main".
-
-        The executor lane refuses that command (ARIA_EXECUTOR_PR_VIA_KERNEL=1),
-        so the envelope was instructing the agent to do the one thing the
-        allowlist would stop — a contradiction the agent could only resolve by
-        failing.
-        """
+        """The prompt used to say "Open PR via gh pr create --base main", then
+        "python3 -m aria_kernel pr create"; the command policy refuses both
+        inside the sandbox, so either instruction was a contradiction the agent
+        could only resolve by failing (ARIA-HIGH-124)."""
         prompt = self._mint()["suggested_prompt"]
         self.assertNotIn("gh pr create --base main", prompt)
+        self.assertNotIn("pr create --proposal-id", prompt)
+        self.assertNotIn("apply gate --proposal-id", prompt)
 
 
 if __name__ == "__main__":

@@ -22,10 +22,9 @@ _CI = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.
 
 
 def _load_ci_executor():
-    spec = importlib.util.spec_from_file_location("aria_ci_executor_under_test", _CI)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from tests._helpers.executor_module import load_ci_executor
+
+    return load_ci_executor("aria_ci_executor_under_test")
 
 
 class ClearStaleDispatchArtifacts(unittest.TestCase):

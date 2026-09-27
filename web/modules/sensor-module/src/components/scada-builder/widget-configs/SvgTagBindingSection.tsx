@@ -14,7 +14,9 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
+import { ChevronDown } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -53,34 +55,37 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
   }, [onChange]);
 
   return (
-    <div className="border-t border-gray-100 pt-2" data-testid="svg-tag-binding-section">
-      <button
+    <div
+      className="border-t border-gray-100 dark:border-gray-700 pt-2"
+      data-testid="svg-tag-binding-section"
+    >
+      <Button
+        variant="ghost"
+        size="xs"
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
         aria-expanded={open}
         aria-label="Data binding settings"
       >
         <span className="flex items-center gap-1.5">
           Data Binding
           {tagName && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" title="Tag bound" />
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-success-500"
+              title="Tag bound"
+            />
           )}
         </span>
-        <svg
+        <ChevronDown
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+          aria-hidden="true"
+        />
+      </Button>
 
       {open && (
         <div className="space-y-2 mt-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tag</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
             <TagBrowser
               deviceId={deviceId ?? null}
               value={tagName}
@@ -91,19 +96,20 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
 
           {/* Show clear button only when a tag is bound */}
           {tagName && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
               onClick={handleClear}
-              className="w-full py-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition-colors"
               aria-label="Clear tag binding"
               data-testid="clear-tag-binding"
             >
               Clear Binding
-            </button>
+            </Button>
           )}
 
           {!deviceId && (
-            <p className="text-[10px] text-amber-500">
+            <p className="text-[10px] text-warning-500">
               Select a target device in widget properties to browse tags.
             </p>
           )}

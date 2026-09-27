@@ -132,7 +132,7 @@ def replay_judges_on_goldset(
         for role, agent in JUDGE_FANOUT:
             req = create_agent_invocation_request(
                 target_agent=agent, role=role, suggested_prompt=prompt,
-                must_satisfy=[{"id": "verdict", "criterion": "Return true_positive or false_positive with file:line evidence"}],
+                must_satisfy=[{"id": "verdict", "description": "Return true_positive or false_positive with file:line evidence"}],
                 allowed_scope=["**"],
                 finding_id=finding_id, tool_id=tool_id, run_id=run_id,
                 judgment_group_id=group, target_sha=target_sha, base_dir=root,

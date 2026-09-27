@@ -52,7 +52,7 @@ def _make_envelope_pair(*, judge_name: str, role: str):
         "must_satisfy": [
             {
                 "id": "MS-1",
-                "statement": (
+                "description": (
                     f"Validate the supplied claim using only the provided evidence "
                     f"refs and emit the {role} response shape."
                 ),

@@ -91,15 +91,14 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _load_caps(base_dir: str | Path) -> dict[str, float]:
     from .genesis_policy import load_policy
+    from .tool_registry import bound_workspace_root
 
     # Plan ARIA-V3 §B0 — operator override lives at
-    # ``<workspace_root>/aria-config/genesis_policy.json``; the
-    # kernel ``base_dir`` is ``<workspace_root>/aria-tools`` so the
-    # repo_root is the parent. Defaults shipped in
-    # ``aria_kernel/data/genesis_policy_default.json`` include the
-    # ``cost_caps_usd`` block.
-    repo_root = Path(base_dir).parent
-    policy = load_policy(repo_root)
+    # ``<workspace_root>/aria-config/genesis_policy.json``; the workspace is
+    # the one the store is BOUND to (a legacy store's parent). Defaults
+    # shipped in ``aria_kernel/data/genesis_policy_default.json`` include
+    # the ``cost_caps_usd`` block.
+    policy = load_policy(bound_workspace_root(base_dir))
     raw = policy.get("cost_caps_usd") or {}
     if not isinstance(raw, dict):
         raw = {}
@@ -138,19 +137,39 @@ def assert_within_budget(
     root = ensure_tools_dir(base_dir)
     caps = _load_caps(root)
     spent_daily, spent_monthly = derived_usage(root)
+    projected_daily = spent_daily + estimated_run_usd
+    projected_monthly = spent_monthly + estimated_run_usd
+
+    # Under the managed-subscription policy the notional dollars this
+    # ledger accumulates are telemetry, never admission (ORPHAN-HIGH-472
+    # retired them for the dispatch budget, ARIA-HIGH-074 for the spawn
+    # reservation): the wall-clock caps bound a night. This gate refused
+    # trial eight's cross-review with the shipped $5 daily cap after one
+    # accepted challenger (ARIA-HIGH-079). The projection is still returned.
+    from .genesis_policy import _adaptive_runtime_policy
+    from .tool_registry import bound_workspace_root
+
+    adaptive = _adaptive_runtime_policy(bound_workspace_root(root))
+    if adaptive is not None and adaptive.monetary_admission == "managed_subscription":
+        return {
+            "status": "telemetry_only",
+            "monetary_admission": adaptive.monetary_admission,
+            "estimated_run_usd": estimated_run_usd,
+            "projected_daily_usd": projected_daily,
+            "projected_monthly_usd": projected_monthly,
+            "caps": caps,
+        }
 
     if estimated_run_usd > caps["per_run"]:
         _trip_breaker(root, cap_name="per_run", amount=estimated_run_usd, cap=caps["per_run"])
         raise GovernanceError(
             f"cost_budget_per_run_cap_exceeded: estimate={estimated_run_usd} cap={caps['per_run']}"
         )
-    projected_daily = spent_daily + estimated_run_usd
     if projected_daily > caps["daily"]:
         _trip_breaker(root, cap_name="daily", amount=projected_daily, cap=caps["daily"])
         raise GovernanceError(
             f"cost_budget_daily_cap_exceeded: projected={projected_daily} cap={caps['daily']}"
         )
-    projected_monthly = spent_monthly + estimated_run_usd
     if projected_monthly > caps["monthly"]:
         _trip_breaker(root, cap_name="monthly", amount=projected_monthly, cap=caps["monthly"])
         raise GovernanceError(

@@ -27,7 +27,7 @@ def _repo_risk_policy() -> dict:
 class RiskLaneRoutingTests(unittest.TestCase):
     def test_docs_and_tests_classify_l1(self) -> None:
         verdict = classify_change(
-            ["docs/runbooks/example.md", "aria-kernel/tests/test_example.py"],
+            ["docs/runbooks/example.md", "tests/e2e/example.spec.ts"],
             policy=_repo_risk_policy(),
         )
         self.assertTrue(verdict.valid)
@@ -78,9 +78,13 @@ class MasterSwitchTests(unittest.TestCase):
         self.assertIs(DEFAULT_POLICY["enabled"], False)
 
     def test_shipped_low_risk_globs_never_include_runtime_paths(self) -> None:
+        # ARIA-HIGH-187: auto_merge keeps no private low-risk list; the L1
+        # lane of the enterprise policy is the one answer.
+        self.assertNotIn("allowed_low_risk_globs", DEFAULT_POLICY)
         runtime_markers = ("apps/**/src/**", "libs/**/src/**", "web/**/src/**")
+        l1_globs = _repo_risk_policy()["lanes"]["L1"]["globs"]
         for marker in runtime_markers:
-            self.assertNotIn(marker, DEFAULT_POLICY["allowed_low_risk_globs"])
+            self.assertNotIn(marker, l1_globs)
 
 
 if __name__ == "__main__":

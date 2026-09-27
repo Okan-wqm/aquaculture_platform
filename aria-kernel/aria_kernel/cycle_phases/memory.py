@@ -43,8 +43,127 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol
 # agreement rather than about outcome.
 CONVENTION_HYPOTHESIS_CONFIDENCE: float = 0.5
 
+# Bounds attempts per callback, not history scans, latency, or key lifetime.
+PENDING_OBSERVATION_ATTEMPT_LIMIT: int = 8
+
 if TYPE_CHECKING:  # pragma: no cover
-    pass
+    from ..knowledge_graph import Pattern
+
+
+def _convention_pattern(
+    *, cycle_id: str, plan_id: str, plan_content: Mapping[str, Any], pattern_signature: str,
+) -> Pattern:
+    from datetime import datetime, timezone
+    from ..knowledge_graph import KNOWLEDGE_GRAPH_SCHEMA_VERSION, Pattern
+
+    # Reviewed convergence supports a hypothesis, not measured improvement.
+    # Keep original discovery identity across later signer lifetimes. Promotion
+    # and outcome qualification remain their existing owners' responsibility.
+    return Pattern(
+        pattern_id=f"conv_{cycle_id}_{pattern_signature[:16]}",
+        pattern_type="convention", confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
+        outcome_status="hypothesis", plan_id=plan_id,
+        evidence_refs=tuple(plan_content.get("evidence_refs") or ()),
+        discovered_by_cycle_id=cycle_id,
+        observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        schema_version=KNOWLEDGE_GRAPH_SCHEMA_VERSION,
+    )
+
+
+def _record_convention_observation(
+    *, cycle_id: str, plan_id: str, plan_content: Mapping[str, Any],
+    pattern_signature: str, signer_key_fp: str,
+    base_dir: Path, workspace_root: Path | None = None,
+    operation_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Append and verify one hypothesis; preserve direct-hook audit semantics."""
+    from ..knowledge_graph import record_convention, verify_chain_or_quarantine
+    from ..tool_registry import append_tools_governance
+
+    convention_recorded = False
+    convention_path: Path | None = None
+    convention_status = "no_pattern_signature"
+    result = operation_report if operation_report is not None else {}
+    result.update({"status": convention_status, "convention_recorded": False, "chain_verified": None})
+    provenance = {key: result[key] for key in (
+        "plan_revision_id", "plan_content_hash", "signer_cycle_id", "signer_key_fp",
+        "pending_event_hash", "convergence_event_id", "convergence_event_hash",
+    ) if key in result}
+    if pattern_signature and signer_key_fp is not None:
+        pattern = _convention_pattern(
+            cycle_id=cycle_id, plan_id=plan_id, plan_content=plan_content,
+            pattern_signature=pattern_signature,
+        )
+        pattern_id = pattern.pattern_id
+        try:
+            convention_path = record_convention(
+                pattern,
+                workspace_root=workspace_root,
+                base_dir=base_dir,
+                signer_key_fp=signer_key_fp,
+            )
+            convention_recorded = True
+            convention_status = "memory_hook_recorded"
+            # The caller must retain the known append outcome even if both
+            # audit attempts fail and the direct hook propagates that failure.
+            result.update({"status": convention_status, "convention_recorded": True})
+            append_tools_governance(
+                base_dir, "convention_recorded",
+                {
+                    "cycle_id": cycle_id, "plan_id": plan_id,
+                    "pattern_id": pattern_id,
+                    "pattern_signature": pattern_signature, **provenance,
+                },
+                bypass_profile_gate=True,
+            )
+        except Exception as exc:
+            convention_status = (
+                "convention_audit_failed" if convention_recorded
+                else "convention_record_failed"
+            )
+            result.update({"status": convention_status, "error_class": type(exc).__name__})
+            if convention_recorded:
+                result["audit_error_class"] = type(exc).__name__
+            try:
+                append_tools_governance(
+                    base_dir, convention_status,
+                    {
+                        "cycle_id": cycle_id, "plan_id": plan_id,
+                        "error_class": type(exc).__name__, **provenance,
+                    },
+                    bypass_profile_gate=True,
+                )
+            except Exception as audit_exc:
+                result["audit_error_class"] = type(audit_exc).__name__
+                raise
+
+    # Phase 4 — verify_chain_or_quarantine AFTER record.
+    chain_verified: bool | None = None
+    if convention_path is not None:
+        try:
+            ok, _broken = verify_chain_or_quarantine(convention_path)
+            chain_verified = bool(ok)
+            if not ok:
+                convention_status = "convention_chain_invalid"
+                append_tools_governance(
+                    base_dir, "knowledge_graph_quarantined",
+                    {
+                        "cycle_id": cycle_id, "plan_id": plan_id,
+                        "ledger_path": str(convention_path),
+                        "broken_at_line": _broken,
+                    },
+                    bypass_profile_gate=True,
+                )
+        except Exception:
+            chain_verified = False
+            convention_status = "convention_chain_invalid"
+
+    result.update({
+        "status": convention_status,
+        "convention_recorded": convention_recorded,
+        "chain_verified": chain_verified,
+    })
+    return result
 
 
 class MemoryHook(Protocol):
@@ -52,7 +171,8 @@ class MemoryHook(Protocol):
 
     Called after `convergence_resolved` when `arbiter_verdict ==
     "converged"`. Returns a summary dict for the cycle summary +
-    governance event.
+    governance event. The implementation reads the reviewed plan body
+    from its owning ledger, using plan_id; callers supply no copy.
     """
 
     def record(
@@ -62,10 +182,15 @@ class MemoryHook(Protocol):
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
+    ) -> dict[str, Any]:
+        ...
+
+    def complete_pending_observations(
+        self, *, base_dir: Path, signer_cycle_id: str, signer_key_fp: str,
+        report: dict[str, Any],
     ) -> dict[str, Any]:
         ...
 
@@ -88,7 +213,6 @@ class NoOpMemoryHook:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
@@ -99,6 +223,12 @@ class NoOpMemoryHook:
             "stability_check_fired": False,
             "skill_genesis_dispatched": False,
         }
+
+    def complete_pending_observations(
+        self, *, base_dir: Path, signer_cycle_id: str, signer_key_fp: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"status": "no_op_memory_hook", "observations": []}
 
 
 class MemoryHookImpl:
@@ -120,9 +250,19 @@ class MemoryHookImpl:
             * distinct_cross_reviewer_agent_ids >= 2
             * OPERATOR_FEEDBACK ∈ distinct_sources (V3.1-C-4 anchor)
 
-      3. record_convention if pattern_signature is non-empty — the
-         convention row is the cycle's contribution to the
-         knowledge graph (V9.0-F lock-safe write via V3.1-P-3).
+      3. record_convention if pattern_signature and a signer are present.
+         B7 — the signer is the cycle's own ephemeral key, minted by the
+         orchestrator's knowledge seam (`cycle_phases.knowledge_signer`)
+         under every profile holding `knowledge_record`, so the row lands
+         in the cycle that converged. Without a signer (profile lacks the
+         cell, or the mint failed), record a needs_signing observation
+         with the canonical plan revision and hash (reason
+         `cycle_signer_unavailable`); no convention is written. With a
+         signer whose append FAILED, record the same disclosure under
+         reason `cycle_append_failed` next to the `convention_record_failed`
+         audit row. Either way `complete_pending_observations` — which
+         replays every disclosure reason — owns the retry, in this cycle
+         and every later one that holds a signer.
 
       4. verify_chain_or_quarantine AFTER record — Tier-3 detect
          (closes V3.1-C MEDIUM-012). The V3.1-P-3 lock guarantees
@@ -139,8 +279,131 @@ class MemoryHookImpl:
     Frozen / observe profile: this hook IS NOT INVOKED by the
     orchestrator (the orchestrator's profile_announce_allowed gate
     blocks the post-CONVERGED phase under those profiles). Standard
-    / strict / autonomous all run the full pipeline.
+    / strict / autonomous run the hook and hold `knowledge_record`, so
+    the orchestrator hands each of them the cycle signer; convention
+    writing still requires that signer and never substitutes one.
     """
+
+    def complete_pending_observations(
+        self, *, base_dir: Path, signer_cycle_id: str, signer_key_fp: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Complete original observations while the caller owns its signer.
+
+        Every `convention_record_needs_signing` disclosure is a candidate,
+        whatever its `reason` (`cycle_signer_unavailable` from a signer-less
+        cycle, `cycle_append_failed` from a signed cycle whose append
+        failed): the reason is part of the claim that dedups a disclosure,
+        never a filter on what gets replayed.
+
+        Scheduling is derived from verified governance append order. A durable
+        attempt moves a failing item behind older waiters; a later arrival
+        cannot continually overtake them. The cap bounds attempts only. Source
+        and knowledge lookups may still scan the full history, and no ledger
+        transaction is held across another owner's operation.
+        """
+        from ..knowledge_graph import _has_recorded_convention
+        from ..ledger import load_declared_jsonl
+        from ..plan_convergence import resolve_converged_plan_observation
+        from ..plan_synthesizer import compute_pattern_signature
+        from ..tool_registry import GovernanceError, append_tools_governance, tools_dir
+
+        rows = load_declared_jsonl(tools_dir(base_dir) / "governance.jsonl", expected_surface="tools_governance")
+        report.update({"status": "completed", "observations": [], "attempted": 0, "already_recorded": 0})
+        pending_by_claim: dict[tuple[str, ...], tuple[int, dict[str, Any]]] = {}
+        last_attempt: dict[str, int] = {}
+        for ordinal, row in enumerate(rows):
+            if row.get("kind") == "convention_observation_attempted":
+                last_attempt[row["details"]["pending_event_hash"]] = ordinal
+            if row.get("kind") != "convention_record_needs_signing":
+                continue
+            pending = row["details"]
+            # Match the existing disclosure's claim keys. Its first verified
+            # event owns discovery identity even if a later cycle repeats it.
+            claim = tuple(pending[key] for key in (
+                "plan_id", "plan_revision_id", "plan_content_hash", "reason",
+            ))
+            pending_by_claim.setdefault(claim, (ordinal, row))
+        candidates = sorted(
+            pending_by_claim.values(),
+            key=lambda item: (last_attempt.get(item[1]["ledger_hash"], item[0]), item[0]),
+        )
+        for _ordinal, row in candidates:
+            if report["attempted"] >= PENDING_OBSERVATION_ATTEMPT_LIMIT:
+                break
+            pending = row["details"]
+            provenance = {
+                "cycle_id": pending["cycle_id"], "plan_id": pending["plan_id"],
+                "plan_revision_id": pending["plan_revision_id"], "plan_content_hash": pending["plan_content_hash"],
+                "pattern_signature": pending["pattern_signature"], "pending_event_hash": row["ledger_hash"],
+                "signer_cycle_id": signer_cycle_id, "signer_key_fp": signer_key_fp,
+            }
+            source_error_class: str | None = None
+            try:
+                body = resolve_converged_plan_observation(
+                    plan_id=pending["plan_id"], revision_id=pending["plan_revision_id"],
+                    expected_content_hash=pending["plan_content_hash"], base_dir=base_dir,
+                )
+                signature = compute_pattern_signature(body["plan_content"])
+                if not signature or signature != pending["pattern_signature"]:
+                    raise GovernanceError("pending_observation_source_mismatch")
+                provenance.update({
+                    "convergence_event_id": body["convergence_event_id"],
+                    "convergence_event_hash": body["convergence_event_hash"],
+                })
+                pattern = _convention_pattern(
+                    cycle_id=pending["cycle_id"], plan_id=pending["plan_id"],
+                    plan_content=body["plan_content"], pattern_signature=signature,
+                )
+                if _has_recorded_convention(pattern, base_dir=base_dir):
+                    report["already_recorded"] += 1
+                    report["observations"].append({
+                        **provenance, "status": "already_recorded", "convention_recorded": True,
+                        "chain_verified": True, "append_attempted": False,
+                    })
+                    continue
+            except Exception as exc:
+                source_error_class = type(exc).__name__
+
+            observation = {
+                **provenance, "status": "pending", "convention_recorded": False, "chain_verified": None,
+                "append_attempted": False,
+            }
+            report["observations"].append(observation)
+            # Persist scheduling progress before attempting the observation.
+            # An unavailable audit must not cause an unaudited knowledge write.
+            try:
+                append_tools_governance(base_dir, "convention_observation_attempted", provenance)
+            except Exception as exc:
+                observation.update({"status": "attempt_audit_failed", "audit_error_class": type(exc).__name__})
+                report.update({"status": "audit_error", "audit_error_class": type(exc).__name__})
+                break
+            report["attempted"] += 1
+            if source_error_class is not None:
+                observation.update({"status": "observation_source_failed", "error_class": source_error_class})
+                report["status"] = "completed_with_errors"
+                try:
+                    append_tools_governance(base_dir, "convention_observation_failed", {
+                        **provenance, "error_class": source_error_class,
+                    })
+                except Exception as exc:
+                    observation["audit_error_class"] = type(exc).__name__
+                continue
+            try:
+                observation["append_attempted"] = True
+                _record_convention_observation(
+                    cycle_id=pending["cycle_id"], plan_id=pending["plan_id"],
+                    plan_content=body["plan_content"], pattern_signature=signature,
+                    signer_key_fp=signer_key_fp, base_dir=base_dir,
+                    operation_report=observation,
+                )
+            except Exception as exc:
+                # The shared operation publishes its append outcome before
+                # audit writes; retain that truth if reporting itself fails.
+                observation.setdefault("error_class", type(exc).__name__)
+            if observation.get("error_class") or observation.get("chain_verified") is False:
+                report["status"] = "completed_with_errors"
+        return report
 
     def record(
         self,
@@ -149,22 +412,28 @@ class MemoryHookImpl:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
     ) -> dict[str, Any]:
         from ..governance_reader import read_governance_rows_reverse
-        from ..knowledge_graph import (
-            KNOWLEDGE_GRAPH_SCHEMA_VERSION, Pattern,
-            record_convention, verify_chain_or_quarantine,
-        )
         from ..plan_synthesizer import compute_pattern_signature
+        from ..plan_convergence import fold_plan_state, plan_body_from_state
         from ..skill_genesis_drainer import check_pattern_signature_stability
-        from ..tool_registry import append_tools_governance
-        from datetime import datetime, timezone
+        from ..tool_registry import (
+            GovernanceError, append_tools_governance, append_tools_governance_once,
+        )
 
-        plan_content = dict(converged_plan or {})
+        # The plan ledger owns both convergence and its reviewed body. A
+        # caller-supplied copy can be absent or name a different revision.
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"memory_requires_converged_plan: plan_id={plan_id!r} "
+                f"is in state {state.get('state')!r}"
+            )
+        body = plan_body_from_state(state)
+        plan_content = body["plan_content"]
         pattern_signature = compute_pattern_signature(plan_content) or ""
 
         # Phase 1 — bounded governance read (scales with limit, not
@@ -187,87 +456,56 @@ class MemoryHookImpl:
 
         # Phase 3 — record_convention (only when pattern_signature
         # is non-empty AND signer_key_fp is the cycle's ephemeral key).
-        convention_recorded = False
-        convention_path: Path | None = None
-        if pattern_signature and signer_key_fp and signer_key_fp.startswith("SHA256:"):
-            pattern_id = f"conv_{cycle_id}_{pattern_signature[:16]}"
-            pattern = Pattern(
-                pattern_id=pattern_id,
-                pattern_type="convention",
-                # A plan that CONVERGED is not a plan that WORKED. This row
-                # is written when the convergent gate resolves — before the
-                # change is merged, before CI has run against it, before any
-                # outcome exists. It used to be recorded at 0.9, above
-                # MIN_PATTERN_CONFIDENCE (0.7), so `lookup_pattern` served it
-                # to the next planner as established knowledge: ARIA teaching
-                # itself its own predictions as facts.
-                #
-                # Convergence IS evidence — a planner, a challenger and a
-                # cross-review agreed — but evidence about agreement, not
-                # about outcome. The row is still recorded, because the
-                # observation is worth keeping; it is recorded BELOW the
-                # serving floor so it is not handed forward as known.
-                # Promotion on a VERIFIED outcome is Wave 10's half.
-                confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
-                outcome_status="hypothesis",
-                # M2/E12 — the promotion key: the merge reconciler finds
-                # this row by plan_id when the plan's PR actually merges
-                # (the VERIFIED outcome the comment above promises).
-                plan_id=plan_id,
-                evidence_refs=tuple(
-                    plan_content.get("evidence_refs") or ()
-                ),
-                discovered_by_cycle_id=cycle_id,
-                observed_at=datetime.now(timezone.utc).strftime(
-                    "%Y-%m-%dT%H:%M:%SZ",
-                ),
-                schema_version=KNOWLEDGE_GRAPH_SCHEMA_VERSION,
+        observation: dict[str, Any] = {
+            "status": "no_pattern_signature", "convention_recorded": False, "chain_verified": None,
+        }
+        # The reason a `convention_record_needs_signing` row is disclosed,
+        # or None when the hypothesis landed (or there was none). That row
+        # is the DURABLE retry source: `complete_pending_observations`
+        # replays every reason under a later signer, so an observation
+        # that could not be appended in its own cycle is never lost.
+        pending_reason: str | None = None
+        if pattern_signature and signer_key_fp is None:
+            observation["status"] = "needs_signing"
+            pending_reason = "cycle_signer_unavailable"
+        elif pattern_signature:
+            # B7 — the direct path now has a real signer (the cycle's own
+            # key, minted by the orchestrator's knowledge seam). Carry the
+            # same public signer provenance the replay path carries, so
+            # the `convention_recorded` governance row and the cycle
+            # summary name the fingerprint that authenticates the row.
+            observation = _record_convention_observation(
+                cycle_id=cycle_id, plan_id=plan_id, plan_content=plan_content,
+                pattern_signature=pattern_signature, signer_key_fp=signer_key_fp,
+                base_dir=base_dir, workspace_root=workspace_root,
+                operation_report={"signer_cycle_id": cycle_id, "signer_key_fp": signer_key_fp},
             )
-            try:
-                convention_path = record_convention(
-                    pattern,
-                    workspace_root=workspace_root,
-                    signer_key_fp=signer_key_fp,
-                )
-                convention_recorded = True
-                append_tools_governance(
-                    base_dir, "convention_recorded",
-                    {
-                        "cycle_id": cycle_id, "plan_id": plan_id,
-                        "pattern_id": pattern_id,
-                        "pattern_signature": pattern_signature,
-                    },
-                    bypass_profile_gate=True,
-                )
-            except Exception as exc:
-                append_tools_governance(
-                    base_dir, "convention_record_failed",
-                    {
-                        "cycle_id": cycle_id, "plan_id": plan_id,
-                        "error_class": type(exc).__name__,
-                        "error_message": str(exc)[:500],
-                    },
-                    bypass_profile_gate=True,
-                )
-
-        # Phase 4 — verify_chain_or_quarantine AFTER record.
-        chain_verified = True
-        if convention_path is not None:
-            try:
-                ok, _broken = verify_chain_or_quarantine(convention_path)
-                chain_verified = bool(ok)
-                if not ok:
-                    append_tools_governance(
-                        base_dir, "knowledge_graph_quarantined",
-                        {
-                            "cycle_id": cycle_id, "plan_id": plan_id,
-                            "ledger_path": str(convention_path),
-                            "broken_at_line": _broken,
-                        },
-                        bypass_profile_gate=True,
-                    )
-            except Exception:
-                chain_verified = False
+            if not observation["convention_recorded"]:
+                # A signer was present and the append still failed
+                # (`convention_record_failed` is on the ledger with the
+                # error class). Before B7 that was the end of it: the
+                # plan moved on to IMPLEMENTATION_REQUESTED under strict /
+                # autonomous and the observation was gone for good, because
+                # only the signer-less path ever disclosed a pending row.
+                # Disclose one under its own reason so the replay owns the
+                # retry — in this cycle, under this signer, first.
+                pending_reason = "cycle_append_failed"
+        if pending_reason is not None:
+            disclosure: dict[str, Any] = {
+                "cycle_id": cycle_id,
+                "plan_id": plan_id,
+                "plan_revision_id": body["revision_id"],
+                "plan_content_hash": body["content_hash"],
+                "pattern_signature": pattern_signature,
+                "reason": pending_reason,
+                "convention_recorded": False,
+            }
+            if "error_class" in observation:
+                disclosure["error_class"] = observation["error_class"]
+            append_tools_governance_once(
+                base_dir, "convention_record_needs_signing", disclosure,
+                claim_keys=("plan_id", "plan_revision_id", "plan_content_hash", "reason"),
+            )
 
         # Phase 5 — skill genesis dispatch ONLY if stability fires.
         skill_genesis_dispatched = False
@@ -309,15 +547,64 @@ class MemoryHookImpl:
                 )
 
         return {
-            "status": "memory_hook_recorded",
+            "status": observation["status"],
+            "plan_revision_id": body["revision_id"],
+            "plan_content_hash": body["content_hash"],
             "pattern_signature": pattern_signature,
             "stability_result": stability_result,
-            "convention_recorded": convention_recorded,
-            "chain_verified": chain_verified,
+            "convention_recorded": observation["convention_recorded"],
+            "chain_verified": observation["chain_verified"],
+            # Public signer provenance (None on the needs_signing path):
+            # the fingerprint on the row, never the key.
+            "signer_cycle_id": observation.get("signer_cycle_id"),
+            "signer_key_fp": observation.get("signer_key_fp"),
+            # Why a pending disclosure was written (None when none was):
+            # the replay's claim key, so a reader of the summary can find
+            # the row the retry will consume.
+            "pending_reason": pending_reason,
             "skill_genesis_dispatched": skill_genesis_dispatched,
             "skill_genesis_request_id": skill_genesis_request_id,
             "rows_scanned": len(rows),
         }
+
+
+def memory_hook_runtime_faults() -> tuple[type[BaseException], ...]:
+    """The closed set of exceptions a MemoryHook may raise as a RUNTIME fault.
+
+    WHY (B1, 2026-09-12 audit residual): the orchestrator wrapped
+    ``memory_hook.record(...)`` in ``except Exception`` and turned whatever
+    escaped into a ``memory_hook_failed`` governance row. When
+    ``MemoryHookImpl.record`` grew a keyword-only parameter the orchestrator
+    never passed, the resulting TypeError was recorded as if the ledger had
+    been unwritable, night after night, and the V10 memory pillar was dead
+    while every cycle summary read as healthy. A signature drift is a
+    programming error; the guard must let it raise.
+
+    WHAT: the classes below are the faults the record pipeline actually
+    raises for reasons outside the code's control — a plan that is not
+    CONVERGED or a locked/unresolvable tools root (GovernanceError), a
+    corrupt, oversized or over-budget ledger (Ledger*Error), a tampered or
+    schema-invalid knowledge-graph row (KnowledgeGraph*), and the file
+    system (OSError, which also covers the lock TimeoutError). Anything
+    else — TypeError, KeyError, AttributeError — is a defect in the kernel
+    and must surface as a crash, never as a governance row. Owned by the
+    hook module because the hook is what knows what it raises; the
+    orchestrator names this set in its except clause (I-V31-C2-08).
+    Resolved lazily to keep the cycle_phases cold-start import discipline.
+    """
+    from ..knowledge_graph import KnowledgeGraphSchemaError, KnowledgeGraphTamper
+    from ..ledger import LedgerIntegrityError, LedgerReadLimitError, LedgerRowTooLargeError
+    from ..tool_registry import GovernanceError
+
+    return (
+        GovernanceError,
+        LedgerIntegrityError,
+        LedgerReadLimitError,
+        LedgerRowTooLargeError,
+        KnowledgeGraphTamper,
+        KnowledgeGraphSchemaError,
+        OSError,
+    )
 
 
 def select_memory_hook(*, profile: str) -> MemoryHook:
@@ -338,5 +625,6 @@ __all__ = [
     "MemoryHook",
     "MemoryHookImpl",
     "NoOpMemoryHook",
+    "memory_hook_runtime_faults",
     "select_memory_hook",
 ]

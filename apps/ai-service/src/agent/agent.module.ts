@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentRunnerService } from './agent-runner.service';
 import { AgentProfileService } from './agent-profile.service';
+import { AgentPersonaCatalogueModule } from './agent-persona-catalogue.module';
 import { ActionsModule } from '../actions/actions.module';
 import { ToolRegistryModule } from '../tools/tool-registry.module';
 import { ConversationModule } from '../conversation/conversation.module';
@@ -15,6 +16,7 @@ import { LlmProvidersModule } from './providers/providers.module';
   // inline so the tenant-config CRUD can share the same factory without a cycle.
   imports: [
     ToolRegistryModule,
+    AgentPersonaCatalogueModule,
     // MOB-HIGH-001: held actuations persist as confirmable proposals.
     ActionsModule,
     ConversationModule,
@@ -24,6 +26,6 @@ import { LlmProvidersModule } from './providers/providers.module';
     LlmProvidersModule,
   ],
   providers: [AgentRunnerService, AgentProfileService],
-  exports: [AgentRunnerService, AgentProfileService],
+  exports: [AgentRunnerService, AgentProfileService, AgentPersonaCatalogueModule],
 })
 export class AgentModule {}

@@ -18,6 +18,14 @@
  * Returns a raw SQL fragment (no surrounding parentheses). The membership/tenant
  * scoping (`tenantId`, `channelId`, `cm.leftAt IS NULL`) is the caller's concern;
  * this fragment is ONLY the per-message "is it unread for this member" test.
+ *
+ * The member identity is supplied in exactly one of two shapes:
+ *   - `userIdParam`: a bound query parameter name (`:userId`) — single-user
+ *     queries (getUnreadCountFromDb);
+ *   - `userIdSql`: a raw SQL expression referencing the joined member row
+ *     (`cm."userId"`) — batched queries that count for MANY users at once and
+ *     therefore cannot bind one value (MSGFIX-FAZ3 3.4 push-fanout badge
+ *     batch). Column-ref shape, same SSoT fragment.
  */
 export function unreadMessagePredicateSql(p: {
   /** messages-table alias, e.g. `'m'`. */
@@ -25,11 +33,17 @@ export function unreadMessagePredicateSql(p: {
   /** SQL expression for the member's lastReadAt, e.g. `'cm."lastReadAt"'`. */
   readonly lastReadAt: string;
   /** bound query parameter name carrying the member's userId, e.g. `'userId'`. */
-  readonly userIdParam: string;
+  readonly userIdParam?: string;
+  /** raw SQL expression for the member's userId, e.g. `'cm."userId"'`. */
+  readonly userIdSql?: string;
 }): string {
+  if ((p.userIdParam === undefined) === (p.userIdSql === undefined)) {
+    throw new Error('unreadMessagePredicateSql: provide exactly one of userIdParam or userIdSql');
+  }
+  const memberUser = p.userIdParam !== undefined ? `:${p.userIdParam}` : p.userIdSql;
   return (
     `${p.msg}."isDeleted" = false ` +
-    `AND ${p.msg}."senderId" != :${p.userIdParam} ` +
+    `AND ${p.msg}."senderId" != ${memberUser} ` +
     `AND (${p.lastReadAt} IS NULL OR ${p.msg}."createdAt" > ${p.lastReadAt})`
   );
 }

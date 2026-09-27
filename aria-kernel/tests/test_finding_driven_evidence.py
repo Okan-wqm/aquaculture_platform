@@ -75,20 +75,69 @@ class FFindingEvidenceTests(unittest.TestCase):
         # Coverage gate compatibility (yesterday's work).
         self.assertEqual(env.content["schema_version"], 2)
 
-    def test_empty_evidence_chain_falls_back_to_finding_json(self) -> None:
+    def test_empty_evidence_chain_is_not_converted(self) -> None:
+        # ARIA-HIGH-181 — no code reference, no plan: the finding JSON is
+        # self-output (evidence_trust.SELF_OUTPUT_PREFIXES) and gitignored,
+        # so a plan minted on it could never be answered.
         path = self._write_finding({"id": "F-101", "evidence_chain": []})
         env = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value,
             "candidate_id": "F-101", "path": path, "title_hint": "x",
         })
-        self.assertEqual(env.content["evidence_refs"], ["aria-findings/F-101.json"])
+        self.assertIsNone(env)
 
-    def test_missing_path_falls_back(self) -> None:
+    def test_missing_path_is_not_converted(self) -> None:
         env = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value,
             "candidate_id": "F-101", "path": "/nonexistent/F-101.json", "title_hint": "x",
         })
-        self.assertEqual(env.content["evidence_refs"], ["aria-findings/F-101.json"])
+        self.assertIsNone(env)
+
+    def test_a_consensus_promoted_finding_converts_on_its_evidences(self) -> None:
+        # ARIA-HIGH-183 — the aria/finding/v1 shape the consensus promotion
+        # emits carries its code references in `evidences[].evidence_envelope`
+        # (canonical_ref + line, trust_grade), not `evidence_chain`: the first
+        # five findings the live ring promoted converted to nothing.
+        path = self._write_finding({
+            "$schema": "aria/finding/v1", "id": "F-013", "claim_type": "wrong_code",
+            "evidences": [
+                {"ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+                 "evidence_envelope": {"canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+                                       "line": 150, "trust_grade": "repo_verified", "self_output_class": None}},
+                {"ref": "aria-findings/F-001.json",
+                 "evidence_envelope": {"canonical_ref": "aria-findings/F-001.json", "line": 1,
+                                       "trust_grade": "self_output", "self_output_class": "finding"}},
+                {"ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+                 "evidence_envelope": {"canonical_ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+                                       "line": 42, "trust_grade": "repo_verified"}},
+            ],
+        })
+        env = convert_candidate_to_plan_content({
+            "source_type": PlanCandidateSource.F_FINDING.value,
+            "candidate_id": "F-013", "path": path, "title_hint": "x",
+        })
+        self.assertIsNotNone(env)
+        self.assertEqual(env.content["evidence_refs"], [
+            "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:150",
+            "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+        ])
+        self.assertNotIn("aria-findings/F-001.json", env.content["evidence_refs"], "self-output is never a ground")
+        self.assertIn("apps/admin-api-service/src/settings/services/tenant-configuration.service.ts", env.content["affected_surfaces"])
+
+    def test_no_converted_plan_cites_self_output(self) -> None:
+        from aria_kernel.evidence_trust import SELF_OUTPUT_PREFIXES
+
+        path = self._write_finding({
+            "id": "F-101",
+            "evidence_chain": [{"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"}],
+        })
+        env = convert_candidate_to_plan_content({
+            "source_type": PlanCandidateSource.F_FINDING.value,
+            "candidate_id": "F-101", "path": path, "title_hint": "x",
+        })
+        self.assertIsNotNone(env)
+        for ref in env.content["evidence_refs"] + env.content["affected_surfaces"]:
+            self.assertFalse(any(ref.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES), ref)
 
     def test_unsafe_reference_is_skipped(self) -> None:
         path = self._write_finding({

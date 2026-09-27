@@ -130,16 +130,25 @@ class FleetDiversityTests(unittest.TestCase):
         to DEFAULT_MODEL, which would look wired and change nothing."""
         self.assertEqual(self._fleet()["aria-adversarial-judge"], GLM)
 
-    def test_an_anchor_can_now_span_three_distinct_models(self) -> None:
+    def test_the_routine_judge_pair_spans_two_distinct_models(self) -> None:
         """The measured reason for the seat choice.
 
-        Before: opus + opus + fable — two models, and the two judges most
-        likely to share a failure mode were the ones sharing a system. An
-        opus judge and an opus REFUTER is the weakest possible adversary.
+        Before: opus + opus + fable — the two judges most likely to share a
+        failure mode were the ones sharing a system. An opus judge and an
+        opus REFUTER is the weakest possible adversary. What ORPHAN-HIGH-760
+        requires is ANCHOR_MIN_DISTINCT_MODELS across the anchor, carried by
+        the routine pair; the arbiter's seat is opus since the 2026-09-12
+        opus-only decision (fable is selected by nothing), so the fleet spans
+        exactly the two vendors the anchor needs, not three.
         """
-        models = set(self._fleet().values())
-        self.assertEqual(len(models), 3, f"fleet collapsed to {sorted(models)}")
-        self.assertGreaterEqual(len(models), ANCHOR_MIN_DISTINCT_MODELS)
+        fleet = self._fleet()
+        self.assertNotEqual(
+            fleet["aria-evidence-judge"], fleet["aria-adversarial-judge"],
+            f"the routine judge pair shares a model: {fleet}",
+        )
+        models = set(fleet.values())
+        self.assertGreaterEqual(len(models), ANCHOR_MIN_DISTINCT_MODELS, f"fleet collapsed to {sorted(models)}")
+        self.assertEqual(fleet["aria-consensus-arbiter"], "opus")
 
     def test_the_two_routine_judges_are_never_both_foreign(self) -> None:
         """Reversibility is the whole rollback plan, so keep one seat anchored.

@@ -25,10 +25,7 @@ describe('AiEgressGateService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AiEgressGateService,
-        { provide: AiPrivacyService, useValue: privacyService },
-      ],
+      providers: [AiEgressGateService, { provide: AiPrivacyService, useValue: privacyService }],
     }).compile();
 
     service = module.get(AiEgressGateService);
@@ -37,31 +34,29 @@ describe('AiEgressGateService', () => {
   describe('assertAllowed', () => {
     it('resolves when consent is granted', async () => {
       privacyService.canAnalyzeMessage.mockResolvedValue(true);
-      await expect(
-        service.assertAllowed(TENANT, USER, 'sentiment'),
-      ).resolves.toBeUndefined();
+      await expect(service.assertAllowed(TENANT, USER, 'ai-chat')).resolves.toBeUndefined();
       expect(privacyService.canAnalyzeMessage).toHaveBeenCalledWith(TENANT, USER);
     });
 
     it('throws ForbiddenException when consent is denied', async () => {
       privacyService.canAnalyzeMessage.mockResolvedValue(false);
-      await expect(
-        service.assertAllowed(TENANT, USER, 'embedding'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.assertAllowed(TENANT, USER, 'embedding')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('fails closed (throws) when the consent check itself errors', async () => {
       privacyService.canAnalyzeMessage.mockRejectedValue(new Error('redis down'));
-      await expect(
-        service.assertAllowed(TENANT, USER, 'semantic-search'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.assertAllowed(TENANT, USER, 'semantic-search')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 
   describe('isAllowed', () => {
     it('returns true when consent is granted', async () => {
       privacyService.canAnalyzeMessage.mockResolvedValue(true);
-      await expect(service.isAllowed(TENANT, USER, 'sentiment')).resolves.toBe(true);
+      await expect(service.isAllowed(TENANT, USER, 'ai-chat')).resolves.toBe(true);
     });
 
     it('returns false when consent is denied', async () => {
@@ -71,9 +66,7 @@ describe('AiEgressGateService', () => {
 
     it('returns false (fail closed) when the consent check errors', async () => {
       privacyService.canAnalyzeMessage.mockRejectedValue(new Error('redis down'));
-      await expect(
-        service.isAllowed(TENANT, USER, 'embedding'),
-      ).resolves.toBe(false);
+      await expect(service.isAllowed(TENANT, USER, 'embedding')).resolves.toBe(false);
     });
   });
 });

@@ -99,8 +99,11 @@ class PollStateRaceInvariants(unittest.TestCase):
                             {"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]},
                         ],
                         "key_changes": ["x"],
+                        # The seed's suite must be one the plan contract admits
+                        # (ARIA-HIGH-104): the drainer refuses a seed it cannot
+                        # converge before opening the plan.
                         "validation_commands": [
-                            {"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"},
+                            {"cmd": "nx affected --target=test"},
                         ],
                         "evidence_refs": ["docs/aria/SPEC.md"],
                     },
@@ -110,16 +113,14 @@ class PollStateRaceInvariants(unittest.TestCase):
                     }],
                     evidence_refs=["docs/aria/SPEC.md"],
                     allowed_scope=["aria-kernel/**"],
-                    # A long timeout must not translate into a long run.
-                    challenger_timeout_seconds=3600.0,
                 )
         elapsed = time.monotonic() - started
         self.assertTrue(observed, "the step never observed plan state")
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         self.assertLess(
             elapsed, 30.0,
-            "I-V10.5-5-03: a 3600s challenger budget must not translate "
-            f"into a long run — the step took {elapsed:.1f}s, which means "
+            "I-V10.5-5-03: one drainer step must not wait — "
+            f"the step took {elapsed:.1f}s, which means "
             "something is waiting for work the executor lane delivers.",
         )
 

@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fc0fddead0fc89f59f17f89f7028d9e82ba221d186ae54b6c4db976631fef570",
+      "content_sha256": "e4d8c6ee8b1671af78b5ab0a4727e8453196ea77e81c727db375fa09cf51da13",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1119,6 +1119,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/contract-validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -1790,6 +1796,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/__tests__/backfill-ai-specialty-role-capabilities.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/__tests__/backfill-messaging-ai-role-capabilities.spec.ts",
       "prettier_managed": true
     },
@@ -2285,6 +2297,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1810200000000-RetireAdminTenantBillingInfo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810300000000-BackfillAiSpecialtyRoleCapabilities.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810400000000-TenantRoleColorDefaultFromTokens.ts",
       "prettier_managed": true
     },
     {
@@ -3316,6 +3340,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/__tests__/outbox-entity-registration.architecture.spec.ts",
       "prettier_managed": true
     },
@@ -3364,7 +3394,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-profile-service-grants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-ephemeral.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3376,7 +3418,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-prompt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/fixtures/fake-tool-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/persona-authorization.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/persona-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/agent-persona-catalogue.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/agent-persona-catalogue.service.ts",
       "prettier_managed": true
     },
     {
@@ -3400,7 +3472,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/expert.ts",
+      "path": "apps/ai-service/src/agent/personas/compose.ts",
       "prettier_managed": true
     },
     {
@@ -3412,19 +3484,73 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/manager.ts",
+      "path": "apps/ai-service/src/agent/personas/narrator.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/operator.ts",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-operations.specialty.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/supervisor.ts",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-production.specialty.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-water-health.specialty.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/specialties/general.specialty.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/specialties/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/expert.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/manager.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/operator.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/supervisor.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/types.ts",
       "prettier_managed": true
     },
     {
@@ -3443,6 +3569,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/providers/__tests__/openai.provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/__tests__/provider-timeout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/__tests__/zai.provider.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3484,7 +3622,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/zai.provider.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/service-persona-grants.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/app.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/audit/__tests__/audit-service-principal-uuid.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3509,6 +3665,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/audit/tool-execution-audit.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/chat/__tests__/ai-chat.responder.context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/chat/__tests__/ai-chat.responder.persona.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3675,6 +3843,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803200000000-AddZaiApiKey.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803300000000-AddRoutineAiEnabled.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803300000001-FarmAiEphemeralTurnColumns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/health/health.controller.ts",
       "prettier_managed": true
     },
@@ -3711,7 +3897,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/ai-safety-middleware.prompt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/safety/__tests__/ai-safety-scan-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/tool-schema-validator.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3813,6 +4011,48 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/__tests__/aquaculture-math.tools.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/aquaculture-math-tools.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/aquaculture-math.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-carrying-capacity.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-growth-metrics.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-oxygen-budget.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/predict-feeding-impact.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/core/__tests__/base-tenant-tool.spec.ts",
       "prettier_managed": true
     },
@@ -3867,6 +4107,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/farm-ai-query.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-batches.tool.spec.ts",
       "prettier_managed": true
     },
@@ -3903,6 +4149,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/farm-ai-query.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/farm-ai-query.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/farm-tools.module.ts",
       "prettier_managed": true
     },
@@ -3934,6 +4192,504 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/get-farm-water-quality.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/get-farm-stock-inventory.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/get-spare-stock-summary.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/get-task-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/get-work-order-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-equipment.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-feeder-calibrations.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-low-stock-spare-parts.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-maintenance-alerts.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-overdue-work-orders.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/__tests__/list-todays-tasks.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/get-farm-stock-inventory.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/get-spare-stock-summary.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/get-task-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/get-work-order-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-equipment.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-feeder-calibrations.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-low-stock-spare-parts.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-maintenance-alerts.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-overdue-work-orders.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/operations/list-todays-tasks.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-batch-performance.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-biomass-report.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-daily-feeding-plan.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-feeding-summary.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-finance-batch-totals.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-finance-summary.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-growth-analysis.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-harvest-plan-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-mortality-by-cause.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-site-feed-consumption.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-tank-capacity.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/get-transfers-summary.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/list-feeding-protocols.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/list-growth-measurements.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/list-harvest-plans.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/list-regulatory-reports.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/__tests__/list-species.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-batch-performance.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-biomass-report.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-daily-feeding-plan.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-feeding-summary.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-finance-batch-totals.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-finance-summary.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-growth-analysis.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-harvest-plan-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-mortality-by-cause.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-site-feed-consumption.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-tank-capacity.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/get-transfers-summary.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/list-feeding-protocols.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/list-growth-measurements.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/list-harvest-plans.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/list-regulatory-reports.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/production/list-species.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/check-batch-harvest-eligibility.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-fish-health-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-system-water-quality-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-tank-water-quality-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-water-quality-history.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-water-quality-thresholds.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-critical-health-events.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-critical-water-quality.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-health-events.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-lice-counts.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-overdue-health-follow-ups.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-treatment-applications.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-welfare-assessments.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/check-batch-harvest-eligibility.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-fish-health-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-system-water-quality-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-tank-water-quality-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-water-quality-history.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-water-quality-thresholds.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-critical-health-events.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-critical-water-quality.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-health-events.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-lice-counts.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-overdue-health-follow-ups.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-treatment-applications.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-welfare-assessments.tool.ts",
       "prettier_managed": true
     },
     {
@@ -4102,6 +4858,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/__tests__/alert-engine.security.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -4715,6 +5477,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/__tests__/entity-schema-routing.architecture.spec.ts",
       "prettier_managed": true
     },
@@ -4890,6 +5658,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/migrations/__tests__/1807800000000-AddRefreshTokenLookupId.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/__tests__/1819200000000-AddUserCredentialVersion.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/__tests__/1819200000000-AddUserCredentialVersion.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5194,6 +5974,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1819200000000-AddUserCredentialVersion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5368,6 +6154,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-caller-capabilities-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
       "prettier_managed": true
     },
@@ -5387,6 +6179,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/access-token-invalidation.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/auth-caller-capabilities-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -6299,6 +7097,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -7322,6 +8126,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -7335,6 +8145,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/marine-provider-credential.resolver.spec.ts",
       "prettier_managed": true
     },
     {
@@ -7406,6 +8222,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/dto/marine-provider-credential.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/entities/configuration.entity.ts",
       "prettier_managed": true
     },
@@ -7413,6 +8235,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/graphql-principal.ts",
       "prettier_managed": true
     },
     {
@@ -7473,6 +8301,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/marine-provider-credential.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -7902,6 +8736,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/event-store-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/event-store-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -8284,6 +9124,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -9171,7 +10017,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/responders/__tests__/batch-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/responders/__tests__/get-batch-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/responders/batch-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -9657,6 +10515,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/common/nats/__tests__/ai-query-responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/nats/ai-query-responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/common/services/__tests__/backdate-policy.service.spec.ts",
       "prettier_managed": true
     },
@@ -10012,6 +10882,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/__tests__/1808600000000-ProtectFeedingRecordBackfillProvenance.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1810400000000-RestoreFeedingAttributionQuarantineTemplate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1810500000000-RestoreFeedingClockLedgersInSource.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11054,6 +11936,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1810400000000-RestoreFeedingAttributionQuarantineTemplate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1810500000000-RestoreFeedingClockLedgersInSource.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11606,6 +12500,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/equipment/responders/__tests__/equipment-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/equipment/responders/equipment-ai-query.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/equipment/seeds/equipment-types.seed.ts",
       "prettier_managed": true
     },
@@ -11805,6 +12711,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/farm-stock/queries/get-farm-stock-inventory.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/farm-stock/responders/__tests__/farm-stock-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/farm-stock/responders/farm-stock-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -12446,6 +13364,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/feeding-protocol-core.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/feeding-protocol.module.ts",
       "prettier_managed": true
     },
@@ -12944,7 +13868,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding/responders/__tests__/feeding-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding/responders/__tests__/get-feeding-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/responders/feeding-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -13298,6 +14234,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/responders/__tests__/finance-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/responders/finance-ai-query.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/services/computed-rule-evaluator.ts",
       "prettier_managed": true
     },
@@ -13598,6 +14546,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/__tests__/fish-health-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/ai-query.projections.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/fish-health-ai-query.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/services/batch-harvest-eligibility.service.ts",
       "prettier_managed": true
     },
@@ -13827,6 +14793,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/growth/resolvers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/growth/responders/__tests__/growth-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/growth/responders/growth-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -14162,7 +15140,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/harvest/responders/__tests__/harvest-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/harvest/responders/get-harvest-overview.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/responders/harvest-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -14595,6 +15585,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/maintenance/resolvers/work-order.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/responders/__tests__/maintenance-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/responders/maintenance-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -15255,6 +16257,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/resolvers/slaughter-facility.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/responders/__tests__/regulatory-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/responders/regulatory-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -15939,6 +16953,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/species/resolvers/species.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/species/responders/__tests__/species-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/species/responders/species-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -17246,7 +18272,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/tank/responders/__tests__/tank-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/tank/responders/get-tank-registry.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/tank/responders/tank-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -17456,7 +18494,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/task/responders/__tests__/task-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/task/responders/create-task.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/task/responders/task-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -17541,6 +18591,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/__tests__/get-parameter-config.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/integration/water-quality-ai-query.nats.integration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17637,6 +18693,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/data/parameter-templates.data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/dto/__tests__/create-water-quality.source.spec.ts",
       "prettier_managed": true
     },
     {
@@ -18020,7 +19082,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/__tests__/water-quality-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/ai-query.projections.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/responders/get-water-quality-overview.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/water-quality-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -18086,6 +19166,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/validators/human-measurement-source.validator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/water-quality-parameter-config.resolver.ts",
       "prettier_managed": true
     },
@@ -18123,6 +19209,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/weather/__tests__/environment-read.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/weather/__tests__/environment-resolver-gate.contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -18590,6 +19682,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/__tests__/e2e/supergraph-composition.spec.ts",
       "prettier_managed": true
     },
@@ -18655,7 +19753,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "61383f3b5a86a6a08810627832f4d3216739be8b969eb440d8c259e05ca94115",
+      "content_sha256": "9b4707514ef77465b927fdf14956d1858b427d821ab706e5c00711db44c86185",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -18794,6 +19892,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/guards/tenant-isolation.guard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/guards/token-blacklist.module.ts",
       "prettier_managed": true
     },
     {
@@ -19129,6 +20233,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/__tests__/ai-chat.gateway.persona.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/__tests__/messaging.gateway.hydration.spec.ts",
       "prettier_managed": true
     },
@@ -19262,6 +20372,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -22334,6 +23450,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hydroponics-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hydroponics-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -22501,6 +23623,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/__tests__/tenant-isolation.spec.ts",
       "prettier_managed": true
     },
@@ -22508,6 +23636,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/__tests__/test-helpers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/__tests__/ai-trigger-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/__tests__/ai-trigger.config.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/ai-trigger-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/ai-trigger.config.ts",
       "prettier_managed": true
     },
     {
@@ -22531,18 +23683,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/commands/extract-knowledge.command.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/commands/extract-knowledge.handler.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/dto/ai-channel.input.ts",
       "prettier_managed": true
     },
@@ -22550,12 +23690,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/ai/dto/ai-consent.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/entities/embeddings-metadata.entity.ts",
       "prettier_managed": true
     },
     {
@@ -22615,13 +23749,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/safety/instruction-hierarchy.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/safety/tool-schema-validator.service.ts",
+      "path": "apps/messaging-service/src/ai/services/__tests__/ai-caller-capabilities.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -22639,13 +23767,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/__tests__/ai-privacy.service.spec.ts",
+      "path": "apps/messaging-service/src/ai/services/__tests__/ai-personas-registry.service.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/__tests__/embedding.service.spec.ts",
+      "path": "apps/messaging-service/src/ai/services/__tests__/ai-privacy.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -22657,7 +23785,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/__tests__/sentiment-analysis.service.spec.ts",
+      "path": "apps/messaging-service/src/ai/services/ai-caller-capabilities.service.ts",
       "prettier_managed": true
     },
     {
@@ -22687,19 +23815,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/embedding.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/knowledge-extraction.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/sentiment-analysis.service.ts",
       "prettier_managed": true
     },
     {
@@ -22807,6 +23923,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/channel/dto/__tests__/is-known-ai-persona-id.validator.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/channel/dto/channel-filter.input.ts",
       "prettier_managed": true
     },
@@ -22820,6 +23942,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/channel/dto/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/channel/dto/is-known-ai-persona-id.validator.ts",
       "prettier_managed": true
     },
     {
@@ -23120,6 +24248,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/event-handlers/messaging-nats.handler.user-deleted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/event-handlers/messaging-nats.handler.verify-membership.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/filters/__tests__/global-exception.filter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
     {
@@ -23515,6 +24661,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/metrics/__tests__/nats-connection-metrics.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/metrics/__tests__/outbox-pending-collector.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/metrics/messaging-metrics.service.ts",
       "prettier_managed": true
     },
@@ -23522,6 +24680,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/metrics/metrics.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/metrics/nats-connection-metrics.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/metrics/outbox-pending-collector.service.ts",
       "prettier_managed": true
     },
     {
@@ -23786,6 +24956,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/migrations/1802300000000-AddMessagesContentSearchGinIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/monitoring/monitoring.module.ts",
       "prettier_managed": true
     },
@@ -23901,6 +25077,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/shared/__tests__/enum-wire.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/shared/ai-ledger-keys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/shared/ai-user.ts",
       "prettier_managed": true
     },
     {
@@ -24087,6 +25275,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24468,6 +25662,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/observability-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/observability-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -24824,6 +26024,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/__tests__/di-graph.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25368,6 +26574,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/__tests__/sensor-data-channel.bounds.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -25435,6 +26647,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/backfill-parent-channels.migration.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25863,6 +27081,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1819000000000-BackfillParentChannelsFromChildren.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -25954,6 +27178,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/installer-token-header.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/mqtt-acl.mosquitto.spec.ts",
       "prettier_managed": true
     },
     {
@@ -26332,6 +27562,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-metric-writer.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.rls.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -27100,6 +28342,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/protocol-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/data-channel.dto.validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/register-parent-channels.spec.ts",
       "prettier_managed": true
     },
     {
@@ -28345,22 +29599,312 @@
       "prettier_managed": true
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "d3be2f4f18fe5ebf7618acf3d7e9bd9b034689641806bd1568124fa7697fdb34",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "00383d52391b1dd6d736b0696936704e6a0caaa351be6b5d4db29b96b31d21fd",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/health_decision.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "147ab2278ee7beb0eee45c006cc1367e3b46b74334d9c3a513ea5b4005f2d393",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/run_record.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "78480aeab47c13f95ac34b142d996fa94628009ec964a8e61118814b809e23ee",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/capture-manifest.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "2b3b357e67c420ba39bfe9049de4d56cbf0a2ca82e08dd2b9bc65bbf39b5f908",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.context.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "c3534964455a15634e751af679b61a4db9b4bd030ec282c29ca5336aa8974e63",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.fused.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "5985bbb54d89170b44a4c755d17dbde896a423b3cacfa6dbfdd46fd1a3ee1a76",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.prompt-row.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "5b4174268381064499b6b6abac7b2ce652b9468d5f47d6f34a5c4f7fc28a4292",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.request.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "ced2ea28a95a823a66629dbd6c2818c56b70ca83c4a2091b4338caf4560081ad",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.context.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "09b83c37733fe43f6be317499bc54e0b1ea07aa279d30c06e1e2deeee88ce13b",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.fused.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "9a471116e1c5ceaa217100885e6a564322a1789a72d09ffc78cf8fac48453db6",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.prompt-row.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "e93e3dc3c1ead091f61eada6d4e84196c4e502160081ae5294b54e479c9cf069",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.request.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "1d1f5aed4a2ea7b8af78f6b2c1364cca5e4727afb4548252e35f607f5b7ec909",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/capture-manifest.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "69404bd7b1c3f8047ef8e4e8e5c2379608ade070836c0434e936ce470fba463c",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-base.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "51d81a8d923a549250a93159213490781bf30df779225a16ae728f0daf7cd083",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-enriched.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "88e6c06daabb959a1c9f41e2070fb01503cd14a31afb6c1c7f302866fbf1a518",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-base.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "c514f61a3794cdf7b32f3c8b5c180aaaa1476358361fe3e4d27e7264f4b6bedc",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-enriched.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "4000992341216b738dc61ce6311ddc573fc7e51f569213e9385ea88108cbf31e",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-base.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "0ce8368129160b2f3ba298e1f613cf7d3e3b297a987ddf5f92ce4acc86630bb8",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-enriched.input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "011959fc331420caa0bca42432656d1bcce39132bd4300b0b4ee73d0b25c0d86",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/capture-manifest.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "aad8856b614488dab02b7b01645da8682013858bb0ae61d6c19081c6add45a3a",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/.archive/runtime/cyc-20200101T000000Z-legacy.run-native-legacy-retention.tool_run/tool_run.json",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "c266b87d7f4c344c8bf25ee5d16bc3366c28af393369ff4a230bedb565926bff",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/integrity_index.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "e11c4bce917a207fc705e83f27253425a3624ed5df8d3c4b3f4b989164b30dd6",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/registry.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "91b6766d9f5afc3653d7b3827204a846ffd50db1c9fda3d70b5b7b1dbf86468e",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/repo_identity.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "cd5beb38e116ae207d6efef1b1b16815e77ef57f25490f212b78457ac050ed15",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/runtime/v2-promotion-evidence.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "f5de75b9253947b34f52280a6e3bd8b5a0ee4a226c1f3fca396be24193a59884",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/tools_contract.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "aad8856b614488dab02b7b01645da8682013858bb0ae61d6c19081c6add45a3a",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/original-artifact.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "67197bf4b000373f4116e7eb83379af97fa92c69aec5f215411e2cb2c880fd31",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/producer-input.json",
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
       "class": "canonical_source",
@@ -28763,6 +30307,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "database/scripts/migrate-tenant.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ0.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ1.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ2.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ3.md",
       "prettier_managed": true
     },
     {
@@ -29530,6 +31098,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/catalogue-change-outcome.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/catalogue-runtime-retention.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/CONTRACTS.md",
       "prettier_managed": true
     },
@@ -29558,7 +31138,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cae5da883ea37298b134f258ec5aab755770b00d32e948a2f4a82f38c08e6915",
+      "content_sha256": "57bdd9bd86f64bed8bcdbbf769c260ac2b4b3aa9c7514a43b2b03d8cec10733c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "docs/aria/generated/JUDGE-DIGEST.md",
@@ -29774,6 +31354,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/plans/034-e2e-chain-closure.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/plans/2026-05-25-aria-codex-cli-xhigh-architecture-plan.md",
       "prettier_managed": true
     },
@@ -29853,6 +31439,156 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/aria/reviews/2026-06-19-snowball-curation-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-dokuman-kod-karsilastirmasi.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B01.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B02.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B03.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B04.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B05.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B06.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B09.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B10.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B11.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/B12.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V01.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V02.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V03.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V04.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V05.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V06.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V09.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V10.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V11.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/reviews/2026-09-25-aria-tam-okuma/dogrulama/V12.md",
       "prettier_managed": true
     },
     {
@@ -35198,13 +36934,91 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-agent-contract-delivery.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-claude-managed-native-route.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-expert-consensus-predicate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-09-11-aria-suite-env-hermeticity.md",
       "prettier_managed": true
     },
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-zai-distinct-transport.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-12-aria-live-chain-blockers.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-14-aria-post-chain-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-15-aria-chain-restart-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-09-16-nx-toolchain-ghsa-exceptions.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-18-ai-farm-specialists.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-18-environment-monitoring-enablement-surface.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-19-aria-position-and-detection-layer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-19-aria-typed-judgment-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-20-boot-path-outage-nats-acl-and-di.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-25-aria-e2e-chain-closure.md",
       "prettier_managed": true
     },
     {
@@ -35235,6 +37049,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/codex/2026-09-03-new-aria-immutable-evidence-format-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-11-event-schema-cycle-progression.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-16-mqtt-ingestion-pipeline-audit.md",
       "prettier_managed": true
     },
     {
@@ -35775,6 +37601,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/frontend-expert/2026-08-16-aquamobil-architecture.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-09-18-design-system-adoption-ratchet.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-09-19-design-rescan.md",
       "prettier_managed": true
     },
     {
@@ -36476,6 +38314,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-19-adm-zip-uncontrolled-allocation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/supply-chain/2026-06-13-esbuild-high-advisory-override.md",
       "prettier_managed": true
     },
@@ -36759,6 +38603,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-09-aria-autonomy-design-health.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-20-ai-nats-runtime-repair.md",
       "prettier_managed": true
     },
     {
@@ -37070,6 +38920,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/mqtt-ingestion-stalled.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/nats-exporter-down.md",
       "prettier_managed": true
     },
@@ -37137,6 +38993,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/product-audit-invocation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/registry-single-writer.md",
       "prettier_managed": true
     },
     {
@@ -37743,6 +39605,24 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/messaging/measurements.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/messaging/messaging-measure.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/messaging/README.md",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
       "content_sha256": "fcc93344aa742f0a4d8e4f5ac8102c77785e5e6a1a4fbb6ba488864f3056befc",
       "hash_policy": "sha256",
@@ -37769,6 +39649,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/playwright.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/playwright.messaging.config.ts",
       "prettier_managed": true
     },
     {
@@ -38266,6 +40152,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "FARM-AI-PROGRAM-2026-09-18.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "infra/helm/README.md",
       "prettier_managed": true
     },
@@ -38313,7 +40205,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e5b878f4af03d8ba36f355b47b7a127c56612a5502f356b365bfe1ceb8d526af",
+      "content_sha256": "cafe227f8267e6610f89a5daebd206650ba0cfca3b7b4c45aa89bb00d8d7bff6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -38348,7 +40240,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4ce6035692f1582635053b3970e1167cf1ec99aee9d5314c834b5f7979142530",
+      "content_sha256": "97a3f3fa9f7072678b0d7618ecd9773664bed5a36199e9abb932b785e412b5da",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -38621,7 +40513,85 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/__tests__/feeding-impact.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/feeding-impact.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/__tests__/growth-metrics.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/growth-metrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/aquaculture-engines/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/carrying-capacity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/do-saturation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/oxygen-budget.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/carrying-capacity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/do-saturation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/oxygen-budget.ts",
       "prettier_managed": true
     },
     {
@@ -39005,6 +40975,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/__tests__/optional-provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/create-service-app.ts",
       "prettier_managed": true
     },
@@ -39024,6 +41000,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/bootstrap/openapi-config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/optional-provider.ts",
       "prettier_managed": true
     },
     {
@@ -39600,6 +41582,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.module.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.transaction-opt-out.spec.ts",
       "prettier_managed": true
     },
     {
@@ -40751,6 +42739,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-connection.factory.inbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-v3-client.inbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/nats/__tests__/nats-v3-wire-compat.spec.ts",
       "prettier_managed": true
     },
@@ -41639,6 +43639,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/farm-ai-queries.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/ingest-backend-policy.spec.ts",
       "prettier_managed": true
     },
@@ -41837,6 +43843,48 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/feeding.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/fish-health.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/harvest-finance.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/production.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/water-quality.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/farm-events.ts",
       "prettier_managed": true
     },
@@ -41928,6 +43976,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/ingest-backend-policy.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/messaging-events.schema.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42384,6 +44438,42 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/migration-harness/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.lib.json",
       "prettier_managed": true
     },
     {
@@ -43064,7 +45154,61 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/domain-scale.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/email-layout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared-contracts/src/__tests__/messaging-media-mime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/persona-catalogue.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/persona-id.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/ai/persona-catalogue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/ai/persona-id.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/color-tokens.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/email-layout.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/severity.ts",
       "prettier_managed": true
     },
     {
@@ -43304,6 +45448,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/src/nest/preview-graph.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/src/vitest-test-policy.d.ts",
       "prettier_managed": true
     },
@@ -43353,12 +45503,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "mcp/farm-management/src/__tests__/feeding-impact.test.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "mcp/farm-management/src/__tests__/formulas.test.ts",
       "prettier_managed": true
     },
     {
@@ -43664,12 +45808,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "mcp/farm-management/src/utils/formulas.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "mcp/farm-management/src/utils/logger.ts",
       "prettier_managed": true
     },
@@ -43711,7 +45849,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "75715e988ac4f0e9279ba765c2751bd51daff832fdd65e9d353f43672d821a7b",
+      "content_sha256": "fc470a5ebd81ea0b33c179c7c6242ee3c8934570ddd77e0bca2853cf442dafb9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -43850,6 +45988,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.durable-consumer.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45775,6 +47919,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-single-publish-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-single-restore-path.spec.ts",
       "prettier_managed": true
     },
@@ -46057,6 +48207,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/edge-theme-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-v2-plan-contract.spec.ts",
       "prettier_managed": true
     },
@@ -46124,6 +48280,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/event-tenant-scope-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/farm-ai-query-contract-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46292,6 +48454,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/finance-derived-source-category-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/finding-closure-reconcile-selfheal.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46663,6 +48831,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/migration-timestamp-uniqueness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/mobile-csp-headers.spec.ts",
       "prettier_managed": true
     },
@@ -46718,6 +48892,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/nats-inbound-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nats-jetstream-store-budget.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nest-injected-type-only-import.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nest-module-provider-duplication.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47125,6 +49317,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/server-html-single-layout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/service-criticality-profile-contract.spec.ts",
       "prettier_managed": true
     },
@@ -47413,7 +49611,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/web-design-system-ratchet.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/web-no-hand-rolled-icon-mock.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47438,6 +49648,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/web-shared-ui-singleton-imports.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/web-theme-token-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47569,6 +49785,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/agent-harness-security-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/bundle-budget-adapter/cases/real-repo-baseline.json",
       "prettier_managed": true
     },
@@ -47576,6 +49798,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/cases/semantic-point-in-time-records.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/plans/_archive/old-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/plans/2026-04-21-seed-plan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/reviews/farm-expert/record.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/semantic-records/docs/runbooks/live.md",
       "prettier_managed": true
     },
     {
@@ -47606,6 +49858,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/workspaces/semantic-deadwire/aria-kernel/aria_kernel/data/fixture_policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/cases/rule-packs.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/rule-packs/apps/sample-service/src/clean.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/rule-packs/apps/sample-service/src/flagged.ts",
       "prettier_managed": true
     },
     {
@@ -47760,6 +50036,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.tool.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules-adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/lint-rules.eslint.config.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/project.json",
       "prettier_managed": true
     },
@@ -47887,6 +50187,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/generate-edge-theme.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -48536,6 +50848,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/format-merge-base.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/format-scope-derived-scalars.spec.ts",
       "prettier_managed": true
     },
@@ -48800,6 +51118,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-merge-base.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
@@ -49005,6 +51329,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/migrate-tenant-query-key.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/nats-boot-path-acl-smoke.ts",
       "prettier_managed": true
     },
     {
@@ -49243,7 +51573,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b17a4b468a273a0d6d58ef2e6ce94155ce22b3a948fd2b9af15e6d68628d4c2",
+      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -49274,12 +51604,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/public/sw.js",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/scripts/patch-konsta.cjs",
       "prettier_managed": true
     },
     {
@@ -49328,6 +51652,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/PhotoCaptureField.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/UpdatePrompt.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -49429,12 +51759,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/components/hub/HubHeader.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/apps/aquamobil/src/components/hub/index.ts",
       "prettier_managed": true
     },
@@ -49466,6 +51790,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/LeaveTypeSwatch.tsx",
       "prettier_managed": true
     },
     {
@@ -49508,12 +51838,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/messaging/ChannelListItem.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/components/messaging/ConfirmDialog.tsx",
       "prettier_managed": true
     },
     {
@@ -49639,7 +51963,67 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/BottomSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/ConfirmSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/Field.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Button.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ConfirmSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Field.tsx",
       "prettier_managed": true
     },
     {
@@ -49651,12 +52035,60 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ListRow.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/PullToRefreshIndicator.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/SectionTitle.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Spinner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Switch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/UpdatePrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/VirtualList.tsx",
       "prettier_managed": true
     },
     {
       "class": "generated",
-      "content_sha256": "7252e5c823b6905f5af3e9bc0115409b045db3c4486076f121986b0edb9f092c",
+      "content_sha256": "ec92fb48b9dae6f6720882614caa4c195580b3a19ba9dbf32783bad834666cb3",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -49860,6 +52292,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/usePullToRefresh.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useSentimentTrends.spec.tsx",
       "prettier_managed": true
     },
@@ -49962,6 +52400,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useDialogBehavior.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useEditMessage.ts",
       "prettier_managed": true
     },
@@ -50053,6 +52497,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/usePullToRefresh.ts",
       "prettier_managed": true
     },
     {
@@ -50556,6 +53006,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/update-available.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/graphql-replay-error.ts",
       "prettier_managed": true
     },
@@ -50581,6 +53037,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/sw-replay.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/update-available.ts",
       "prettier_managed": true
     },
     {
@@ -50802,6 +53264,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/tailwind.config.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/tailwind.config.js",
       "prettier_managed": true
     },
@@ -50880,18 +53348,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/components/admin-nav-items.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/components/AdminLayout.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/admin-panel/src/components/CreateInvoiceModal.tsx",
       "prettier_managed": true
     },
@@ -50922,6 +53378,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/__tests__/ProviderCredentialsTab.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/ProviderCredentialsTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantMultiSelect.tsx",
       "prettier_managed": true
     },
@@ -50929,6 +53397,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantSelect.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/marine-provider-credential-operations.ts",
       "prettier_managed": true
     },
     {
@@ -51007,6 +53481,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/useFilters.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useMarineProviderCredential.ts",
       "prettier_managed": true
     },
     {
@@ -51695,7 +54175,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4d19b1cdb5c2657464e3827f089279ca9bfd30e82159269d7541b673d0359bd5",
+      "content_sha256": "b211ac955ab78d4b6271b84a4cf31a7c2dec1086f6a91f1f32519ac44e003d97",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
@@ -53999,6 +56479,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/components/certification/CertificationDialogs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/components/certification/CertificationExpiryAlert.tsx",
       "prettier_managed": true
     },
@@ -54006,12 +56492,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hr-module/src/components/certification/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/hr-module/src/components/common/DataTable.tsx",
       "prettier_managed": true
     },
     {
@@ -54084,6 +56564,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hr-module/src/components/leave/LeaveBalanceWidget.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hr-module/src/components/leave/NewLeaveRequestModal.tsx",
       "prettier_managed": true
     },
     {
@@ -54425,6 +56911,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/pages/scheduling/__tests__/WeeklySchedulePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/pages/scheduling/index.ts",
       "prettier_managed": true
     },
@@ -54582,12 +57074,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hydroponics-module/src/components/solution/FertilizerOptionRow.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/hydroponics-module/src/components/solution/ParameterRow.tsx",
       "prettier_managed": true
     },
     {
@@ -54953,7 +57439,61 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/__tests__/mockGraphqlClient.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/__tests__/mockSocketIo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/__tests__/sharedUiMock.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/components/AiConsentSwitch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/graphql/messaging-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useChannelMessages.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useMarkMessagesRead.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useMessagingSocket.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useSendMessage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/useAiChannels.ts",
       "prettier_managed": true
     },
     {
@@ -54971,13 +57511,121 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/aiPersona.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/lib/__tests__/channelDisplay.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/chatScroll.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/graphqlErrors.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/messageBody.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/messageCache.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/messageIdempotency.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/sendErrorMessages.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/socketReconnect.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/wsProjection.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/aiPersona.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/lib/channelDisplay.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/chatScroll.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/graphqlErrors.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/messageBody.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/messageCache.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/messageIdempotency.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/sendErrorMessages.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/socketReconnect.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/wsProjection.ts",
       "prettier_managed": true
     },
     {
@@ -54995,6 +57643,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/__tests__/ChannelListPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/__tests__/ChatRoomPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/__tests__/NewAiChatPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChannelListPage.tsx",
       "prettier_managed": true
     },
@@ -55002,6 +57668,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChatRoomPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/NewAiChatPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/test-setup.ts",
       "prettier_managed": true
     },
     {
@@ -55091,6 +57769,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/edge-widget-support.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/graphql-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55276,6 +57960,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/__tests__/MultiParameterTrendCard.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/BarChart.tsx",
       "prettier_managed": true
     },
@@ -55295,6 +57985,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/MultiParameterTrendCard.tsx",
       "prettier_managed": true
     },
     {
@@ -55768,6 +58464,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.create-mode.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.typeDefinition.test.tsx",
       "prettier_managed": true
     },
@@ -55793,6 +58495,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/SensorRegistrationWizard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/steps/__tests__/ChildSensorsStep.manual-add.test.tsx",
       "prettier_managed": true
     },
     {
@@ -57232,6 +59940,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/__tests__/AlarmAnnouncer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/AlarmAnnouncer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/scada-operator/AlarmPanel.tsx",
       "prettier_managed": true
     },
@@ -58048,6 +60768,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/graphql/aggregatedReadings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/graphql/alertRule.operations.ts",
       "prettier_managed": true
     },
@@ -58120,6 +60846,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/__tests__/useAggregatedMultiSeries.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/__tests__/useRealtimeData.subscription-id.test.tsx",
       "prettier_managed": true
     },
@@ -58139,6 +60871,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/socketFactory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useAggregatedMultiSeries.ts",
       "prettier_managed": true
     },
     {
@@ -59350,12 +62088,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/common/DeleteConfirmModal.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/common/index.ts",
       "prettier_managed": true
     },
@@ -59675,12 +62407,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/tenant-admin/src/hooks/useFocusTrap.ts",
       "prettier_managed": true
     },
     {
@@ -60034,6 +62760,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/a11y/SkipToContent.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/a11y/VisuallyHidden.tsx",
       "prettier_managed": true
     },
@@ -60112,6 +62844,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/Charts.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/ChartTooltipContent.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Charts/AreaChart.tsx",
       "prettier_managed": true
     },
@@ -60131,6 +62875,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Charts/ChartLegend.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/chartSupport.tsx",
       "prettier_managed": true
     },
     {
@@ -60178,6 +62928,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/DataTable/__tests__/DataTable.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/DataTable/DataTable.tsx",
       "prettier_managed": true
     },
@@ -60190,7 +62946,49 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/__tests__/Drawer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/Drawer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/Checkbox.surface.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/__tests__/FormField.margin.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60203,6 +63001,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/PasswordInput.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/__tests__/required.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60316,6 +63120,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/Sidebar.overlay.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/DesktopOnlyNotice.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Header.tsx",
       "prettier_managed": true
     },
@@ -60328,7 +63150,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Loading/__tests__/Spinner.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60346,7 +63180,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/__tests__/Menu.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Menu.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Popover.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Modal/__tests__/ConfirmModal.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Modal/__tests__/Modal.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60370,6 +63234,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Modal/useDialogBehavior.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/__tests__/QualityIndicator.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/QualityIndicator.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/SandboxedHtmlPreview/__tests__/SandboxedHtmlPreview.spec.tsx",
       "prettier_managed": true
     },
@@ -60388,6 +63276,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/__tests__/Severity.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/Severity.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Table/index.ts",
       "prettier_managed": true
     },
@@ -60395,6 +63301,42 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Table/Table.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/__tests__/Tabs.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/__tests__/Tooltip.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/Tooltip.tsx",
       "prettier_managed": true
     },
     {
@@ -60435,7 +63377,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
+      "content_sha256": "02d09b01578bdcb4be6329c109b4f25684fa040e8262a4a0283a92708459f60d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -60447,7 +63389,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useClickOutside.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useConfirm.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/__tests__/useErrorMessage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useFeedbackMutation.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60465,13 +63425,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/useActAsContext.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/useAuth.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/useClickOutside.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useConfirm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/useErrorMessage.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useFeedbackMutation.ts",
       "prettier_managed": true
     },
     {
@@ -60519,6 +63503,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/i18n/__tests__/I18nProvider.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/i18n/I18nProvider.tsx",
       "prettier_managed": true
     },
@@ -60526,6 +63516,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/i18n/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/i18n/localePreference.ts",
       "prettier_managed": true
     },
     {
@@ -60561,7 +63557,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/types/__tests__/messaging-ws.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/types/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/types/messaging-ws.ts",
       "prettier_managed": true
     },
     {
@@ -60628,6 +63636,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/backend-health-circuit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/csv.ts",
       "prettier_managed": true
     },
     {
@@ -60897,7 +63911,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/__tests__/ActAsTenantBanner.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/components/__tests__/FishBackground.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/components/ActAsTenantBanner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/components/ai/__tests__/AiAssistantDrawer.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60945,6 +63977,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/UserLocaleSync.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/graphql/consent.operations.ts",
       "prettier_managed": true
     },
@@ -60952,6 +63990,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/graphql/settings.operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/hooks/__tests__/useAiAssistantSocket.spec.ts",
       "prettier_managed": true
     },
     {

@@ -46,7 +46,15 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Modal,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/api/messaging';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { TenantSelect } from '../../components/TenantSelect';
@@ -116,65 +124,72 @@ const SetRetentionModal: React.FC<SetRetentionModalProps> = ({
     (currentDays === INDEFINITE || (days !== INDEFINITE && days < currentDays));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-1">
-          {channelId === null ? 'Tenant default retention' : 'Channel retention override'}
-        </h3>
-        <p className="text-sm text-gray-500 mb-4 font-mono">
-          {channelId === null ? 'Applies to every channel without an override' : channelId}
-        </p>
-
-        <div className="space-y-4">
-          <div>
-            <label
-              htmlFor="retention-window"
-              className="block text-xs font-medium text-gray-500 mb-1"
-            >
-              Retention window
-            </label>
-            <select
-              id="retention-window"
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            >
-              {RETENTION_PRESETS.map((option) => (
-                <option key={option.days} value={option.days}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {isReduction && (
-            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-xs text-yellow-700">
-                This SHORTENS the window from {retentionLabel(currentDays)} to{' '}
-                {retentionLabel(days)}. Messages older than the new window are deleted at the next
-                cleanup ({CLEANUP_SCHEDULE}). Messages under legal hold are preserved.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 mt-6">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title={channelId === null ? 'Tenant default retention' : 'Channel retention override'}
+      description={
+        channelId === null ? (
+          'Applies to every channel without an override'
+        ) : (
+          <span className="font-mono">{channelId}</span>
+        )
+      }
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
-            onClick={() => onSave(channelId, days)}
-            disabled={saving}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-          <button
+            type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             Cancel
           </button>
+          <button
+            type="button"
+            onClick={() => onSave(channelId, days)}
+            disabled={saving}
+            className="flex-1 px-4 py-2 bg-info-600 text-white text-sm font-semibold rounded-lg hover:bg-info-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <label
+            htmlFor="retention-window"
+            className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
+          >
+            Retention window
+          </label>
+          <select
+            id="retention-window"
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          >
+            {RETENTION_PRESETS.map((option) => (
+              <option key={option.days} value={option.days}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
+
+        {isReduction && (
+          <div className="p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
+            <p className="text-xs text-warning-700 dark:text-warning-300">
+              This SHORTENS the window from {retentionLabel(currentDays)} to {retentionLabel(days)}.
+              Messages older than the new window are deleted at the next cleanup ({CLEANUP_SCHEDULE}
+              ). Messages under legal hold are preserved.
+            </p>
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -204,71 +219,76 @@ const AddChannelOverrideModal: React.FC<AddChannelOverrideModalProps> = ({
   const idIsValid = UUID.test(trimmed);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Add channel override</h3>
-
-        <div className="space-y-4">
-          <div>
-            <label
-              htmlFor="override-channel"
-              className="block text-xs font-medium text-gray-500 mb-1"
-            >
-              Channel ID
-            </label>
-            <input
-              id="override-channel"
-              type="text"
-              value={channelId}
-              onChange={(e) => setChannelId(e.target.value)}
-              placeholder="Enter channel UUID..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            />
-            {trimmed !== '' && !idIsValid && (
-              <p className="text-xs text-red-600 mt-1">
-                Not a channel UUID. The endpoint validates this and would refuse it.
-              </p>
-            )}
-          </div>
-          <div>
-            <label
-              htmlFor="override-window"
-              className="block text-xs font-medium text-gray-500 mb-1"
-            >
-              Retention window
-            </label>
-            <select
-              id="override-window"
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            >
-              {RETENTION_PRESETS.map((option) => (
-                <option key={option.days} value={option.days}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 mt-6">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title="Add channel override"
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
-            onClick={() => onSave(trimmed, days)}
-            disabled={!idIsValid || saving}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving...' : 'Add override'}
-          </button>
-          <button
+            type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             Cancel
           </button>
+          <button
+            type="button"
+            onClick={() => onSave(trimmed, days)}
+            disabled={!idIsValid || saving}
+            className="flex-1 px-4 py-2 bg-info-600 text-white text-sm font-semibold rounded-lg hover:bg-info-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Add override'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <label
+            htmlFor="override-channel"
+            className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
+          >
+            Channel ID
+          </label>
+          <input
+            id="override-channel"
+            type="text"
+            value={channelId}
+            onChange={(e) => setChannelId(e.target.value)}
+            placeholder="Enter channel UUID..."
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          />
+          {trimmed !== '' && !idIsValid && (
+            <p className="text-xs text-error-600 dark:text-error-400 mt-1">
+              Not a channel UUID. The endpoint validates this and would refuse it.
+            </p>
+          )}
+        </div>
+        <div>
+          <label
+            htmlFor="override-window"
+            className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
+          >
+            Retention window
+          </label>
+          <select
+            id="override-window"
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          >
+            {RETENTION_PRESETS.map((option) => (
+              <option key={option.days} value={option.days}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -307,42 +327,86 @@ const MessagingRetentionPage: React.FC = () => {
   const tenantDefault = policies.find((policy) => policy.channelId === null) ?? null;
   const overrides = policies.filter((policy) => policy.channelId !== null);
 
+  const overrideColumns: DataTableColumn<RetentionPolicy>[] = [
+    {
+      key: 'channel',
+      header: 'Channel',
+      render: (_value, policy) => (
+        <span className="text-xs text-gray-700 dark:text-gray-300 font-mono">
+          {policy.channelId}
+        </span>
+      ),
+    },
+    {
+      key: 'window',
+      header: 'Window',
+      align: 'center',
+      render: (_value, policy) => (
+        <Badge variant={policy.retentionDays === INDEFINITE ? 'info' : 'default'}>
+          {retentionLabel(policy.retentionDays)}
+        </Badge>
+      ),
+    },
+    {
+      key: 'set',
+      header: 'Set',
+      align: 'right',
+      render: (_value, policy) => new Date(policy.updatedAt).toLocaleDateString(),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, policy) => (
+        <button
+          onClick={() =>
+            setEditing({
+              channelId: policy.channelId,
+              days: policy.retentionDays,
+            })
+          }
+          aria-label={`Change the window for channel ${policy.channelId}`}
+          className="text-xs px-2 py-1 rounded font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/30"
+        >
+          Change
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Retention Policies</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            How long one tenant&apos;s messages survive: the default window, and any channel that
-            overrides it.
-          </p>
-        </div>
-        <div className="flex items-end gap-3">
-          <div className="w-72">
-            <label
-              htmlFor="retention-tenant"
-              className="block text-xs font-medium text-gray-600 mb-1"
-            >
-              Tenant
-            </label>
-            <div id="retention-tenant">
-              <TenantSelect value={tenantId} onChange={(next) => setTenantId(next || null)} />
+      <PageHeader
+        title="Retention Policies"
+        description="How long one tenant's messages survive: the default window, and any channel that overrides it."
+        actions={
+          <div className="flex items-end gap-3">
+            <div className="w-72">
+              <label
+                htmlFor="retention-tenant"
+                className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+              >
+                Tenant
+              </label>
+              <div id="retention-tenant">
+                <TenantSelect value={tenantId} onChange={(next) => setTenantId(next || null)} />
+              </div>
             </div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5">
+              Next cleanup: {CLEANUP_SCHEDULE}
+            </div>
+            <Button
+              onClick={() => void policiesQuery.refetch()}
+              disabled={tenantId === null || policiesQuery.isFetching}
+              variant="secondary"
+              size="sm"
+            >
+              {policiesQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
-          <div className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
-            Next cleanup: {CLEANUP_SCHEDULE}
-          </div>
-          <Button
-            onClick={() => void policiesQuery.refetch()}
-            disabled={tenantId === null || policiesQuery.isFetching}
-            variant="secondary"
-            size="sm"
-          >
-            {policiesQuery.isFetching ? 'Refreshing...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={[policiesQuery.error, setRetention.error]}
@@ -351,9 +415,9 @@ const MessagingRetentionPage: React.FC = () => {
       />
 
       {tenantId === null ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-          <p className="text-sm font-medium text-gray-700">Choose a tenant</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-8 text-center">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Choose a tenant</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Retention policies are held per tenant and the route refuses a request without one.
             Nothing is listed until a tenant is selected.
           </p>
@@ -365,40 +429,46 @@ const MessagingRetentionPage: React.FC = () => {
             <div className="p-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700">Tenant default</h3>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    Tenant default
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     Applies to every channel without an override of its own.
                   </p>
                 </div>
                 {policiesQuery.isPending ? (
-                  <span className="text-sm text-gray-400">Loading...</span>
+                  <span className="text-sm text-gray-400 dark:text-gray-500">Loading...</span>
                 ) : tenantDefault === null ? (
                   // Not "365 days": no row means no policy has been set, and
                   // the service's column default is not something this page
                   // can claim to have read.
                   <div className="text-right">
-                    <p className="text-sm text-gray-500">Not set</p>
-                    <button
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Not set</p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setEditing({ channelId: null, days: null })}
-                      className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
                     >
                       Set a default
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   <div className="text-right">
-                    <Badge variant={tenantDefault.retentionDays === INDEFINITE ? 'info' : 'default'}>
+                    <Badge
+                      variant={tenantDefault.retentionDays === INDEFINITE ? 'info' : 'default'}
+                    >
                       {retentionLabel(tenantDefault.retentionDays)}
                     </Badge>
                     <div className="mt-1">
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() =>
                           setEditing({ channelId: null, days: tenantDefault.retentionDays })
                         }
-                        className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
                       >
                         Change
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -410,81 +480,38 @@ const MessagingRetentionPage: React.FC = () => {
           <Card>
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-700">Channel overrides</h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  Channel overrides
+                </h3>
                 <button
                   onClick={() => setAddingOverride(true)}
-                  className="text-xs px-2 py-1 rounded font-medium text-purple-600 hover:bg-purple-50"
+                  className="text-xs px-2 py-1 rounded font-medium text-accent-600 dark:text-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/30"
                 >
                   + Override
                 </button>
               </div>
 
               {policiesQuery.isPending ? (
-                <p className="text-sm text-gray-400 py-8 text-center">Loading policies...</p>
-              ) : policiesQuery.isError ? (
-                // The banner above carries the reason. Nothing is drawn here:
-                // "no overrides" on a deletion-window surface is a claim.
-                null
-              ) : overrides.length === 0 ? (
-                <p className="text-sm text-gray-500 py-8 text-center">
+                <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">
+                  Loading policies...
+                </p>
+              ) : policiesQuery.isError ? // The banner above carries the reason. Nothing is drawn here:
+              // "no overrides" on a deletion-window surface is a claim.
+              null : overrides.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
                   No channel overrides. Every channel follows the tenant default.
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Channel
-                        </th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Window
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Set
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {overrides.map((policy) => (
-                        <tr key={policy.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-xs text-gray-700 font-mono">
-                            {policy.channelId}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge
-                              variant={
-                                policy.retentionDays === INDEFINITE ? 'info' : 'default'
-                              }
-                            >
-                              {retentionLabel(policy.retentionDays)}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                            {new Date(policy.updatedAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              onClick={() =>
-                                setEditing({
-                                  channelId: policy.channelId,
-                                  days: policy.retentionDays,
-                                })
-                              }
-                              aria-label={`Change the window for channel ${policy.channelId}`}
-                              className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
-                            >
-                              Change
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<RetentionPolicy>
+                  data={overrides}
+                  columns={overrideColumns}
+                  keyExtractor={(policy) => policy.id}
+                  emptyMessage="No channel overrides"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  className="shadow-none rounded-none"
+                />
               )}
             </div>
           </Card>

@@ -221,7 +221,7 @@ export function VoicePlayer({
         className={clsx(
           'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full shrink-0 touch-feedback transition-colors',
           isOwn
-            ? 'bg-white/20 hover:bg-white/30'
+            ? 'bg-white/20 dark:bg-gray-900/20 hover:bg-white/30 dark:hover:bg-gray-800/30'
             : 'bg-ocean-50 dark:bg-ocean-900/30 hover:bg-ocean-100 dark:hover:bg-ocean-900/50',
         )}
         aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -265,10 +265,10 @@ export function VoicePlayer({
                   'w-[2px] rounded-full transition-colors',
                   isActive
                     ? isOwn
-                      ? 'bg-white'
+                      ? 'bg-white dark:bg-gray-900'
                       : 'bg-ocean-600 dark:bg-ocean-400'
                     : isOwn
-                      ? 'bg-white/30'
+                      ? 'bg-white/30 dark:bg-gray-900/30'
                       : 'bg-gray-300 dark:bg-gray-600',
                 )}
                 style={{ height: `${(height / 100) * 24}px` }}
@@ -305,7 +305,7 @@ export function VoicePlayer({
         className={clsx(
           'text-[10px] font-bold transition-colors',
           isOwn
-            ? 'bg-white/20 text-white hover:bg-white/30'
+            ? 'bg-white/20 dark:bg-gray-900/20 text-white hover:bg-white/30 dark:hover:bg-gray-800/30'
             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
         )}
         aria-label={`Playback speed ${speed}x`}

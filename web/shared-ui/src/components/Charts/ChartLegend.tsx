@@ -30,9 +30,8 @@ export const ChartLegend: React.FC<ChartLegendProps> = ({
   onItemClick,
   className = '',
 }) => {
-  const containerClass = orientation === 'horizontal'
-    ? 'flex flex-wrap items-center gap-4'
-    : 'flex flex-col gap-2';
+  const containerClass =
+    orientation === 'horizontal' ? 'flex flex-wrap items-center gap-4' : 'flex flex-col gap-2';
 
   return (
     <div className={`${containerClass} ${className}`}>
@@ -46,12 +45,12 @@ export const ChartLegend: React.FC<ChartLegendProps> = ({
             className="w-3 h-3 rounded-full flex-shrink-0"
             style={{ backgroundColor: item.color }}
           />
-          <span className="text-gray-600">{item.label}</span>
+          <span className="text-gray-600 dark:text-gray-400">{item.label}</span>
           {showValues && item.value !== undefined && (
-            <span className="font-medium text-gray-900">{item.value}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{item.value}</span>
           )}
           {showPercentages && item.percentage !== undefined && (
-            <span className="text-gray-500">({item.percentage}%)</span>
+            <span className="text-gray-500 dark:text-gray-400">({item.percentage}%)</span>
           )}
         </div>
       ))}

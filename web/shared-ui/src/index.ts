@@ -73,6 +73,37 @@ export type {
 } from './types';
 
 // ============================================================================
+// Messaging WebSocket contract (FAZ 3.0/3.2) — web-side mirror of the
+// gateway /messaging Socket.IO envelopes. Consumers (panel modules) MUST
+// import their WS envelope types from here instead of redeclaring them —
+// one definition kills copy-paste type drift across web modules.
+// ============================================================================
+export type {
+  WsMessageContentType,
+  WsReceiptStatus,
+  WsMessageUser,
+  WsMessageAttachment,
+  WsMessageReceipt,
+  WsReactionSummary,
+  WsMessage,
+  MessageEnvelope,
+  MessageUpdatedEnvelope,
+  MessageDeletedEnvelope,
+  ReadReceiptEnvelope,
+  TypingEnvelope,
+  PresenceEnvelope,
+  MessageSyncHintEnvelope,
+  ChannelEventEnvelope,
+  ChannelMemberRemovedEnvelope,
+  ReAuthEnvelope,
+  ConnectedEnvelope,
+  SocketIoErrorEnvelope,
+  MessagingWsEventName,
+  MessagingWsDirectEventName,
+} from './types/messaging-ws';
+export { MESSAGING_WS_EVENT_NAMES, MESSAGING_WS_DIRECT_EVENT_NAMES } from './types/messaging-ws';
+
+// ============================================================================
 // Brand SSoT
 // ============================================================================
 
@@ -162,6 +193,15 @@ export {
 export { I18nProvider, useI18n } from './i18n';
 export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
 export {
+  SUPPORTED_LOCALES,
+  DEFAULT_LOCALE,
+  LOCALE_STORAGE_KEY,
+  isSupportedLocale,
+  getStoredLocale,
+  persistLocale,
+  resolveInitialLocale,
+} from './i18n';
+export {
   useGraphQLQuery,
   useGraphQLMutation,
   usePrefetchQuery,
@@ -169,7 +209,13 @@ export {
   useInvalidateQueries,
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
+export { useFeedbackMutation, DEFAULT_MUTATION_ERROR_TITLE } from './hooks/useFeedbackMutation';
+export { useActAsContext } from './hooks/useActAsContext';
+export type { MutationFeedback, FeedbackMutationOptions } from './hooks/useFeedbackMutation';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
+export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';
+export { useClickOutside } from './hooks/useClickOutside';
+export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './hooks/useConfirm';
 
 // ============================================================================
 // Error-message helpers (Scope C PR-0a)

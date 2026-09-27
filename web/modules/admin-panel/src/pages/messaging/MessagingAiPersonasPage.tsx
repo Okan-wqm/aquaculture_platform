@@ -54,23 +54,110 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
+import { AI_TIER_PRESENTATION, parseAiPersonaId } from '@aquaculture/shared-contracts';
 import { messagingApi } from '../../services/api/messaging';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import { adminKeys, useAdminQuery } from '../../hooks';
 import { TenantSelect } from '../../components/TenantSelect';
 import { QueryFailureNotice } from '../../components/QueryFailureNotice';
+import { Monitor, TriangleAlert } from 'lucide-react';
+
+/** The hard limits the runtime enforces on an autonomous persona; the reference table lists them. */
+interface ActuationPolicyField {
+  field: string;
+  type: string;
+  description: string;
+  impact: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+}
+
+const ACTUATION_POLICY_FIELDS: ActuationPolicyField[] = [
+  {
+    field: 'maxDosingKg',
+    type: 'number (nullable)',
+    description: 'Maximum reagent dosing per actuation in kilograms',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'phRange',
+    type: '{ min, max } (nullable)',
+    description: 'Allowed pH range for autonomous adjustments',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'temperatureRange',
+    type: '{ min, max } (nullable)',
+    description: 'Allowed temperature range for autonomous adjustments',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'autonomousActionsEnabled',
+    type: 'boolean',
+    description: 'Master switch for autonomous AI actions',
+    impact: 'HIGH',
+  },
+  {
+    field: 'proactiveMonitoringEnabled',
+    type: 'boolean',
+    description: 'Whether AI proactively monitors sensor data',
+    impact: 'MEDIUM',
+  },
+];
+
+const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' | 'info'> = {
+  CRITICAL: 'error',
+  HIGH: 'warning',
+  MEDIUM: 'info',
+};
+
+const actuationPolicyColumns: DataTableColumn<ActuationPolicyField>[] = [
+  {
+    key: 'field',
+    header: 'Field',
+    render: (_value, row) => (
+      <span className="font-mono text-gray-700 dark:text-gray-300">{row.field}</span>
+    ),
+  },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (_value, row) => <span className="text-gray-500 dark:text-gray-400">{row.type}</span>,
+  },
+  {
+    key: 'description',
+    header: 'Description',
+    render: (_value, row) => (
+      <span className="text-gray-600 dark:text-gray-400">{row.description}</span>
+    ),
+  },
+  {
+    key: 'impact',
+    header: 'Safety Impact',
+    render: (_value, row) => (
+      <Badge variant={IMPACT_BADGE[row.impact]} size="sm">
+        {row.impact}
+      </Badge>
+    ),
+  },
+];
 
 // ============================================================================
 // Color mapping for badge styling
 // ============================================================================
 
 const COLOR_CLASSES: Record<string, string> = {
-  purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  cyan: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  purple: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
+  cyan: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  blue: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  green: 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-300',
+  orange: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
 };
 
 // ============================================================================
@@ -90,82 +177,128 @@ const ACTUATION_POLICY_GLOSSARY: Record<
 > = {
   blocked: {
     label: 'BLOCKED',
-    color: 'bg-red-100 text-red-800 border-red-300',
+    color:
+      'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
     description:
       'AI cannot execute any PLC actuation commands. All actuation requests are rejected.',
   },
   confirm_required: {
     label: 'CONFIRM REQUIRED',
-    color: 'bg-amber-100 text-amber-800 border-amber-300',
+    color:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-300 dark:border-warning-700',
     description:
       'AI can propose actuation commands but requires explicit human confirmation before execution.',
   },
   allowed: {
     label: 'ALLOWED',
-    color: 'bg-red-100 text-red-800 border-red-300',
+    color:
+      'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
     description:
       'AI can execute actuation commands autonomously within configured safety limits. CAUTION: this enables autonomous PLC control.',
   },
 };
 
 // ============================================================================
-// PersonaRow Component
+// Tier × specialty (AISAFETY-MEDIUM-024)
 // ============================================================================
 
-/** Row for a single persona in the configuration table. */
-function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactElement {
-  const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+/**
+ * Personas are composed as `<tier>[-<specialty>]-v<N>` from the shared
+ * catalogue. The tier is the authority level (model, actuation ceiling,
+ * `ai_personas:<tier>` capability); the specialty is the tool bundle and, for
+ * module-gated ones, the extra `ai_specialties:<module>` capability. The
+ * inventory reads both from the id grammar so the shape is visible at a glance.
+ */
+function tierAndSpecialty(personaId: string | null): { tier: string; specialty: string } {
+  const parsed = personaId ? parseAiPersonaId(personaId) : null;
+  if (!parsed) return { tier: 'Tenant default', specialty: 'general' };
+  return { tier: AI_TIER_PRESENTATION[parsed.tier].label, specialty: parsed.specialty };
+}
 
-  return (
-    <tr className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-      <td className="px-4 py-3">
+/** Columns of the persona configuration table (FE-HIGH-069). The persona
+ *  colour drives both the icon tile and the capability chips. */
+const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
+  {
+    key: 'name',
+    header: 'Persona',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex items-center gap-3">
-          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}>
+          <span
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}
+          >
             {persona.icon.charAt(0).toUpperCase()}
           </span>
           <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              {persona.name}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {persona.description}
-            </p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">{persona.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{persona.description}</p>
           </div>
         </div>
-      </td>
-      <td className="px-4 py-3">
-        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-400">
-          {persona.id ?? 'general'}
-        </code>
-      </td>
-      <td className="px-4 py-3">
+      );
+    },
+  },
+  {
+    key: 'id',
+    header: 'ID',
+    render: (_value, persona) => (
+      <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-300">
+        {persona.id ?? 'general'}
+      </code>
+    ),
+  },
+  {
+    key: 'tier',
+    header: 'Tier / Specialty',
+    render: (_value, persona) => {
+      const shape = tierAndSpecialty(persona.id);
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            {shape.tier}
+          </span>
+          <code className="text-[10px] font-mono text-gray-500 dark:text-gray-400">
+            {shape.specialty}
+          </code>
+        </div>
+      );
+    },
+  },
+  {
+    key: 'capabilities',
+    header: 'Capabilities (descriptive, not permissions)',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex flex-wrap gap-1">
           {persona.capabilities.slice(0, 3).map((cap: string) => (
-            <span
-              key={cap}
-              className={`text-[10px] px-1.5 py-0.5 rounded-full ${colorClass}`}
-            >
+            <span key={cap} className={`text-[10px] px-1.5 py-0.5 rounded-full ${colorClass}`}>
               {cap}
             </span>
           ))}
           {persona.capabilities.length > 3 && (
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
               +{persona.capabilities.length - 3} more
             </span>
           )}
         </div>
-      </td>
-      {/* The table declared four headers and rendered three cells, so this
-          column was empty. It says what the persona's reach is — which is a
-          property of the registry entry, not of any tenant's policy. */}
-      <td className="px-4 py-3 text-center">
-        <Badge variant={persona.id === null ? 'info' : 'default'} size="sm">
-          {persona.id === null ? 'All tenants' : 'Platform persona'}
-        </Badge>
-      </td>
-    </tr>
-  );
-}
+      );
+    },
+  },
+  {
+    // The table declared four headers and rendered three cells, so this
+    // column was empty. It says what the persona's reach is — which is a
+    // property of the registry entry, not of any tenant's policy.
+    key: 'scope',
+    header: 'Scope',
+    align: 'center',
+    render: (_value, persona) => (
+      <Badge variant={persona.id === null ? 'info' : 'default'} size="sm">
+        {persona.id === null ? 'All tenants' : 'Platform persona'}
+      </Badge>
+    ),
+  },
+];
 
 // ============================================================================
 // Main Component
@@ -186,17 +319,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            AI Personas Configuration
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <PageHeader
+        title="AI Personas Configuration"
+        description={
+          <>
             The AI assistant personas in the messaging registry, per tenant. Read-only: there is
             no persona write endpoint.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/*
         LIFE-SAFETY: what this page can and cannot tell you.
@@ -208,26 +339,17 @@ function MessagingAiPersonasPage(): React.ReactElement {
         has no route to it (ADMIN-CRITICAL-154). Saying so is the only honest
         state until ADMIN-HIGH-155 builds the read path.
       */}
-      <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800">
+      <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-800">
         <div className="flex items-start gap-3">
-          <svg
-            className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+          <TriangleAlert
+            className="w-5 h-5 text-error-600 dark:text-error-400 mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          />
           <div>
-            <h3 className="text-sm font-semibold text-red-900 dark:text-red-200">
+            <h3 className="text-sm font-semibold text-error-900 dark:text-error-200">
               LIFE-SAFETY: this page does NOT show a tenant&apos;s actuation policy
             </h3>
-            <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed mt-1">
+            <p className="text-xs text-error-700 dark:text-error-300 leading-relaxed mt-1">
               Some AI personas — the SCADA supervisor above all — can control physical equipment
               through PLC actuation. What any given tenant&apos;s AI is actually permitted to
               actuate is decided by <span className="font-mono">TenantAgentConfig</span> in
@@ -273,7 +395,8 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <Card>
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <p className="text-sm text-gray-500">
+              <Monitor className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Choose a tenant to see the personas its AI has available.
               </p>
             </div>
@@ -283,8 +406,8 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <Card>
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">Loading personas...</p>
+              <Spinner size="lg" block className="mb-3" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading personas...</p>
             </div>
           </div>
         </Card>
@@ -294,39 +417,21 @@ function MessagingAiPersonasPage(): React.ReactElement {
       ) : personas.length === 0 ? (
         <Card>
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               This tenant has no AI personas available.
             </p>
           </div>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Persona
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    ID
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Capabilities (descriptive, not permissions)
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">
-                    Scope
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {personas.map((persona) => (
-                  <PersonaRow key={persona.id ?? 'general'} persona={persona} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <DataTable<AiPersonaDefinition>
+          data={personas}
+          columns={personaColumns}
+          keyExtractor={(persona) => persona.id ?? 'general'}
+          emptyMessage="No personas"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* The effective policy — the answer this page cannot give yet */}
@@ -359,13 +464,10 @@ function MessagingAiPersonasPage(): React.ReactElement {
           </p>
           <div className="space-y-3">
             {Object.entries(ACTUATION_POLICY_GLOSSARY).map(([key, info]) => (
-              <div
-                key={key}
-                className={`p-3 rounded-lg border ${info.color}`}
-              >
+              <div key={key} className={`p-3 rounded-lg border ${info.color}`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-bold">{info.label}</span>
-                  <code className="text-[10px] bg-white/50 px-1.5 py-0.5 rounded font-mono">
+                  <code className="text-[10px] bg-white/50 dark:bg-gray-900/50 px-1.5 py-0.5 rounded font-mono">
                     actuationPolicy: &apos;{key}&apos;
                   </code>
                 </div>
@@ -392,77 +494,32 @@ function MessagingAiPersonasPage(): React.ReactElement {
             operates within whatever limits that tenant has set, enforced by the platform
             runtime.
           </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 dark:bg-gray-800/50">
-                <tr>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Field</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Description</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Safety Impact</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">maxDosingKg</td>
-                  <td className="px-3 py-2 text-gray-500">number (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Maximum reagent dosing per actuation in kilograms</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">phRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed pH range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">temperatureRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed temperature range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">autonomousActionsEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Master switch for autonomous AI actions</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="warning" size="sm">HIGH</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">proactiveMonitoringEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Whether AI proactively monitors sensor data</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="info" size="sm">MEDIUM</Badge>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ActuationPolicyField>
+            data={ACTUATION_POLICY_FIELDS}
+            columns={actuationPolicyColumns}
+            keyExtractor={(field) => field.field}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            compact
+          />
         </div>
       </Card>
 
       {/* Architecture Note */}
-      <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-        <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
+      <Card className="p-4 bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800">
+        <h3 className="text-sm font-semibold text-info-900 dark:text-info-200 mb-1">
           Architecture Note
         </h3>
-        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          Persona definitions are loaded from the messaging-service AiPersonasRegistryService
-          via NATS request-reply (pattern: request.messaging.admin.getPersonas). Per-tenant
-          actuation policies and safety limits are stored in the TenantAgentConfig entity in
-          the ai-service database. The effective actuation policy is resolved at runtime by
-          AgentProfileService using most-restrictive-wins logic between the persona base
-          policy and the tenant override — and admin-api has no route to that entity, which is
-          why this page shows personas and not policies (ADMIN-HIGH-155). Custom personas
-          backed by external MCP servers are not implemented.
+        <p className="text-xs text-info-700 dark:text-info-300 leading-relaxed">
+          Persona definitions are loaded from the messaging-service AiPersonasRegistryService via
+          NATS request-reply (pattern: request.messaging.admin.getPersonas). Per-tenant actuation
+          policies and safety limits are stored in the TenantAgentConfig entity in the ai-service
+          database. The effective actuation policy is resolved at runtime by AgentProfileService
+          using most-restrictive-wins logic between the persona base policy and the tenant override
+          — and admin-api has no route to that entity, which is why this page shows personas and
+          not policies (ADMIN-HIGH-155). Custom personas backed by external MCP servers are not
+          implemented.
         </p>
       </Card>
     </div>

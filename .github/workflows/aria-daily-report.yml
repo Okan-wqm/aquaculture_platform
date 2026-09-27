@@ -37,6 +37,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # B8 (2026-09-12) — commit-report runs on the self-hosted runner (for its
+  # PAT identity, ORPHAN-736) on a daily schedule: with the runner offline it
+  # queues in its own concurrency group until the next day's run evicts it —
+  # cancelled, never red. This hosted job refuses the run by name unless an
+  # ONLINE runner carries the labels commit-report runs on; commit-report
+  # `needs` it. One definition for every self-hosted lane:
+  # .github/actions/require-self-hosted-runner. Same `if` as commit-report:
+  # a non-main run never reaches the runner, so it never probes for one.
+  runner-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: ./.github/actions/require-self-hosted-runner
+        with:
+          # Verbatim the self-hosted job's runs-on; the invariant test
+          # compares the two so they cannot drift apart.
+          required-labels: self-hosted,linux,claude
+          app-id: ${{ secrets.ARIA_GH_APP_ID }}
+          app-installation-id: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+
   generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -218,7 +247,7 @@ jobs:
           retention-days: 365
 
   commit-report:
-    needs: generate-report
+    needs: [generate-report, runner-preflight]
     # ORPHAN-HIGH-736 (F-4) — this job OPENS the daily-report PR, and a PR
     # opened with the ephemeral job token parks every check suite in
     # `action_required` (measured on #1282: 7 suites, zero checks started,

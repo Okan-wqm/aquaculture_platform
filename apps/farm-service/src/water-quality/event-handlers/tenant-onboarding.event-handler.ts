@@ -93,7 +93,7 @@ export class TenantOnboardingEventHandler
     private readonly wqSeeder: WaterQualityParameterConfigSeederService,
     private readonly speciesSeeder: SpeciesSeederService,
     private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
-    private readonly feedingReadinessChecker: Pick<FeedingReadinessCheckerService, 'check'>,
+    private readonly feedingReadinessChecker: FeedingReadinessCheckerService,
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
     private readonly financeCategorySeeder: FinanceCategorySeedService,

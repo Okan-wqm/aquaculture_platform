@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -102,7 +103,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
               y={50}
               width={58}
               height={59}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-clip)`}
             />
@@ -110,7 +111,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
             <path
               d="M 22 50 Q 30 46 38 50 Q 46 54 50 50 Q 54 46 62 50 Q 70 54 78 50"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1.2}
               opacity={0.7}
               clipPath={`url(#${uid}-clip)`}
@@ -250,7 +251,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

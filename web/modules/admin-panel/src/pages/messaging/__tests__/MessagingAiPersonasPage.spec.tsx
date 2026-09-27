@@ -16,6 +16,10 @@
  * These tests pin the fix in the only place it can be pinned: the page must
  * not claim to display a policy it cannot read, and must say so where an
  * operator looks for the answer.
+ *
+ * The inventory itself renders what `getPersonas` returns (the shared
+ * catalogue, AISAFETY-MEDIUM-024) and derives each row's tier / specialty from
+ * the persona id grammar (FE-MEDIUM-065).
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -62,6 +66,26 @@ function persona(overrides: Partial<AiPersonaDefinition> = {}): AiPersonaDefinit
   };
 }
 
+/** Two catalogue ids: one general (`<tier>-v1`), one module-gated (`<tier>-<specialty>-v1`). */
+const CATALOGUE: AiPersonaDefinition[] = [
+  {
+    id: 'expert-v1',
+    name: 'Aquaculture Expert (General)',
+    description: 'Advanced water chemistry',
+    icon: 'fish',
+    color: 'blue',
+    capabilities: ['Growth analytics'],
+  },
+  {
+    id: 'manager-farm-operations-v1',
+    name: 'Farm Operations Specialist (Manager)',
+    description: "Today's tasks, overdue work orders",
+    icon: 'wrench',
+    color: 'orange',
+    capabilities: ['Tasks & work orders', 'Maintenance alerts'],
+  },
+];
+
 function tenantPage(): Awaited<ReturnType<typeof tenantsApi.list>> {
   return {
     data: [
@@ -101,6 +125,16 @@ async function renderAndSelectTenant(): Promise<void> {
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole('button', { name: /Select a tenant/ }));
   await actor.click(await screen.findByRole('button', { name: /Kuzey Su enterprise/ }));
+}
+
+/**
+ * The page also renders the LIFE-SAFETY limits reference table, so rows are
+ * addressed by their persona name rather than by position.
+ */
+function rowOf(name: string): HTMLElement {
+  const row = screen.getByText(name).closest('tr');
+  if (!row) throw new Error(`no row for ${name}`);
+  return row;
 }
 
 describe('MessagingAiPersonasPage life-safety honesty', () => {
@@ -190,8 +224,12 @@ describe('MessagingAiPersonasPage reads', () => {
 
     const row = (await screen.findByText('SCADA Supervisor')).closest('tr');
     expect(row).not.toBeNull();
-    // Four headers, four cells: this one was missing entirely.
-    expect(row?.querySelectorAll('td')).toHaveLength(4);
+    // The defect was a header without a cell: every declared column must
+    // render a cell, and Scope is one of them.
+    const headers = row?.closest('table')?.querySelectorAll('thead th');
+    expect(headers).toBeDefined();
+    expect(Array.from(headers ?? []).map((th) => th.textContent)).toContain('Scope');
+    expect(row?.querySelectorAll('td')).toHaveLength(headers?.length ?? 0);
     expect(row).toHaveTextContent('Platform persona');
   });
 
@@ -202,6 +240,21 @@ describe('MessagingAiPersonasPage reads', () => {
     const row = (await screen.findByText('General Assistant')).closest('tr');
     expect(row).toHaveTextContent('All tenants');
     expect(row).toHaveTextContent('general');
+  });
+
+  it('lists the catalogue inventory with a tier / specialty column derived from the id', async () => {
+    personas.mockResolvedValue(CATALOGUE);
+    await renderAndSelectTenant();
+
+    await waitFor(() =>
+      expect(screen.getByText('Farm Operations Specialist (Manager)')).toBeVisible(),
+    );
+    expect(personas).toHaveBeenCalledWith(TENANT_ID, expect.any(AbortSignal));
+
+    expect(rowOf('Aquaculture Expert (General)')).toHaveTextContent('Expert');
+    expect(rowOf('Aquaculture Expert (General)')).toHaveTextContent('general');
+    expect(rowOf('Farm Operations Specialist (Manager)')).toHaveTextContent('Manager');
+    expect(rowOf('Farm Operations Specialist (Manager)')).toHaveTextContent('farm-operations');
   });
 
   it('names a failed read and draws no table', async () => {

@@ -4,6 +4,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 const DEMO_ROWS = [
   { date: '2026-03-01', sensor: 'pH-01', offset: '+0.12', result: 'Success' },
@@ -27,27 +28,27 @@ const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, wid
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ height: headerH, padding: '0 8px', display: 'flex', alignItems: 'center', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600, color: '#374151' }}>
+      <div style={{ height: headerH, padding: '0 8px', display: 'flex', alignItems: 'center', background: colors.neutral[50], borderBottom: `1px solid ${themeColors.neutral[200]}`, fontSize: 11, fontWeight: 600, color: colors.neutral[700] }}>
         {label}
       </div>
 
       {/* Column headers */}
-      <div style={{ display: 'flex', padding: '0 8px', height: colHeaderH, alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', padding: '0 8px', height: colHeaderH, alignItems: 'center', borderBottom: `1px solid ${themeColors.neutral[200]}` }}>
         {cols.map((col) => (
-          <div key={col} style={{ width: colW, fontSize: 8, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>
+          <div key={col} style={{ width: colW, fontSize: 8, fontWeight: 600, color: colors.gray[400], textTransform: 'uppercase' }}>
             {col}
           </div>
         ))}
       </div>
 
       {/* Rows */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="flex-1 overflow-hidden">
         {rows.slice(0, visibleCount).map((row: any, i: number) => (
-          <div key={i} style={{ display: 'flex', padding: '0 8px', height: rowH, alignItems: 'center', borderBottom: '1px solid #f3f4f6', fontSize: 9 }}>
-            <div style={{ width: colW, color: '#6b7280' }}>{row.date}</div>
-            <div style={{ width: colW, color: '#374151' }}>{row.sensor}</div>
-            <div style={{ width: colW, color: '#374151', fontFamily: 'monospace' }}>{row.offset}</div>
-            <div style={{ width: colW, color: row.result === 'Success' ? '#16a34a' : '#dc2626', fontWeight: 500 }}>
+          <div key={i} style={{ display: 'flex', padding: '0 8px', height: rowH, alignItems: 'center', borderBottom: `1px solid ${themeColors.neutral[100]}`, fontSize: 9 }}>
+            <div style={{ width: colW, color: colors.gray[400] }}>{row.date}</div>
+            <div style={{ width: colW, color: colors.neutral[700] }}>{row.sensor}</div>
+            <div style={{ width: colW, color: colors.neutral[700], fontFamily: 'monospace' }}>{row.offset}</div>
+            <div style={{ width: colW, color: row.result === 'Success' ? colors.success[600] : colors.error[600], fontWeight: 500 }}>
               {row.result}
             </div>
           </div>

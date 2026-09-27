@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { useState, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import {
   isWebAuthnSupported,
@@ -140,7 +141,7 @@ export function LoginPage(): JSX.Element | null {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10">
         {/* Logo area */}
         <div className="mb-10 flex flex-col items-center">
-          <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-5 border border-white/20 shadow-glow-ocean">
+          <div className="w-20 h-20 bg-white/10 dark:bg-gray-900/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-5 border border-white/20 shadow-glow-ocean">
             <Fish size={40} className="text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">AquaMobil</h1>
@@ -228,7 +229,7 @@ export function LoginPage(): JSX.Element | null {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
@@ -243,7 +244,7 @@ export function LoginPage(): JSX.Element | null {
             >
               {isLoading ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   Signing in...
                 </>
               ) : (
@@ -269,11 +270,11 @@ export function LoginPage(): JSX.Element | null {
                   void handleBiometricLogin();
                 }}
                 disabled={isLoading || isBiometricLoading}
-                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
               >
                 {isBiometricLoading ? (
                   <>
-                    <span className="animate-spin rounded-full h-5 w-5 border-2 border-ocean-500 border-t-transparent" />
+                    <Spinner size="md" />
                     Verifying...
                   </>
                 ) : (
@@ -287,7 +288,7 @@ export function LoginPage(): JSX.Element | null {
           )}
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <p className="text-center text-xs text-gray-400">
+            <p className="text-center text-xs text-gray-400 dark:text-gray-500">
               Contact your administrator if you need access.
             </p>
           </div>

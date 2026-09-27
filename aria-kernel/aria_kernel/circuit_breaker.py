@@ -160,9 +160,9 @@ def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
     different — it is a migration error the operator must see.
     """
     from .genesis_policy import circuit_breaker_policy
+    from .tool_registry import bound_workspace_root
 
-    repo_root = Path(base_dir).parent
-    block = circuit_breaker_policy(repo_root)
+    block = circuit_breaker_policy(bound_workspace_root(base_dir))
     try:
         threshold = int(block.get("failure_threshold", _DEFAULT_FAILURE_THRESHOLD))
     except (TypeError, ValueError):

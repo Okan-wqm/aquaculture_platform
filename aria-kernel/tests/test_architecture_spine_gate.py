@@ -105,6 +105,37 @@ class TakeBaselineTests(unittest.TestCase):
 
 
 class DetectDriftTests(unittest.TestCase):
+    def test_historical_or_one_sided_identities_keep_count_comparison(self) -> None:
+        alpha = "libs/event-contracts/src/ordinary-events.ts::AlphaEvent"
+        cases = (
+            ("count-only increase", {"missing_schema_count": 1},
+             {"missing_schema_count": 2}, "regression"),
+            ("count-only decrease", {"missing_schema_count": 2},
+             {"missing_schema_count": 1}, "improvement"),
+            ("old baseline, observed empty postcheck", {"missing_schema_count": 1},
+             {"missing_schema_count": 0, "missing_schema_identities": []}, "improvement"),
+            ("observed empty baseline, old postcheck",
+             {"missing_schema_count": 0, "missing_schema_identities": []},
+             {"missing_schema_count": 1}, "regression"),
+            ("old baseline, equal count", {"missing_schema_count": 1},
+             {"missing_schema_count": 1, "missing_schema_identities": [alpha]}, None),
+            ("old postcheck, equal count",
+             {"missing_schema_count": 1, "missing_schema_identities": [alpha]},
+             {"missing_schema_count": 1}, None),
+        )
+        for name, before, after, direction in cases:
+            with self.subTest(case=name):
+                result = detect_drift(
+                    baseline_measurements={"event_contracts": {"measurements": before}},
+                    postcheck_measurements={"event_contracts": {"measurements": after}},
+                )
+                expected = [] if direction is None else [DriftReport(
+                    invariant="event_contracts", field="missing_schema_count",
+                    baseline_value=before["missing_schema_count"],
+                    postcheck_value=after["missing_schema_count"], direction=direction,
+                )]
+                self.assertEqual(result, expected)
+
     def test_no_drift_on_identical_measurements(self) -> None:
         baseline = {
             "tenant_scoping": {"measurements": {"count": 5}},
@@ -326,6 +357,171 @@ class DefaultChecksSmokeTests(unittest.TestCase):
     def tearDown(self) -> None:
         import shutil
         shutil.rmtree(self.repo, ignore_errors=True)
+
+    def test_equal_count_schema_swap_reports_introduced_and_removed_event_identity(self) -> None:
+        contracts = self.repo / "libs/event-contracts/src/ordinary-events.ts"
+        declarations = (
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n"
+            "export interface BetaEvent extends BaseEvent {}\n"
+            "export interface GammaEvent extends BaseEvent {}\n"
+        )
+        contracts.write_text(declarations, encoding="utf-8")
+        schemas = contracts.parent / "schemas"
+        beta_schema = schemas / "beta_event.json"
+        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        plan_id = "ordinary-event-schema-swap"
+        baseline = take_baseline(
+            plan_id=plan_id, cycle_id="schema-before",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        before = baseline["invariant_measurements"]["event_contracts"]
+        self.assertEqual(before["source"], "static:_check_event_contracts")
+        self.assertEqual(before["measurements"]["declared_event_count"], 3)
+        self.assertEqual(before["measurements"]["missing_schema_count"], 2)
+        recorded_before = list_spine_events(plan_id=plan_id, base_dir=self.tools)
+        self.assertEqual(len(recorded_before), 1)
+        self.assertEqual(recorded_before[0]["kind"], "architecture_spine_baseline")
+        self.assertEqual(recorded_before[0]["details"], baseline)
+
+        # An ordinary edit fixes Alpha's missing schema and removes Beta's.
+        # Gamma remains missing; moving its line must not make it a new issue.
+        (schemas / "alpha_event.json").write_text('{"type":"object"}\n', encoding="utf-8")
+        beta_schema.unlink()
+        contracts.write_text("\n" + declarations, encoding="utf-8")
+        result = take_postcheck(
+            plan_id=plan_id, cycle_id="schema-after",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        after = result["postcheck_measurements"]["event_contracts"]
+        self.assertEqual(after["source"], "static:_check_event_contracts")
+        self.assertEqual(after["measurements"]["declared_event_count"], 3)
+        self.assertEqual(after["measurements"]["missing_schema_count"], 2)
+        self.assertEqual(result["baseline_hash"], baseline["baseline_hash"])
+        self.assertEqual(
+            result["regression_count"], 1,
+            "Beta's newly missing schema must remain a regression when Alpha is fixed.",
+        )
+        self.assertEqual(result["drift_count"], 2)
+        identity_prefix = "libs/event-contracts/src/ordinary-events.ts::"
+        self.assertEqual(before["measurements"]["missing_schema_identities"], [
+            identity_prefix + "AlphaEvent", identity_prefix + "GammaEvent",
+        ])
+        self.assertEqual(after["measurements"]["missing_schema_identities"], [
+            identity_prefix + "BetaEvent", identity_prefix + "GammaEvent",
+        ])
+        self.assertEqual(sorted(result["drifts"], key=lambda row: row["direction"]), [
+            {
+                "invariant": "event_contracts", "field": "missing_schema_identities",
+                "baseline_value": [identity_prefix + "AlphaEvent"], "postcheck_value": [],
+                "direction": "improvement",
+            },
+            {
+                "invariant": "event_contracts", "field": "missing_schema_identities",
+                "baseline_value": [], "postcheck_value": [identity_prefix + "BetaEvent"],
+                "direction": "regression",
+            },
+        ])
+        recorded_after = list_spine_events(plan_id=plan_id, base_dir=self.tools)
+        self.assertEqual([row["kind"] for row in recorded_after], [
+            "architecture_spine_baseline", "architecture_spine_regression",
+        ])
+        self.assertEqual(recorded_after[0]["details"], baseline)
+        self.assertEqual(recorded_after[1]["details"], result)
+
+    def test_observed_empty_then_missing_schema_reports_one_identity_regression(self) -> None:
+        contracts = self.repo / "libs/event-contracts/src/ordinary-events.ts"
+        contracts.write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n",
+            encoding="utf-8",
+        )
+        schema = contracts.parent / "schemas" / "alpha_event.json"
+        schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        plan_id = "ordinary-empty-to-missing-schema"
+        baseline = take_baseline(
+            plan_id=plan_id, cycle_id="schema-present",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        before = baseline["invariant_measurements"]["event_contracts"]
+        self.assertEqual(before["source"], "static:_check_event_contracts")
+        self.assertEqual(before["measurements"], {
+            "declared_event_count": 1, "missing_schema_count": 0,
+            "missing_schema_identities": [],
+        })
+        schema.unlink()
+        result = take_postcheck(
+            plan_id=plan_id, cycle_id="schema-removed",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        identity = "libs/event-contracts/src/ordinary-events.ts::AlphaEvent"
+        self.assertEqual(result["postcheck_measurements"]["event_contracts"]["measurements"], {
+            "declared_event_count": 1, "missing_schema_count": 1,
+            "missing_schema_identities": [identity],
+        })
+        self.assertEqual(result["regression_count"], 1)
+        self.assertEqual(result["drift_count"], 1)
+        self.assertEqual(result["drifts"], [{
+            "invariant": "event_contracts", "field": "missing_schema_identities",
+            "baseline_value": [], "postcheck_value": [identity], "direction": "regression",
+        }])
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.tools)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_regression",
+        ])
+        self.assertEqual(rows[0]["details"], baseline)
+        self.assertEqual(rows[1]["details"], result)
+        self.assertEqual(result["baseline_hash"], baseline["baseline_hash"])
+
+    def test_restored_schema_reports_only_identity_improvement(self) -> None:
+        contracts = self.repo / "libs/event-contracts/src/ordinary-events.ts"
+        contracts.write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n",
+            encoding="utf-8",
+        )
+        plan_id = "ordinary-missing-to-restored-schema"
+        baseline = take_baseline(
+            plan_id=plan_id, cycle_id="schema-absent",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        identity = "libs/event-contracts/src/ordinary-events.ts::AlphaEvent"
+        before = baseline["invariant_measurements"]["event_contracts"]
+        self.assertEqual(before["source"], "static:_check_event_contracts")
+        self.assertEqual(before["measurements"], {
+            "declared_event_count": 1, "missing_schema_count": 1,
+            "missing_schema_identities": [identity],
+        })
+        (contracts.parent / "schemas" / "alpha_event.json").write_text(
+            '{"type":"object"}\n', encoding="utf-8",
+        )
+        result = take_postcheck(
+            plan_id=plan_id, cycle_id="schema-restored",
+            workspace_root=self.repo, base_dir=self.tools,
+            require_fresh_adapter_runs=False,
+        )
+        self.assertEqual(result["postcheck_measurements"]["event_contracts"]["measurements"], {
+            "declared_event_count": 1, "missing_schema_count": 0,
+            "missing_schema_identities": [],
+        })
+        self.assertEqual(result["regression_count"], 0)
+        self.assertEqual(result["drift_count"], 1)
+        self.assertEqual(result["drifts"], [{
+            "invariant": "event_contracts", "field": "missing_schema_identities",
+            "baseline_value": [identity], "postcheck_value": [], "direction": "improvement",
+        }])
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.tools)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_postcheck",
+        ])
+        self.assertEqual(rows[0]["details"], baseline)
+        self.assertEqual(rows[1]["details"], result)
+        self.assertEqual(result["baseline_hash"], baseline["baseline_hash"])
 
     def test_default_baseline_runs_against_synthetic_repo(self) -> None:
         # No fixtures: use the DEFAULT_INVARIANT_CHECKS path.

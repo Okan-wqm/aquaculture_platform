@@ -5,7 +5,7 @@
  * Not for mortality - use MortalityModal for that.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useRemoveCleanerFish,
   useTankCleanerFish,
@@ -91,7 +91,11 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to remove cleaner fish:', error);
-      toast({ title: 'Error', description: 'Failed to remove cleaner fish. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to remove cleaner fish. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -105,13 +109,13 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
   const getReasonColor = (r: CleanerFishRemovalReason) => {
     switch (r) {
       case 'harvest':
-        return 'text-green-600';
+        return 'text-success-600 dark:text-success-400';
       case 'end_of_cycle':
-        return 'text-blue-600';
+        return 'text-info-600 dark:text-info-400';
       case 'relocation':
-        return 'text-amber-600';
+        return 'text-warning-600 dark:text-warning-400';
       default:
-        return 'text-gray-600';
+        return 'text-gray-600 dark:text-gray-400';
     }
   };
 
@@ -120,17 +124,19 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
       <div className="space-y-6">
         {/* Tank & Batch Info */}
         {batchDetail && (
-          <div className="bg-gray-50 rounded-lg p-4">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-gray-900">{tankInfo?.tankName}</h4>
-                <p className="text-sm text-gray-500">
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                  {tankInfo?.tankName}
+                </h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {batchDetail.batchNumber} - {batchDetail.speciesName}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">Current Stock</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Current Stock</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {batchDetail.quantity.toLocaleString()}
                 </p>
               </div>
@@ -140,21 +146,17 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
 
         {/* Removal Reason */}
         <div>
-          <label htmlFor="reason" className="block text-sm font-medium text-gray-700">
-            Removal Reason <span className="text-red-500">*</span>
-          </label>
-          <select
+          <Select
             id="reason"
+            label="Removal Reason"
+            required
             value={reason}
             onChange={(e) => setReason(e.target.value as CleanerFishRemovalReason)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            {Object.entries(RemovalReasonLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={Object.entries(RemovalReasonLabels).map(([key, label]) => ({
+              value: key,
+              label,
+            }))}
+          />
           <p className={`mt-1 text-xs ${getReasonColor(reason)}`}>
             {reason === 'harvest' && 'Fish are being harvested for sale/consumption'}
             {reason === 'end_of_cycle' && 'Production cycle is ending, fish are being removed'}
@@ -164,38 +166,44 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
         </div>
 
         {/* Quantity */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
-              Quantity to Remove <span className="text-red-500">*</span>
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Quantity to Remove <span className="text-error-500">*</span>
             </label>
-            <input
+            <Input
+              fullWidth
               type="number"
               id="quantity"
               min="1"
               max={maxQuantity}
               value={quantity || ''}
               onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter quantity"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Max: {maxQuantity.toLocaleString()}
             </p>
           </div>
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="avgWeight"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Avg Weight (g)
-              {reason === 'harvest' && <span className="text-amber-500 ml-1">Recommended</span>}
+              {reason === 'harvest' && <span className="text-warning-500 ml-1">Recommended</span>}
             </label>
-            <input
+            <Input
+              fullWidth
               type="number"
               id="avgWeight"
               min="0.1"
               step="0.1"
               value={avgWeightG || ''}
               onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder={`Default: ${batchDetail?.avgWeightG?.toFixed(1) || 'N/A'}`}
             />
           </div>
@@ -203,10 +211,12 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
 
         {/* Biomass Removed */}
         {quantity > 0 && biomassRemoved > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-amber-800">Biomass to Remove</span>
-              <span className="text-lg font-bold text-amber-600">
+              <span className="text-sm font-medium text-warning-800 dark:text-warning-200">
+                Biomass to Remove
+              </span>
+              <span className="text-lg font-bold text-warning-600 dark:text-warning-400">
                 {biomassRemoved.toFixed(2)} kg
               </span>
             </div>
@@ -215,39 +225,45 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
 
         {/* Removal Date */}
         <div>
-          <label htmlFor="removedAt" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="removedAt"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Removal Date
           </label>
-          <input
+          <Input
+            fullWidth
             type="date"
             id="removedAt"
             value={removedAt}
             max={new Date().toISOString().split('T')[0]}
             onChange={(e) => setRemovedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Notes
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="notes"
             rows={2}
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes about this removal..."
           />
         </div>
 
         {/* Validation Error */}
         {quantity > maxQuantity && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-600">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-600 dark:text-error-400">
               Quantity exceeds current stock ({maxQuantity.toLocaleString()})
             </p>
           </div>

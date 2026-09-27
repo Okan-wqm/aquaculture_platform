@@ -3,9 +3,9 @@ import {
   getSessionSnapshot,
   hasSameTenantSessionBoundary,
   useAuth,
+  useFeedbackMutation,
 } from '@aquaculture/shared-ui';
 import {
-  useMutation,
   useQuery,
   useQueryClient,
   type UseMutationResult,
@@ -100,7 +100,8 @@ function useUserSiteMutation(
     }
   };
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: kind === 'assign' ? 'Site access granted' : 'Site access removed' },
     onMutate: (variables): UserSiteMutationContext => {
       assertCurrentOwnerSession();
       return {

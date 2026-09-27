@@ -15,9 +15,9 @@ import {
   IsEnum,
   ValidateIf,
   ArrayMaxSize,
-  Matches,
 } from 'class-validator';
 import { ChannelType } from '../entities/channel.entity';
+import { IsKnownAiPersonaId } from './is-known-ai-persona-id.validator';
 
 /**
  * Input for creating a new channel.
@@ -54,14 +54,13 @@ export class CreateChannelInput {
 
   @Field(() => String, {
     nullable: true,
-    description: 'AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels.',
+    description:
+      'Published AI persona id (e.g. "expert-farm-production-v1"); omit for the tenant default. Only for AI channels.',
   })
   @IsOptional()
   @IsString()
   @MaxLength(50)
-  @Matches(/^[a-z][a-z0-9-]*-v\d+$/, {
-    message: 'aiPersona must be a valid persona identifier (e.g. "expert-v1")',
-  })
+  @IsKnownAiPersonaId()
   aiPersona?: string;
 
   // MSG-HIGH-060: `aiServiceUrl` removed — see channel.entity.ts. A member could

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { CircleCheck, CloudUpload, File as FileIcon, FileText, Image, X } from 'lucide-react';
 
 export interface UploadedFile {
   id: string;
@@ -147,7 +148,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       onChange?.([...value, ...newFiles]);
     },
-    [value, maxFiles, maxSize, showPreview, onUpload, onChange]
+    [value, maxFiles, maxSize, showPreview, onUpload, onChange],
   );
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -191,32 +192,20 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
   const getFileIcon = (type: string) => {
     if (type.startsWith('image/')) {
-      return (
-        <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-      );
+      return <Image className="w-6 h-6 text-primary-500" aria-hidden="true" />;
     }
     if (type.includes('pdf')) {
-      return (
-        <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-        </svg>
-      );
+      return <FileIcon className="w-6 h-6 text-error-500" aria-hidden="true" />;
     }
-    return (
-      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    );
+    return <FileText className="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" />;
   };
 
   return (
     <div className={className}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-error-500 ml-1">*</span>}
         </label>
       )}
 
@@ -230,9 +219,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         className={`
           relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
           transition-colors duration-200
-          ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}
+          ${isDragging ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-          ${error ? 'border-red-500' : ''}
+          ${error ? 'border-error-500' : ''}
         `}
       >
         <input
@@ -245,25 +234,19 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           className="hidden"
         />
 
-        <svg
-          className="mx-auto h-12 w-12 text-gray-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-          />
-        </svg>
+        <CloudUpload
+          className="mx-auto h-12 w-12 text-gray-500 dark:text-gray-400"
+          aria-hidden="true"
+        />
 
         <div className="mt-2">
-          <p className="text-sm text-gray-600">
-            <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="font-medium text-primary-600 dark:text-primary-400">
+              Click to upload
+            </span>{' '}
+            or drag and drop
           </p>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {accept ? `Accepted: ${accept}` : 'Any file type'} up to {formatFileSize(maxSize)}
           </p>
         </div>
@@ -276,8 +259,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             <div
               key={file.id}
               className={`
-                flex items-center gap-3 p-3 bg-gray-50 rounded-lg border
-                ${file.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200'}
+                flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border
+                ${file.status === 'error' ? 'border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20' : 'border-gray-200 dark:border-gray-700'}
               `}
             >
               {/* Preview or Icon */}
@@ -293,8 +276,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
               {/* File info */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {file.name}
+                </p>
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <span>{formatFileSize(file.size)}</span>
                   {file.status === 'uploading' && (
                     <>
@@ -303,15 +288,15 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     </>
                   )}
                   {file.status === 'error' && (
-                    <span className="text-red-600">{file.error}</span>
+                    <span className="text-error-600 dark:text-error-400">{file.error}</span>
                   )}
                 </div>
 
                 {/* Progress bar */}
                 {file.status === 'uploading' && (
-                  <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="mt-1 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-500 transition-all duration-300"
+                      className="h-full bg-primary-500 transition-all duration-300"
                       style={{ width: `${file.progress}%` }}
                     />
                   </div>
@@ -320,9 +305,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
               {/* Status icon */}
               {file.status === 'success' && (
-                <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
+                <CircleCheck className="w-5 h-5 text-success-500" aria-hidden="true" />
               )}
 
               {/* Remove button */}
@@ -332,11 +315,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                   e.stopPropagation();
                   handleRemove(file.id);
                 }}
-                className="p-1 text-gray-500 hover:text-red-500 transition-colors"
+                className="p-1 text-gray-500 dark:text-gray-400 hover:text-error-500 transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -345,17 +326,19 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       {/* Error */}
       {error && (
-        <p className="mt-1 text-sm text-red-600" role="alert">{error}</p>
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
+          {error}
+        </p>
       )}
 
       {/* Helper text */}
       {!error && helperText && (
-        <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
       )}
 
       {/* File count */}
       {maxFiles > 1 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {value.length} of {maxFiles} files
         </p>
       )}

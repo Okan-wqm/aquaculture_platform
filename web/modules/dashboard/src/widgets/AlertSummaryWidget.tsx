@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, Badge, Button, formatRelativeTime } from '@aquaculture/shared-ui';
+import { Check as CheckIcon, CircleAlert, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // Type Definitions
@@ -91,49 +92,49 @@ export const severityConfig: Record<
   }
 > = {
   critical: {
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    iconColor: 'text-red-600',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
+    iconColor: 'text-error-600 dark:text-error-400',
     badgeVariant: 'error',
     label: 'Kritik',
     priority: 5,
   },
   high: {
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    iconColor: 'text-orange-600',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    iconColor: 'text-accent-600 dark:text-accent-400',
     badgeVariant: 'warning',
     label: 'Yüksek',
     priority: 4,
   },
   medium: {
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    iconColor: 'text-yellow-600',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Orta',
     priority: 3,
   },
   warning: {
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    iconColor: 'text-amber-600',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Uyari',
     priority: 3,
   },
   low: {
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    iconColor: 'text-blue-600',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
+    iconColor: 'text-info-600 dark:text-info-400',
     badgeVariant: 'info',
     label: 'Düşük',
     priority: 2,
   },
   info: {
-    bgColor: 'bg-gray-50',
-    borderColor: 'border-gray-200',
-    iconColor: 'text-gray-600',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
+    borderColor: 'border-gray-200 dark:border-gray-700',
+    iconColor: 'text-gray-600 dark:text-gray-400',
     badgeVariant: 'default',
     label: 'Bilgi',
     priority: 1,
@@ -142,7 +143,7 @@ export const severityConfig: Record<
 
 // BUG-L6: severity keys sorted by explicit priority field, not insertion order
 const SEVERITY_KEYS_BY_PRIORITY = (Object.keys(severityConfig) as AlertSeverity[]).sort(
-  (a, b) => severityConfig[b].priority - severityConfig[a].priority
+  (a, b) => severityConfig[b].priority - severityConfig[a].priority,
 );
 
 // ============================================================================
@@ -155,8 +156,7 @@ const SEVERITY_KEYS_BY_PRIORITY = (Object.keys(severityConfig) as AlertSeverity[
 export function sortAlerts(alerts: AlertItem[]): AlertItem[] {
   return [...alerts].sort((a, b) => {
     // First by severity priority (higher = more severe)
-    const severityDiff =
-      severityConfig[b.severity].priority - severityConfig[a.severity].priority;
+    const severityDiff = severityConfig[b.severity].priority - severityConfig[a.severity].priority;
     if (severityDiff !== 0) return severityDiff;
 
     // Then by triggered time (newest first)
@@ -170,7 +170,7 @@ export function sortAlerts(alerts: AlertItem[]): AlertItem[] {
 export function filterAlerts(
   alerts: AlertItem[],
   severityFilter?: AlertSeverity[],
-  statusFilter?: AlertStatus[]
+  statusFilter?: AlertStatus[],
 ): AlertItem[] {
   return alerts.filter((alert) => {
     if (severityFilter?.length && !severityFilter.includes(alert.severity)) {
@@ -186,9 +186,7 @@ export function filterAlerts(
 /**
  * Count alerts by severity
  */
-export function countBySeverity(
-  alerts: AlertItem[]
-): Record<AlertSeverity, number> {
+export function countBySeverity(alerts: AlertItem[]): Record<AlertSeverity, number> {
   const counts: Record<AlertSeverity, number> = {
     critical: 0,
     high: 0,
@@ -244,14 +242,7 @@ export const AlertIcon: React.FC<AlertIconProps> = ({ severity, className = '' }
       `}
       data-testid={`alert-icon-${severity}`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-        />
-      </svg>
+      <TriangleAlert className="w-4 h-4" aria-hidden="true" />
     </div>
   );
 };
@@ -323,7 +314,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
   return (
     <div
       className={`
-        p-3 hover:bg-gray-50 transition-colors cursor-pointer
+        p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer
         ${alert.status === 'acknowledged' ? 'opacity-60' : ''}
         ${alert.status === 'resolved' ? 'opacity-40' : ''}
       `}
@@ -338,16 +329,18 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-gray-900 truncate">{alert.title}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {alert.title}
+            </p>
             <Badge variant={config.badgeVariant} size="sm">
               {config.label}
             </Badge>
           </div>
 
-          <p className="text-sm text-gray-600 truncate">{alert.description}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{alert.description}</p>
 
           {!compact && alert.currentValue !== undefined && (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Değer: {alert.currentValue}
               {alert.unit} (Eşik: {alert.threshold}
               {alert.unit})
@@ -355,14 +348,14 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
           )}
 
           <div className="flex items-center justify-between mt-1">
-            <span className="text-xs text-gray-500">{alert.source}</span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">{alert.source}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {formatRelativeTime(alert.triggeredAt)}
             </span>
           </div>
 
           {alert.occurrenceCount > 1 && (
-            <span className="text-xs text-orange-600 mt-1 inline-block">
+            <span className="text-xs text-accent-600 dark:text-accent-400 mt-1 inline-block">
               {alert.occurrenceCount} kez tekrarlandı
             </span>
           )}
@@ -446,7 +439,7 @@ export const SeverityFilter: React.FC<SeverityFilterProps> = ({
             onClick={() => toggleSeverity(severity)}
             className={`
               px-2 py-1 text-xs rounded-full transition-colors
-              ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 text-gray-500'}
+              ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
               ${count === 0 ? 'opacity-50' : ''}
             `}
             data-testid={`filter-${severity}`}
@@ -463,26 +456,12 @@ interface EmptyStateProps {
   message?: string;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
-  message = 'Aktif uyarı bulunmuyor',
-}) => (
+export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'Aktif uyarı bulunmuyor' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-green-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M5 13l4 4L19 7"
-        />
-      </svg>
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+      <CheckIcon className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
-    <p className="text-sm text-gray-500">{message}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -494,10 +473,10 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ count = 3 }) => (
   <div className="p-4 space-y-3" data-testid="loading-state">
     {Array.from({ length: count }).map((_, i) => (
       <div key={i} className="animate-pulse flex space-x-3">
-        <div className="w-8 h-8 bg-gray-200 rounded-full" />
+        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 bg-gray-200 rounded w-3/4" />
-          <div className="h-3 bg-gray-200 rounded w-1/2" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
         </div>
       </div>
     ))}
@@ -546,23 +525,11 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-red-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+      <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
     {/* DASH-SEC-007: never render raw backend error string — map to safe message */}
-    <p className="text-sm text-red-600 mb-2">{toSafeErrorMessage(message)}</p>
+    <p className="text-sm text-error-600 dark:text-error-400 mb-2">{toSafeErrorMessage(message)}</p>
     {onRetry && (
       <Button variant="ghost" size="sm" onClick={onRetry}>
         Tekrar Dene
@@ -591,7 +558,7 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
   className = '',
 }) => {
   const [selectedSeverities, setSelectedSeverities] = useState<AlertSeverity[]>(
-    initialSeverityFilter || []
+    initialSeverityFilter || [],
   );
 
   // Filter and sort alerts
@@ -620,9 +587,9 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
   return (
     <Card className={className} data-testid="alert-summary-widget">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Aktif Uyarılar</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Aktif Uyarılar</h3>
           <div className="flex items-center space-x-2">
             {criticalCount > 0 && (
               <Badge variant="error" data-testid="critical-count">
@@ -655,7 +622,7 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
       </div>
 
       {/* Content */}
-      <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
         {isLoading ? (
           <LoadingState />
         ) : error ? (
@@ -684,19 +651,13 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
 
       {/* Footer */}
       {!isLoading && !error && alerts.length > 0 && (
-        <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">
-              Toplam: {alerts.length} uyarı ({activeCount} aktif, {acknowledgedCount}{' '}
-              onaylı)
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Toplam: {alerts.length} uyarı ({activeCount} aktif, {acknowledgedCount} onaylı)
             </span>
             {onViewAll && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onViewAll}
-                data-testid="view-all-btn"
-              >
+              <Button variant="ghost" size="sm" onClick={onViewAll} data-testid="view-all-btn">
                 Tümünü Görüntüle
               </Button>
             )}

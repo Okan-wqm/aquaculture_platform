@@ -35,7 +35,14 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/api/messaging';
 import type { ExportTriggerResult } from '../../services/api/messaging';
 import type {
@@ -62,51 +69,51 @@ const FORMAT_FILE: Record<ExportFormat, { readonly mime: string; readonly extens
 // Sub-components
 // ============================================================================
 
+const tenantMessagingOverviewRowColumns: DataTableColumn<TenantMessagingOverviewRow>[] = [
+  {
+    key: 'tenantId',
+    header: 'Tenant ID',
+    render: (_value, tenant) => tenant.tenantId,
+  },
+  {
+    key: 'messages24h',
+    header: 'Messages (24h)',
+    align: 'right',
+    render: (_value, tenant) => tenant.messageCount24h.toLocaleString(),
+  },
+  {
+    key: 'messages7d',
+    header: 'Messages (7d)',
+    align: 'right',
+    render: (_value, tenant) => tenant.messageCount7d.toLocaleString(),
+  },
+  {
+    key: 'totalMessages',
+    header: 'Total Messages',
+    align: 'right',
+    render: (_value, tenant) => tenant.totalMessages.toLocaleString(),
+  },
+  {
+    key: 'activeChannels',
+    header: 'Active Channels',
+    align: 'right',
+    render: (_value, tenant) => tenant.activeChannels.toLocaleString(),
+  },
+];
+
 const OverviewTable: React.FC<{ tenants: readonly TenantMessagingOverviewRow[] }> = ({
   tenants,
 }) => (
-  <div className="overflow-x-auto">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead>
-        <tr>
-          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Tenant ID
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Messages (24h)
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Messages (7d)
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Total Messages
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Active Channels
-          </th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100">
-        {tenants.map((tenant) => (
-          <tr key={tenant.tenantId} className="hover:bg-gray-50">
-            <td className="px-4 py-3 text-sm font-mono text-gray-900">{tenant.tenantId}</td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.messageCount24h.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.messageCount7d.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.totalMessages.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.activeChannels.toLocaleString()}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
+  <DataTable<TenantMessagingOverviewRow>
+    data={tenants}
+    columns={tenantMessagingOverviewRowColumns}
+    keyExtractor={(tenant) => tenant.tenantId}
+    emptyMessage="No records found"
+    searchable={false}
+    sortable={false}
+    stickyHeader={false}
+    className="shadow-none"
+  />
 );
 
 // ============================================================================
@@ -158,22 +165,20 @@ const MessagingTenantsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Per-tenant messaging volume, and data export
-          </p>
-        </div>
-        <Button
-          onClick={() => void overviewQuery.refetch()}
-          disabled={overviewQuery.isFetching}
-          variant="secondary"
-          size="sm"
-        >
-          {overviewQuery.isFetching ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Tenants"
+        description="Per-tenant messaging volume, and data export"
+        actions={
+          <Button
+            onClick={() => void overviewQuery.refetch()}
+            disabled={overviewQuery.isFetching}
+            variant="secondary"
+            size="sm"
+          >
+            {overviewQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       <QueryFailureNotice
         errors={[overviewQuery.error, exportMutation.error]}
@@ -186,8 +191,10 @@ const MessagingTenantsPage: React.FC = () => {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900">Tenant Messaging Overview</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Tenant Messaging Overview
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 Message volume and active channel counts per tenant, sorted by 24h volume
               </p>
             </div>
@@ -197,14 +204,14 @@ const MessagingTenantsPage: React.FC = () => {
           </div>
 
           {overviewQuery.isPending ? (
-            <div className="py-10 text-center text-sm text-gray-500">
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               Loading tenant messaging overview...
             </div>
           ) : overviewQuery.isError ? (
             // The banner above carries the reason. Nothing is drawn here.
             null
           ) : tenants.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-500">
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               No tenant messaging activity recorded yet.
             </div>
           ) : null}
@@ -212,7 +219,7 @@ const MessagingTenantsPage: React.FC = () => {
           {tenants.length > 0 && <OverviewTable tenants={tenants} />}
 
           {overviewQuery.data && (
-            <p className="text-xs text-gray-400 mt-4">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
               Aggregated by the messaging service and cached for 60 seconds. Last computed:{' '}
               {new Date(overviewQuery.data.generatedAt).toLocaleString()}
             </p>
@@ -223,8 +230,10 @@ const MessagingTenantsPage: React.FC = () => {
       {/* Data Export */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">Export tenant data</h3>
-          <p className="text-xs text-gray-500 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+            Export tenant data
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Exports the tenant&apos;s messaging data and downloads it. The export runs inside this
             request and the response is the only copy — nothing is stored server-side. Active
             legal holds are recorded on the result; they do not stop the export.
@@ -232,7 +241,10 @@ const MessagingTenantsPage: React.FC = () => {
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full max-w-sm">
-              <label htmlFor="export-tenant" className="block text-xs font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="export-tenant"
+                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+              >
                 Tenant
               </label>
               {/* A picker, not a UUID box: a valid-but-wrong id used to export
@@ -248,14 +260,17 @@ const MessagingTenantsPage: React.FC = () => {
               </div>
             </div>
             <div>
-              <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="export-format"
+                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+              >
                 Format
               </label>
               <select
                 id="export-format"
                 value={format}
                 onChange={(e) => setFormat(e.target.value as ExportFormat)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -272,35 +287,47 @@ const MessagingTenantsPage: React.FC = () => {
           </div>
 
           {lastExport && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm font-medium text-green-800 mb-2">
+            <div className="mt-3 p-3 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg">
+              <p className="text-sm font-medium text-success-800 dark:text-success-200 mb-2">
                 Export complete — {lastExport.recordCount.toLocaleString()} record(s) downloaded
               </p>
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div>
-                  <dt className="text-green-600 font-medium">Job ID</dt>
-                  <dd className="text-green-800 font-mono">{lastExport.jobId}</dd>
+                  <dt className="text-success-600 dark:text-success-400 font-medium">Job ID</dt>
+                  <dd className="text-success-800 dark:text-success-200 font-mono">
+                    {lastExport.jobId}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Format</dt>
-                  <dd className="text-green-800 uppercase">{lastExport.format}</dd>
+                  <dt className="text-success-600 dark:text-success-400 font-medium">Format</dt>
+                  <dd className="text-success-800 dark:text-success-200 uppercase">
+                    {lastExport.format}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Records</dt>
-                  <dd className="text-green-800">{lastExport.recordCount.toLocaleString()}</dd>
+                  <dt className="text-success-600 dark:text-success-400 font-medium">Records</dt>
+                  <dd className="text-success-800 dark:text-success-200">
+                    {lastExport.recordCount.toLocaleString()}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Under legal hold</dt>
-                  <dd className="text-green-800">{lastExport.isUnderLegalHold ? 'Yes' : 'No'}</dd>
+                  <dt className="text-success-600 dark:text-success-400 font-medium">
+                    Under legal hold
+                  </dt>
+                  <dd className="text-success-800 dark:text-success-200">
+                    {lastExport.isUnderLegalHold ? 'Yes' : 'No'}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Exported at</dt>
-                  <dd className="text-green-800">
+                  <dt className="text-success-600 dark:text-success-400 font-medium">
+                    Exported at
+                  </dt>
+                  <dd className="text-success-800 dark:text-success-200">
                     {new Date(lastExport.exportedAt).toLocaleString()}
                   </dd>
                 </div>
               </dl>
-              <p className="text-xs text-green-700 mt-2">
+              <p className="text-xs text-success-700 dark:text-success-300 mt-2">
                 Recorded in this tenant&apos;s compliance audit log as{' '}
                 <span className="font-mono">message_export</span>.
               </p>

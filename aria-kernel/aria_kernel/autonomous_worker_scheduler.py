@@ -14,7 +14,20 @@ This module supplies the missing loop wrapper. State per iteration:
   1. ARIA_STOP file check (highest priority — clean exit)
   2. Runtime profile gate (frozen/observe → clean exit)
   3. Find + claim + dispatch + verify via worker_dispatch_hook
-  4. Sleep poll_interval if no_pending; otherwise next iteration
+  4. Sleep poll_interval if no_pending or provider_cooldown; otherwise
+     next iteration
+
+Provider cooldown back-off (operator decision 2026-09-12): the hook
+reports ``provider_cooldown`` when the assignment's provider is under
+an active quota cooldown — pre-claim (skipped by name, nothing
+claimed) or right after the executor child cooled it (claim released
+under ``provider_quota_unavailable:<provider>``). The daemon treats
+that like an idle tick: it records the cooldown on the iteration row
+and sleeps the poll interval, so while the cooldown stands the loop
+neither claims nor spawns — the next tick re-reads the ledger and
+skips again until ``until`` has passed. The back-off is the poll
+interval rather than the whole cooldown so ARIA_STOP and the profile
+gate keep their per-iteration latency.
 
 Single-instance discipline: a fcntl lock on
 ``aria-tools/daemons/<daemon_id>.pid.lock`` ensures one worker
@@ -180,6 +193,35 @@ def run_worker_scheduler_daemon(
                             "iteration_n": iterations,
                             "daemon_id": daemon_id,
                             "status": "idle",
+                        },
+                    )
+                    if (
+                        max_iterations is not None
+                        and iterations >= max_iterations
+                    ):
+                        break
+                    sleep(poll_interval_seconds)
+                    continue
+
+                if status == "provider_cooldown":
+                    # Back off while the cooldown stands (module docstring).
+                    # A claim was consumed only on the post-executor path,
+                    # which is the one that counts as a dispatch.
+                    cooldown = result.get("provider_cooldown") or {}
+                    if result.get("claim_id") is not None:
+                        assignments_dispatched += 1
+                    append_tools_governance(
+                        root, "worker_scheduler_iteration_completed",
+                        {
+                            "iteration_n": iterations,
+                            "daemon_id": daemon_id,
+                            "status": status,
+                            "assignment_id": result.get("assignment_id"),
+                            "claim_id": result.get("claim_id"),
+                            "exit_code": result.get("exit_code"),
+                            "retry_count": result.get("retry_count"),
+                            "provider": cooldown.get("provider"),
+                            "cooldown_until": cooldown.get("cooldown_until"),
                         },
                     )
                     if (

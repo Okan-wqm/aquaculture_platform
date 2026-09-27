@@ -37,7 +37,7 @@ def _seed_request(
         role=role,
         suggested_prompt=suggested_prompt,
         must_satisfy=[
-            {"id": "lease-lifecycle-test", "criterion": "lease moves through states"},
+            {"id": "lease-lifecycle-test", "description": "lease moves through states"},
         ],
         allowed_scope=["aria-kernel/**"],
         convergence_id=convergence_id,

@@ -21,6 +21,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 type ArrowDirection = 'right' | 'left' | 'up' | 'down';
 
@@ -122,8 +123,8 @@ function computeArrowPoints(
 const SvgArrowRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const flatFill = (animationState?.fill ?? config.fill ?? '#6366f1') as string;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#4f46e5') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? colors.primary[500]) as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.primary[600]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;

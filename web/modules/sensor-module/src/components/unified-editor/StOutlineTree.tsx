@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   ChevronRight,
   ChevronDown,
@@ -46,26 +47,22 @@ interface StOutlineTreeProps {
 }
 
 const KIND_CONFIG: Record<OutlineNode['kind'], { icon: LucideIcon; color: string }> = {
-  program: { icon: Code2, color: 'text-cyan-400' },
-  functionBlock: { icon: FunctionSquare, color: 'text-purple-400' },
-  function: { icon: FunctionSquare, color: 'text-blue-400' },
-  method: { icon: FunctionSquare, color: 'text-blue-300' },
-  property: { icon: Variable, color: 'text-green-300' },
-  varBlock: { icon: Braces, color: 'text-yellow-400' },
-  variable: { icon: Variable, color: 'text-green-400' },
-  type: { icon: Box, color: 'text-orange-400' },
-  struct: { icon: Layers, color: 'text-orange-300' },
-  enum: { icon: List, color: 'text-pink-400' },
+  program: { icon: Code2, color: 'text-info-400' },
+  functionBlock: { icon: FunctionSquare, color: 'text-accent-400' },
+  function: { icon: FunctionSquare, color: 'text-info-400' },
+  method: { icon: FunctionSquare, color: 'text-info-300' },
+  property: { icon: Variable, color: 'text-success-300' },
+  varBlock: { icon: Braces, color: 'text-warning-400' },
+  variable: { icon: Variable, color: 'text-success-400' },
+  type: { icon: Box, color: 'text-accent-400' },
+  struct: { icon: Layers, color: 'text-accent-300' },
+  enum: { icon: List, color: 'text-accent-400' },
 };
 
-const StOutlineTree: React.FC<StOutlineTreeProps> = ({
-  outline,
-  onNavigate,
-  activeLineNumber,
-}) => {
+const StOutlineTree: React.FC<StOutlineTreeProps> = ({ outline, onNavigate, activeLineNumber }) => {
   if (outline.length === 0) {
     return (
-      <div className="px-2 py-4 text-xs text-gray-600 text-center">
+      <div className="px-2 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
         No outline available
       </div>
     );
@@ -102,7 +99,10 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
-  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-500' };
+  const config = KIND_CONFIG[node.kind] ?? {
+    icon: Hash,
+    color: 'text-gray-500 dark:text-gray-400',
+  };
   const Icon = config.icon;
 
   const isActive =
@@ -114,35 +114,29 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
     onNavigate(node.line);
   }, [onNavigate, node.line]);
 
-  const handleToggle = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setExpanded((prev) => !prev);
-    },
-    [],
-  );
+  const handleToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded((prev) => !prev);
+  }, []);
 
   return (
     <>
       <div
         onClick={handleClick}
         className={`flex items-center gap-1 py-0.5 pr-2 cursor-pointer hover:bg-gray-800 ${
-          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-500'
+          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-500 dark:text-gray-400'
         }`}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <button
+          <Button
+            variant="ghost"
+            className="w-4 h-4 justify-center flex-shrink-0"
             onClick={handleToggle}
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 hover:text-gray-500"
           >
-            {expanded ? (
-              <ChevronDown className="w-3 h-3" />
-            ) : (
-              <ChevronRight className="w-3 h-3" />
-            )}
-          </button>
+            {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          </Button>
         ) : (
           <span className="w-4 h-4 flex-shrink-0" />
         )}
@@ -155,7 +149,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
         {/* Detail (type annotation) */}
         {node.detail && (
-          <span className="text-gray-500 text-[10px] ml-1 flex-shrink-0 truncate max-w-[80px]">
+          <span className="text-gray-500 dark:text-gray-400 text-[10px] ml-1 flex-shrink-0 truncate max-w-[80px]">
             {node.detail}
           </span>
         )}

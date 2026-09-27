@@ -9,7 +9,16 @@
  * prescription requirement) ride in the chemical's `usageProtocol`.
  */
 import React, { useState } from 'react';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 
 import {
   useChemicalList,
@@ -25,6 +34,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList } from '../../../hooks/useSites';
+import { Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -56,24 +66,33 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const categoryColors: Record<string, string> = {
-  [ChemicalType.ANTIPARASITIC]: 'bg-orange-100 text-orange-800',
-  [ChemicalType.ANTIBIOTIC]: 'bg-red-100 text-red-800',
-  [ChemicalType.ANTIFUNGAL]: 'bg-purple-100 text-purple-800',
-  [ChemicalType.VACCINE]: 'bg-blue-100 text-blue-800',
-  [ChemicalType.ANESTHETIC]: 'bg-pink-100 text-pink-800',
-  [ChemicalType.DISINFECTANT]: 'bg-green-100 text-green-800',
-  [ChemicalType.PROBIOTIC]: 'bg-indigo-100 text-indigo-800',
-  [ChemicalType.VITAMIN]: 'bg-yellow-100 text-yellow-800',
-  [ChemicalType.WOUND_CARE]: 'bg-rose-100 text-rose-800',
-  [ChemicalType.OTHER]: 'bg-gray-100 text-gray-800',
+  [ChemicalType.ANTIPARASITIC]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.ANTIBIOTIC]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  [ChemicalType.ANTIFUNGAL]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.VACCINE]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  [ChemicalType.ANESTHETIC]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.DISINFECTANT]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  [ChemicalType.PROBIOTIC]:
+    'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  [ChemicalType.VITAMIN]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [ChemicalType.WOUND_CARE]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  [ChemicalType.OTHER]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
-  [ChemicalStatus.AVAILABLE]: 'bg-green-100 text-green-800',
-  [ChemicalStatus.LOW_STOCK]: 'bg-yellow-100 text-yellow-800',
-  [ChemicalStatus.OUT_OF_STOCK]: 'bg-red-100 text-red-800',
-  [ChemicalStatus.EXPIRED]: 'bg-gray-100 text-gray-800',
-  [ChemicalStatus.DISCONTINUED]: 'bg-gray-100 text-gray-800',
+  [ChemicalStatus.AVAILABLE]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  [ChemicalStatus.LOW_STOCK]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [ChemicalStatus.OUT_OF_STOCK]:
+    'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  [ChemicalStatus.EXPIRED]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  [ChemicalStatus.DISCONTINUED]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -93,7 +112,15 @@ const UNIT_OPTIONS = [
   { value: 'pcs', label: 'Pieces' },
 ];
 
-const FORMULATION_OPTIONS = ['Liquid', 'Powder', 'Premix', 'Tablet', 'Injectable', 'Gel', 'Emulsion'];
+const FORMULATION_OPTIONS = [
+  'Liquid',
+  'Powder',
+  'Premix',
+  'Tablet',
+  'Injectable',
+  'Gel',
+  'Emulsion',
+];
 
 const STORAGE_OPTIONS = [
   'Room temperature',
@@ -161,6 +188,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<Chemical | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chemical | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -192,6 +221,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const openCreate = (): void => {
     setEditing(null);
     setFormData(emptyForm);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -235,18 +265,16 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!formData.name || !formData.code) {
-      toast({ title: 'Missing fields', description: 'Name and code are required.', variant: 'error' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Missing fields', description: 'Please select a category.', variant: 'error' });
-      return;
-    }
-    if (!editing && !formData.siteId) {
-      toast({ title: 'Missing fields', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    // `type` is read into a const so the empty-string check below narrows it
+    // to ChemicalType for the input objects.
+    const { type } = formData;
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!type) errors.type = 'Please select a category.';
+    if (!editing && !formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0 || !type) return;
 
     setIsSaving(true);
     try {
@@ -255,7 +283,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           id: editing.id,
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
           activeIngredient: formData.activeIngredient || undefined,
@@ -270,7 +298,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
         const input: CreateChemicalInput = {
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           siteId: formData.siteId,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
@@ -290,6 +318,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       setIsModalOpen(false);
       setEditing(null);
       setFormData(emptyForm);
+      setFieldErrors({});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const isDuplicate =
@@ -313,19 +342,111 @@ export const FishHealthChemicalsTab: React.FC = () => {
     setIsDeleting(true);
     try {
       await deleteChemical.mutateAsync(deleteTarget.id);
-      toast({ title: 'Substance removed', description: `${deleteTarget.name} was deleted.`, variant: 'success' });
+      toast({
+        title: 'Substance removed',
+        description: `${deleteTarget.name} was deleted.`,
+        variant: 'success',
+      });
       setDeleteTarget(null);
     } catch {
-      toast({ title: 'Error', description: 'Failed to delete the substance. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to delete the substance. Please try again.',
+        variant: 'error',
+      });
     } finally {
       setIsDeleting(false);
     }
   };
 
+  type ItemRow = (typeof filtered)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'nameCode',
+      header: 'Name / Code',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {getCategoryLabel(item.type)}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'activeIngredient',
+      header: 'Active Ingredient',
+      render: (_value, item) => item.activeIngredient || '-',
+    },
+    {
+      key: 'withdrawal',
+      header: 'Withdrawal',
+      render: (_value, item) => (
+        <>
+          {item.usageProtocol?.withdrawalPeriod
+            ? `${item.usageProtocol.withdrawalPeriod} days`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'prescription',
+      header: 'Prescription',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.usageProtocol?.prescriptionRequired ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+          >
+            {item.usageProtocol?.prescriptionRequired ? 'Yes' : 'No'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {statusLabels[item.status] || item.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(item)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sticky top-0 z-10 bg-white pb-4 -mt-4 pt-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sticky top-0 z-10 bg-white dark:bg-gray-900 pb-4 -mt-4 pt-4">
         <div className="flex flex-1 gap-4">
           <div className="relative flex-1 max-w-md">
             <input
@@ -333,135 +454,60 @@ export const FishHealthChemicalsTab: React.FC = () => {
               placeholder="Search therapeutic substances..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <SearchIcon
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {THERAPEUTIC_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...THERAPEUTIC_CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+            ]}
+          />
         </div>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Add Therapeutic Substance
-        </button>
+        </Button>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name / Code
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Category
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Active Ingredient
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Withdrawal
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Prescription
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filtered.map((item) => (
-              <tr key={item.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                  <div className="text-sm text-gray-500">{item.code}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.type] || 'bg-gray-100 text-gray-800'}`}
-                  >
-                    {getCategoryLabel(item.type)}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                  {item.activeIngredient || '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                  {item.usageProtocol?.withdrawalPeriod
-                    ? `${item.usageProtocol.withdrawalPeriod} days`
-                    : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.usageProtocol?.prescriptionRequired ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
-                  >
-                    {item.usageProtocol?.prescriptionRequired ? 'Yes' : 'No'}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
-                  >
-                    {statusLabels[item.status] || item.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
-                    Edit
-                  </button>
-                  <button onClick={() => setDeleteTarget(item)} className="text-red-600 hover:text-red-900">
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <DataTable<ItemRow>
+          data={filtered}
+          columns={itemRowColumns}
+          keyExtractor={(item) => item.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
 
-        {isLoading && <div className="text-center py-12 text-sm text-gray-500">Loading therapeutic substances…</div>}
+        {isLoading && (
+          <div className="text-center py-12 text-sm text-gray-500 dark:text-gray-400">
+            Loading therapeutic substances…
+          </div>
+        )}
 
         {error && !isLoading && (
-          <div className="text-center py-12 text-sm text-red-600">
+          <div className="text-center py-12 text-sm text-error-600 dark:text-error-400">
             Failed to load therapeutic substances. Please retry.
           </div>
         )}
 
         {!isLoading && !error && filtered.length === 0 && (
           <div className="text-center py-12">
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No therapeutic substances found</h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+              No therapeutic substances found
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Add therapeutic substances to manage treatments and protocols.
             </p>
           </div>
@@ -478,164 +524,147 @@ export const FishHealthChemicalsTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Code *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.code}
-                    onChange={(e) => updateField('code', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Category *</label>
-                  <select
-                    required
-                    value={formData.type}
-                    onChange={(e) => updateField('type', e.target.value as ChemicalType)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select</option>
-                    {THERAPEUTIC_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Unit</label>
-                  <select
-                    value={formData.unit}
-                    onChange={(e) => updateField('unit', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u.value} value={u.value}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Site {editing ? '' : '*'}
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Name *
                   </label>
-                  {editing ? (
-                    <input
+                  <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
+                    <Input
+                      fullWidth
                       type="text"
-                      disabled
-                      value={getSiteName(formData.siteId)}
-                      className="mt-1 block w-full border border-gray-200 bg-gray-50 rounded-md py-2 px-3 text-gray-500"
-                    />
-                  ) : (
-                    <select
                       required
-                      value={formData.siteId}
-                      onChange={(e) => updateField('siteId', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select site</option>
-                      {sites.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                      value={formData.name}
+                      onChange={(e) => updateField('name', e.target.value)}
+                    />
+                  </FormField>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                  <select
-                    value={formData.supplierId}
-                    onChange={(e) => updateField('supplierId', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select supplier</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Code *
+                  </label>
+                  <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
+                    <Input
+                      fullWidth
+                      type="text"
+                      required
+                      value={formData.code}
+                      onChange={(e) => updateField('code', e.target.value)}
+                    />
+                  </FormField>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select
+                  label="Category"
+                  required
+                  placeholder="Select"
+                  value={formData.type}
+                  onChange={(e) => updateField('type', e.target.value as ChemicalType)}
+                  error={formData.type ? undefined : fieldErrors.type}
+                  options={THERAPEUTIC_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+                />
+                <Select
+                  label="Unit"
+                  value={formData.unit}
+                  onChange={(e) => updateField('unit', e.target.value)}
+                  options={UNIT_OPTIONS.map((u) => ({ value: u.value, label: u.label }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {editing ? (
+                  <Input
+                    fullWidth
+                    label="Site"
+                    type="text"
+                    disabled
+                    value={getSiteName(formData.siteId)}
+                  />
+                ) : (
+                  <Select
+                    label="Site"
+                    required
+                    placeholder="Select site"
+                    value={formData.siteId}
+                    onChange={(e) => updateField('siteId', e.target.value)}
+                    error={formData.siteId ? undefined : fieldErrors.siteId}
+                    options={sites.map((s) => ({ value: s.id, label: s.name }))}
+                  />
+                )}
+                <Select
+                  label="Supplier"
+                  value={formData.supplierId}
+                  onChange={(e) => updateField('supplierId', e.target.value)}
+                  options={[
+                    { value: '', label: 'Select supplier' },
+                    ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+                  ]}
+                />
               </div>
 
               {/* Composition */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Composition</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Composition
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Active Ingredient</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Active Ingredient
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.activeIngredient}
                       onChange={(e) => updateField('activeIngredient', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Concentration</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Concentration
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.concentration}
                       onChange={(e) => updateField('concentration', e.target.value)}
                       placeholder="e.g., 10%, 50mg/L"
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700">Formulation</label>
-                  <select
+                  <Select
+                    label="Formulation"
                     value={formData.formulation}
                     onChange={(e) => updateField('formulation', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select</option>
-                    {FORMULATION_OPTIONS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Select' },
+                      ...FORMULATION_OPTIONS.map((f) => ({ value: f, label: f })),
+                    ]}
+                  />
                 </div>
               </div>
 
               {/* Regulation */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Regulation</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Regulation
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Withdrawal Period (days)
                     </label>
-                    <input
+                    <Input
+                      fullWidth
                       type="number"
                       min="0"
                       value={formData.withdrawalPeriodDays}
                       onChange={(e) =>
                         updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div className="flex items-end pb-1">
@@ -644,9 +673,11 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         type="checkbox"
                         checked={formData.prescriptionRequired}
                         onChange={(e) => updateField('prescriptionRequired', e.target.checked)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                       />
-                      <span className="text-sm font-medium text-gray-700">Prescription Required</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Prescription Required
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -654,97 +685,83 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
               {/* Target conditions */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Target Conditions</h4>
-                <input
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Target Conditions
+                </h4>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.targetConditionsText}
                   onChange={(e) => updateField('targetConditionsText', e.target.value)}
                   placeholder="Comma separated, e.g.: Sea lice, Furunculosis"
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
               {/* Storage & status */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Storage &amp; Status</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Storage Requirements</label>
-                    <select
-                      value={formData.storageRequirements}
-                      onChange={(e) => updateField('storageRequirements', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select</option>
-                      {STORAGE_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Storage &amp; Status
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Storage Requirements"
+                    value={formData.storageRequirements}
+                    onChange={(e) => updateField('storageRequirements', e.target.value)}
+                    options={[
+                      { value: '', label: 'Select' },
+                      ...STORAGE_OPTIONS.map((s) => ({ value: s, label: s })),
+                    ]}
+                  />
                   {editing && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Status</label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        {Object.entries(statusLabels).map(([v, l]) => (
-                          <option key={v} value={v}>
-                            {l}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <Select
+                      label="Status"
+                      value={formData.status}
+                      onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
+                      options={Object.entries(statusLabels).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-            >
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
-            >
+            </Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>
               {isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
 
       {/* Delete confirmation modal (replaces browser confirm) */}
-      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Therapeutic Substance" size="sm">
-        <p className="text-sm text-gray-700">
-          Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>? This
-          removes the substance from the Chemical master.
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Therapeutic Substance"
+        size="sm"
+      >
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>?
+          This removes the substance from the Chemical master.
         </p>
         <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(null)}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={() => setDeleteTarget(null)}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
             type="button"
             onClick={() => void confirmDelete()}
             disabled={isDeleting}
-            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-60"
           >
             {isDeleting ? 'Deleting…' : 'Delete'}
-          </button>
+          </Button>
         </div>
       </Modal>
     </div>
